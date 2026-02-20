@@ -7,19 +7,22 @@ description = "Top-level SIM/USIM simulator -- state machine orchestrator -- no_
 
 [features]
 default = []
-std     = []
-alloc   = []
 gsm     = ["dep:simrs-gsm"]
-usim    = ["dep:simrs-usim"]
+usim    = ["dep:simrs-usim", "dep:simrs-milenage"]
 
 [dependencies]
 simrs-iso7816 = { workspace = true }
 simrs-fs      = { workspace = true }
 simrs-pin     = { workspace = true }
-simrs-gsm     = { workspace = true, optional = true }
-simrs-usim    = { workspace = true, optional = true }
+simrs-gsm      = { workspace = true, optional = true }
+simrs-usim     = { workspace = true, optional = true }
+simrs-milenage = { workspace = true, optional = true }
 
 [dev-dependencies]
+simrs-gsm      = { workspace = true }
+simrs-usim     = { workspace = true }
+simrs-milenage = { workspace = true }
+simrs-proactive = { workspace = true }
 proptest = { workspace = true }
 
 [lints]

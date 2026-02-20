@@ -9,8 +9,6 @@ description = "Linux/Android OS-embedded SIM peripheral (ioctl interface) -- std
 default = []
 
 [dependencies]
-simrs-peripheral = { workspace = true }
-simrs-iso7816    = { workspace = true }
 
 [dev-dependencies]
 

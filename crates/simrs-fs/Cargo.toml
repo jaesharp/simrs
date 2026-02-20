@@ -7,12 +7,8 @@ description = "ICC filesystem model (MF/DF/ADF/EF) per ETSI TS 102 221 -- no_std
 
 [features]
 default = []
-std     = []
-alloc   = []
 
 [dependencies]
-simrs-iso7816 = { workspace = true }
-simrs-bertlv  = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -11,7 +11,7 @@
 //! This enables the size-first pattern used in FCP construction:
 //! compute total length, then write.
 //!
-//! ```ignore
+//! ```
 //! use simrs_bertlv::Encoder;
 //!
 //! // Dry run: count bytes
@@ -77,7 +77,7 @@ pub enum BerError {
 ///
 /// Both modes track position via `len()`.
 ///
-/// ```ignore
+/// ```
 /// use simrs_bertlv::Encoder;
 ///
 /// let mut buf = [0u8; 32];
@@ -93,13 +93,13 @@ pub struct Encoder<'buf> {
 
 impl<'buf> Encoder<'buf> {
     /// Create an encoder that writes into `buf`.
-    pub fn new(buf: &'buf mut [u8]) -> Self {
-        todo!("Encoder::new")
+    pub const fn new(buf: &'buf mut [u8]) -> Self {
+        Self { buf: Some(buf), pos: 0 }
     }
 
     /// Create a dry-run encoder that counts bytes without writing.
-    pub fn dry_run() -> Self {
-        todo!("Encoder::dry_run")
+    pub const fn dry_run() -> Self {
+        Self { buf: None, pos: 0 }
     }
 
     /// Number of bytes written (or counted in dry-run mode).
@@ -118,7 +118,16 @@ impl<'buf> Encoder<'buf> {
     ///
     /// Returns [`BerError::BufferFull`] if the buffer cannot fit the TLV.
     pub fn tag_length_value(&mut self, tag: u8, value: &[u8]) -> Result<(), BerError> {
-        todo!("Encoder::tag_length_value")
+        // Check total size before writing anything (atomicity).
+        let total = 1 + length_of_length(value.len()) + value.len();
+        if let Some(ref buf) = self.buf {
+            if self.pos + total > buf.len() {
+                return Err(BerError::BufferFull);
+            }
+        }
+        self.raw(&[tag])?;
+        self.write_ber_length(value.len())?;
+        self.raw(value)
     }
 
     /// Write a complete TLV with a 2-byte tag.
@@ -132,7 +141,15 @@ impl<'buf> Encoder<'buf> {
         tag_lo: u8,
         value: &[u8],
     ) -> Result<(), BerError> {
-        todo!("Encoder::tag2_length_value")
+        let total = 2 + length_of_length(value.len()) + value.len();
+        if let Some(ref buf) = self.buf {
+            if self.pos + total > buf.len() {
+                return Err(BerError::BufferFull);
+            }
+        }
+        self.raw(&[tag_hi, tag_lo])?;
+        self.write_ber_length(value.len())?;
+        self.raw(value)
     }
 
     /// Write raw bytes (no tag/length envelope).
@@ -141,7 +158,28 @@ impl<'buf> Encoder<'buf> {
     ///
     /// Returns [`BerError::BufferFull`] if the buffer cannot fit the bytes.
     pub fn raw(&mut self, data: &[u8]) -> Result<(), BerError> {
-        todo!("Encoder::raw")
+        if let Some(ref mut buf) = self.buf {
+            if self.pos + data.len() > buf.len() {
+                return Err(BerError::BufferFull);
+            }
+            buf[self.pos..self.pos + data.len()].copy_from_slice(data);
+        }
+        self.pos += data.len();
+        Ok(())
+    }
+
+    /// Write BER-encoded length field.
+    #[allow(clippy::cast_possible_truncation)] // guarded by if-branches
+    fn write_ber_length(&mut self, len: usize) -> Result<(), BerError> {
+        if len <= 0x7F {
+            self.raw(&[len as u8])
+        } else if len <= 0xFF {
+            self.raw(&[0x81, len as u8])
+        } else {
+            let hi = (len >> 8) as u8;
+            let lo = len as u8;
+            self.raw(&[0x82, hi, lo])
+        }
     }
 }
 
@@ -151,7 +189,7 @@ impl<'buf> Encoder<'buf> {
 
 /// A single decoded TLV object (borrowed from input).
 ///
-/// ```ignore
+/// ```
 /// use simrs_bertlv::{Decoder, TlvObject};
 ///
 /// let data = [0x80, 0x02, 0x00, 0x10];
@@ -173,7 +211,7 @@ pub struct TlvObject<'a> {
 /// Handles single-byte tags and BER definite-length (short + long forms).
 /// Multi-byte tags are skipped with `BerError::InvalidTag`.
 ///
-/// ```ignore
+/// ```
 /// use simrs_bertlv::Decoder;
 ///
 /// let data = [0x62, 0x04, 0x80, 0x02, 0x00, 0x10];
@@ -208,7 +246,58 @@ impl<'a> Iterator for Decoder<'a> {
     type Item = Result<TlvObject<'a>, BerError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!("Decoder::next")
+        if self.pos >= self.data.len() {
+            return None;
+        }
+
+        // -- Tag --
+        let tag = self.data[self.pos];
+        self.pos += 1;
+
+        // Multi-byte tag: low 5 bits of first byte are all 1s.
+        if tag & 0x1F == 0x1F {
+            return Some(Err(BerError::InvalidTag));
+        }
+
+        // -- Length --
+        if self.pos >= self.data.len() {
+            return Some(Err(BerError::Truncated));
+        }
+        let first = self.data[self.pos];
+        self.pos += 1;
+
+        let len = if first <= 0x7F {
+            // Short form.
+            first as usize
+        } else if first == 0x81 {
+            // Long form: 1 subsequent byte.
+            if self.pos >= self.data.len() {
+                return Some(Err(BerError::Truncated));
+            }
+            let l = self.data[self.pos] as usize;
+            self.pos += 1;
+            l
+        } else if first == 0x82 {
+            // Long form: 2 subsequent bytes.
+            if self.pos + 1 >= self.data.len() {
+                return Some(Err(BerError::Truncated));
+            }
+            let l = ((self.data[self.pos] as usize) << 8)
+                | (self.data[self.pos + 1] as usize);
+            self.pos += 2;
+            l
+        } else {
+            return Some(Err(BerError::InvalidLength));
+        };
+
+        // -- Value --
+        if self.pos + len > self.data.len() {
+            return Some(Err(BerError::Truncated));
+        }
+        let value = &self.data[self.pos..self.pos + len];
+        self.pos += len;
+
+        Some(Ok(TlvObject { tag, value }))
     }
 }
 
@@ -361,5 +450,210 @@ mod tests {
         assert_eq!(length_of_length(128), 2);
         assert_eq!(length_of_length(255), 2);
         assert_eq!(length_of_length(256), 3);
+    }
+
+    // -- BER long-form lengths --
+
+    #[test]
+    fn encode_decode_two_byte_length() {
+        // 200-byte value needs 0x81 length encoding
+        let value = [0xAA; 200];
+        let mut buf = [0u8; 256];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag_length_value(0x80, &value).unwrap();
+        // tag(1) + 0x81(1) + len(1) + value(200) = 203
+        assert_eq!(enc.len(), 203);
+        assert_eq!(buf[0], 0x80);
+        assert_eq!(buf[1], 0x81);
+        assert_eq!(buf[2], 200);
+
+        let mut dec = Decoder::new(&buf[..203]);
+        let obj = dec.next().unwrap().unwrap();
+        assert_eq!(obj.tag, 0x80);
+        assert_eq!(obj.value.len(), 200);
+        assert!(obj.value.iter().all(|&b| b == 0xAA));
+    }
+
+    #[test]
+    fn encode_decode_three_byte_length() {
+        // 300-byte value needs 0x82 length encoding
+        let value = [0xBB; 300];
+        let mut buf = [0u8; 512];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag_length_value(0x62, &value).unwrap();
+        // tag(1) + 0x82(1) + hi(1) + lo(1) + value(300) = 304
+        assert_eq!(enc.len(), 304);
+        assert_eq!(buf[0], 0x62);
+        assert_eq!(buf[1], 0x82);
+        assert_eq!(buf[2], 0x01); // 300 >> 8
+        assert_eq!(buf[3], 0x2C); // 300 & 0xFF
+
+        let mut dec = Decoder::new(&buf[..304]);
+        let obj = dec.next().unwrap().unwrap();
+        assert_eq!(obj.tag, 0x62);
+        assert_eq!(obj.value.len(), 300);
+    }
+
+    // -- 2-byte tag --
+
+    #[test]
+    fn encode_decode_two_byte_tag() {
+        let mut buf = [0u8; 16];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag2_length_value(0xDF, 0x21, &[0x01]).unwrap();
+        assert_eq!(enc.len(), 4); // tag(2) + len(1) + value(1)
+        assert_eq!(&buf[..4], &[0xDF, 0x21, 0x01, 0x01]);
+    }
+
+    // -- Decoder: multi-byte tag rejection --
+
+    #[test]
+    fn decode_multibyte_tag_is_error() {
+        // Tag byte 0x1F means "multi-byte tag follows"
+        let data = [0x1F, 0x80, 0x02, 0x00, 0x10];
+        let mut dec = Decoder::new(&data);
+        assert_eq!(dec.next().unwrap(), Err(BerError::InvalidTag));
+    }
+
+    // -- Encoder: raw --
+
+    #[test]
+    fn raw_writes_bytes() {
+        let mut buf = [0u8; 8];
+        let mut enc = Encoder::new(&mut buf);
+        enc.raw(&[0x01, 0x02, 0x03]).unwrap();
+        assert_eq!(enc.len(), 3);
+        assert_eq!(&buf[..3], &[0x01, 0x02, 0x03]);
+    }
+
+    #[test]
+    fn raw_buffer_full() {
+        let mut buf = [0u8; 2];
+        let mut enc = Encoder::new(&mut buf);
+        assert_eq!(enc.raw(&[0x01, 0x02, 0x03]), Err(BerError::BufferFull));
+    }
+
+    // -- Encoder: atomicity --
+
+    #[test]
+    fn tag_length_value_does_not_partial_write_on_overflow() {
+        let mut buf = [0u8; 4];
+        let mut enc = Encoder::new(&mut buf);
+        // This fits: tag(1) + len(1) + value(1) = 3
+        enc.tag_length_value(0x80, &[0x01]).unwrap();
+        assert_eq!(enc.len(), 3);
+        // This won't fit: tag(1) + len(1) + value(1) = 3, only 1 byte left
+        let err = enc.tag_length_value(0x81, &[0x02]);
+        assert_eq!(err, Err(BerError::BufferFull));
+        // Original write is still intact, position unchanged
+        assert_eq!(enc.len(), 3);
+        assert_eq!(&buf[..3], &[0x80, 0x01, 0x01]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Property-based tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Any single TLV with a valid single-byte tag (low 5 bits != 0x1F)
+    // roundtrips through encode then decode.
+    proptest! {
+        #[test]
+        fn roundtrip_single_tlv(
+            tag in (0u8..=0xFE).prop_filter("not multi-byte tag indicator",
+                |t| t & 0x1F != 0x1F),
+            value in proptest::collection::vec(any::<u8>(), 0..300),
+        ) {
+            let mut buf = [0u8; 512];
+            let mut enc = Encoder::new(&mut buf);
+            enc.tag_length_value(tag, &value).unwrap();
+            let written = enc.len();
+
+            let mut dec = Decoder::new(&buf[..written]);
+            let obj = dec.next().unwrap().unwrap();
+            prop_assert_eq!(obj.tag, tag);
+            prop_assert_eq!(obj.value, &value[..]);
+            prop_assert!(dec.next().is_none());
+        }
+    }
+
+    // Dry-run byte count always equals real write byte count.
+    proptest! {
+        #[test]
+        fn dry_run_matches_real(
+            tag in (0u8..=0xFE).prop_filter("not multi-byte",
+                |t| t & 0x1F != 0x1F),
+            value in proptest::collection::vec(any::<u8>(), 0..300),
+        ) {
+            let mut dry = Encoder::dry_run();
+            dry.tag_length_value(tag, &value).unwrap();
+            let expected = dry.len();
+
+            let mut buf = [0u8; 512];
+            let mut enc = Encoder::new(&mut buf);
+            enc.tag_length_value(tag, &value).unwrap();
+            prop_assert_eq!(enc.len(), expected);
+        }
+    }
+
+    // Encoded length field uses the correct BER encoding form.
+    proptest! {
+        #[test]
+        #[allow(clippy::cast_possible_truncation)]
+        fn ber_length_encoding_correct(
+            value in proptest::collection::vec(any::<u8>(), 0..300),
+        ) {
+            let mut buf = [0u8; 512];
+            let mut enc = Encoder::new(&mut buf);
+            enc.tag_length_value(0x80, &value).unwrap();
+
+            // Check the length field after the tag byte
+            let vlen = value.len();
+            if vlen <= 0x7F {
+                prop_assert_eq!(buf[1], vlen as u8);
+            } else if vlen <= 0xFF {
+                prop_assert_eq!(buf[1], 0x81);
+                prop_assert_eq!(buf[2], vlen as u8);
+            } else {
+                prop_assert_eq!(buf[1], 0x82);
+                prop_assert_eq!(buf[2], (vlen >> 8) as u8);
+                prop_assert_eq!(buf[3], vlen as u8);
+            }
+        }
+    }
+
+    // Multiple TLVs roundtrip: encode N TLVs, decode them all back.
+    proptest! {
+        #[test]
+        fn roundtrip_multiple_tlvs(
+            tlvs in proptest::collection::vec(
+                (
+                    (0u8..=0xFE).prop_filter("not multi-byte",
+                        |t| t & 0x1F != 0x1F),
+                    proptest::collection::vec(any::<u8>(), 0..64),
+                ),
+                1..8,
+            ),
+        ) {
+            let mut buf = [0u8; 2048];
+            let mut enc = Encoder::new(&mut buf);
+            for (tag, ref value) in &tlvs {
+                enc.tag_length_value(*tag, value).unwrap();
+            }
+            let written = enc.len();
+
+            let mut dec = Decoder::new(&buf[..written]);
+            for (tag, ref value) in &tlvs {
+                let obj = dec.next().unwrap().unwrap();
+                prop_assert_eq!(obj.tag, *tag);
+                prop_assert_eq!(obj.value, &value[..]);
+            }
+            prop_assert!(dec.next().is_none());
+        }
     }
 }

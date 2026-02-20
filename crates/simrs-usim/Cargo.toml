@@ -7,8 +7,6 @@ description = "3GPP USIM application layer (Milenage auth, FCP, TERMINAL PROFILE
 
 [features]
 default = []
-std     = []
-alloc   = []
 
 [dependencies]
 simrs-iso7816   = { workspace = true }

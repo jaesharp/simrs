@@ -59,7 +59,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```
 //! use simrs_milenage::{MilenageParams, OpVariant};
 //!
 //! // ETSI TS 135 208 V17.0.0 Test Set 1
@@ -92,6 +92,8 @@
 
 #[cfg(feature = "std")]
 extern crate std;
+
+use simrs_rijndael::Rijndael;
 
 /// Operator variant: either raw OP (computed to OPc on-card) or pre-computed OPc.
 ///
@@ -136,7 +138,14 @@ pub enum OpVariant {
 /// ```
 #[derive(Debug, Clone)]
 pub struct MilenageParams {
-    _private: (), // fields will be added during implementation
+    /// Subscriber key K (128 bits).
+    k: [u8; 16],
+    /// Pre-computed OPc (128 bits). Derived from OP if OpVariant::Op was given.
+    opc: [u8; 16],
+    /// Per-function XOR constants c1..c5 (128 bits each).
+    ci: [[u8; 16]; 5],
+    /// Per-function rotation constants r1..r5 (in bits).
+    ri: [u8; 5],
 }
 
 /// Successful authentication output.
@@ -213,6 +222,63 @@ pub enum ParamError {
     },
 }
 
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// XOR two 16-byte blocks: `out = a XOR b`.
+fn xor128(a: &[u8; 16], b: &[u8; 16]) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    for i in 0..16 {
+        out[i] = a[i] ^ b[i];
+    }
+    out
+}
+
+/// 128-bit left rotation by `r` bits.
+/// Per ETSI TS 135 206: `rot(x, r)` rotates x left by r bits.
+fn rotl128(input: &[u8; 16], r: u8) -> [u8; 16] {
+    let rot = (r % 128) as usize;
+    let byte_shift = rot / 8;
+    let bit_shift = rot % 8;
+
+    let mut out = [0u8; 16];
+    for i in 0..16 {
+        out[i] = input[(i + byte_shift) % 16] << bit_shift;
+        if bit_shift != 0 {
+            out[i] |= input[(i + byte_shift + 1) % 16] >> (8 - bit_shift);
+        }
+    }
+    out
+}
+
+/// Compute OPc from OP: `OPc = E_K[OP] XOR OP`.
+fn compute_opc(aes: &Rijndael, op: &[u8; 16]) -> [u8; 16] {
+    xor128(&aes.encrypt(op), op)
+}
+
+// ---------------------------------------------------------------------------
+// Default constants (ETSI TS 135 206 V17.0.0 clause 4)
+// ---------------------------------------------------------------------------
+
+/// c1 = 00...00 (128 zero bits, even parity).
+const DEFAULT_C1: [u8; 16] = [0; 16];
+/// c2 = 00...01 (odd parity).
+const DEFAULT_C2: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+/// c3 = 00...02 (odd parity).
+const DEFAULT_C3: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2];
+/// c4 = 00...04 (odd parity).
+const DEFAULT_C4: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4];
+/// c5 = 00...08 (odd parity).
+const DEFAULT_C5: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8];
+
+const DEFAULT_CI: [[u8; 16]; 5] = [DEFAULT_C1, DEFAULT_C2, DEFAULT_C3, DEFAULT_C4, DEFAULT_C5];
+const DEFAULT_RI: [u8; 5] = [64, 0, 32, 64, 96];
+
+// ---------------------------------------------------------------------------
+// MilenageParams
+// ---------------------------------------------------------------------------
+
 impl MilenageParams {
     /// Create parameters with ETSI TS 135 206 V17.0.0 default constants.
     ///
@@ -230,7 +296,19 @@ impl MilenageParams {
     /// // Default params always succeed (no duplicate ci/ri pairs)
     /// ```
     pub fn with_defaults(k: [u8; 16], op: OpVariant) -> Self {
-        todo!("MilenageParams::with_defaults")
+        // Default constants are guaranteed distinct, so unwrap is safe.
+        // But we don't call new() to avoid the O(n^2) check for a known-good set.
+        let aes = Rijndael::new(&k);
+        let opc = match op {
+            OpVariant::Opc(opc) => opc,
+            OpVariant::Op(op_val) => compute_opc(&aes, &op_val),
+        };
+        Self {
+            k,
+            opc,
+            ci: DEFAULT_CI,
+            ri: DEFAULT_RI,
+        }
     }
 
     /// Create parameters with custom operator-chosen constants.
@@ -242,16 +320,23 @@ impl MilenageParams {
     /// ```
     /// use simrs_milenage::{MilenageParams, OpVariant, ParamError};
     ///
-    /// // Custom constants (must all be distinct pairs)
-    /// let ci = [[0u8; 16]; 5];
+    /// // Custom constants: use default ci values so all pairs are distinct
+    /// let c1 = [0u8; 16];
+    /// let mut c2 = [0u8; 16]; c2[15] = 1;
+    /// let mut c3 = [0u8; 16]; c3[15] = 2;
+    /// let mut c4 = [0u8; 16]; c4[15] = 4;
+    /// let mut c5 = [0u8; 16]; c5[15] = 8;
+    /// let ci = [c1, c2, c3, c4, c5];
     /// let ri = [64, 0, 32, 64, 96];
     ///
-    /// // This should fail: c1==c3 (both zero) and r1==r4 (both 64),
-    /// // but (c1,r1)=(zero,64) != (c3,r3)=(zero,32), so it might pass.
-    /// // Only fails if a COMPLETE (ci,ri) pair is duplicated.
     /// let result = MilenageParams::new([0u8; 16], OpVariant::Opc([0u8; 16]), ci, ri);
-    /// // With default ri values and all-zero ci, pairs are distinct because ri differ.
     /// assert!(result.is_ok());
+    ///
+    /// // Duplicate (ci, ri) pair is rejected
+    /// let ci_dup = [[0u8; 16]; 5]; // all zero
+    /// let ri_dup = [0, 0, 32, 64, 96]; // r1==r2==0 with c1==c2
+    /// let err = MilenageParams::new([0u8; 16], OpVariant::Opc([0u8; 16]), ci_dup, ri_dup);
+    /// assert!(matches!(err, Err(ParamError::DuplicateCiRi { first: 0, second: 1 })));
     /// ```
     pub fn new(
         k: [u8; 16],
@@ -259,7 +344,24 @@ impl MilenageParams {
         ci: [[u8; 16]; 5],
         ri: [u8; 5],
     ) -> Result<Self, ParamError> {
-        todo!("MilenageParams::new")
+        // Check all (ci, ri) pairs are distinct per TS 135 206 clause 5.3.
+        for i in 0..5u8 {
+            for j in (i + 1)..5 {
+                if ri[i as usize] == ri[j as usize] && ci[i as usize] == ci[j as usize] {
+                    return Err(ParamError::DuplicateCiRi {
+                        first: i,
+                        second: j,
+                    });
+                }
+            }
+        }
+
+        let aes = Rijndael::new(&k);
+        let opc = match op {
+            OpVariant::Opc(opc) => opc,
+            OpVariant::Op(op_val) => compute_opc(&aes, &op_val),
+        };
+        Ok(Self { k, opc, ci, ri })
     }
 
     /// f1: Network authentication code MAC-A (8 bytes).
@@ -275,7 +377,10 @@ impl MilenageParams {
     /// assert_eq!(mac_a.len(), 8);
     /// ```
     pub fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8] {
-        todo!("f1: MAC-A")
+        let out1 = self.compute_out1(rand, sqn, amf);
+        let mut mac_a = [0u8; 8];
+        mac_a.copy_from_slice(&out1[..8]);
+        mac_a
     }
 
     /// f1\*: Resynch authentication code MAC-S (8 bytes).
@@ -285,7 +390,10 @@ impl MilenageParams {
     ///
     /// Used in AUTS construction for SQN resynchronization.
     pub fn f1_star(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8] {
-        todo!("f1*: MAC-S")
+        let out1 = self.compute_out1(rand, sqn, amf);
+        let mut mac_s = [0u8; 8];
+        mac_s.copy_from_slice(&out1[8..16]);
+        mac_s
     }
 
     /// f2: Authentication response RES (8 bytes).
@@ -301,7 +409,10 @@ impl MilenageParams {
     /// assert_eq!(res.len(), 8);
     /// ```
     pub fn f2(&self, rand: &[u8; 16]) -> [u8; 8] {
-        todo!("f2: RES")
+        let out2 = self.compute_outi(rand, 1); // ci[1] = c2, ri[1] = r2
+        let mut res = [0u8; 8];
+        res.copy_from_slice(&out2[8..16]);
+        res
     }
 
     /// f3: Ciphering key CK (16 bytes).
@@ -309,7 +420,7 @@ impl MilenageParams {
     /// Per ETSI TS 135 206 V17.0.0 clause 3.4:
     /// `CK = OUT3[0..16]` where OUT3 uses (c3, r3).
     pub fn f3(&self, rand: &[u8; 16]) -> [u8; 16] {
-        todo!("f3: CK")
+        self.compute_outi(rand, 2) // ci[2] = c3, ri[2] = r3
     }
 
     /// f4: Integrity key IK (16 bytes).
@@ -317,7 +428,7 @@ impl MilenageParams {
     /// Per ETSI TS 135 206 V17.0.0 clause 3.5:
     /// `IK = OUT4[0..16]` where OUT4 uses (c4, r4).
     pub fn f4(&self, rand: &[u8; 16]) -> [u8; 16] {
-        todo!("f4: IK")
+        self.compute_outi(rand, 3) // ci[3] = c4, ri[3] = r4
     }
 
     /// f5: Anonymity key AK (6 bytes).
@@ -327,7 +438,10 @@ impl MilenageParams {
     ///
     /// Used to conceal SQN in AUTN: `AUTN = (SQN XOR AK) || AMF || MAC-A`.
     pub fn f5(&self, rand: &[u8; 16]) -> [u8; 6] {
-        todo!("f5: AK")
+        let out2 = self.compute_outi(rand, 1); // same (c2, r2) as f2
+        let mut ak = [0u8; 6];
+        ak.copy_from_slice(&out2[..6]);
+        ak
     }
 
     /// f5\*: Resynch anonymity key AK\* (6 bytes).
@@ -337,7 +451,10 @@ impl MilenageParams {
     ///
     /// Used in AUTS construction: `AUTS = (SQN_MS XOR AK*) || MAC-S`.
     pub fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6] {
-        todo!("f5*: AK*")
+        let out5 = self.compute_outi(rand, 4); // ci[4] = c5, ri[4] = r5
+        let mut ak = [0u8; 6];
+        ak.copy_from_slice(&out5[..6]);
+        ak
     }
 
     /// Full authentication: verify AUTN, compute RES, CK, IK, Kc.
@@ -384,9 +501,106 @@ impl MilenageParams {
         rand: &[u8; 16],
         autn: &[u8; 16],
     ) -> Result<AuthOutput, MilenageError> {
-        todo!("authenticate: full AKA")
+        // 1. Compute AK = f5(RAND)
+        let ak = self.f5(rand);
+
+        // 2. Recover SQN: AUTN[0..6] = SQN XOR AK
+        let mut sqn = [0u8; 6];
+        for i in 0..6 {
+            sqn[i] = autn[i] ^ ak[i];
+        }
+
+        // 3. Extract AMF from AUTN[6..8]
+        let amf: [u8; 2] = [autn[6], autn[7]];
+
+        // 4. Compute XMAC-A
+        let xmac_a = self.f1(rand, &sqn, &amf);
+
+        // 5. Compare with MAC-A from AUTN[8..16]
+        if xmac_a != autn[8..16] {
+            return Err(MilenageError::MacFailure);
+        }
+
+        // 6. Compute RES, CK, IK
+        let res = self.f2(rand);
+        let ck = self.f3(rand);
+        let ik = self.f4(rand);
+
+        // 7. C3 conversion: Kc[i] = CK[i] ^ CK[i+8] ^ IK[i] ^ IK[i+8]
+        let mut kc = [0u8; 8];
+        for i in 0..8 {
+            kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
+        }
+
+        Ok(AuthOutput { res, ck, ik, kc })
+    }
+
+    // -- Internal computation --
+
+    /// Compute TEMP = E_K[RAND XOR OPc] (shared by all functions).
+    fn compute_temp(&self, rand: &[u8; 16]) -> [u8; 16] {
+        let aes = Rijndael::new(&self.k);
+        aes.encrypt(&xor128(rand, &self.opc))
+    }
+
+    /// Compute OUT_i for f2/f3/f4/f5/f5* (index 0-based into ci/ri arrays).
+    ///
+    /// `OUT_i = E_K[rot(TEMP XOR OPc, r_i) XOR c_i] XOR OPc`
+    fn compute_outi(&self, rand: &[u8; 16], idx: usize) -> [u8; 16] {
+        let aes = Rijndael::new(&self.k);
+        let temp = self.compute_temp(rand);
+
+        let temp_xor_opc = xor128(&temp, &self.opc);
+        let rotated = rotl128(&temp_xor_opc, self.ri[idx]);
+        let input = xor128(&rotated, &self.ci[idx]);
+
+        xor128(&aes.encrypt(&input), &self.opc)
+    }
+
+    /// Compute OUT1 for f1/f1* (uses SQN, AMF, and (c1, r1)).
+    ///
+    /// Input to the second encryption is:
+    /// `TEMP XOR rot((SQN||AMF||SQN||AMF) XOR OPc, r1) XOR c1`
+    ///
+    /// Note: f1/f1* differs from f2-f5 because it XORs the SQN/AMF block
+    /// with OPc first, then rotates, then XORs with c1, then XORs with TEMP.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // consistent API with public methods
+    fn compute_out1(
+        &self,
+        rand: &[u8; 16],
+        sqn: &[u8; 6],
+        amf: &[u8; 2],
+    ) -> [u8; 16] {
+        let aes = Rijndael::new(&self.k);
+        let temp = self.compute_temp(rand);
+
+        // Build SQN || AMF || SQN || AMF (16 bytes)
+        let mut sqn_amf = [0u8; 16];
+        sqn_amf[..6].copy_from_slice(sqn);
+        sqn_amf[6..8].copy_from_slice(amf);
+        sqn_amf[8..14].copy_from_slice(sqn);
+        sqn_amf[14..16].copy_from_slice(amf);
+
+        // (SQN||AMF||SQN||AMF) XOR OPc
+        let xored = xor128(&sqn_amf, &self.opc);
+
+        // rot(..., r1)
+        let rotated = rotl128(&xored, self.ri[0]);
+
+        // rot(...) XOR c1
+        let with_c = xor128(&rotated, &self.ci[0]);
+
+        // TEMP XOR (rot(...) XOR c1)
+        let enc_input = xor128(&temp, &with_c);
+
+        // E_K[...] XOR OPc
+        xor128(&aes.encrypt(&enc_input), &self.opc)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -538,10 +752,14 @@ mod tests {
         let out = p.authenticate(&TS1_RAND, &autn).unwrap();
 
         // Verify C3 conversion: Kc[i] = CK[i]^CK[i+8]^IK[i]^IK[i+8]
-        let mut expected_kc = [0u8; 8];
-        for i in 0..8 {
-            expected_kc[i] = out.ck[i] ^ out.ck[i + 8] ^ out.ik[i] ^ out.ik[i + 8];
-        }
+        #[allow(clippy::needless_range_loop)] // indices into 4 arrays with offset
+        let expected_kc: [u8; 8] = {
+            let mut kc = [0u8; 8];
+            for i in 0..8 {
+                kc[i] = out.ck[i] ^ out.ck[i + 8] ^ out.ik[i] ^ out.ik[i + 8];
+            }
+            kc
+        };
         assert_eq!(out.kc, expected_kc, "Kc must be C3 conversion of CK||IK");
     }
 
@@ -574,5 +792,122 @@ mod tests {
         // with_defaults should never fail
         let p = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
         let _ = p; // just verify construction succeeds
+    }
+
+    // ---------------------------------------------------------------
+    // OPc computation verification
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn opc_derivation_matches_test_set_1() {
+        // Verify that OPc = E_K[OP] XOR OP gives the expected OPc
+        let aes = Rijndael::new(&TS1_K);
+        let computed_opc = compute_opc(&aes, &TS1_OP);
+        assert_eq!(computed_opc, TS1_OPC);
+    }
+
+    // ---------------------------------------------------------------
+    // rotl128 internal test
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn rotl128_by_zero_is_identity() {
+        let input = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        assert_eq!(rotl128(&input, 0), input);
+    }
+
+    #[test]
+    fn rotl128_by_8_shifts_one_byte() {
+        // Left rotation by 8 bits = shift byte array by 1 position.
+        // byte[0] wraps to byte[15], all others shift left.
+        let mut input = [0u8; 16];
+        input[0] = 0xFF;
+        let rotated = rotl128(&input, 8);
+        let mut expected = [0u8; 16];
+        expected[15] = 0xFF;
+        assert_eq!(rotated, expected);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Property-based tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        // f2 and f5 share the same OUT2 computation, so f5 must be
+        // the first 6 bytes of OUT2 while f2 must be the last 8.
+        // We can't directly test OUT2, but we can test that f2 and f5
+        // are consistent: calling them both should produce valid, non-trivially-
+        // related outputs.
+        #[test]
+        fn f2_f5_deterministic(k in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
+            let p = MilenageParams::with_defaults(k, OpVariant::Opc([0u8; 16]));
+            let res1 = p.f2(&rand);
+            let res2 = p.f2(&rand);
+            let ak1 = p.f5(&rand);
+            let ak2 = p.f5(&rand);
+            prop_assert_eq!(res1, res2);
+            prop_assert_eq!(ak1, ak2);
+        }
+    }
+
+    proptest! {
+        // Kc must always be the C3 conversion of CK and IK.
+        #[test]
+        fn kc_is_always_c3(k in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
+            let p = MilenageParams::with_defaults(k, OpVariant::Opc([0u8; 16]));
+            let ck = p.f3(&rand);
+            let ik = p.f4(&rand);
+            let mut expected_kc = [0u8; 8];
+            for i in 0..8 {
+                expected_kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
+            }
+
+            // Build a valid AUTN to test authenticate()
+            let sqn = [0u8; 6];
+            let amf = [0u8; 2];
+            let ak = p.f5(&rand);
+            let mut autn = [0u8; 16];
+            for i in 0..6 { autn[i] = sqn[i] ^ ak[i]; }
+            autn[6..8].copy_from_slice(&amf);
+            autn[8..16].copy_from_slice(&p.f1(&rand, &sqn, &amf));
+
+            let out = p.authenticate(&rand, &autn).unwrap();
+            prop_assert_eq!(out.kc, expected_kc);
+        }
+    }
+
+    proptest! {
+        // OP and pre-computed OPc must produce identical f2 output.
+        #[test]
+        fn op_vs_opc_equivalence(k in any::<[u8; 16]>(), op in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
+            // Compute OPc manually
+            let aes = Rijndael::new(&k);
+            let opc = compute_opc(&aes, &op);
+
+            let p_op = MilenageParams::with_defaults(k, OpVariant::Op(op));
+            let p_opc = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
+            prop_assert_eq!(p_op.f2(&rand), p_opc.f2(&rand));
+        }
+    }
+
+    proptest! {
+        // Different RAND must produce different RES (with overwhelming probability).
+        #[test]
+        fn different_rand_different_res(
+            k in any::<[u8; 16]>(),
+            rand1 in any::<[u8; 16]>(),
+            rand2 in any::<[u8; 16]>(),
+        ) {
+            prop_assume!(rand1 != rand2);
+            let p = MilenageParams::with_defaults(k, OpVariant::Opc([0u8; 16]));
+            // Collision is theoretically possible but astronomically unlikely
+            prop_assert_ne!(p.f2(&rand1), p.f2(&rand2));
+        }
     }
 }

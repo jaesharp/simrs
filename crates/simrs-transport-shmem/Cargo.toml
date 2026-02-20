@@ -7,11 +7,8 @@ description = "Shared-memory SIM transport -- no_std + platform"
 
 [features]
 default = []
-std     = []
 
 [dependencies]
-simrs-transport = { workspace = true }
-simrs-iso7816   = { workspace = true }
 
 [dev-dependencies]
 

@@ -10,9 +10,7 @@ default = []
 std     = []
 
 [dependencies]
-simrs-peripheral       = { workspace = true }
 simrs-transport-virtio = { workspace = true }
-simrs-iso7816          = { workspace = true }
 
 [dev-dependencies]
 

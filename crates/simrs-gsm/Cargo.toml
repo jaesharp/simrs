@@ -7,7 +7,6 @@ description = "GSM 11.11 SIM application layer (A3/A8, SELECT response) -- no_st
 
 [features]
 default = []
-std     = []
 
 [dependencies]
 simrs-iso7816 = { workspace = true }

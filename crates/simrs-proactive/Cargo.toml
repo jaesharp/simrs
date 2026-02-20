@@ -7,12 +7,9 @@ description = "Proactive UICC command construction per ETSI TS 102 223 -- no_std
 
 [features]
 default = []
-std     = []
-alloc   = []
 
 [dependencies]
-simrs-iso7816 = { workspace = true }
-simrs-bertlv  = { workspace = true }
+simrs-bertlv = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -394,8 +394,6 @@ name = "simrs-fs"
 version = "0.1.0"
 dependencies = [
  "proptest",
- "simrs-bertlv",
- "simrs-iso7816",
 ]
 
 [[package]]
@@ -445,24 +443,15 @@ dependencies = [
 [[package]]
 name = "simrs-peripheral"
 version = "0.1.0"
-dependencies = [
- "simrs-iso7816",
-]
 
 [[package]]
 name = "simrs-peripheral-osembed"
 version = "0.1.0"
-dependencies = [
- "simrs-iso7816",
- "simrs-peripheral",
-]
 
 [[package]]
 name = "simrs-peripheral-shannon"
 version = "0.1.0"
 dependencies = [
- "simrs-iso7816",
- "simrs-peripheral",
  "simrs-transport-virtio",
 ]
 
@@ -471,7 +460,6 @@ name = "simrs-pin"
 version = "0.1.0"
 dependencies = [
  "proptest",
- "simrs-iso7816",
 ]
 
 [[package]]
@@ -480,14 +468,13 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-bertlv",
- "simrs-iso7816",
 ]
 
 [[package]]
 name = "simrs-qemu"
 version = "0.1.0"
 dependencies = [
- "simrs-iso7816",
+ "simrs-fs",
  "simrs-sim",
  "simrs-transport-shmem",
 ]
@@ -507,7 +494,9 @@ dependencies = [
  "simrs-fs",
  "simrs-gsm",
  "simrs-iso7816",
+ "simrs-milenage",
  "simrs-pin",
+ "simrs-proactive",
  "simrs-usim",
 ]
 
@@ -522,33 +511,21 @@ dependencies = [
 [[package]]
 name = "simrs-transport"
 version = "0.1.0"
-dependencies = [
- "simrs-iso7816",
-]
 
 [[package]]
 name = "simrs-transport-shmem"
 version = "0.1.0"
-dependencies = [
- "simrs-iso7816",
- "simrs-transport",
-]
 
 [[package]]
 name = "simrs-transport-tcp"
 version = "0.1.0"
 dependencies = [
- "simrs-iso7816",
  "simrs-transport",
 ]
 
 [[package]]
 name = "simrs-transport-virtio"
 version = "0.1.0"
-dependencies = [
- "simrs-iso7816",
- "simrs-transport",
-]
 
 [[package]]
 name = "simrs-usim"

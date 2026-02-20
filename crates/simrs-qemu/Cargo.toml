@@ -3,7 +3,7 @@ name        = "simrs-qemu"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "QEMU virtual smart card integration (chardev + shmem) -- std"
+description = "QEMU virtual smart card integration (shmem) -- std"
 
 [features]
 default = []
@@ -11,9 +11,9 @@ default = []
 [dependencies]
 simrs-sim             = { workspace = true, features = ["usim", "gsm"] }
 simrs-transport-shmem = { workspace = true }
-simrs-iso7816         = { workspace = true }
 
 [dev-dependencies]
+simrs-fs = { workspace = true }
 
 [lints]
 workspace = true

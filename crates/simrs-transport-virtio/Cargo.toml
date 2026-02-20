@@ -7,11 +7,8 @@ description = "VirtIO smart card transport -- no_std, virtqueue-based"
 
 [features]
 default = []
-std     = []
 
 [dependencies]
-simrs-transport = { workspace = true }
-simrs-iso7816   = { workspace = true }
 
 [dev-dependencies]
 

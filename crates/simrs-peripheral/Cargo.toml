@@ -10,7 +10,6 @@ default = []
 std     = []
 
 [dependencies]
-simrs-iso7816 = { workspace = true }
 
 [dev-dependencies]
 

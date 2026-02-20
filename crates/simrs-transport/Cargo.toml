@@ -7,10 +7,8 @@ description = "SIM transport abstraction trait -- no_std, no_alloc"
 
 [features]
 default = []
-std     = []
 
 [dependencies]
-simrs-iso7816 = { workspace = true }
 
 [dev-dependencies]
 
