@@ -6,9 +6,5 @@
 #   aarch64-unknown-none      -- AArch64 bare metal
 
 [alias]
-xt = "nextest run"
-xtc = "nextest run --cargo-profile ci"
-
-[profile.ci]
-inherits = "test"
-# nextest CI profile: faster, abort on first failure handled by nextest
+xt  = "nextest run"
+xtc = "nextest run --profile ci"

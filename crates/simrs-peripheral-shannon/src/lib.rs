@@ -2,7 +2,7 @@
 //!
 //! Implements `SimPeripheral` for the Shannon baseband SIM controller.
 //! The Shannon SIM hardware is exposed to the guest OS via MMIO registers;
-//! simrs replaces the hardware with a VirtIO control device on the host,
+//! simrs replaces the hardware with a `VirtIO` control device on the host,
 //! intercepting APDU traffic at the HLE boundary.
 //!
 //! # Architecture

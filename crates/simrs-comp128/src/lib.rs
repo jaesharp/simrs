@@ -1,4 +1,4 @@
-//! COMP128v1 (A3/A8) GSM authentication algorithm.
+//! `COMP128v1` (A3/A8) GSM authentication algorithm.
 //!
 //! Implementation of the reversed COMP128 algorithm per Briceno, Goldberg, Wagner (1998).
 //! Produces SRES (4 bytes) and Kc (8 bytes) from Ki (16 bytes) and RAND (16 bytes).
