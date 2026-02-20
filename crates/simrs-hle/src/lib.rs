@@ -1,6 +1,6 @@
 //! HLE (High-Level Emulation) SIM peripheral for QEMU.
 //!
-//! Provides a safe Rust API around a thread-local [`Sim`](simrs_sim::Sim)
+//! Provides a safe Rust API around a thread-local [`Sim`]
 //! instance. QEMU hooks firmware function calls (e.g. `sim_send_apdu`) and
 //! forwards APDU buffers to simrs via these functions instead of emulating
 //! the physical SIM controller.
@@ -233,5 +233,24 @@ mod tests {
         SIM.with(|cell| *cell.borrow_mut() = None);
         let mut buf = [0u8; 1024];
         assert_eq!(hle_snapshot_save(&mut buf), 0);
+    }
+
+    #[test]
+    fn state_hash_without_init_returns_zero() {
+        SIM.with(|cell| *cell.borrow_mut() = None);
+        assert_eq!(hle_state_hash(), 0);
+    }
+
+    #[test]
+    fn state_hash_changes_after_apdu() {
+        init();
+        hle_reset();
+        let h1 = hle_state_hash();
+        assert_ne!(h1, 0, "hash should be nonzero after init");
+
+        let mut rsp = [0u8; 256];
+        hle_apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00], &mut rsp);
+        let h2 = hle_state_hash();
+        assert_ne!(h1, h2, "hash should change after SELECT MF");
     }
 }

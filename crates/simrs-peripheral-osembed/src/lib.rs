@@ -1,4 +1,5 @@
 //! Linux/Android OS-embedded SIM peripheral protocol types.
+#![deny(unsafe_code)]
 //!
 //! Provides protocol-level types for Linux kernel ioctl and Android RIL
 //! (Radio Interface Layer) SIM card interfaces. This crate does **not**

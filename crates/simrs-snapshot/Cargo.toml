@@ -7,8 +7,6 @@ description = "Deterministic SIM state serialization for snapshot fuzzing -- no_
 
 [features]
 default = []
-std     = []
-alloc   = []
 
 [dependencies]
 simrs-sim = { workspace = true }

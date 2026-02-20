@@ -1,7 +1,7 @@
 //! Deterministic SIM state serialization for snapshot-based fuzzing.
 //!
 //! Provides the [`Snapshot`] trait with `save()` and `restore()` methods for
-//! complete, byte-exact SIM state capture. The [`Sim`](simrs_sim::Sim) type
+//! complete, byte-exact SIM state capture. The [`Sim`] type
 //! implements this trait via delegation to its internal `save_state`/`restore_state`
 //! methods.
 //!

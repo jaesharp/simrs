@@ -380,8 +380,8 @@ pub enum ApduError {
 /// |------|-------|-----------|
 /// | 1 | 4 | CLA INS P1 P2 |
 /// | 2 | 5 | CLA INS P1 P2 Le |
-/// | 3 | 5+Lc | CLA INS P1 P2 Lc Data[Lc] |
-/// | 4 | 5+Lc+1 | CLA INS P1 P2 Lc Data[Lc] Le |
+/// | 3 | 5+Lc | CLA INS P1 P2 Lc Data\[Lc\] |
+/// | 4 | 5+Lc+1 | CLA INS P1 P2 Lc Data\[Lc\] Le |
 ///
 /// ```
 /// use simrs_iso7816::Command;

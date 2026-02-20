@@ -423,7 +423,6 @@ dependencies = [
  "simrs-fs",
  "simrs-gsm",
  "simrs-milenage",
- "simrs-pin",
  "simrs-sim",
  "simrs-usim",
 ]

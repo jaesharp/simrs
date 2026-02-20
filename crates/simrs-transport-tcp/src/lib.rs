@@ -185,7 +185,7 @@ impl SwIccMessage {
     ///
     /// # Panics
     ///
-    /// Panics if `data.len()` exceeds [`BUF_MAX`] (258).
+    /// Panics if `data.len()` exceeds `BUF_MAX` (258).
     pub fn new_response(ctrl: Ctrl, data: &[u8], cont_state: u32) -> Self {
         assert!(
             data.len() <= BUF_MAX,

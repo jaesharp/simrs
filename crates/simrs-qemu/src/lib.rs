@@ -1,4 +1,6 @@
 //! QEMU virtual smart card integration.
+#![deny(unsafe_code)]
+#![warn(missing_docs)]
 //!
 //! Bridges the simrs SIM simulator to QEMU via shared-memory transport.
 //! The [`QemuBridge`] struct wraps a [`Sim`] and processes commands from

@@ -20,7 +20,6 @@ simrs-gsm      = { workspace = true }
 simrs-usim     = { workspace = true }
 
 [dev-dependencies]
-simrs-pin = { workspace = true }
 
 [lints]
 workspace = true

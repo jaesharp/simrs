@@ -14,7 +14,7 @@
 //! # Wire model
 //!
 //! Both traits operate on raw byte slices. The caller is responsible for
-//! constructing valid APDU command bytes (CLA INS P1 P2 [Lc data] [Le])
+//! constructing valid APDU command bytes (CLA INS P1 P2 \[Lc data\] \[Le\])
 //! and interpreting the response (data + SW1 SW2).
 //!
 //! # `no_std`, `no_alloc`
