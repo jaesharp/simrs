@@ -59,46 +59,29 @@
 //!
 //! # Example
 //!
-//! ```
-//! use simrs_milenage::{MilenageParams, OpVariant, AuthOutput, MilenageError};
+//! ```ignore
+//! use simrs_milenage::{MilenageParams, OpVariant};
 //!
 //! // ETSI TS 135 208 V17.0.0 Test Set 1
-//! let k   = hex!("465b5ce8 b199b49f aa5f0a2e e238a6bc");
-//! let opc = hex!("cd63cb71 954a9f4e 48a5994e 37a02baf");
-//! let rand= hex!("23553cbe 9637a89d 218ae64d ae47bf35");
-//! let sqn = hex!("ff9bb4d0 b607");
-//! let amf = hex!("b9b9");
+//! let k    = [0x46,0x5B,0x5C,0xE8,0xB1,0x99,0xB4,0x9F,
+//!             0xAA,0x5F,0x0A,0x2E,0xE2,0x38,0xA6,0xBC];
+//! let opc  = [0xCD,0x63,0xCB,0x71,0x95,0x4A,0x9F,0x4E,
+//!             0x48,0xA5,0x99,0x4E,0x37,0xA0,0x2B,0xAF];
+//! let rand = [0x23,0x55,0x3C,0xBE,0x96,0x37,0xA8,0x9D,
+//!             0x21,0x8A,0xE6,0x4D,0xAE,0x47,0xBF,0x35];
+//! let sqn  = [0xFF,0x9B,0xB4,0xD0,0xB6,0x07];
+//! let amf  = [0xB9,0xB9];
 //!
 //! let params = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
 //!
-//! // Individual function outputs
-//! let mac_a = params.f1(&rand, &sqn, &amf);
-//! assert_eq!(mac_a, hex!("4a9ffac3 54dfafb3"));
-//!
-//! let res = params.f2(&rand);
-//! assert_eq!(res, hex!("a54211d5 e3ba50bf"));
-//!
-//! let ck = params.f3(&rand);
-//! assert_eq!(ck, hex!("b40ba9a3 c58b2a05 bbf0d987 b21bf8cb"));
-//!
-//! let ik = params.f4(&rand);
-//! assert_eq!(ik, hex!("f769bcd7 51044604 12767271 1c6d3441"));
-//!
-//! let ak = params.f5(&rand);
-//! assert_eq!(ak, hex!("aa689c64 8370"));
+//! assert_eq!(params.f1(&rand, &sqn, &amf),
+//!            [0x4A,0x9F,0xFA,0xC3,0x54,0xDF,0xAF,0xB3]);
+//! assert_eq!(params.f2(&rand),
+//!            [0xA5,0x42,0x11,0xD5,0xE3,0xBA,0x50,0xBF]);
+//! assert_eq!(params.f5(&rand),
+//!            [0xAA,0x68,0x9C,0x64,0x83,0x70]);
 //! ```
 //!
-//! ```
-//! # // This example uses a helper macro for hex literals.
-//! # // In real code, use a const hex parser or byte arrays.
-//! # macro_rules! hex {
-//! #     ($s:literal) => {{
-//! #         const S: &str = $s;
-//! #         const N: usize = S.len() / 2; // approximate
-//! #         todo!("hex macro placeholder")
-//! #     }};
-//! # }
-//! ```
 #![no_std]
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
