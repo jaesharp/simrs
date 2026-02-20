@@ -14,6 +14,7 @@ alloc   = []
 simrs-sim = { workspace = true }
 
 [dev-dependencies]
+simrs-fs = { workspace = true }
 proptest = { workspace = true }
 
 [lints]

@@ -441,6 +441,7 @@ impl CardTransport for SwIccClient {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
 
@@ -686,7 +687,7 @@ mod tests {
 
     // -- CardTransport over TCP (using loopback) --
 
-    /// Create a connected pair of SwIccClient instances using a loopback.
+    /// Create a connected pair of `SwIccClient` instances using a loopback.
     fn loopback_pair() -> (SwIccClient, SwIccClient) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

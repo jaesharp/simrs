@@ -13,7 +13,14 @@ simrs-sim             = { workspace = true, features = ["usim", "gsm"] }
 simrs-transport-shmem = { workspace = true }
 
 [dev-dependencies]
-simrs-fs = { workspace = true }
+simrs-fs        = { workspace = true }
+simrs-pin       = { workspace = true }
+simrs-gsm       = { workspace = true }
+simrs-usim      = { workspace = true }
+simrs-milenage  = { workspace = true }
+simrs-proactive = { workspace = true }
+simrs-iso7816   = { workspace = true }
+simrs-comp128   = { workspace = true }
 
 [lints]
 workspace = true

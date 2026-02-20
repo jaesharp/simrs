@@ -623,6 +623,70 @@ impl<const N: usize> PinManager<N> {
         }
     }
 
+    // -- snapshot --
+
+    /// Snapshot buffer size: `1 + N * 22` bytes.
+    ///
+    /// Each slot serializes as 22 bytes. The leading byte is the slot count.
+    pub const SNAPSHOT_SIZE: usize = 1 + N * 22;
+
+    /// Serialize the PIN manager state into `buf` as flat LE bytes.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        buf[0] = self.count;
+        let mut off = 1;
+        let mut i = 0;
+        while i < N {
+            let s = &self.slots[i];
+            buf[off] = s.key;
+            buf[off + 1..off + 9].copy_from_slice(&s.pin);
+            buf[off + 9] = s.pin_retries;
+            buf[off + 10] = s.pin_max;
+            buf[off + 11..off + 19].copy_from_slice(&s.puk);
+            buf[off + 19] = s.puk_retries;
+            buf[off + 20] = u8::from(s.enabled);
+            buf[off + 21] = u8::from(s.verified);
+            off += 22;
+            i += 1;
+        }
+        Self::SNAPSHOT_SIZE
+    }
+
+    /// Restore the PIN manager state from `buf`.
+    ///
+    /// Returns `true` on success. Returns `false` if `buf` is too small
+    /// or contains an invalid count.
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        let count = buf[0];
+        if count as usize > N {
+            return false;
+        }
+        self.count = count;
+        let mut off = 1;
+        let mut i = 0;
+        while i < N {
+            let s = &mut self.slots[i];
+            s.key = buf[off];
+            s.pin.copy_from_slice(&buf[off + 1..off + 9]);
+            s.pin_retries = buf[off + 9];
+            s.pin_max = buf[off + 10];
+            s.puk.copy_from_slice(&buf[off + 11..off + 19]);
+            s.puk_retries = buf[off + 19];
+            s.enabled = buf[off + 20] != 0;
+            s.verified = buf[off + 21] != 0;
+            off += 22;
+            i += 1;
+        }
+        true
+    }
+
     // -- internal helpers --
 
     const fn find_index(&self, key: PinKey) -> Option<usize> {
@@ -1049,6 +1113,107 @@ mod tests {
         let c = ascii_pin("4321");
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    // -- SNAPSHOT tests --
+
+    #[test]
+    fn snapshot_size_correct() {
+        assert_eq!(PinManager::<5>::SNAPSHOT_SIZE, 1 + 5 * 22);
+        assert_eq!(PinManager::<1>::SNAPSHOT_SIZE, 23);
+    }
+
+    #[test]
+    fn save_restore_roundtrip_preserves_state() {
+        let mut mgr = setup();
+        // Verify PIN to set the verified flag.
+        mgr.verify(PIN1, &ascii_pin("1234"));
+        assert!(mgr.is_verified(PIN1));
+
+        let mut buf = [0u8; PinManager::<5>::SNAPSHOT_SIZE];
+        let written = mgr.save_state(&mut buf);
+        assert_eq!(written, PinManager::<5>::SNAPSHOT_SIZE);
+
+        let mut restored = PinManager::<5>::new();
+        assert!(restored.restore_state(&buf));
+
+        // All state should match.
+        assert_eq!(restored.retries(PIN1), Some(3));
+        assert!(restored.is_verified(PIN1));
+        assert!(restored.is_enabled(PIN1));
+        assert!(!restored.is_blocked(PIN1));
+    }
+
+    #[test]
+    fn save_restore_preserves_degraded_counters() {
+        let mut mgr = setup();
+        // Two wrong attempts.
+        mgr.verify(PIN1, &ascii_pin("9999"));
+        mgr.verify(PIN1, &ascii_pin("9999"));
+        assert_eq!(mgr.retries(PIN1), Some(1));
+
+        let mut buf = [0u8; PinManager::<5>::SNAPSHOT_SIZE];
+        mgr.save_state(&mut buf);
+
+        let mut restored = PinManager::<5>::new();
+        assert!(restored.restore_state(&buf));
+        assert_eq!(restored.retries(PIN1), Some(1));
+        // Correct PIN should still work.
+        assert_eq!(restored.verify(PIN1, &ascii_pin("1234")), PinResult::Success);
+    }
+
+    #[test]
+    fn save_restore_with_multiple_pins() {
+        let mut mgr = PinManager::<5>::new();
+        let puk = ascii_pin("12345678");
+        mgr.add_pin(PinKey(0x01), &ascii_pin("1111"), 3, &puk, 10, true).unwrap();
+        mgr.add_pin(PinKey(0x81), &ascii_pin("2222"), 5, &puk, 8, false).unwrap();
+        mgr.add_pin(PinKey(0x0A), &ascii_pin("3333"), 2, &puk, 4, true).unwrap();
+
+        mgr.verify(PinKey(0x01), &ascii_pin("1111"));
+        // Wrong attempt on PIN 0x0A.
+        mgr.verify(PinKey(0x0A), &ascii_pin("0000"));
+
+        let mut buf = [0u8; PinManager::<5>::SNAPSHOT_SIZE];
+        mgr.save_state(&mut buf);
+
+        let mut restored = PinManager::<5>::new();
+        assert!(restored.restore_state(&buf));
+
+        // PIN 0x01: verified, 3 retries (reset on success).
+        assert!(restored.is_verified(PinKey(0x01)));
+        assert_eq!(restored.retries(PinKey(0x01)), Some(3));
+
+        // PIN 0x81: disabled, not verified, 5 retries.
+        assert!(!restored.is_enabled(PinKey(0x81)));
+        assert_eq!(restored.retries(PinKey(0x81)), Some(5));
+
+        // PIN 0x0A: enabled, 1 retry remaining.
+        assert!(restored.is_enabled(PinKey(0x0A)));
+        assert_eq!(restored.retries(PinKey(0x0A)), Some(1));
+    }
+
+    #[test]
+    fn save_into_small_buffer_returns_zero() {
+        let mgr = setup();
+        let mut buf = [0u8; 10];
+        assert_eq!(mgr.save_state(&mut buf), 0);
+    }
+
+    #[test]
+    fn restore_from_small_buffer_returns_false() {
+        let mut mgr = PinManager::<5>::new();
+        let buf = [0u8; 10];
+        assert!(!mgr.restore_state(&buf));
+    }
+
+    #[test]
+    fn restore_with_invalid_count_returns_false() {
+        let mut mgr = PinManager::<1>::new();
+        // count=2 but N=1.
+        let mut buf = [0u8; PinManager::<1>::SNAPSHOT_SIZE];
+        buf[0] = 2;
+        assert!(!mgr.restore_state(&buf));
     }
 }
 

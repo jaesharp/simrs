@@ -637,6 +637,43 @@ impl ProactiveState {
     pub const fn sequence(&self) -> u8 {
         self.seq
     }
+
+    // -- snapshot --
+
+    /// Snapshot buffer size: 259 bytes (`buf`(256) + `len`(2 LE) + `seq`(1)).
+    pub const SNAPSHOT_SIZE: usize = 256 + 2 + 1;
+
+    /// Serialize the proactive state into `buf` as flat bytes.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    #[allow(clippy::cast_possible_truncation)] // self.len capped at 256
+    pub fn save_state(&self, out: &mut [u8]) -> usize {
+        if out.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        out[..256].copy_from_slice(&self.buf);
+        let len_u16 = self.len as u16;
+        out[256..258].copy_from_slice(&len_u16.to_le_bytes());
+        out[258] = self.seq;
+        Self::SNAPSHOT_SIZE
+    }
+
+    /// Restore the proactive state from `data`.
+    ///
+    /// Returns `true` on success.
+    pub fn restore_state(&mut self, data: &[u8]) -> bool {
+        if data.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        self.buf.copy_from_slice(&data[..256]);
+        self.len = u16::from_le_bytes([data[256], data[257]]) as usize;
+        self.seq = data[258];
+        if self.len > 256 {
+            self.len = 0;
+            return false;
+        }
+        true
+    }
 }
 
 // We need a way to encode the D0 envelope with computed inner length.
@@ -1197,6 +1234,66 @@ mod tests {
             assert!(len > 0);
             assert_eq!(buf[0], 0xD0);
         }
+    }
+
+    // -- SNAPSHOT tests --
+
+    #[test]
+    fn snapshot_size_correct() {
+        assert_eq!(ProactiveState::SNAPSHOT_SIZE, 259);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_with_pending_command() {
+        let mut state = ProactiveState::new();
+        state
+            .queue_command(&ProactiveCommand::DisplayText {
+                text: b"Snapshot test",
+                coding: TextCoding::Gsm8Bit,
+                high_priority: false,
+            })
+            .unwrap();
+        let orig_len = state.pending_len();
+        let orig_seq = state.sequence();
+
+        let mut snap = [0u8; ProactiveState::SNAPSHOT_SIZE];
+        assert_eq!(state.save_state(&mut snap), 259);
+
+        let mut restored = ProactiveState::new();
+        assert!(restored.restore_state(&snap));
+        assert!(restored.has_pending());
+        assert_eq!(restored.pending_len(), orig_len);
+        assert_eq!(restored.sequence(), orig_seq);
+
+        // Fetch should produce the same data.
+        let mut orig_buf = [0u8; 256];
+        let mut rest_buf = [0u8; 256];
+        let orig_n = state.fetch(&mut orig_buf);
+        let rest_n = restored.fetch(&mut rest_buf);
+        assert_eq!(orig_n, rest_n);
+        assert_eq!(&orig_buf[..orig_n], &rest_buf[..rest_n]);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_empty_state() {
+        let state = ProactiveState::new();
+        let mut snap = [0u8; ProactiveState::SNAPSHOT_SIZE];
+        state.save_state(&mut snap);
+
+        let mut restored = ProactiveState::new();
+        assert!(restored.restore_state(&snap));
+        assert!(!restored.has_pending());
+        assert_eq!(restored.sequence(), 1);
+    }
+
+    #[test]
+    fn snapshot_small_buffer_returns_zero_or_false() {
+        let state = ProactiveState::new();
+        let mut small = [0u8; 10];
+        assert_eq!(state.save_state(&mut small), 0);
+
+        let mut s2 = ProactiveState::new();
+        assert!(!s2.restore_state(&small));
     }
 }
 

@@ -1,9 +1,12 @@
 //! Deterministic SIM state serialization for snapshot-based fuzzing.
 //!
-//! Provides the `Snapshot` trait with `save()` and `restore()` methods for
-//! complete, byte-exact SIM state capture. All stateful simrs crates implement
-//! `Snapshot`. The serialized blob is stored alongside QEMU VM snapshots to
-//! ensure the SIM state and guest CPU/memory state are always synchronized.
+//! Provides the [`Snapshot`] trait with `save()` and `restore()` methods for
+//! complete, byte-exact SIM state capture. The [`Sim`](simrs_sim::Sim) type
+//! implements this trait via delegation to its internal `save_state`/`restore_state`
+//! methods.
+//!
+//! The serialized blob is stored alongside QEMU VM snapshots to ensure the
+//! SIM state and guest CPU/memory state are always synchronized.
 //!
 //! # Determinism guarantees
 //! - No timestamps, RNG output, or platform-specific data included
@@ -16,8 +19,139 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
-#[cfg(feature = "std")]
-extern crate std;
+use simrs_sim::Sim;
 
-#[cfg(feature = "alloc")]
-extern crate alloc;
+/// Deterministic state serialization trait for snapshot-based fuzzing.
+///
+/// Implementors must produce byte-exact, platform-independent snapshots.
+/// The `SIZE` associated constant declares the fixed buffer size required.
+pub trait Snapshot {
+    /// Fixed snapshot buffer size in bytes.
+    const SIZE: usize;
+
+    /// Serialize the current state into `buf`.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    fn save(&self, buf: &mut [u8]) -> usize;
+
+    /// Restore state from `buf`.
+    ///
+    /// Returns `true` on success, `false` if the buffer is too small or
+    /// contains invalid data.
+    fn restore(&mut self, buf: &[u8]) -> bool;
+}
+
+impl<const RSP_CAP: usize> Snapshot for Sim<RSP_CAP> {
+    const SIZE: usize = Self::SNAPSHOT_SIZE;
+
+    fn save(&self, buf: &mut [u8]) -> usize {
+        self.save_state(buf)
+    }
+
+    fn restore(&mut self, buf: &[u8]) -> bool {
+        self.restore_state(buf)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use simrs_sim::{SimEvent, SimResponse};
+    use simrs_fs::DfDef;
+
+    static MF: DfDef = DfDef {
+        fid: 0x3F00,
+        children: &[],
+    };
+
+    static ATR: [u8; 2] = [0x3B, 0x00];
+
+    fn make_sim() -> Sim<256> {
+        Sim::<256>::new(&ATR, &MF)
+    }
+
+    #[test]
+    fn trait_size_matches_struct_const() {
+        assert_eq!(
+            <Sim<256> as Snapshot>::SIZE,
+            Sim::<256>::SNAPSHOT_SIZE,
+        );
+    }
+
+    #[test]
+    fn trait_save_restore_roundtrip() {
+        let mut sim = make_sim();
+        sim.process(SimEvent::PowerOn);
+
+        let mut buf = [0u8; 1024];
+        let n = Snapshot::save(&sim, &mut buf);
+        assert_eq!(n, <Sim<256> as Snapshot>::SIZE);
+
+        let mut restored = make_sim();
+        assert!(Snapshot::restore(&mut restored, &buf[..n]));
+
+        // Card should be Ready after restore.
+        let rsp = restored.process(SimEvent::Apdu(&[0xF0, 0xA4, 0x00, 0x00]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x6E, 0x00));
+            }
+            _ => panic!("expected Apdu, card should be Ready"),
+        }
+    }
+
+    #[test]
+    fn trait_save_small_buffer_returns_zero() {
+        let sim = make_sim();
+        let mut small = [0u8; 0];
+        assert_eq!(Snapshot::save(&sim, &mut small), 0);
+    }
+
+    #[test]
+    fn trait_restore_small_buffer_returns_false() {
+        let mut sim = make_sim();
+        assert!(!Snapshot::restore(&mut sim, &[]));
+    }
+
+    #[test]
+    fn trait_restore_invalid_data_returns_false() {
+        let mut sim = make_sim();
+        let mut buf = [0u8; 1024];
+        let n = Snapshot::save(&sim, &mut buf);
+        buf[0] = 0xFF; // invalid card state
+        assert!(!Snapshot::restore(&mut sim, &buf[..n]));
+    }
+
+    #[test]
+    fn different_rsp_cap_sizes() {
+        // Verify the trait works with a different RSP_CAP.
+        let sim_small = Sim::<64>::new(&ATR, &MF);
+        let sim_large = Sim::<512>::new(&ATR, &MF);
+
+        // SNAPSHOT_SIZE should be identical (RSP_CAP is transient, not serialized).
+        assert_eq!(
+            <Sim<64> as Snapshot>::SIZE,
+            <Sim<512> as Snapshot>::SIZE,
+        );
+
+        let mut buf1 = [0u8; 1024];
+        let mut buf2 = [0u8; 1024];
+        let n1 = Snapshot::save(&sim_small, &mut buf1);
+        let n2 = Snapshot::save(&sim_large, &mut buf2);
+        assert_eq!(n1, n2);
+        assert_eq!(&buf1[..n1], &buf2[..n2]);
+    }
+
+    #[test]
+    fn state_hash_via_sim() {
+        let mut sim = make_sim();
+        let h1 = sim.state_hash();
+        sim.process(SimEvent::PowerOn);
+        let h2 = sim.state_hash();
+        assert_ne!(h1, h2);
+    }
+}

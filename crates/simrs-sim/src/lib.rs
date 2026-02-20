@@ -318,6 +318,81 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
         }
     }
 
+    // -- snapshot --
+
+    /// Snapshot buffer size in bytes.
+    ///
+    /// Varies by enabled features: CardState(1) + GsmApp(159) + UsimApp(560).
+    pub const SNAPSHOT_SIZE: usize = 1
+        + { #[cfg(feature = "gsm")] { GsmApp::SNAPSHOT_SIZE } #[cfg(not(feature = "gsm"))] { 0 } }
+        + { #[cfg(feature = "usim")] { UsimApp::SNAPSHOT_SIZE } #[cfg(not(feature = "usim"))] { 0 } };
+
+    /// Serialize the SIM state into `buf`.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    /// Static references (ATR, MF tree) and transient buffers are not serialized.
+    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        let mut off = 0;
+        buf[off] = match self.state {
+            CardState::Off => 0,
+            CardState::Ready => 1,
+        };
+        off += 1;
+        #[cfg(feature = "gsm")]
+        {
+            off += self.gsm.save_state(&mut buf[off..]);
+        }
+        #[cfg(feature = "usim")]
+        {
+            off += self.usim.save_state(&mut buf[off..]);
+        }
+        let _ = off;
+        Self::SNAPSHOT_SIZE
+    }
+
+    /// Restore the SIM state from `buf`.
+    ///
+    /// Returns `true` on success. Static references (ATR, MF tree, ADF table)
+    /// remain as set during construction.
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        let mut off = 0;
+        self.state = match buf[off] {
+            0 => CardState::Off,
+            1 => CardState::Ready,
+            _ => return false,
+        };
+        off += 1;
+        #[cfg(feature = "gsm")]
+        {
+            if !self.gsm.restore_state(&buf[off..], &[]) {
+                return false;
+            }
+            off += GsmApp::SNAPSHOT_SIZE;
+        }
+        #[cfg(feature = "usim")]
+        {
+            if !self.usim.restore_state(&buf[off..]) {
+                return false;
+            }
+            off += UsimApp::SNAPSHOT_SIZE;
+        }
+        let _ = off;
+        true
+    }
+
+    /// Compute an FNV-1a hash of the serialized state for deduplication.
+    pub fn state_hash(&self) -> u64 {
+        let mut buf = [0u8; 1024];
+        let n = self.save_state(&mut buf);
+        fnv1a(&buf[..n])
+    }
+
     /// Route an APDU to the appropriate application layer.
     fn handle_apdu(&mut self, bytes: &[u8]) -> SimResponse<'_> {
         // Minimum APDU is 4 bytes: CLA INS P1 P2.
@@ -358,6 +433,24 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
             sw2: rsp_slice[sw_offset + 1],
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// FNV-1a hash
+// ---------------------------------------------------------------------------
+
+/// Compute FNV-1a 64-bit hash of a byte slice.
+fn fnv1a(data: &[u8]) -> u64 {
+    const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0100_0000_01b3;
+    let mut hash = BASIS;
+    let mut i = 0;
+    while i < data.len() {
+        hash ^= u64::from(data[i]);
+        hash = hash.wrapping_mul(PRIME);
+        i += 1;
+    }
+    hash
 }
 
 // ---------------------------------------------------------------------------
@@ -543,9 +636,8 @@ mod tests {
 
         // SELECT MF
         let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]));
-        let le = match rsp {
-            SimResponse::Apdu { sw1: 0x9F, sw2, .. } => sw2,
-            _ => panic!("expected 9F XX from GSM SELECT"),
+        let SimResponse::Apdu { sw1: 0x9F, sw2: le, .. } = rsp else {
+            panic!("expected 9F XX from GSM SELECT")
         };
 
         // GET RESPONSE
@@ -639,9 +731,8 @@ mod tests {
 
         // SELECT MF
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
-        let le = match rsp {
-            SimResponse::Apdu { sw1: 0x61, sw2, .. } => sw2,
-            _ => panic!("expected 61 XX from USIM SELECT"),
+        let SimResponse::Apdu { sw1: 0x61, sw2: le, .. } = rsp else {
+            panic!("expected 61 XX from USIM SELECT")
         };
 
         // GET RESPONSE
@@ -808,6 +899,96 @@ mod tests {
             SimResponse::Apdu { sw1, sw2, .. } => assert_eq!((sw1, sw2), (0x6E, 0x00)),
             _ => panic!("expected Apdu response"),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Snapshot
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn snapshot_save_writes_exact_size() {
+        let sim = make_sim();
+        let mut buf = [0u8; 1024];
+        let n = sim.save_state(&mut buf);
+        assert_eq!(n, Sim::<256>::SNAPSHOT_SIZE);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_preserves_card_state() {
+        let mut sim = make_sim();
+        sim.process(SimEvent::PowerOn);
+
+        let mut snap = [0u8; 1024];
+        let n = sim.save_state(&mut snap);
+        assert_eq!(n, Sim::<256>::SNAPSHOT_SIZE);
+
+        // Restore into a fresh sim.
+        let mut restored = make_sim();
+        assert!(restored.restore_state(&snap[..n]));
+
+        // Card should be in Ready state (APDU works without PowerOn).
+        let rsp = restored.process(SimEvent::Apdu(&[0xF0, 0xA4, 0x00, 0x00]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x6E, 0x00));
+            }
+            _ => panic!("expected Apdu, card should be Ready after restore"),
+        }
+    }
+
+    #[test]
+    fn snapshot_restore_off_state() {
+        let sim = make_sim(); // never powered on -> Off state
+        let mut snap = [0u8; 1024];
+        let n = sim.save_state(&mut snap);
+        assert_eq!(n, Sim::<256>::SNAPSHOT_SIZE);
+
+        let mut restored = make_sim();
+        restored.process(SimEvent::PowerOn); // make it Ready
+        assert!(restored.restore_state(&snap[..n]));
+
+        // After restore, card should be Off -> APDU ignored.
+        let rsp = restored.process(SimEvent::Apdu(&[0xF0, 0xA4, 0x00, 0x00]));
+        assert!(matches!(rsp, SimResponse::Ignored));
+    }
+
+    #[test]
+    fn snapshot_small_buffer_returns_zero_or_false() {
+        let sim = make_sim();
+        let mut small = [0u8; 0];
+        assert_eq!(sim.save_state(&mut small), 0);
+
+        let mut sim2 = make_sim();
+        assert!(!sim2.restore_state(&small));
+    }
+
+    #[test]
+    fn state_hash_deterministic() {
+        let sim = make_sim();
+        let h1 = sim.state_hash();
+        let h2 = sim.state_hash();
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn state_hash_changes_on_state_change() {
+        let mut sim = make_sim();
+        let h1 = sim.state_hash();
+        sim.process(SimEvent::PowerOn);
+        let h2 = sim.state_hash();
+        assert_ne!(h1, h2, "hash should differ after PowerOn");
+    }
+
+    #[test]
+    fn snapshot_restore_invalid_card_state() {
+        let sim = make_sim();
+        let mut snap = [0u8; 1024];
+        let n = sim.save_state(&mut snap);
+        assert!(n > 0);
+        // Corrupt the card state byte.
+        snap[0] = 0xFF;
+        let mut sim2 = make_sim();
+        assert!(!sim2.restore_state(&snap[..n]));
     }
 
     // -----------------------------------------------------------------------

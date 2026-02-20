@@ -6,8 +6,8 @@ license.workspace = true
 description = "HLE SIM peripheral for QEMU -- C-ABI exports for APDU injection -- std"
 
 [lib]
-# Produce both rlib (for Rust consumers) and cdylib (for QEMU plugin loading)
-crate-type = ["rlib", "cdylib"]
+# cdylib deferred -- C-ABI exports require unsafe (raw pointer dereference)
+crate-type = ["rlib"]
 
 [features]
 default = []
@@ -15,9 +15,13 @@ default = []
 [dependencies]
 simrs-sim      = { workspace = true, features = ["usim", "gsm"] }
 simrs-snapshot = { workspace = true }
-simrs-iso7816  = { workspace = true }
+simrs-fs       = { workspace = true }
+simrs-milenage = { workspace = true }
+simrs-gsm      = { workspace = true }
+simrs-usim     = { workspace = true }
 
 [dev-dependencies]
+simrs-pin = { workspace = true }
 
 [lints]
 workspace = true

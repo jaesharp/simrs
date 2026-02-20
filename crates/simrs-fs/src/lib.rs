@@ -477,6 +477,103 @@ impl SelectionCtx {
     pub const fn current_adf(&self) -> Option<&'static DfDef> {
         self.cur_adf
     }
+
+    // -- snapshot --
+
+    /// Snapshot buffer size: 8 bytes.
+    ///
+    /// Layout: `cur_df` FID (2 LE) + `cur_ef` FID or `0xFFFF` (2 LE) +
+    /// `cur_adf` FID or `0xFFFF` (2 LE) + reserved (2).
+    pub const SNAPSHOT_SIZE: usize = 8;
+
+    /// Serialize the selection state into `buf` as flat LE bytes.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        buf[0..2].copy_from_slice(&self.cur_df.fid.to_le_bytes());
+        buf[2..4].copy_from_slice(&self.cur_ef.map_or(0xFFFF_u16, |ef| ef.fid).to_le_bytes());
+        buf[4..6].copy_from_slice(&self.cur_adf.map_or(0xFFFF_u16, |adf| adf.fid).to_le_bytes());
+        buf[6] = 0;
+        buf[7] = 0;
+        Self::SNAPSHOT_SIZE
+    }
+
+    /// Restore the selection state from `buf`.
+    ///
+    /// Walks the MF tree and ADF table to resolve FIDs back to
+    /// `&'static` references. Returns `true` on success.
+    pub fn restore_state(
+        &mut self,
+        buf: &[u8],
+        adfs: &'static [AdfSlot],
+    ) -> bool {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        let df_fid = u16::from(buf[0]) | (u16::from(buf[1]) << 8);
+        let ef_fid = u16::from(buf[2]) | (u16::from(buf[3]) << 8);
+        let adf_fid = u16::from(buf[4]) | (u16::from(buf[5]) << 8);
+
+        // Resolve cur_adf.
+        if adf_fid == 0xFFFF {
+            self.cur_adf = None;
+        } else if let Some(slot) = adfs.iter().find(|s| s.root.fid == adf_fid) {
+            self.cur_adf = Some(slot.root);
+        } else {
+            return false;
+        }
+
+        // Resolve cur_df: search MF tree then ADF trees.
+        if let Some(df) = find_df_recursive(self.mf, df_fid) {
+            self.cur_df = df;
+        } else if let Some(df) = adfs
+            .iter()
+            .find_map(|s| find_df_recursive(s.root, df_fid))
+        {
+            self.cur_df = df;
+        } else {
+            return false;
+        }
+
+        // Resolve cur_ef: must be a child of cur_df.
+        if ef_fid == 0xFFFF {
+            self.cur_ef = None;
+        } else {
+            let found = self.cur_df.children.iter().find_map(|child| {
+                if let FileRef::Ef(ef) = child {
+                    if ef.fid == ef_fid {
+                        return Some(*ef);
+                    }
+                }
+                None
+            });
+            if let Some(ef) = found {
+                self.cur_ef = Some(ef);
+            } else {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+/// Find a DF by FID in a tree rooted at `df`, depth-first.
+fn find_df_recursive(df: &'static DfDef, fid: Fid) -> Option<&'static DfDef> {
+    if df.fid == fid {
+        return Some(df);
+    }
+    for child in df.children {
+        if let FileRef::Df(sub) = child {
+            if let Some(found) = find_df_recursive(sub, fid) {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -938,6 +1035,83 @@ mod tests {
         let df = c1.select_by_fid(0x7F20).unwrap();
         let ef = c2.select_by_fid(0x2FE2).unwrap();
         assert_ne!(df, ef);
+    }
+
+    // -- SNAPSHOT tests --
+
+    #[test]
+    fn snapshot_save_restore_mf_root() {
+        let c = ctx();
+        let mut buf = [0u8; SelectionCtx::SNAPSHOT_SIZE];
+        assert_eq!(c.save_state(&mut buf), 8);
+
+        let mut restored = SelectionCtx::new(&MF);
+        // Move away from MF first.
+        restored.select_by_fid(0x7F20).unwrap();
+        assert!(restored.restore_state(&buf, &[]));
+        assert_eq!(restored.current_df().fid, 0x3F00);
+        assert!(restored.current_ef().is_none());
+        assert!(restored.current_adf().is_none());
+    }
+
+    #[test]
+    fn snapshot_save_restore_df_and_ef() {
+        let mut c = ctx();
+        c.select_by_fid(0x7F20).unwrap();
+        c.select_by_fid(0x6F07).unwrap();
+
+        let mut buf = [0u8; SelectionCtx::SNAPSHOT_SIZE];
+        c.save_state(&mut buf);
+
+        let mut restored = SelectionCtx::new(&MF);
+        assert!(restored.restore_state(&buf, &[]));
+        assert_eq!(restored.current_df().fid, 0x7F20);
+        assert_eq!(restored.current_ef().unwrap().fid, 0x6F07);
+    }
+
+    #[test]
+    fn snapshot_save_restore_adf() {
+        let mut c = ctx();
+        c.select_by_aid(
+            &[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+            &ADF_TABLE,
+        )
+        .unwrap();
+        c.select_by_fid(0x6F07).unwrap();
+
+        let mut buf = [0u8; SelectionCtx::SNAPSHOT_SIZE];
+        c.save_state(&mut buf);
+
+        let mut restored = SelectionCtx::new(&MF);
+        assert!(restored.restore_state(&buf, &ADF_TABLE));
+        assert!(restored.current_adf().is_some());
+        assert_eq!(restored.current_df().fid, 0xFF01);
+        assert_eq!(restored.current_ef().unwrap().fid, 0x6F07);
+    }
+
+    #[test]
+    fn snapshot_restore_unknown_df_returns_false() {
+        let mut buf = [0u8; SelectionCtx::SNAPSHOT_SIZE];
+        // Write unknown DF FID.
+        buf[0] = 0xAA;
+        buf[1] = 0xBB;
+        buf[2] = 0xFF;
+        buf[3] = 0xFF;
+        buf[4] = 0xFF;
+        buf[5] = 0xFF;
+
+        let mut c = ctx();
+        assert!(!c.restore_state(&buf, &[]));
+    }
+
+    #[test]
+    fn snapshot_small_buffer_returns_zero_or_false() {
+        let c = ctx();
+        let mut small = [0u8; 4];
+        assert_eq!(c.save_state(&mut small), 0);
+
+        let mut c2 = ctx();
+        assert!(!c2.restore_state(&small, &[]));
     }
 }
 

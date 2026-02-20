@@ -15,7 +15,8 @@ default = []
 [dependencies]
 simrs-hle      = { workspace = true }
 simrs-snapshot = { workspace = true }
-simrs-iso7816  = { workspace = true }
+simrs-sim      = { workspace = true, features = ["gsm", "usim"] }
+simrs-fs       = { workspace = true }
 
 [dev-dependencies]
 

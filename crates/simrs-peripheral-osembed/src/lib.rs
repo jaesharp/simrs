@@ -600,7 +600,7 @@ mod tests {
 
     #[test]
     fn ril_header_endianness() {
-        let hdr = RilHeader::new(0x01020304, 0x05060708);
+        let hdr = RilHeader::new(0x0102_0304, 0x0506_0708);
         let mut buf = [0u8; RIL_HEADER_SIZE];
         hdr.encode(&mut buf).unwrap();
         // LE: request_id low byte first at offset 4.

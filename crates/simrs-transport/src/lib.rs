@@ -400,8 +400,8 @@ mod tests {
         assert_ne!(CardEvent::PowerOn, CardEvent::Shutdown);
     }
 
-    /// Format a `Display` impl into a fixed buffer for no_std testing.
-    fn display(e: &TransportError) -> &'static str {
+    /// Format a `Display` impl into a fixed buffer for `no_std` testing.
+    fn display(e: TransportError) -> &'static str {
         match e {
             TransportError::BufferTooSmall => "response buffer too small",
             TransportError::Disconnected => "peer disconnected",
@@ -447,7 +447,7 @@ mod tests {
                 w.pos
             };
             let written = core::str::from_utf8(&buf[..pos]).unwrap();
-            assert_eq!(written, display(variant));
+            assert_eq!(written, display(*variant));
         }
     }
 
@@ -470,11 +470,7 @@ mod tests {
 
         loop {
             match ct.recv(&mut buf) {
-                Ok(CardEvent::PowerOn) => {
-                    ct.send_atr(&[0x3B, 0x00]).unwrap();
-                    event_count += 1;
-                }
-                Ok(CardEvent::WarmReset) => {
+                Ok(CardEvent::PowerOn | CardEvent::WarmReset) => {
                     ct.send_atr(&[0x3B, 0x00]).unwrap();
                     event_count += 1;
                 }

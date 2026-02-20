@@ -135,6 +135,67 @@ impl UsimApp {
         &mut self.proactive
     }
 
+    // -- snapshot --
+
+    /// Snapshot buffer size in bytes (560).
+    pub const SNAPSHOT_SIZE: usize =
+        SelectionCtx::SNAPSHOT_SIZE
+        + PinManager::<5>::SNAPSHOT_SIZE
+        + MilenageParams::SNAPSHOT_SIZE
+        + ProactiveState::SNAPSHOT_SIZE
+        + RSP_QUEUE_CAP
+        + 1;
+
+    /// Serialize the USIM application state into `buf`.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    /// The `adfs` reference is not serialized (static, reconstructed on restore).
+    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        let mut off = 0;
+        off += self.fs.save_state(&mut buf[off..]);
+        off += self.pin.save_state(&mut buf[off..]);
+        off += self.milenage.save_state(&mut buf[off..]);
+        off += self.proactive.save_state(&mut buf[off..]);
+        buf[off..off + RSP_QUEUE_CAP].copy_from_slice(&self.rsp_queue);
+        off += RSP_QUEUE_CAP;
+        buf[off] = self.rsp_queue_len;
+        Self::SNAPSHOT_SIZE
+    }
+
+    /// Restore the USIM application state from `buf`.
+    ///
+    /// Returns `true` on success. The `adfs` field is not restored from the
+    /// snapshot; it remains as set during construction.
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        let mut off = 0;
+        if !self.fs.restore_state(&buf[off..], self.adfs) {
+            return false;
+        }
+        off += SelectionCtx::SNAPSHOT_SIZE;
+        if !self.pin.restore_state(&buf[off..]) {
+            return false;
+        }
+        off += PinManager::<5>::SNAPSHOT_SIZE;
+        if !self.milenage.restore_state(&buf[off..]) {
+            return false;
+        }
+        off += MilenageParams::SNAPSHOT_SIZE;
+        if !self.proactive.restore_state(&buf[off..]) {
+            return false;
+        }
+        off += ProactiveState::SNAPSHOT_SIZE;
+        self.rsp_queue.copy_from_slice(&buf[off..off + RSP_QUEUE_CAP]);
+        off += RSP_QUEUE_CAP;
+        self.rsp_queue_len = buf[off];
+        true
+    }
+
     /// Handle an APDU command. Returns a slice of `buf` containing
     /// the response: either just `[SW1, SW2]` or `[data..., SW1, SW2]`.
     ///
@@ -720,6 +781,7 @@ fn write_sw_raw(buf: &mut [u8], sw1: u8, sw2: u8) -> &[u8] {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
     use simrs_fs::{AdfSlot, EfDef, EfStructure, FileRef};
@@ -1335,6 +1397,123 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x6D, 0x00));
     }
 
+    // -- Snapshot --
+
+    #[test]
+    fn snapshot_size_correct() {
+        // fs(8) + pin(111) + milenage(117) + proactive(259) + rsp_queue(64) + rsp_queue_len(1) = 560
+        assert_eq!(UsimApp::SNAPSHOT_SIZE, 560);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_preserves_state() {
+        let mut src = app();
+        // Select ADF.USIM by AID, then EF.IMSI.
+        send(&mut src, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+                         0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut src, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]);
+        // Degrade PIN retries.
+        send(&mut src, &[0x00, 0x20, 0x00, 0x01, 0x08,
+                         0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF]);
+
+        // Save.
+        let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
+        let written = src.save_state(&mut snap);
+        assert_eq!(written, UsimApp::SNAPSHOT_SIZE);
+
+        // Restore into fresh app (same adfs).
+        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
+        assert!(dst.restore_state(&snap));
+
+        // Read EF.IMSI (fs state restored).
+        let (buf, len) = send(&mut dst, &[0x00, 0xB0, 0x00, 0x00, 0x09]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x08);
+
+        // PIN retries = 2.
+        let (buf, len) = send(&mut dst, &[0x00, 0x20, 0x00, 0x01, 0x00]);
+        assert_eq!(sw(&buf, len), (0x63, 0xC2));
+    }
+
+    #[test]
+    fn snapshot_preserves_milenage_auth() {
+        let src = app();
+        // Build valid AUTN for ETSI test set 1.
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let amf = [0xB9, 0xB9];
+        let ak = params.f5(&rand_val);
+        let mac_a = params.f1(&rand_val, &sqn, &amf);
+        let mut autn = [0u8; 16];
+        for i in 0..6 {
+            autn[i] = sqn[i] ^ ak[i];
+        }
+        autn[6..8].copy_from_slice(&amf);
+        autn[8..16].copy_from_slice(&mac_a);
+
+        // Save and restore.
+        let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
+        src.save_state(&mut snap);
+        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
+        assert!(dst.restore_state(&snap));
+
+        // AUTHENTICATE should succeed with restored K/OPc.
+        let mut apdu = [0u8; 5 + 34];
+        apdu[0] = 0x00;
+        apdu[1] = 0x88;
+        apdu[3] = 0x81;
+        apdu[4] = 0x22;
+        apdu[5] = 0x10;
+        apdu[6..22].copy_from_slice(&rand_val);
+        apdu[22] = 0x10;
+        apdu[23..39].copy_from_slice(&autn);
+
+        let (buf, _) = send(&mut dst, &apdu);
+        assert_eq!(buf[0], 0x61); // data available
+    }
+
+    #[test]
+    fn snapshot_preserves_proactive_state() {
+        let mut src = app();
+        let text = b"Snap";
+        let pro_cmd = ProactiveCommand::DisplayText {
+            text,
+            coding: simrs_proactive::TextCoding::Gsm8Bit,
+            high_priority: false,
+        };
+        src.proactive_state().queue_command(&pro_cmd).unwrap();
+        let pending_before = src.proactive_state().pending_len();
+        assert!(pending_before > 0);
+
+        // Save and restore.
+        let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
+        src.save_state(&mut snap);
+        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
+        assert!(dst.restore_state(&snap));
+
+        // Proactive command is still pending after restore.
+        assert!(dst.proactive_state().has_pending());
+        assert_eq!(dst.proactive_state().pending_len(), pending_before);
+    }
+
+    #[test]
+    fn snapshot_small_buffer_returns_zero_or_false() {
+        let src = app();
+        let mut small = [0u8; 10];
+        assert_eq!(src.save_state(&mut small), 0);
+
+        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
+        assert!(!dst.restore_state(&small));
+    }
+
     // -- Navigation round-trip --
 
     #[test]
@@ -1369,7 +1548,7 @@ mod tests {
 
     // -- Test helper: find a TLV tag in a byte sequence --
 
-    fn find_tlv_tag<'a>(data: &'a [u8], target_tag: u8) -> Option<&'a [u8]> {
+    fn find_tlv_tag(data: &[u8], target_tag: u8) -> Option<&[u8]> {
         let mut pos = 0;
         while pos < data.len() {
             let tag = data[pos];
@@ -1426,7 +1605,7 @@ mod proptests {
         // Any valid READ BINARY offset+length within file returns 90 00.
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
-            prop_assume!((offset as u16) + (length as u16) <= 8);
+            prop_assume!(u16::from(offset) + u16::from(length) <= 8);
             let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];

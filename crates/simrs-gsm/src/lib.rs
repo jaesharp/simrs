@@ -55,7 +55,7 @@
 
 use simrs_comp128::comp128;
 use simrs_fs::{
-    DfDef, EfDef, EfStructure, FsError, SelectionCtx, SelectedFile,
+    AdfSlot, DfDef, EfDef, EfStructure, FsError, SelectionCtx, SelectedFile,
 };
 use simrs_iso7816::{ins, Command, StatusWord};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
@@ -122,6 +122,59 @@ impl GsmApp {
     /// Access the PIN manager for configuration (add PINs).
     pub const fn pin_manager(&mut self) -> &mut PinManager<5> {
         &mut self.pin
+    }
+
+    // -- snapshot --
+
+    /// Snapshot buffer size in bytes (159).
+    pub const SNAPSHOT_SIZE: usize =
+        SelectionCtx::SNAPSHOT_SIZE + PinManager::<5>::SNAPSHOT_SIZE + 16 + RSP_QUEUE_CAP + 1;
+
+    /// Serialize the GSM application state into `buf`.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        let mut off = 0;
+        off += self.fs.save_state(&mut buf[off..]);
+        off += self.pin.save_state(&mut buf[off..]);
+        buf[off..off + 16].copy_from_slice(&self.ki);
+        off += 16;
+        buf[off..off + RSP_QUEUE_CAP].copy_from_slice(&self.rsp_queue);
+        off += RSP_QUEUE_CAP;
+        buf[off] = self.rsp_queue_len;
+        Self::SNAPSHOT_SIZE
+    }
+
+    /// Restore the GSM application state from `buf`.
+    ///
+    /// Returns `true` on success. The `adfs` parameter is passed through
+    /// to `SelectionCtx::restore_state` (typically `&[]` for GSM).
+    pub fn restore_state(
+        &mut self,
+        buf: &[u8],
+        adfs: &'static [AdfSlot],
+    ) -> bool {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        let mut off = 0;
+        if !self.fs.restore_state(&buf[off..], adfs) {
+            return false;
+        }
+        off += SelectionCtx::SNAPSHOT_SIZE;
+        if !self.pin.restore_state(&buf[off..]) {
+            return false;
+        }
+        off += PinManager::<5>::SNAPSHOT_SIZE;
+        self.ki.copy_from_slice(&buf[off..off + 16]);
+        off += 16;
+        self.rsp_queue.copy_from_slice(&buf[off..off + RSP_QUEUE_CAP]);
+        off += RSP_QUEUE_CAP;
+        self.rsp_queue_len = buf[off];
+        true
     }
 
     /// Handle an APDU command. Returns a slice of `buf` containing
@@ -992,6 +1045,83 @@ mod tests {
         assert_eq!(buf[13], 0x01); // linear-fixed
         assert_eq!(buf[14], 8); // record size
     }
+
+    // -- Snapshot --
+
+    #[test]
+    fn snapshot_size_correct() {
+        // fs(8) + pin(111) + ki(16) + rsp_queue(23) + rsp_queue_len(1) = 159
+        assert_eq!(GsmApp::SNAPSHOT_SIZE, 159);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_preserves_state() {
+        let mut app = app();
+        // Navigate to DF.GSM and select EF.IMSI so fs state is non-trivial.
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xC0, 0x00, 0x00, 0x17]); // consume
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x07]);
+        // Degrade PIN retries by one wrong attempt.
+        send(&mut app, &[0xA0, 0x20, 0x00, 0x01, 0x08,
+                         0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF]);
+
+        // Save state.
+        let mut snap = [0u8; GsmApp::SNAPSHOT_SIZE];
+        let written = app.save_state(&mut snap);
+        assert_eq!(written, GsmApp::SNAPSHOT_SIZE);
+
+        // Create a fresh app and restore into it.
+        let mut restored = GsmApp::new(&MF, [0u8; 16]);
+        assert!(restored.restore_state(&snap, &[]));
+
+        // Verify: read EF.IMSI works (fs state restored to DF.GSM + EF.IMSI).
+        let (buf, len) = send(&mut restored, &[0xA0, 0xB0, 0x00, 0x00, 0x09]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x08); // IMSI first byte
+
+        // Verify: PIN retries are 2 (degraded from 3).
+        let (buf, len) = send(&mut restored, &[0xA0, 0x20, 0x00, 0x01, 0x00]);
+        assert_eq!(sw(&buf, len), (0x63, 0xC2));
+    }
+
+    #[test]
+    fn snapshot_preserves_ki_and_auth() {
+        let mut app = app();
+        // Run GSM algorithm with known RAND.
+        let rand_bytes: [u8; 16] = [0xAA; 16];
+        let mut algo_apdu = [0u8; 21];
+        algo_apdu[0] = 0xA0;
+        algo_apdu[1] = 0x88;
+        algo_apdu[4] = 0x10;
+        algo_apdu[5..21].copy_from_slice(&rand_bytes);
+        send(&mut app, &algo_apdu);
+        let (orig_buf, orig_len) = send(&mut app, &[0xA0, 0xC0, 0x00, 0x00, 0x0C]);
+        assert_eq!(sw(&orig_buf, orig_len), (0x90, 0x00));
+        let mut orig_result = [0u8; 12];
+        orig_result.copy_from_slice(&orig_buf[..12]);
+
+        // Save and restore.
+        let mut snap = [0u8; GsmApp::SNAPSHOT_SIZE];
+        app.save_state(&mut snap);
+        let mut restored = GsmApp::new(&MF, [0u8; 16]);
+        assert!(restored.restore_state(&snap, &[]));
+
+        // Same RAND must produce same result (Ki preserved).
+        send(&mut restored, &algo_apdu);
+        let (buf, len) = send(&mut restored, &[0xA0, 0xC0, 0x00, 0x00, 0x0C]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(&buf[..12], &orig_result);
+    }
+
+    #[test]
+    fn snapshot_small_buffer_returns_zero_or_false() {
+        let src = app();
+        let mut small = [0u8; 10];
+        assert_eq!(src.save_state(&mut small), 0);
+
+        let mut dst = app();
+        assert!(!dst.restore_state(&small, &[]));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1020,7 +1150,7 @@ mod proptests {
         // Any valid READ BINARY offset+length within file returns 90 00.
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
-            prop_assume!((offset as u16) + (length as u16) <= 8);
+            prop_assume!(u16::from(offset) + u16::from(length) <= 8);
             let mut app = GsmApp::new(&PT_MF, [0u8; 16]);
             let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();

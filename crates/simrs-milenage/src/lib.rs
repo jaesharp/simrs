@@ -596,6 +596,51 @@ impl MilenageParams {
         // E_K[...] XOR OPc
         xor128(&aes.encrypt(&enc_input), &self.opc)
     }
+
+    // -- snapshot --
+
+    /// Snapshot buffer size: 117 bytes (K(16) + OPc(16) + ci(80) + ri(5)).
+    pub const SNAPSHOT_SIZE: usize = 16 + 16 + 80 + 5;
+
+    /// Serialize the Milenage parameters into `buf` as flat bytes.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        let mut off = 0;
+        buf[off..off + 16].copy_from_slice(&self.k);
+        off += 16;
+        buf[off..off + 16].copy_from_slice(&self.opc);
+        off += 16;
+        for c in &self.ci {
+            buf[off..off + 16].copy_from_slice(c);
+            off += 16;
+        }
+        buf[off..off + 5].copy_from_slice(&self.ri);
+        Self::SNAPSHOT_SIZE
+    }
+
+    /// Restore the Milenage parameters from `buf`.
+    ///
+    /// Returns `true` on success.
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        let mut off = 0;
+        self.k.copy_from_slice(&buf[off..off + 16]);
+        off += 16;
+        self.opc.copy_from_slice(&buf[off..off + 16]);
+        off += 16;
+        for c in &mut self.ci {
+            c.copy_from_slice(&buf[off..off + 16]);
+            off += 16;
+        }
+        self.ri.copy_from_slice(&buf[off..off + 5]);
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -826,6 +871,39 @@ mod tests {
         let mut expected = [0u8; 16];
         expected[15] = 0xFF;
         assert_eq!(rotated, expected);
+    }
+
+    // -- SNAPSHOT tests --
+
+    #[test]
+    fn snapshot_size_correct() {
+        assert_eq!(MilenageParams::SNAPSHOT_SIZE, 117);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_preserves_computation() {
+        let orig = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
+
+        let mut snap = [0u8; MilenageParams::SNAPSHOT_SIZE];
+        assert_eq!(orig.save_state(&mut snap), 117);
+
+        // Restore into a zeroed params.
+        let mut restored = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        assert!(restored.restore_state(&snap));
+
+        // Restored params must produce the same f2 output.
+        assert_eq!(restored.f2(&TS1_RAND), TS1_F2_RES);
+        assert_eq!(restored.f5(&TS1_RAND), TS1_F5_AK);
+    }
+
+    #[test]
+    fn snapshot_small_buffer_returns_zero_or_false() {
+        let p = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mut small = [0u8; 50];
+        assert_eq!(p.save_state(&mut small), 0);
+
+        let mut p2 = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        assert!(!p2.restore_state(&small));
     }
 }
 

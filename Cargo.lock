@@ -400,8 +400,9 @@ dependencies = [
 name = "simrs-fuzz"
 version = "0.1.0"
 dependencies = [
+ "simrs-fs",
  "simrs-hle",
- "simrs-iso7816",
+ "simrs-sim",
  "simrs-snapshot",
 ]
 
@@ -420,9 +421,13 @@ dependencies = [
 name = "simrs-hle"
 version = "0.1.0"
 dependencies = [
- "simrs-iso7816",
+ "simrs-fs",
+ "simrs-gsm",
+ "simrs-milenage",
+ "simrs-pin",
  "simrs-sim",
  "simrs-snapshot",
+ "simrs-usim",
 ]
 
 [[package]]
@@ -474,9 +479,16 @@ dependencies = [
 name = "simrs-qemu"
 version = "0.1.0"
 dependencies = [
+ "simrs-comp128",
  "simrs-fs",
+ "simrs-gsm",
+ "simrs-iso7816",
+ "simrs-milenage",
+ "simrs-pin",
+ "simrs-proactive",
  "simrs-sim",
  "simrs-transport-shmem",
+ "simrs-usim",
 ]
 
 [[package]]
@@ -505,6 +517,7 @@ name = "simrs-snapshot"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "simrs-fs",
  "simrs-sim",
 ]
 

@@ -379,6 +379,7 @@ mod tests {
 
     /// Verify XTIME table matches the xtime function definition.
     #[test]
+    #[allow(clippy::cast_possible_truncation)]
     fn xtime_table_correctness() {
         for i in 0u16..256 {
             let b = i as u8;
