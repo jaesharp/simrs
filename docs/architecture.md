@@ -37,6 +37,8 @@
 
 ---
 
+Diagrams follow the [Diagram Style Guide](DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
+
 ## Design Principles
 
 | # | Principle | Implication |
@@ -53,40 +55,38 @@
 
 ## Crate Map
 
+Colours follow the [Diagram Style Guide](DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
+
 ```mermaid
 graph TD
-    %% Foundation
+    %% Foundation (Blue)
     ISO[simrs-iso7816]
     BER[simrs-bertlv]
     RIJ[simrs-rijndael]
     C128[simrs-comp128]
 
-    %% Layer 2
+    %% Composition (Teal)
     MIL[simrs-milenage]
     FS[simrs-fs]
     PIN[simrs-pin]
-
-    %% Layer 3
     PRO[simrs-proactive]
+
+    %% Application (Amber)
     GSM[simrs-gsm]
     USIM[simrs-usim]
-
-    %% Layer 4
     SIM[simrs-sim]
 
-    %% Transport
+    %% Boundary (Vermillion)
     TR[simrs-transport]
     TR_TCP[simrs-transport-tcp]
     TR_SHM[simrs-transport-shmem]
     TR_VIO[simrs-transport-virtio]
-
-    %% Peripheral
     PERI[simrs-peripheral]
     SHAN[simrs-peripheral-shannon]
     OSEM[simrs-peripheral-osembed]
     QEMU[simrs-qemu]
 
-    %% Fuzzing
+    %% Meta (Mauve)
     SNAP[simrs-snapshot]
     HLE[simrs-hle]
     FUZZ[simrs-fuzz]
@@ -110,8 +110,8 @@ graph TD
     SIM --> ISO
     SIM --> FS
     SIM --> PIN
-    SIM -.->|feature:gsm| GSM
-    SIM -.->|feature:usim| USIM
+    SIM -.->|"feature: gsm"| GSM
+    SIM -.->|"feature: usim"| USIM
     TR_TCP  --> TR
     TR_TCP  --> ISO
     TR_SHM  --> TR
@@ -127,15 +127,34 @@ graph TD
     OSEM    --> PERI
     OSEM    --> ISO
     SNAP    --> SIM
-    HLE     --> SIM
+    HLE     ==> SIM
     HLE     --> SNAP
     HLE     --> ISO
-    FUZZ    --> HLE
+    FUZZ    ==> HLE
     FUZZ    --> SNAP
     FUZZ    --> ISO
+
+    %% Per DIAGRAM_STYLE_GUIDE.md
+    classDef foundation fill:#0072B2,stroke:#333,color:#fff
+    classDef composition fill:#008060,stroke:#333,color:#fff
+    classDef application fill:#E69F00,stroke:#333,color:#000
+    classDef entry fill:#E69F00,stroke:#333,color:#000,stroke-width:3px
+    classDef boundary fill:#C35400,stroke:#333,color:#fff
+    classDef boundary_std fill:#C35400,stroke:#333,color:#fff,stroke-dasharray:5 5
+    classDef meta fill:#AA4499,stroke:#333,color:#fff
+    classDef meta_std fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
+
+    class ISO,BER,RIJ,C128 foundation
+    class MIL,FS,PIN,PRO composition
+    class GSM,USIM application
+    class SIM entry
+    class TR,TR_SHM,TR_VIO,PERI,SHAN boundary
+    class TR_TCP,OSEM,QEMU boundary_std
+    class SNAP meta
+    class HLE,FUZZ meta_std
 ```
 
-Solid arrows = hard dependency. Dotted = optional feature gate.
+**Legend:** Solid border = `no_std`. Dashed = requires `std`. Thick = entry point. `==>` = hot path. `-.->` = feature-gated.
 
 ---
 

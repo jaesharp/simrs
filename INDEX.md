@@ -2,170 +2,148 @@
 
 > 22 crates. Pure `no_std` (where marked). Zero external runtime dependencies.
 > Port of [swsim](https://github.com/nicktool/SIMurai) to Rust for bare-metal SIM/USIM simulation and Shannon baseband fuzzing.
+>
+> Colours follow the [Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
 
 ## Architecture at a Glance
 
-```
- +---------------------------------------------------------------------------+
- |                          simrs-fuzz [bin, std]                            |
- |  APDU-aware mutation | snapshot-restore-execute loop | corpus management  |
- +----+------+----------------------------------------------------------------------+
-      |      |
-      v      v
- +----+------+---+     +-------------------+
- | simrs-hle     |---->| simrs-snapshot    |
- | C-ABI cdylib  |     | Snapshot trait    |
- +----+-----------+     +--------+----------+
-      |                          |
-      v                          v
- +-------------------------------------------------------------------+
- | simrs-sim            Orchestrator       [no_std, const fn]        |
- | SimEvent --> Sim::process() --> SimResponse                       |
- +---+-------------------+-----------+-------------------------------+
-     |                   |           |
-     | feature:gsm       |           | feature:usim
-     v                   |           v
- +------------------+    |    +----------------------------+
- | simrs-gsm        |    |    | simrs-usim                 |
- | CLA=A0 handlers  |    |    | FCP, AUTH, CAT, VERIFY     |
- +--+-----+----+----+    |    +--+----+----+----+----+-----+
-    |     |    |          |       |    |    |    |    |
-    v     |    v          |       v    |    v    |    v
- comp128  | simrs-fs <----+   milenage | proact  | simrs-pin
-    |     |    |  |               |    |   | |   |    |
-    |     |    v  v               v    |   v v   |    v
-    |     | iso7816 bertlv     rijndael| iso7816 | iso7816
-    |     |                            | bertlv  |
-    |     v                            v         v
-    |  simrs-pin                    simrs-pin  simrs-fs
-    v
- (leaf)
+```mermaid
+graph TB
+    subgraph meta_layer ["Meta / Fuzzing"]
+        FUZZ["simrs-fuzz<br/><i>APDU mutator + fuzz loop</i>"]
+        HLE["simrs-hle<br/><i>C-ABI cdylib for QEMU</i>"]
+        SNAP["simrs-snapshot<br/><i>Snapshot trait</i>"]
+    end
+
+    subgraph boundary_layer ["Boundary / External Interface"]
+        subgraph transport_group ["Transport"]
+            TR["simrs-transport<br/><i>trait</i>"]
+            TCP["simrs-transport-tcp<br/><i>swICC PC/SC</i>"]
+            SHM["simrs-transport-shmem<br/><i>lock-free ring</i>"]
+            VIO["simrs-transport-virtio<br/><i>virtqueue</i>"]
+        end
+        subgraph peripheral_group ["Peripheral"]
+            PERI["simrs-peripheral<br/><i>trait</i>"]
+            SHAN["simrs-peripheral-shannon<br/><i>MMIO + VirtIO</i>"]
+            OSEM["simrs-peripheral-osembed<br/><i>Linux ioctl</i>"]
+        end
+        QEMU["simrs-qemu<br/><i>shmem + chardev</i>"]
+    end
+
+    subgraph app_layer ["Application / Protocol"]
+        SIM["simrs-sim<br/><i>Sim::process()</i>"]
+        GSM["simrs-gsm<br/><i>CLA=A0 handlers</i>"]
+        USIM["simrs-usim<br/><i>FCP, AUTH, CAT</i>"]
+    end
+
+    subgraph comp_layer ["Composition"]
+        MIL["simrs-milenage<br/><i>f1-f5 UMTS auth</i>"]
+        FS["simrs-fs<br/><i>MF/DF/ADF/EF tree</i>"]
+        PIN["simrs-pin<br/><i>verify/unblock SM</i>"]
+        PRO["simrs-proactive<br/><i>CAT command encode</i>"]
+    end
+
+    subgraph found_layer ["Foundation"]
+        ISO["simrs-iso7816<br/><i>APDU, CLA, SW</i>"]
+        BER["simrs-bertlv<br/><i>encode/decode</i>"]
+        RIJ["simrs-rijndael<br/><i>AES-128</i>"]
+        C128["simrs-comp128<br/><i>A3/A8 GSM</i>"]
+    end
+
+    %% Meta -> Application
+    FUZZ ==> HLE
+    FUZZ --> SNAP
+    HLE ==> SIM
+    HLE --> SNAP
+    SNAP --> SIM
+
+    %% Boundary -> Application
+    QEMU --> SIM
+    QEMU --> SHM
+    TCP --> TR
+    SHM --> TR
+    VIO --> TR
+    SHAN --> PERI
+    SHAN --> VIO
+    OSEM --> PERI
+
+    %% Application -> Composition
+    SIM -.->|"feature: gsm"| GSM
+    SIM -.->|"feature: usim"| USIM
+    SIM --> FS
+    SIM --> PIN
+    GSM --> C128
+    GSM --> FS
+    GSM --> PIN
+    USIM --> MIL
+    USIM --> FS
+    USIM --> PIN
+    USIM --> PRO
+
+    %% Composition -> Foundation
+    MIL --> RIJ
+    FS --> ISO
+    FS --> BER
+    PIN --> ISO
+    PRO --> ISO
+    PRO --> BER
+    GSM --> ISO
+    USIM --> ISO
+    USIM --> BER
+    SIM --> ISO
+    TR --> ISO
+    PERI --> ISO
+
+    %% Styles per DIAGRAM_STYLE_GUIDE.md
+    classDef foundation fill:#0072B2,stroke:#333,color:#fff
+    classDef composition fill:#008060,stroke:#333,color:#fff
+    classDef application fill:#E69F00,stroke:#333,color:#000
+    classDef boundary fill:#C35400,stroke:#333,color:#fff
+    classDef boundary_std fill:#C35400,stroke:#333,color:#fff,stroke-dasharray:5 5
+    classDef meta fill:#AA4499,stroke:#333,color:#fff
+    classDef meta_std fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
+    classDef entry fill:#E69F00,stroke:#333,color:#000,stroke-width:3px
+
+    class ISO,BER,RIJ,C128 foundation
+    class MIL,FS,PIN,PRO composition
+    class GSM,USIM application
+    class SIM entry
+    class TR,SHM,VIO,PERI,SHAN boundary
+    class TCP,OSEM,QEMU boundary_std
+    class SNAP meta
+    class HLE,FUZZ meta_std
 ```
 
-```
- +---------------------------+    +-------------------------+    +-----------------------+
- | simrs-transport     [trait|    | simrs-peripheral  [trait|    | simrs-qemu            |
- +----+--------+--------+---+    +----+--------+----------+    | shmem + chardev       |
-      |        |        |             |        |                +-----------+-----------+
-      v        v        v             v        v                            |
-   tcp[std] shmem    virtio       shannon   osembed[std]                   v
-                                    |                                   sim + shmem
-                                    v
-                                  virtio
-```
+**Legend:** Solid border = `no_std`. Dashed border = requires `std`. Thick border = primary entry point. Heavy arrows (`==>`) = hot path. Dotted arrows (`-.->`) = feature-gated.
 
 ## Crate Reference
 
 | Crate | Layer | `no_std` | Description | Dependencies | Detail |
 |-------|-------|----------|-------------|--------------|--------|
-| [`simrs-iso7816`](crates/simrs-iso7816/) | 1. Foundation | yes | APDU types, CLA parsing, status words, INS constants | -- | [API](docs/architecture.md#simrs-iso7816) |
-| [`simrs-bertlv`](crates/simrs-bertlv/) | 1. Foundation | yes | BER-TLV encoder/decoder with dry-run mode | -- | [API](docs/architecture.md#simrs-bertlv) |
-| [`simrs-rijndael`](crates/simrs-rijndael/) | 1. Foundation | yes | AES-128 block cipher (encrypt only, `const fn` key sched) | -- | [API](docs/architecture.md#simrs-rijndael) |
-| [`simrs-comp128`](crates/simrs-comp128/) | 1. Foundation | yes | `COMP128v1` GSM A3/A8 authentication | -- | [API](docs/architecture.md#simrs-comp128) |
-| [`simrs-milenage`](crates/simrs-milenage/) | 2. Crypto | yes | Milenage f1--f5 UMTS authentication | [rijndael](crates/simrs-rijndael/) | [API](docs/architecture.md#simrs-milenage) |
-| [`simrs-fs`](crates/simrs-fs/) | 2. Filesystem | yes | ICC filesystem model (MF/DF/ADF/EF), `const` trees | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-fs) |
-| [`simrs-pin`](crates/simrs-pin/) | 2. Security | yes | PIN/PUK state machine (verify, change, unblock) | [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-pin) |
-| [`simrs-proactive`](crates/simrs-proactive/) | 3. Application | yes | Proactive UICC / CAT command encoding | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-proactive) |
-| [`simrs-gsm`](crates/simrs-gsm/) | 3. Application | yes | GSM 11.11 SIM app (SELECT, RUN GSM ALGO, STATUS) | [iso7816](crates/simrs-iso7816/), [comp128](crates/simrs-comp128/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/) | [API](docs/architecture.md#simrs-gsm) |
-| [`simrs-usim`](crates/simrs-usim/) | 3. Application | yes | 3GPP USIM app (FCP, AUTH, TERMINAL PROFILE, FETCH) | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/), [milenage](crates/simrs-milenage/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [proactive](crates/simrs-proactive/) | [API](docs/architecture.md#simrs-usim) |
-| [`simrs-sim`](crates/simrs-sim/) | 4. Orchestration | yes | Top-level `Sim` state machine, event-driven entry point | [iso7816](crates/simrs-iso7816/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [gsm](crates/simrs-gsm/)^opt^, [usim](crates/simrs-usim/)^opt^ | [API](docs/architecture.md#simrs-sim) |
-| [`simrs-transport`](crates/simrs-transport/) | 5. Transport | yes | `Transport` trait (APDU exchange abstraction) | [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport) |
-| [`simrs-transport-tcp`](crates/simrs-transport-tcp/) | 5. Transport | no | TCP client for swICC PC/SC server protocol | [transport](crates/simrs-transport/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport-tcp) |
-| [`simrs-transport-shmem`](crates/simrs-transport-shmem/) | 5. Transport | yes | Shared-memory lock-free ring buffer transport | [transport](crates/simrs-transport/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport-shmem) |
-| [`simrs-transport-virtio`](crates/simrs-transport-virtio/) | 5. Transport | yes | `VirtIO` virtqueue smart card transport | [transport](crates/simrs-transport/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport-virtio) |
-| [`simrs-peripheral`](crates/simrs-peripheral/) | 6. Peripheral | yes | `SimPeripheral` trait (HW SIM slot abstraction) | [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-peripheral) |
-| [`simrs-peripheral-shannon`](crates/simrs-peripheral-shannon/) | 6. Peripheral | yes | Shannon baseband SIM controller (MMIO + `VirtIO`) | [peripheral](crates/simrs-peripheral/), [virtio](crates/simrs-transport-virtio/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-peripheral-shannon) |
-| [`simrs-peripheral-osembed`](crates/simrs-peripheral-osembed/) | 6. Peripheral | no | Linux/Android SIM ioctl interface | [peripheral](crates/simrs-peripheral/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-peripheral-osembed) |
-| [`simrs-qemu`](crates/simrs-qemu/) | 6. Integration | no | QEMU virtual smart card bridge (shmem + chardev) | [sim](crates/simrs-sim/), [shmem](crates/simrs-transport-shmem/) | [API](docs/architecture.md#simrs-qemu) |
-| [`simrs-snapshot`](crates/simrs-snapshot/) | 7. Fuzzing | yes | Deterministic state serialization (`Snapshot` trait) | [sim](crates/simrs-sim/) | [API](docs/architecture.md#simrs-snapshot) |
-| [`simrs-hle`](crates/simrs-hle/) | 7. Fuzzing | no | HLE SIM peripheral, C-ABI `cdylib` for QEMU | [sim](crates/simrs-sim/), [snapshot](crates/simrs-snapshot/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-hle) |
-| [`simrs-fuzz`](crates/simrs-fuzz/) | 7. Fuzzing | no | APDU-aware snapshot fuzzer harness | [hle](crates/simrs-hle/), [snapshot](crates/simrs-snapshot/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-fuzz) |
+| [`simrs-iso7816`](crates/simrs-iso7816/) | Foundation | yes | APDU types, CLA parsing, status words, INS constants | -- | [API](docs/architecture.md#simrs-iso7816) |
+| [`simrs-bertlv`](crates/simrs-bertlv/) | Foundation | yes | BER-TLV encoder/decoder with dry-run mode | -- | [API](docs/architecture.md#simrs-bertlv) |
+| [`simrs-rijndael`](crates/simrs-rijndael/) | Foundation | yes | AES-128 block cipher (encrypt only, `const fn` key sched) | -- | [API](docs/architecture.md#simrs-rijndael) |
+| [`simrs-comp128`](crates/simrs-comp128/) | Foundation | yes | `COMP128v1` GSM A3/A8 authentication | -- | [API](docs/architecture.md#simrs-comp128) |
+| [`simrs-milenage`](crates/simrs-milenage/) | Composition | yes | Milenage f1--f5 UMTS authentication | [rijndael](crates/simrs-rijndael/) | [API](docs/architecture.md#simrs-milenage) |
+| [`simrs-fs`](crates/simrs-fs/) | Composition | yes | ICC filesystem model (MF/DF/ADF/EF), `const` trees | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-fs) |
+| [`simrs-pin`](crates/simrs-pin/) | Composition | yes | PIN/PUK state machine (verify, change, unblock) | [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-pin) |
+| [`simrs-proactive`](crates/simrs-proactive/) | Composition | yes | Proactive UICC / CAT command encoding | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-proactive) |
+| [`simrs-gsm`](crates/simrs-gsm/) | Application | yes | GSM 11.11 SIM app (SELECT, RUN GSM ALGO, STATUS) | [iso7816](crates/simrs-iso7816/), [comp128](crates/simrs-comp128/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/) | [API](docs/architecture.md#simrs-gsm) |
+| [`simrs-usim`](crates/simrs-usim/) | Application | yes | 3GPP USIM app (FCP, AUTH, TERMINAL PROFILE, FETCH) | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/), [milenage](crates/simrs-milenage/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [proactive](crates/simrs-proactive/) | [API](docs/architecture.md#simrs-usim) |
+| [`simrs-sim`](crates/simrs-sim/) | Application | yes | Top-level `Sim` state machine, event-driven entry point | [iso7816](crates/simrs-iso7816/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [gsm](crates/simrs-gsm/)^opt^, [usim](crates/simrs-usim/)^opt^ | [API](docs/architecture.md#simrs-sim) |
+| [`simrs-transport`](crates/simrs-transport/) | Boundary | yes | `Transport` trait (APDU exchange abstraction) | [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport) |
+| [`simrs-transport-tcp`](crates/simrs-transport-tcp/) | Boundary | **no** | TCP client for swICC PC/SC server protocol | [transport](crates/simrs-transport/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport-tcp) |
+| [`simrs-transport-shmem`](crates/simrs-transport-shmem/) | Boundary | yes | Shared-memory lock-free ring buffer transport | [transport](crates/simrs-transport/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport-shmem) |
+| [`simrs-transport-virtio`](crates/simrs-transport-virtio/) | Boundary | yes | `VirtIO` virtqueue smart card transport | [transport](crates/simrs-transport/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport-virtio) |
+| [`simrs-peripheral`](crates/simrs-peripheral/) | Boundary | yes | `SimPeripheral` trait (HW SIM slot abstraction) | [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-peripheral) |
+| [`simrs-peripheral-shannon`](crates/simrs-peripheral-shannon/) | Boundary | yes | Shannon baseband SIM controller (MMIO + `VirtIO`) | [peripheral](crates/simrs-peripheral/), [virtio](crates/simrs-transport-virtio/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-peripheral-shannon) |
+| [`simrs-peripheral-osembed`](crates/simrs-peripheral-osembed/) | Boundary | **no** | Linux/Android SIM ioctl interface | [peripheral](crates/simrs-peripheral/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-peripheral-osembed) |
+| [`simrs-qemu`](crates/simrs-qemu/) | Boundary | **no** | QEMU virtual smart card bridge (shmem + chardev) | [sim](crates/simrs-sim/), [shmem](crates/simrs-transport-shmem/) | [API](docs/architecture.md#simrs-qemu) |
+| [`simrs-snapshot`](crates/simrs-snapshot/) | Meta | yes | Deterministic state serialization (`Snapshot` trait) | [sim](crates/simrs-sim/) | [API](docs/architecture.md#simrs-snapshot) |
+| [`simrs-hle`](crates/simrs-hle/) | Meta | **no** | HLE SIM peripheral, C-ABI `cdylib` for QEMU | [sim](crates/simrs-sim/), [snapshot](crates/simrs-snapshot/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-hle) |
+| [`simrs-fuzz`](crates/simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](crates/simrs-hle/), [snapshot](crates/simrs-snapshot/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-fuzz) |
 
 ^opt^ = optional feature gate
-
-## Dependency Graph
-
-```mermaid
-graph TD
-    subgraph L1["Layer 1: Foundation"]
-        ISO["<a href='docs/architecture.md#simrs-iso7816'>simrs-iso7816</a>"]
-        BER["<a href='docs/architecture.md#simrs-bertlv'>simrs-bertlv</a>"]
-        RIJ["<a href='docs/architecture.md#simrs-rijndael'>simrs-rijndael</a>"]
-        C128["<a href='docs/architecture.md#simrs-comp128'>simrs-comp128</a>"]
-    end
-
-    subgraph L2["Layer 2: Crypto + FS"]
-        MIL["<a href='docs/architecture.md#simrs-milenage'>simrs-milenage</a>"]
-        FS["<a href='docs/architecture.md#simrs-fs'>simrs-fs</a>"]
-        PIN["<a href='docs/architecture.md#simrs-pin'>simrs-pin</a>"]
-    end
-
-    subgraph L3["Layer 3: Application"]
-        PRO["<a href='docs/architecture.md#simrs-proactive'>simrs-proactive</a>"]
-        GSM["<a href='docs/architecture.md#simrs-gsm'>simrs-gsm</a>"]
-        USIM["<a href='docs/architecture.md#simrs-usim'>simrs-usim</a>"]
-    end
-
-    subgraph L4["Layer 4: Orchestration"]
-        SIM["<a href='docs/architecture.md#simrs-sim'>simrs-sim</a>"]
-    end
-
-    subgraph L5["Layer 5: Transport"]
-        TR["<a href='docs/architecture.md#simrs-transport'>simrs-transport</a>"]
-        TCP["simrs-transport-tcp"]
-        SHM["simrs-transport-shmem"]
-        VIO["simrs-transport-virtio"]
-    end
-
-    subgraph L6["Layer 6: Peripheral"]
-        PERI["<a href='docs/architecture.md#simrs-peripheral'>simrs-peripheral</a>"]
-        SHAN["simrs-peripheral-shannon"]
-        OSEM["simrs-peripheral-osembed"]
-        QEMU["simrs-qemu"]
-    end
-
-    subgraph L7["Layer 7: Fuzzing"]
-        SNAP["<a href='docs/architecture.md#simrs-snapshot'>simrs-snapshot</a>"]
-        HLE["<a href='docs/architecture.md#simrs-hle'>simrs-hle</a>"]
-        FUZZ["<a href='docs/architecture.md#simrs-fuzz'>simrs-fuzz</a>"]
-    end
-
-    MIL --> RIJ
-    FS --> ISO & BER
-    PIN --> ISO
-    PRO --> ISO & BER
-    GSM --> ISO & C128 & FS & PIN
-    USIM --> ISO & BER & MIL & FS & PIN & PRO
-    SIM --> ISO & FS & PIN
-    SIM -.->|gsm| GSM
-    SIM -.->|usim| USIM
-    TCP --> TR & ISO
-    SHM --> TR & ISO
-    VIO --> TR & ISO
-    PERI --> ISO
-    SHAN --> PERI & VIO & ISO
-    OSEM --> PERI & ISO
-    QEMU --> SIM & SHM
-    SNAP --> SIM
-    HLE --> SIM & SNAP & ISO
-    FUZZ --> HLE & SNAP & ISO
-
-    classDef foundation fill:#e8f0fe,stroke:#4285f4
-    classDef crypto fill:#e6f4ea,stroke:#34a853
-    classDef app fill:#fef7e0,stroke:#fbbc04
-    classDef orch fill:#fce8e6,stroke:#ea4335
-    classDef transport fill:#f3e8fd,stroke:#9334e6
-    classDef periph fill:#e0f7fa,stroke:#00acc1
-    classDef fuzz fill:#fce4ec,stroke:#e91e63
-
-    class ISO,BER,RIJ,C128 foundation
-    class MIL,FS,PIN crypto
-    class PRO,GSM,USIM app
-    class SIM orch
-    class TR,TCP,SHM,VIO transport
-    class PERI,SHAN,OSEM,QEMU periph
-    class SNAP,HLE,FUZZ fuzz
-```
 
 ## Standards Coverage
 
@@ -183,4 +161,5 @@ graph TD
 
 ## Further Reading
 
-- **[Architecture & API Reference](docs/architecture.md)** -- full public API surface for every crate, with Mermaid sequence diagrams for APDU processing, UMTS authentication, and snapshot fuzzing flows.
+- **[Architecture & API Reference](docs/architecture.md)** -- full public API surface, Mermaid sequence diagrams
+- **[Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md)** -- Okabe-Ito palette, semantic colour mapping, WCAG compliance

@@ -19,11 +19,13 @@ cargo clippy --workspace
 
 ## Workspace
 
-22 crates across 7 layers -- from AES-128 primitives up to a snapshot fuzzer harness.
+22 crates across 5 semantic layers -- from AES-128 primitives up to a snapshot fuzzer harness.
 
-See **[INDEX.md](INDEX.md)** for the full crate map, dependency graph, and standards coverage.
-
-See **[docs/architecture.md](docs/architecture.md)** for detailed API surface and data flow diagrams.
+| Doc | Contents |
+|-----|----------|
+| **[INDEX.md](INDEX.md)** | Crate map, dependency graph, standards coverage |
+| **[docs/architecture.md](docs/architecture.md)** | API surface, data flow diagrams |
+| **[docs/DIAGRAM_STYLE_GUIDE.md](docs/DIAGRAM_STYLE_GUIDE.md)** | Okabe-Ito colour palette, WCAG AA compliance |
 
 ## Design
 
