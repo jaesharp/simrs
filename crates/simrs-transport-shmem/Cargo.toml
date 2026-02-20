@@ -1,0 +1,19 @@
+[package]
+name        = "simrs-transport-shmem"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared-memory SIM transport -- no_std + platform"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-transport = { workspace = true }
+simrs-iso7816   = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

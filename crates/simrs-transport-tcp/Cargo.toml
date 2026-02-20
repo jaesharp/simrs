@@ -1,0 +1,19 @@
+[package]
+name        = "simrs-transport-tcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "TCP transport for swICC PC/SC server -- std"
+
+# Always requires std (uses std::net)
+[features]
+default = []
+
+[dependencies]
+simrs-transport = { workspace = true }
+simrs-iso7816   = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

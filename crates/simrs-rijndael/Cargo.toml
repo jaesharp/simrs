@@ -1,0 +1,18 @@
+[package]
+name        = "simrs-rijndael"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AES-128 (Rijndael) block cipher per NIST FIPS 197 -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

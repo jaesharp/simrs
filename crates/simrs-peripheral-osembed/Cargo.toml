@@ -1,0 +1,18 @@
+[package]
+name        = "simrs-peripheral-osembed"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Linux/Android OS-embedded SIM peripheral (ioctl interface) -- std"
+
+[features]
+default = []
+
+[dependencies]
+simrs-peripheral = { workspace = true }
+simrs-iso7816    = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

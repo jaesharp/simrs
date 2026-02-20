@@ -1,0 +1,23 @@
+[package]
+name        = "simrs-fuzz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "APDU-aware fuzzer harness -- corpus management, coverage, injection -- std"
+
+[[bin]]
+name = "simrs-fuzz"
+path = "src/main.rs"
+
+[features]
+default = []
+
+[dependencies]
+simrs-hle      = { workspace = true }
+simrs-snapshot = { workspace = true }
+simrs-iso7816  = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

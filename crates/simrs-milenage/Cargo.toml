@@ -1,0 +1,19 @@
+[package]
+name        = "simrs-milenage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Milenage (f1-f5) UMTS authentication per ETSI TS 135 206 -- no_std"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-rijndael = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

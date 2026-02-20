@@ -1,0 +1,22 @@
+[package]
+name        = "simrs-gsm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GSM 11.11 SIM application layer (A3/A8, SELECT response) -- no_std"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-iso7816 = { workspace = true }
+simrs-comp128 = { workspace = true }
+simrs-fs      = { workspace = true }
+simrs-pin     = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

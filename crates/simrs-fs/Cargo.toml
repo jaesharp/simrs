@@ -1,0 +1,21 @@
+[package]
+name        = "simrs-fs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ICC filesystem model (MF/DF/ADF/EF) per ETSI TS 102 221 -- no_std"
+
+[features]
+default = []
+std     = []
+alloc   = []
+
+[dependencies]
+simrs-iso7816 = { workspace = true }
+simrs-bertlv  = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

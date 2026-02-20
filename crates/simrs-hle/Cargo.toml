@@ -1,0 +1,23 @@
+[package]
+name        = "simrs-hle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HLE SIM peripheral for QEMU -- C-ABI exports for APDU injection -- std"
+
+[lib]
+# Produce both rlib (for Rust consumers) and cdylib (for QEMU plugin loading)
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+
+[dependencies]
+simrs-sim      = { workspace = true, features = ["usim", "gsm"] }
+simrs-snapshot = { workspace = true }
+simrs-iso7816  = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,89 @@
+[workspace]
+members = [
+    "crates/simrs-iso7816",
+    "crates/simrs-bertlv",
+    "crates/simrs-rijndael",
+    "crates/simrs-comp128",
+    "crates/simrs-milenage",
+    "crates/simrs-fs",
+    "crates/simrs-pin",
+    "crates/simrs-proactive",
+    "crates/simrs-gsm",
+    "crates/simrs-usim",
+    "crates/simrs-sim",
+    "crates/simrs-transport",
+    "crates/simrs-transport-tcp",
+    "crates/simrs-transport-shmem",
+    "crates/simrs-transport-virtio",
+    "crates/simrs-qemu",
+    "crates/simrs-peripheral",
+    "crates/simrs-peripheral-shannon",
+    "crates/simrs-peripheral-osembed",
+    "crates/simrs-snapshot",
+    "crates/simrs-hle",
+    "crates/simrs-fuzz",
+]
+resolver = "2"
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+license      = "MIT OR Apache-2.0"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# Internal crates (path references keep versions in one place)
+simrs-iso7816             = { path = "crates/simrs-iso7816",             default-features = false }
+simrs-bertlv              = { path = "crates/simrs-bertlv",              default-features = false }
+simrs-rijndael            = { path = "crates/simrs-rijndael",            default-features = false }
+simrs-comp128             = { path = "crates/simrs-comp128",             default-features = false }
+simrs-milenage            = { path = "crates/simrs-milenage",            default-features = false }
+simrs-fs                  = { path = "crates/simrs-fs",                  default-features = false }
+simrs-pin                 = { path = "crates/simrs-pin",                 default-features = false }
+simrs-proactive           = { path = "crates/simrs-proactive",           default-features = false }
+simrs-gsm                 = { path = "crates/simrs-gsm",                 default-features = false }
+simrs-usim                = { path = "crates/simrs-usim",                default-features = false }
+simrs-sim                 = { path = "crates/simrs-sim",                 default-features = false }
+simrs-transport           = { path = "crates/simrs-transport",           default-features = false }
+simrs-transport-tcp       = { path = "crates/simrs-transport-tcp" }
+simrs-transport-shmem     = { path = "crates/simrs-transport-shmem",     default-features = false }
+simrs-transport-virtio    = { path = "crates/simrs-transport-virtio",    default-features = false }
+simrs-qemu                = { path = "crates/simrs-qemu" }
+simrs-peripheral          = { path = "crates/simrs-peripheral",          default-features = false }
+simrs-peripheral-shannon  = { path = "crates/simrs-peripheral-shannon",  default-features = false }
+simrs-peripheral-osembed  = { path = "crates/simrs-peripheral-osembed" }
+simrs-snapshot            = { path = "crates/simrs-snapshot",            default-features = false }
+simrs-hle                 = { path = "crates/simrs-hle" }
+simrs-fuzz                = { path = "crates/simrs-fuzz" }
+
+# External test/dev dependencies -- tests run on host (std always available)
+proptest = "1"
+
+[workspace.lints.rust]
+unsafe_code      = "forbid"
+missing_docs     = "warn"
+future_incompatible  = { level = "deny", priority = -1 }
+nonstandard_style    = { level = "deny", priority = -1 }
+
+[workspace.lints.clippy]
+pedantic         = { level = "warn", priority = -1 }
+nursery          = { level = "warn", priority = -1 }
+# Allow a few pedantic lints that are too noisy for this project
+must_use_candidate = "allow"
+module_name_repetitions = "allow"
+
+[profile.release]
+opt-level     = 3
+lto           = "fat"
+codegen-units = 1
+strip         = "debuginfo"
+
+[profile.embedded]
+inherits      = "release"
+opt-level     = "s"   # size optimized
+panic         = "abort"
+
+[profile.bench]
+opt-level     = 3
+lto           = "thin"
+debug         = true  # retain symbols for profiling

@@ -1,0 +1,18 @@
+[package]
+name        = "simrs-comp128"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "COMP128v1 (A3/A8) GSM authentication algorithm -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

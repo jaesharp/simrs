@@ -1,0 +1,14 @@
+[build]
+# Default: host target for development.  Override with CARGO_BUILD_TARGET or --target.
+# Embedded cross-compile targets (examples):
+#   armv7a-none-eabi          -- Shannon (ARM Cortex-A, bare metal)
+#   thumbv7em-none-eabihf     -- ARM Cortex-M with FPU
+#   aarch64-unknown-none      -- AArch64 bare metal
+
+[alias]
+xt = "nextest run"
+xtc = "nextest run --cargo-profile ci"
+
+[profile.ci]
+inherits = "test"
+# nextest CI profile: faster, abort on first failure handled by nextest

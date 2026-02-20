@@ -1,0 +1,25 @@
+[package]
+name        = "simrs-usim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "3GPP USIM application layer (Milenage auth, FCP, TERMINAL PROFILE) -- no_std"
+
+[features]
+default = []
+std     = []
+alloc   = []
+
+[dependencies]
+simrs-iso7816   = { workspace = true }
+simrs-bertlv    = { workspace = true }
+simrs-milenage  = { workspace = true }
+simrs-fs        = { workspace = true }
+simrs-pin       = { workspace = true }
+simrs-proactive = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

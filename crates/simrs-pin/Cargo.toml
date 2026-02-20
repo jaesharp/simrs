@@ -1,0 +1,19 @@
+[package]
+name        = "simrs-pin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PIN/PUK management state machine per ETSI TS 102 221 -- no_std"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-iso7816 = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

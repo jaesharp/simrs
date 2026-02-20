@@ -1,0 +1,18 @@
+[package]
+name        = "simrs-peripheral"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SIM hardware slot abstraction trait -- no_std"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-iso7816 = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

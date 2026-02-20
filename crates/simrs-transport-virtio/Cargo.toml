@@ -1,0 +1,19 @@
+[package]
+name        = "simrs-transport-virtio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "VirtIO smart card transport -- no_std, virtqueue-based"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-transport = { workspace = true }
+simrs-iso7816   = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

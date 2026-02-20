@@ -1,0 +1,20 @@
+[package]
+name        = "simrs-peripheral-shannon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Samsung Shannon baseband SIM interface (virtio control) -- no_std"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-peripheral       = { workspace = true }
+simrs-transport-virtio = { workspace = true }
+simrs-iso7816          = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

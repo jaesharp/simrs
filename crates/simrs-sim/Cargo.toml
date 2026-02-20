@@ -1,0 +1,26 @@
+[package]
+name        = "simrs-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Top-level SIM/USIM simulator -- state machine orchestrator -- no_std"
+
+[features]
+default = []
+std     = []
+alloc   = []
+gsm     = ["dep:simrs-gsm"]
+usim    = ["dep:simrs-usim"]
+
+[dependencies]
+simrs-iso7816 = { workspace = true }
+simrs-fs      = { workspace = true }
+simrs-pin     = { workspace = true }
+simrs-gsm     = { workspace = true, optional = true }
+simrs-usim    = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

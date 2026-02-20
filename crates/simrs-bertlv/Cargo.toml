@@ -1,0 +1,19 @@
+[package]
+name        = "simrs-bertlv"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BER-TLV encoding/decoding per ETSI TS 101 220 -- no_std"
+
+[features]
+default = []
+std     = []
+alloc   = []
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

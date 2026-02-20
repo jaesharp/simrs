@@ -1,0 +1,20 @@
+[package]
+name        = "simrs-snapshot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Deterministic SIM state serialization for snapshot fuzzing -- no_std"
+
+[features]
+default = []
+std     = []
+alloc   = []
+
+[dependencies]
+simrs-sim = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
