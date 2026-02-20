@@ -14,7 +14,6 @@ default = []
 
 [dependencies]
 simrs-sim      = { workspace = true, features = ["usim", "gsm"] }
-simrs-snapshot = { workspace = true }
 simrs-fs       = { workspace = true }
 simrs-milenage = { workspace = true }
 simrs-gsm      = { workspace = true }

@@ -173,7 +173,11 @@ impl GsmApp {
         off += 16;
         self.rsp_queue.copy_from_slice(&buf[off..off + RSP_QUEUE_CAP]);
         off += RSP_QUEUE_CAP;
-        self.rsp_queue_len = buf[off];
+        let queue_len = buf[off];
+        if queue_len as usize > RSP_QUEUE_CAP {
+            return false;
+        }
+        self.rsp_queue_len = queue_len;
         true
     }
 
@@ -1121,6 +1125,17 @@ mod tests {
 
         let mut dst = app();
         assert!(!dst.restore_state(&small, &[]));
+    }
+
+    #[test]
+    fn snapshot_restore_oversized_rsp_queue_len_returns_false() {
+        let src = app();
+        let mut snap = [0u8; GsmApp::SNAPSHOT_SIZE];
+        src.save_state(&mut snap);
+        // rsp_queue_len is the last byte of the snapshot.
+        *snap.last_mut().unwrap() = u8::MAX;
+        let mut dst = app();
+        assert!(!dst.restore_state(&snap, &[]));
     }
 }
 

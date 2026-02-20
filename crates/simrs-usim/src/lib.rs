@@ -192,7 +192,11 @@ impl UsimApp {
         off += ProactiveState::SNAPSHOT_SIZE;
         self.rsp_queue.copy_from_slice(&buf[off..off + RSP_QUEUE_CAP]);
         off += RSP_QUEUE_CAP;
-        self.rsp_queue_len = buf[off];
+        let queue_len = buf[off];
+        if queue_len as usize > RSP_QUEUE_CAP {
+            return false;
+        }
+        self.rsp_queue_len = queue_len;
         true
     }
 
@@ -1512,6 +1516,18 @@ mod tests {
         let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&small));
+    }
+
+    #[test]
+    fn snapshot_restore_oversized_rsp_queue_len_returns_false() {
+        let src = app();
+        let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
+        src.save_state(&mut snap);
+        // rsp_queue_len is the last byte of the snapshot.
+        *snap.last_mut().unwrap() = u8::MAX;
+        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
+        assert!(!dst.restore_state(&snap));
     }
 
     // -- Navigation round-trip --

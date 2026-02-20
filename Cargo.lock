@@ -403,7 +403,6 @@ dependencies = [
  "simrs-fs",
  "simrs-hle",
  "simrs-sim",
- "simrs-snapshot",
 ]
 
 [[package]]
@@ -426,7 +425,6 @@ dependencies = [
  "simrs-milenage",
  "simrs-pin",
  "simrs-sim",
- "simrs-snapshot",
  "simrs-usim",
 ]
 

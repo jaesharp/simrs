@@ -370,6 +370,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
         off += 1;
         #[cfg(feature = "gsm")]
         {
+            // GSM 11.11 has no Application DFs; pass empty ADF table.
             if !self.gsm.restore_state(&buf[off..], &[]) {
                 return false;
             }
@@ -388,8 +389,12 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
 
     /// Compute an FNV-1a hash of the serialized state for deduplication.
     pub fn state_hash(&self) -> u64 {
+        // SNAPSHOT_SIZE does not depend on RSP_CAP but the compiler cannot
+        // prove that for generic const parameters, so use a concrete upper
+        // bound and assert at runtime.
         let mut buf = [0u8; 1024];
         let n = self.save_state(&mut buf);
+        debug_assert_eq!(n, Self::SNAPSHOT_SIZE, "save_state wrote unexpected size");
         fnv1a(&buf[..n])
     }
 

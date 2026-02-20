@@ -125,6 +125,16 @@ pub const fn hle_snapshot_size() -> usize {
     Sim::<256>::SNAPSHOT_SIZE
 }
 
+/// Compute an FNV-1a deduplication hash of the current SIM state.
+///
+/// Returns 0 if the SIM is not initialized.
+pub fn hle_state_hash() -> u64 {
+    SIM.with(|cell| {
+        let borrow = cell.borrow();
+        borrow.as_ref().map_or(0, simrs_sim::Sim::state_hash)
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

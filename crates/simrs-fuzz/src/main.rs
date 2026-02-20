@@ -6,7 +6,7 @@
 //! Configurable via `SIMRS_FUZZ_ITERS` env var (default 100,000).
 
 use simrs_fs::{DfDef, EfDef, EfStructure, FileRef};
-use simrs_hle::{hle_apdu, hle_init, hle_reset, hle_snapshot_restore, hle_snapshot_save};
+use simrs_hle::{hle_apdu, hle_init, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_state_hash};
 use simrs_sim::Sim;
 use std::collections::HashSet;
 
@@ -278,12 +278,10 @@ fn main() {
             combined_hash = combined_hash.wrapping_add(fnv1a(&apdu_buf[..apdu_len]));
         }
 
-        // Collect state hash after the sequence.
-        let mut state_buf = vec![0u8; snap_size];
-        let state_n = hle_snapshot_save(&mut state_buf);
-        if state_n > 0 {
-            let state_hash = fnv1a(&state_buf[..state_n]);
-            corpus.is_new(state_hash);
+        // Collect state hash after the sequence, combined with APDU path hash.
+        let state_hash = hle_state_hash();
+        if state_hash != 0 {
+            corpus.is_new(state_hash.wrapping_add(combined_hash));
         }
     }
 
@@ -380,10 +378,9 @@ mod tests {
         for seq in sequences {
             hle_snapshot_restore(&snapshot[..n]);
             let _ = hle_apdu(seq, &mut rsp_buf);
-            let mut state_buf = vec![0u8; snap_size];
-            let state_n = hle_snapshot_save(&mut state_buf);
-            if state_n > 0 {
-                corpus.is_new(fnv1a(&state_buf[..state_n]));
+            let h = hle_state_hash();
+            if h != 0 {
+                corpus.is_new(h);
             }
         }
 
@@ -394,10 +391,9 @@ mod tests {
             hle_snapshot_restore(&snapshot[..n]);
             let apdu_len = generate_apdu(&mut rng, &mut apdu_buf);
             let _ = hle_apdu(&apdu_buf[..apdu_len], &mut rsp_buf);
-            let mut state_buf = vec![0u8; snap_size];
-            let state_n = hle_snapshot_save(&mut state_buf);
-            if state_n > 0 {
-                corpus.is_new(fnv1a(&state_buf[..state_n]));
+            let h = hle_state_hash();
+            if h != 0 {
+                corpus.is_new(h);
             }
         }
         // Known sequences guarantee at least 2 distinct states (base + selected file).
