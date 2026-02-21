@@ -208,6 +208,15 @@ pub enum MilenageError {
     },
 }
 
+impl core::fmt::Display for MilenageError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::MacFailure => f.write_str("MAC failure"),
+            Self::SyncFailure { .. } => f.write_str("SQN out of range"),
+        }
+    }
+}
+
 /// Parameter validation error.
 ///
 /// Per ETSI TS 135 206 V17.0.0 clause 5.3, all (c_i, r_i) pairs must be distinct.
@@ -222,15 +231,76 @@ pub enum ParamError {
     },
 }
 
+impl core::fmt::Display for ParamError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::DuplicateCiRi { first, second } => {
+                write!(f, "duplicate (Ci, Ri) constant pair at indices {first} and {second}")
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot cursor helpers
+// ---------------------------------------------------------------------------
+
+pub(crate) struct SnapWriter<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> SnapWriter<'a> {
+    pub(crate) const fn new(buf: &'a mut [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+    pub(crate) fn put_bytes(&mut self, src: &[u8]) {
+        self.buf[self.pos..self.pos + src.len()].copy_from_slice(src);
+        self.pos += src.len();
+    }
+    pub(crate) const fn finish(self) -> usize {
+        self.pos
+    }
+}
+
+pub(crate) struct SnapReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> SnapReader<'a> {
+    pub(crate) const fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+    pub(crate) fn get_bytes(&mut self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.buf[self.pos..self.pos + dst.len()]);
+        self.pos += dst.len();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Const-compatible equality check for two 16-byte arrays.
+const fn const_eq16(a: &[u8; 16], b: &[u8; 16]) -> bool {
+    let mut i = 0;
+    while i < 16 {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
 /// XOR two 16-byte blocks: `out = a XOR b`.
-fn xor128(a: &[u8; 16], b: &[u8; 16]) -> [u8; 16] {
+const fn xor128(a: &[u8; 16], b: &[u8; 16]) -> [u8; 16] {
     let mut out = [0u8; 16];
-    for i in 0..16 {
+    let mut i = 0;
+    while i < 16 {
         out[i] = a[i] ^ b[i];
+        i += 1;
     }
     out
 }
@@ -253,7 +323,7 @@ fn rotl128(input: &[u8; 16], r: u8) -> [u8; 16] {
 }
 
 /// Compute OPc from OP: `OPc = E_K[OP] XOR OP`.
-fn compute_opc(aes: &Rijndael, op: &[u8; 16]) -> [u8; 16] {
+const fn compute_opc(aes: &Rijndael, op: &[u8; 16]) -> [u8; 16] {
     xor128(&aes.encrypt(op), op)
 }
 
@@ -295,7 +365,7 @@ impl MilenageParams {
     /// let p = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
     /// // Default params always succeed (no duplicate ci/ri pairs)
     /// ```
-    pub fn with_defaults(k: [u8; 16], op: OpVariant) -> Self {
+    pub const fn with_defaults(k: [u8; 16], op: OpVariant) -> Self {
         // Default constants are guaranteed distinct, so unwrap is safe.
         // But we don't call new() to avoid the O(n^2) check for a known-good set.
         let aes = Rijndael::new(&k);
@@ -338,22 +408,28 @@ impl MilenageParams {
     /// let err = MilenageParams::new([0u8; 16], OpVariant::Opc([0u8; 16]), ci_dup, ri_dup);
     /// assert!(matches!(err, Err(ParamError::DuplicateCiRi { first: 0, second: 1 })));
     /// ```
-    pub fn new(
+    pub const fn new(
         k: [u8; 16],
         op: OpVariant,
         ci: [[u8; 16]; 5],
         ri: [u8; 5],
     ) -> Result<Self, ParamError> {
         // Check all (ci, ri) pairs are distinct per TS 135 206 clause 5.3.
-        for i in 0..5u8 {
-            for j in (i + 1)..5 {
-                if ri[i as usize] == ri[j as usize] && ci[i as usize] == ci[j as usize] {
+        let mut i = 0u8;
+        while i < 5 {
+            let mut j = i + 1;
+            while j < 5 {
+                if ri[i as usize] == ri[j as usize]
+                    && const_eq16(&ci[i as usize], &ci[j as usize])
+                {
                     return Err(ParamError::DuplicateCiRi {
                         first: i,
                         second: j,
                     });
                 }
+                j += 1;
             }
+            i += 1;
         }
 
         let aes = Rijndael::new(&k);
@@ -538,7 +614,7 @@ impl MilenageParams {
     // -- Internal computation --
 
     /// Compute TEMP = E_K[RAND XOR OPc] (shared by all functions).
-    fn compute_temp(&self, rand: &[u8; 16]) -> [u8; 16] {
+    const fn compute_temp(&self, rand: &[u8; 16]) -> [u8; 16] {
         let aes = Rijndael::new(&self.k);
         aes.encrypt(&xor128(rand, &self.opc))
     }
@@ -605,40 +681,36 @@ impl MilenageParams {
     /// Serialize the Milenage parameters into `buf` as flat bytes.
     ///
     /// Returns the number of bytes written, or 0 if `buf` is too small.
+    #[must_use]
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return 0;
         }
-        let mut off = 0;
-        buf[off..off + 16].copy_from_slice(&self.k);
-        off += 16;
-        buf[off..off + 16].copy_from_slice(&self.opc);
-        off += 16;
+        let mut w = SnapWriter::new(buf);
+        w.put_bytes(&self.k);
+        w.put_bytes(&self.opc);
         for c in &self.ci {
-            buf[off..off + 16].copy_from_slice(c);
-            off += 16;
+            w.put_bytes(c);
         }
-        buf[off..off + 5].copy_from_slice(&self.ri);
-        Self::SNAPSHOT_SIZE
+        w.put_bytes(&self.ri);
+        w.finish()
     }
 
     /// Restore the Milenage parameters from `buf`.
     ///
     /// Returns `true` on success.
+    #[must_use]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return false;
         }
-        let mut off = 0;
-        self.k.copy_from_slice(&buf[off..off + 16]);
-        off += 16;
-        self.opc.copy_from_slice(&buf[off..off + 16]);
-        off += 16;
+        let mut r = SnapReader::new(buf);
+        r.get_bytes(&mut self.k);
+        r.get_bytes(&mut self.opc);
         for c in &mut self.ci {
-            c.copy_from_slice(&buf[off..off + 16]);
-            off += 16;
+            r.get_bytes(c);
         }
-        self.ri.copy_from_slice(&buf[off..off + 5]);
+        r.get_bytes(&mut self.ri);
         true
     }
 }

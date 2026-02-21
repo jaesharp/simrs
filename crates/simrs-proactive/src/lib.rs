@@ -288,6 +288,14 @@ pub enum ProactiveError {
     BufferTooSmall,
 }
 
+impl core::fmt::Display for ProactiveError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferTooSmall => f.write_str("buffer too small"),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Encoding
 // ---------------------------------------------------------------------------
@@ -483,6 +491,60 @@ impl ProactiveCommand<'_> {
 }
 
 // ---------------------------------------------------------------------------
+// Snapshot cursor helpers
+// ---------------------------------------------------------------------------
+
+pub(crate) struct SnapWriter<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> SnapWriter<'a> {
+    pub(crate) const fn new(buf: &'a mut [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+    pub(crate) fn put_u8(&mut self, v: u8) {
+        self.buf[self.pos] = v;
+        self.pos += 1;
+    }
+    pub(crate) fn put_bytes(&mut self, src: &[u8]) {
+        self.buf[self.pos..self.pos + src.len()].copy_from_slice(src);
+        self.pos += src.len();
+    }
+    pub(crate) fn put_u16_le(&mut self, v: u16) {
+        self.put_bytes(&v.to_le_bytes());
+    }
+    pub(crate) const fn finish(self) -> usize {
+        self.pos
+    }
+}
+
+pub(crate) struct SnapReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> SnapReader<'a> {
+    pub(crate) const fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+    pub(crate) fn get_u8(&mut self) -> u8 {
+        let v = self.buf[self.pos];
+        self.pos += 1;
+        v
+    }
+    pub(crate) fn get_bytes(&mut self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.buf[self.pos..self.pos + dst.len()]);
+        self.pos += dst.len();
+    }
+    pub(crate) fn get_u16_le(&mut self) -> u16 {
+        let b = [self.buf[self.pos], self.buf[self.pos + 1]];
+        self.pos += 2;
+        u16::from_le_bytes(b)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ProactiveState
 // ---------------------------------------------------------------------------
 
@@ -646,28 +708,31 @@ impl ProactiveState {
     /// Serialize the proactive state into `buf` as flat bytes.
     ///
     /// Returns the number of bytes written, or 0 if `buf` is too small.
+    #[must_use]
     #[allow(clippy::cast_possible_truncation)] // self.len capped at 256
     pub fn save_state(&self, out: &mut [u8]) -> usize {
         if out.len() < Self::SNAPSHOT_SIZE {
             return 0;
         }
-        out[..256].copy_from_slice(&self.buf);
-        let len_u16 = self.len as u16;
-        out[256..258].copy_from_slice(&len_u16.to_le_bytes());
-        out[258] = self.seq;
-        Self::SNAPSHOT_SIZE
+        let mut w = SnapWriter::new(out);
+        w.put_bytes(&self.buf);
+        w.put_u16_le(self.len as u16);
+        w.put_u8(self.seq);
+        w.finish()
     }
 
     /// Restore the proactive state from `data`.
     ///
     /// Returns `true` on success.
+    #[must_use]
     pub fn restore_state(&mut self, data: &[u8]) -> bool {
         if data.len() < Self::SNAPSHOT_SIZE {
             return false;
         }
-        self.buf.copy_from_slice(&data[..256]);
-        self.len = u16::from_le_bytes([data[256], data[257]]) as usize;
-        self.seq = data[258];
+        let mut r = SnapReader::new(data);
+        r.get_bytes(&mut self.buf);
+        self.len = r.get_u16_le() as usize;
+        self.seq = r.get_u8();
         if self.len > 256 {
             self.len = 0;
             return false;
@@ -1278,7 +1343,7 @@ mod tests {
     fn snapshot_roundtrip_empty_state() {
         let state = ProactiveState::new();
         let mut snap = [0u8; ProactiveState::SNAPSHOT_SIZE];
-        state.save_state(&mut snap);
+        let _ = state.save_state(&mut snap);
 
         let mut restored = ProactiveState::new();
         assert!(restored.restore_state(&snap));

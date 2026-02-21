@@ -29,9 +29,9 @@
 //!
 //! ```
 //! use simrs_sim::{Sim, SimEvent, SimResponse};
-//! use simrs_fs::DfDef;
+//! use simrs_fs::{DfDef, Fid};
 //!
-//! static MF: DfDef = DfDef { fid: 0x3F00, children: &[] };
+//! static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[] };
 //! static ATR: [u8; 2] = [0x3B, 0x00];
 //!
 //! let mut sim = Sim::<256>::new(&ATR, &MF);
@@ -56,7 +56,7 @@
 use simrs_fs::DfDef;
 #[cfg(feature = "gsm")]
 use simrs_gsm::GsmApp;
-use simrs_iso7816::{Command, StatusWord};
+use simrs_iso7816::{Command, StatusWord, write_sw};
 #[cfg(feature = "usim")]
 use simrs_usim::UsimApp;
 
@@ -98,6 +98,7 @@ pub enum SimEvent<'a> {
 
 /// A response produced by the SIM card.
 #[derive(Debug)]
+#[must_use]
 pub enum SimResponse<'a> {
     /// Answer To Reset bytes.
     Atr(&'a [u8]),
@@ -180,7 +181,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
     ///
     /// The COMP128 Ki is zero-initialized. Use [`gsm_app_mut`](Self::gsm_app_mut)
     /// to replace the `GsmApp` with properly configured credentials
-    /// (e.g. `*sim.gsm_app_mut() = GsmApp::new(mf, ki)`).
+    /// (e.g. `*sim.gsm_app_mut() = GsmApp::new(mf, Ki(ki))`).
     ///
     /// Configure PINs via `sim.gsm_app_mut().pin_manager().add_pin(...)`.
     #[cfg(all(feature = "gsm", not(feature = "usim")))]
@@ -189,7 +190,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
             atr,
             state: CardState::Off,
             rsp_buf: [0u8; RSP_CAP],
-            gsm: GsmApp::new(mf, [0u8; 16]),
+            gsm: GsmApp::new(mf, simrs_gsm::Ki([0u8; 16])),
         }
     }
 
@@ -201,7 +202,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
     ///
     /// Configure PINs via `sim.usim_app_mut().pin_manager().add_pin(...)`.
     #[cfg(all(feature = "usim", not(feature = "gsm")))]
-    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
+    pub const fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
         Self {
             atr,
             state: CardState::Off,
@@ -224,12 +225,12 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
     /// [`usim_app_mut`](Self::usim_app_mut) to replace the app layers with
     /// properly configured credentials before activating the card.
     #[cfg(all(feature = "gsm", feature = "usim"))]
-    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
+    pub const fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
         Self {
             atr,
             state: CardState::Off,
             rsp_buf: [0u8; RSP_CAP],
-            gsm: GsmApp::new(mf, [0u8; 16]),
+            gsm: GsmApp::new(mf, simrs_gsm::Ki([0u8; 16])),
             usim: UsimApp::new(
                 mf,
                 &[],
@@ -247,7 +248,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
     ///
     /// Use this to replace the app with configured credentials:
     /// ```ignore
-    /// *sim.gsm_app_mut() = GsmApp::new(mf, ki);
+    /// *sim.gsm_app_mut() = GsmApp::new(mf, Ki(ki));
     /// sim.gsm_app_mut().pin_manager().add_pin(...);
     /// ```
     #[cfg(feature = "gsm")]
@@ -331,6 +332,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
     ///
     /// Returns the number of bytes written, or 0 if `buf` is too small.
     /// Static references (ATR, MF tree) and transient buffers are not serialized.
+    #[must_use]
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return 0;
@@ -357,6 +359,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
     ///
     /// Returns `true` on success. Static references (ATR, MF tree, ADF table)
     /// remain as set during construction.
+    #[must_use]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return false;
@@ -418,12 +421,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
             #[cfg(feature = "usim")]
             CLA_INTER | CLA_ETSI => self.usim.handle(&cmd, &mut self.rsp_buf),
 
-            _ => {
-                let sw = StatusWord::ClassNotSupported.to_bytes();
-                self.rsp_buf[0] = sw[0];
-                self.rsp_buf[1] = sw[1];
-                &self.rsp_buf[..2]
-            }
+            _ => write_sw(&mut self.rsp_buf, StatusWord::ClassNotSupported),
         };
 
         // Application layers always return [data..., SW1, SW2].
@@ -465,7 +463,7 @@ fn fnv1a(data: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_fs::{DfDef, EfDef, EfStructure, FileRef};
+    use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef};
 
     #[cfg(feature = "usim")]
     use simrs_fs::AdfSlot;
@@ -480,14 +478,14 @@ mod tests {
         [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
     static EF_ICCID: EfDef = EfDef {
-        fid: 0x2FE2,
+        fid: Fid(0x2FE2),
         sfi: None,
         structure: EfStructure::Transparent,
         data: &ICCID_DATA,
     };
 
     static MF: DfDef = DfDef {
-        fid: 0x3F00,
+        fid: Fid(0x3F00),
         children: &[FileRef::Ef(&EF_ICCID)],
     };
 
@@ -500,7 +498,7 @@ mod tests {
 
     #[cfg(feature = "usim")]
     static EF_IMSI: EfDef = EfDef {
-        fid: 0x6F07,
+        fid: Fid(0x6F07),
         sfi: None,
         structure: EfStructure::Transparent,
         data: &IMSI_DATA,
@@ -508,7 +506,7 @@ mod tests {
 
     #[cfg(feature = "usim")]
     static ADF_USIM_DF: DfDef = DfDef {
-        fid: 0x7FFF,
+        fid: Fid(0x7FFF),
         children: &[FileRef::Ef(&EF_IMSI)],
     };
 
@@ -531,10 +529,10 @@ mod tests {
         {
             use simrs_gsm::GsmApp;
             let gsm = sim.gsm_app_mut();
-            *gsm = GsmApp::new(&MF, [0x11u8; 16]);
+            *gsm = GsmApp::new(&MF, simrs_gsm::Ki([0x11u8; 16]));
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
             let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-            let _ = gsm.pin_manager().add_pin(PinKey(0x01), &pin, 3, &puk, 10, true);
+            let _ = gsm.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
         }
 
         #[cfg(feature = "usim")]
@@ -545,7 +543,7 @@ mod tests {
             *usim = UsimApp::new(&MF, &ADF_TABLE, mil);
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
             let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-            let _ = usim.pin_manager().add_pin(PinKey(0x01), &pin, 3, &puk, 10, true);
+            let _ = usim.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
         }
 
         sim
@@ -568,7 +566,7 @@ mod tests {
     #[test]
     fn reset_returns_atr() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Reset);
         match rsp {
             SimResponse::Atr(atr) => assert_eq!(atr, &ATR),
@@ -602,7 +600,7 @@ mod tests {
     #[test]
     fn short_apdu_returns_ignored() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00]));
         assert!(matches!(rsp, SimResponse::Ignored));
     }
@@ -610,7 +608,7 @@ mod tests {
     #[test]
     fn empty_apdu_returns_ignored() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(&[]));
         assert!(matches!(rsp, SimResponse::Ignored));
     }
@@ -623,7 +621,7 @@ mod tests {
     #[test]
     fn cla_a0_routes_to_gsm() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]));
         match rsp {
             SimResponse::Apdu { sw1, .. } => {
@@ -637,7 +635,7 @@ mod tests {
     #[test]
     fn gsm_select_get_response_round_trip() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
 
         // SELECT MF
         let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]));
@@ -670,7 +668,7 @@ mod tests {
     #[test]
     fn cla_00_routes_to_usim() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
         match rsp {
             SimResponse::Apdu { sw1, .. } => {
@@ -684,7 +682,7 @@ mod tests {
     #[test]
     fn cla_80_routes_to_usim_for_cat() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(
             &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF],
         ));
@@ -704,7 +702,7 @@ mod tests {
         use simrs_proactive::{ProactiveCommand, TextCoding};
 
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
 
         // Queue a proactive DISPLAY TEXT command.
         sim.usim_app_mut()
@@ -732,7 +730,7 @@ mod tests {
     #[test]
     fn usim_select_get_response_round_trip() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
 
         // SELECT MF
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
@@ -761,7 +759,7 @@ mod tests {
     #[test]
     fn unsupported_cla_returns_6e_00() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(&[0xF0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]));
         match rsp {
             SimResponse::Apdu { sw1, sw2, data } => {
@@ -775,7 +773,7 @@ mod tests {
     #[test]
     fn unknown_ins_returns_6d_00() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
 
         #[cfg(feature = "usim")]
         let apdu = [0x00u8, 0xFF, 0x00, 0x00];
@@ -804,10 +802,10 @@ mod tests {
     #[test]
     fn apdu_response_contains_data_and_sw() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
 
         // SELECT MF + GET RESPONSE
-        sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
+        let _ = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xC0, 0x00, 0x00, 0x40]));
         match rsp {
             SimResponse::Apdu { data, sw1, sw2 } => {
@@ -821,7 +819,7 @@ mod tests {
     #[test]
     fn error_response_has_empty_data() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(&[0xF0, 0xA4, 0x00, 0x00]));
         match rsp {
             SimResponse::Apdu { data, sw1, sw2 } => {
@@ -848,7 +846,7 @@ mod tests {
     #[test]
     fn reset_allows_pin_reverification() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
 
         // Verify PIN via GSM (correct PIN -> 90 00)
         let rsp = sim.process(SimEvent::Apdu(
@@ -860,7 +858,7 @@ mod tests {
         }
 
         // Reset
-        sim.process(SimEvent::Reset);
+        let _ = sim.process(SimEvent::Reset);
 
         // After reset, re-verify with correct PIN succeeds (counter is intact).
         let rsp = sim.process(SimEvent::Apdu(
@@ -921,7 +919,7 @@ mod tests {
     #[test]
     fn snapshot_roundtrip_preserves_card_state() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
 
         let mut snap = [0u8; 1024];
         let n = sim.save_state(&mut snap);
@@ -949,7 +947,7 @@ mod tests {
         assert_eq!(n, Sim::<256>::SNAPSHOT_SIZE);
 
         let mut restored = make_sim();
-        restored.process(SimEvent::PowerOn); // make it Ready
+        let _ = restored.process(SimEvent::PowerOn); // make it Ready
         assert!(restored.restore_state(&snap[..n]));
 
         // After restore, card should be Off -> APDU ignored.
@@ -979,7 +977,7 @@ mod tests {
     fn state_hash_changes_on_state_change() {
         let mut sim = make_sim();
         let h1 = sim.state_hash();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let h2 = sim.state_hash();
         assert_ne!(h1, h2, "hash should differ after PowerOn");
     }
@@ -1006,7 +1004,7 @@ mod tests {
         #[test]
         fn process_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..300)) {
             let mut sim = make_sim();
-            sim.process(SimEvent::PowerOn);
+            let _ = sim.process(SimEvent::PowerOn);
             let _ = sim.process(SimEvent::Apdu(&bytes));
         }
 
@@ -1014,7 +1012,7 @@ mod tests {
         fn short_apdu_always_ignored(len in 0usize..4) {
             let bytes = [0x00u8; 3];
             let mut sim = make_sim();
-            sim.process(SimEvent::PowerOn);
+            let _ = sim.process(SimEvent::PowerOn);
             let rsp = sim.process(SimEvent::Apdu(&bytes[..len]));
             assert!(matches!(rsp, SimResponse::Ignored));
         }

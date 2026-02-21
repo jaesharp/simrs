@@ -268,6 +268,30 @@ impl StatusWord {
     }
 }
 
+impl core::fmt::Display for StatusWord {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let [sw1, sw2] = self.to_bytes();
+        match self {
+            Self::Success => write!(f, "{sw1:02X}{sw2:02X} ok"),
+            Self::BytesAvailable(n) => write!(f, "{sw1:02X}{sw2:02X} {n} bytes available"),
+            Self::PinRetries(n) => write!(f, "{sw1:02X}{sw2:02X} {n} PIN retries remaining"),
+            Self::WarningUnchanged(_) => write!(f, "{sw1:02X}{sw2:02X} warning, non-volatile memory unchanged"),
+            Self::WrongLength => write!(f, "{sw1:02X}{sw2:02X} wrong length"),
+            Self::ExactLength(n) => write!(f, "{sw1:02X}{sw2:02X} exact length {n}"),
+            Self::FunctionNotSupported(_) => write!(f, "{sw1:02X}{sw2:02X} function not supported"),
+            Self::CommandNotAllowed(_) => write!(f, "{sw1:02X}{sw2:02X} command not allowed"),
+            Self::WrongParams(_) => write!(f, "{sw1:02X}{sw2:02X} wrong parameters"),
+            Self::WrongP1P2 => write!(f, "{sw1:02X}{sw2:02X} wrong P1-P2"),
+            Self::InsNotSupported => write!(f, "{sw1:02X}{sw2:02X} instruction not supported"),
+            Self::ClassNotSupported => write!(f, "{sw1:02X}{sw2:02X} class not supported"),
+            Self::NoPreciseDiagnosis => write!(f, "{sw1:02X}{sw2:02X} no precise diagnosis"),
+            Self::ProactivePending(n) => write!(f, "{sw1:02X}{sw2:02X} proactive command pending, fetch {n}"),
+            Self::AuthenticationError => write!(f, "{sw1:02X}{sw2:02X} authentication error"),
+            Self::Other(_, _) => write!(f, "{sw1:02X}{sw2:02X}"),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CLA byte
 // ---------------------------------------------------------------------------
@@ -368,6 +392,15 @@ pub enum ApduError {
     TooShort,
     /// Lc indicates more data bytes than present.
     DataTruncated,
+}
+
+impl core::fmt::Display for ApduError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TooShort => f.write_str("APDU too short"),
+            Self::DataTruncated => f.write_str("Lc/data length mismatch"),
+        }
+    }
 }
 
 /// Parsed APDU command (borrowed from input buffer).
@@ -471,6 +504,242 @@ impl<'a> Command<'a> {
     pub const fn data(&self) -> &[u8] { self.data }
     /// Le (expected response length), if present.
     pub const fn le(&self) -> Option<u8> { self.le }
+}
+
+// ---------------------------------------------------------------------------
+// Response helpers
+// ---------------------------------------------------------------------------
+
+/// Write a [`StatusWord`] into `buf` and return a 2-byte slice.
+///
+/// Convenience for APDU response building: encodes `sw` at `buf[0..2]`
+/// and returns `&buf[..2]`.
+///
+/// # Panics
+///
+/// Panics if `buf.len() < 2`.
+///
+/// ```
+/// use simrs_iso7816::{write_sw, StatusWord};
+///
+/// let mut buf = [0u8; 2];
+/// let rsp = write_sw(&mut buf, StatusWord::Success);
+/// assert_eq!(rsp, &[0x90, 0x00]);
+/// ```
+pub fn write_sw(buf: &mut [u8], sw: StatusWord) -> &[u8] {
+    let [sw1, sw2] = sw.to_bytes();
+    write_sw_raw(buf, sw1, sw2)
+}
+
+/// Write raw SW1/SW2 bytes into `buf` and return a 2-byte slice.
+///
+/// # Panics
+///
+/// Panics if `buf.len() < 2`.
+///
+/// ```
+/// use simrs_iso7816::write_sw_raw;
+///
+/// let mut buf = [0u8; 2];
+/// let rsp = write_sw_raw(&mut buf, 0x6A, 0x82);
+/// assert_eq!(rsp, &[0x6A, 0x82]);
+/// ```
+pub fn write_sw_raw(buf: &mut [u8], sw1: u8, sw2: u8) -> &[u8] {
+    buf[0] = sw1;
+    buf[1] = sw2;
+    &buf[..2]
+}
+
+/// Copy `data` into `buf`, append a [`StatusWord`], and return the slice.
+///
+/// Returns `&buf[..data.len() + 2]`.
+///
+/// # Panics
+///
+/// Panics if `buf.len() < data.len() + 2`.
+///
+/// ```
+/// use simrs_iso7816::{write_data_sw, StatusWord};
+///
+/// let mut buf = [0u8; 16];
+/// let rsp = write_data_sw(&mut buf, &[0x01, 0x02], StatusWord::Success);
+/// assert_eq!(rsp, &[0x01, 0x02, 0x90, 0x00]);
+/// ```
+pub fn write_data_sw<'buf>(buf: &'buf mut [u8], data: &[u8], sw: StatusWord) -> &'buf [u8] {
+    let [sw1, sw2] = sw.to_bytes();
+    write_data_sw_raw(buf, data, sw1, sw2)
+}
+
+/// Copy `data` into `buf`, append raw SW1/SW2, and return the slice.
+///
+/// Returns `&buf[..data.len() + 2]`.
+///
+/// # Panics
+///
+/// Panics if `buf.len() < data.len() + 2`.
+///
+/// ```
+/// use simrs_iso7816::write_data_sw_raw;
+///
+/// let mut buf = [0u8; 16];
+/// let rsp = write_data_sw_raw(&mut buf, &[0xAA, 0xBB], 0x90, 0x00);
+/// assert_eq!(rsp, &[0xAA, 0xBB, 0x90, 0x00]);
+/// ```
+pub fn write_data_sw_raw<'buf>(buf: &'buf mut [u8], data: &[u8], sw1: u8, sw2: u8) -> &'buf [u8] {
+    let n = data.len();
+    buf[..n].copy_from_slice(data);
+    buf[n] = sw1;
+    buf[n + 1] = sw2;
+    &buf[..n + 2]
+}
+
+// ---------------------------------------------------------------------------
+// Response queue
+// ---------------------------------------------------------------------------
+
+/// Fixed-capacity response queue for GET RESPONSE buffering.
+///
+/// Both GSM and USIM application layers queue response data (SELECT FCP,
+/// AUTHENTICATE output, etc.) and deliver it via GET RESPONSE. This type
+/// captures that shared pattern.
+///
+/// `CAP` is the maximum response size in bytes (e.g. 23 for GSM, 64 for USIM).
+///
+/// # Example
+///
+/// ```
+/// use simrs_iso7816::ResponseQueue;
+///
+/// let mut q = ResponseQueue::<32>::new();
+/// assert!(q.is_empty());
+///
+/// q.queue(&[0x01, 0x02, 0x03]);
+/// assert!(!q.is_empty());
+/// assert_eq!(q.len(), 3);
+///
+/// let mut buf = [0u8; 64];
+/// let rsp = q.get_response(None, &mut buf);
+/// assert_eq!(rsp, &[0x01, 0x02, 0x03, 0x90, 0x00]);
+/// assert!(q.is_empty());
+/// ```
+#[derive(Debug, Clone)]
+pub struct ResponseQueue<const CAP: usize> {
+    buf: [u8; CAP],
+    len: u8,
+}
+
+impl<const CAP: usize> Default for ResponseQueue<CAP> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const CAP: usize> ResponseQueue<CAP> {
+    /// Create an empty response queue.
+    pub const fn new() -> Self {
+        Self {
+            buf: [0u8; CAP],
+            len: 0,
+        }
+    }
+
+    /// Queue response data. All bytes from `data` are stored (up to `CAP`).
+    #[allow(clippy::cast_possible_truncation)] // n is clamped to CAP which fits in u8
+    pub fn queue(&mut self, data: &[u8]) {
+        let n = data.len().min(CAP);
+        self.buf[..n].copy_from_slice(&data[..n]);
+        self.len = n as u8;
+    }
+
+    /// Queue response data from a mutable buffer reference.
+    ///
+    /// Sets the queue length to `n` (clamped to CAP). The caller must have
+    /// already written the data into [`buf_mut()`](Self::buf_mut).
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn set_len(&mut self, n: usize) {
+        self.len = n.min(CAP) as u8;
+    }
+
+    /// Direct access to the internal buffer for in-place response building.
+    pub const fn buf_mut(&mut self) -> &mut [u8; CAP] {
+        &mut self.buf
+    }
+
+    /// Clear the queued response.
+    pub const fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    /// Returns `true` if no response is queued.
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Number of queued response bytes.
+    pub const fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    /// Handle GET RESPONSE: copy queued data into `out`, append SW 90 00.
+    ///
+    /// Returns `&out[..n+2]` where `n` is the number of data bytes copied.
+    /// The `le` parameter controls how many bytes the terminal expects;
+    /// `None` or `Some(0)` means "all available". Clears the queue after
+    /// retrieval.
+    ///
+    /// If the queue is empty, returns `6F 00` (no precise diagnosis).
+    /// If P1/P2 validation is needed, the caller should check before calling.
+    pub fn get_response<'buf>(&mut self, le: Option<u8>, out: &'buf mut [u8]) -> &'buf [u8] {
+        let len = self.len as usize;
+        if len == 0 {
+            return write_sw(out, StatusWord::NoPreciseDiagnosis);
+        }
+        let le = le.unwrap_or(0) as usize;
+        let n = if le == 0 { len } else { le.min(len) };
+        if out.len() < n + 2 {
+            return write_sw(out, StatusWord::NoPreciseDiagnosis);
+        }
+        out[..n].copy_from_slice(&self.buf[..n]);
+        out[n] = 0x90;
+        out[n + 1] = 0x00;
+        self.len = 0;
+        &out[..n + 2]
+    }
+
+    // -- snapshot --
+
+    /// Snapshot buffer size: `CAP` bytes for data + 1 byte for length.
+    pub const SNAPSHOT_SIZE: usize = CAP + 1;
+
+    /// Serialize the queue state into `buf`.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    #[must_use]
+    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        buf[..CAP].copy_from_slice(&self.buf);
+        buf[CAP] = self.len;
+        Self::SNAPSHOT_SIZE
+    }
+
+    /// Restore the queue state from `buf`.
+    ///
+    /// Returns `false` if `buf` is too small or contains an invalid length.
+    #[must_use]
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        self.buf.copy_from_slice(&buf[..CAP]);
+        let queue_len = buf[CAP];
+        if queue_len as usize > CAP {
+            return false;
+        }
+        self.len = queue_len;
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -641,5 +910,134 @@ mod tests {
         assert_eq!(ins::TERMINAL_PROFILE, 0x10);
         assert_eq!(ins::FETCH, 0x12);
         assert_eq!(ins::ENVELOPE, 0xC2);
+    }
+
+    // -- write_sw helpers --
+
+    #[test]
+    fn write_sw_success() {
+        let mut buf = [0u8; 4];
+        let rsp = write_sw(&mut buf, StatusWord::Success);
+        assert_eq!(rsp, &[0x90, 0x00]);
+    }
+
+    #[test]
+    fn write_sw_raw_custom() {
+        let mut buf = [0u8; 4];
+        let rsp = write_sw_raw(&mut buf, 0x6A, 0x82);
+        assert_eq!(rsp, &[0x6A, 0x82]);
+    }
+
+    // -- ResponseQueue --
+
+    #[test]
+    fn rsp_queue_new_is_empty() {
+        let q = ResponseQueue::<32>::new();
+        assert!(q.is_empty());
+        assert_eq!(q.len(), 0);
+    }
+
+    #[test]
+    fn rsp_queue_queue_and_len() {
+        let mut q = ResponseQueue::<32>::new();
+        q.queue(&[0x01, 0x02, 0x03]);
+        assert!(!q.is_empty());
+        assert_eq!(q.len(), 3);
+    }
+
+    #[test]
+    fn rsp_queue_clear() {
+        let mut q = ResponseQueue::<32>::new();
+        q.queue(&[0x01, 0x02]);
+        q.clear();
+        assert!(q.is_empty());
+    }
+
+    #[test]
+    fn rsp_queue_get_response_all() {
+        let mut q = ResponseQueue::<32>::new();
+        q.queue(&[0xAA, 0xBB, 0xCC]);
+        let mut buf = [0u8; 64];
+        let rsp = q.get_response(None, &mut buf);
+        assert_eq!(rsp, &[0xAA, 0xBB, 0xCC, 0x90, 0x00]);
+        assert!(q.is_empty());
+    }
+
+    #[test]
+    fn rsp_queue_get_response_le_zero() {
+        let mut q = ResponseQueue::<32>::new();
+        q.queue(&[0x01, 0x02, 0x03, 0x04]);
+        let mut buf = [0u8; 64];
+        // Le=0 means "all available"
+        let rsp = q.get_response(Some(0), &mut buf);
+        assert_eq!(rsp, &[0x01, 0x02, 0x03, 0x04, 0x90, 0x00]);
+    }
+
+    #[test]
+    fn rsp_queue_get_response_le_truncates() {
+        let mut q = ResponseQueue::<32>::new();
+        q.queue(&[0x01, 0x02, 0x03, 0x04]);
+        let mut buf = [0u8; 64];
+        let rsp = q.get_response(Some(2), &mut buf);
+        assert_eq!(rsp, &[0x01, 0x02, 0x90, 0x00]);
+    }
+
+    #[test]
+    fn rsp_queue_get_response_empty_returns_error() {
+        let mut q = ResponseQueue::<32>::new();
+        let mut buf = [0u8; 64];
+        let rsp = q.get_response(None, &mut buf);
+        assert_eq!(rsp, &[0x6F, 0x00]); // NoPreciseDiagnosis
+    }
+
+    #[test]
+    fn rsp_queue_buf_mut_and_set_len() {
+        let mut q = ResponseQueue::<32>::new();
+        q.buf_mut()[0] = 0xDE;
+        q.buf_mut()[1] = 0xAD;
+        q.set_len(2);
+        assert_eq!(q.len(), 2);
+        let mut buf = [0u8; 64];
+        let rsp = q.get_response(None, &mut buf);
+        assert_eq!(rsp, &[0xDE, 0xAD, 0x90, 0x00]);
+    }
+
+    #[test]
+    fn rsp_queue_snapshot_roundtrip() {
+        let mut q = ResponseQueue::<32>::new();
+        q.queue(&[0x01, 0x02, 0x03]);
+        let mut snap = [0u8; ResponseQueue::<32>::SNAPSHOT_SIZE];
+        let n = q.save_state(&mut snap);
+        assert_eq!(n, ResponseQueue::<32>::SNAPSHOT_SIZE);
+
+        let mut restored = ResponseQueue::<32>::new();
+        assert!(restored.restore_state(&snap));
+        assert_eq!(restored.len(), 3);
+
+        let mut buf = [0u8; 64];
+        let rsp = restored.get_response(None, &mut buf);
+        assert_eq!(rsp, &[0x01, 0x02, 0x03, 0x90, 0x00]);
+    }
+
+    #[test]
+    fn rsp_queue_snapshot_small_buf_returns_zero() {
+        let q = ResponseQueue::<32>::new();
+        let mut small = [0u8; 2];
+        assert_eq!(q.save_state(&mut small), 0);
+    }
+
+    #[test]
+    fn rsp_queue_restore_invalid_len() {
+        let mut q = ResponseQueue::<4>::new();
+        // len byte = 5, but CAP = 4
+        let snap = [0u8, 0u8, 0u8, 0u8, 5];
+        assert!(!q.restore_state(&snap));
+    }
+
+    #[test]
+    fn rsp_queue_queue_clamps_to_cap() {
+        let mut q = ResponseQueue::<4>::new();
+        q.queue(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
+        assert_eq!(q.len(), 4);
     }
 }

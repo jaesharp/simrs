@@ -26,15 +26,15 @@
 //! ```
 //! use simrs_usim::UsimApp;
 //! use simrs_iso7816::Command;
-//! use simrs_fs::{AdfSlot, DfDef, EfDef, EfStructure, FileRef};
+//! use simrs_fs::{AdfSlot, DfDef, EfDef, EfStructure, Fid, FileRef};
 //! use simrs_milenage::{MilenageParams, OpVariant};
 //!
 //! static EF: EfDef = EfDef {
-//!     fid: 0x2FE2, sfi: None,
+//!     fid: Fid(0x2FE2), sfi: None,
 //!     structure: EfStructure::Transparent,
 //!     data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
 //! };
-//! static MF: DfDef = DfDef { fid: 0x3F00, children: &[FileRef::Ef(&EF)] };
+//! static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[FileRef::Ef(&EF)] };
 //!
 //! let milenage = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
 //! let mut app = UsimApp::new(&MF, &[], milenage);
@@ -53,9 +53,9 @@
 
 use simrs_bertlv::Encoder;
 use simrs_fs::{
-    AdfSlot, DfDef, EfDef, EfStructure, FsError, SelectionCtx, SelectedFile,
+    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsError, SelectionCtx, SelectedFile,
 };
-use simrs_iso7816::{ins, Command, StatusWord};
+use simrs_iso7816::{ins, write_data_sw, write_sw, write_sw_raw, Command, ResponseQueue, StatusWord};
 use simrs_milenage::{MilenageError, MilenageParams};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
 use simrs_proactive::ProactiveState;
@@ -73,9 +73,6 @@ const CLA_ETSI: u8 = 0x80;
 /// Maximum FCP size (conservative upper bound for our file tree).
 const FCP_BUF_CAP: usize = 64;
 
-/// Maximum response queue size (FCP or AUTHENTICATE response).
-const RSP_QUEUE_CAP: usize = 64;
-
 // ---------------------------------------------------------------------------
 // UsimApp
 // ---------------------------------------------------------------------------
@@ -91,8 +88,7 @@ pub struct UsimApp {
     pin: PinManager<5>,
     milenage: MilenageParams,
     proactive: ProactiveState,
-    rsp_queue: [u8; RSP_QUEUE_CAP],
-    rsp_queue_len: u8,
+    rsp_queue: ResponseQueue<64>,
 }
 
 impl UsimApp {
@@ -102,10 +98,10 @@ impl UsimApp {
     ///
     /// ```
     /// use simrs_usim::UsimApp;
-    /// use simrs_fs::{DfDef, AdfSlot};
+    /// use simrs_fs::{DfDef, Fid, AdfSlot};
     /// use simrs_milenage::{MilenageParams, OpVariant};
     ///
-    /// static MF: DfDef = DfDef { fid: 0x3F00, children: &[] };
+    /// static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[] };
     /// let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
     /// let app = UsimApp::new(&MF, &[], mil);
     /// ```
@@ -120,8 +116,7 @@ impl UsimApp {
             pin: PinManager::new(),
             milenage,
             proactive: ProactiveState::new(),
-            rsp_queue: [0u8; RSP_QUEUE_CAP],
-            rsp_queue_len: 0,
+            rsp_queue: ResponseQueue::new(),
         }
     }
 
@@ -143,13 +138,13 @@ impl UsimApp {
         + PinManager::<5>::SNAPSHOT_SIZE
         + MilenageParams::SNAPSHOT_SIZE
         + ProactiveState::SNAPSHOT_SIZE
-        + RSP_QUEUE_CAP
-        + 1;
+        + ResponseQueue::<64>::SNAPSHOT_SIZE;
 
     /// Serialize the USIM application state into `buf`.
     ///
     /// Returns the number of bytes written, or 0 if `buf` is too small.
     /// The `adfs` reference is not serialized (static, reconstructed on restore).
+    #[must_use]
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return 0;
@@ -159,9 +154,8 @@ impl UsimApp {
         off += self.pin.save_state(&mut buf[off..]);
         off += self.milenage.save_state(&mut buf[off..]);
         off += self.proactive.save_state(&mut buf[off..]);
-        buf[off..off + RSP_QUEUE_CAP].copy_from_slice(&self.rsp_queue);
-        off += RSP_QUEUE_CAP;
-        buf[off] = self.rsp_queue_len;
+        off += self.rsp_queue.save_state(&mut buf[off..]);
+        let _ = off;
         Self::SNAPSHOT_SIZE
     }
 
@@ -169,6 +163,7 @@ impl UsimApp {
     ///
     /// Returns `true` on success. The `adfs` field is not restored from the
     /// snapshot; it remains as set during construction.
+    #[must_use]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return false;
@@ -190,13 +185,11 @@ impl UsimApp {
             return false;
         }
         off += ProactiveState::SNAPSHOT_SIZE;
-        self.rsp_queue.copy_from_slice(&buf[off..off + RSP_QUEUE_CAP]);
-        off += RSP_QUEUE_CAP;
-        let queue_len = buf[off];
-        if queue_len as usize > RSP_QUEUE_CAP {
+        if !self.rsp_queue.restore_state(&buf[off..]) {
             return false;
         }
-        self.rsp_queue_len = queue_len;
+        off += ResponseQueue::<64>::SNAPSHOT_SIZE;
+        let _ = off;
         true
     }
 
@@ -208,6 +201,7 @@ impl UsimApp {
     ///
     /// After dispatching, if SW would be `90 00` and a proactive command
     /// is pending, overrides to `91 XX`.
+    #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub fn handle<'buf>(
         &mut self,
@@ -223,7 +217,7 @@ impl UsimApp {
 
         // Any command other than GET RESPONSE clears the response queue.
         if cmd.ins() != ins::GET_RESPONSE {
-            self.rsp_queue_len = 0;
+            self.rsp_queue.clear();
         }
 
         let rsp = match (cla, cmd.ins()) {
@@ -269,7 +263,7 @@ impl UsimApp {
                 if cmd.data().len() != 2 {
                     return write_sw(buf, StatusWord::WrongLength);
                 }
-                let fid = u16::from_be_bytes([cmd.data()[0], cmd.data()[1]]);
+                let fid = Fid::from_be_bytes([cmd.data()[0], cmd.data()[1]]);
                 match self.fs.select_by_fid(fid) {
                     Ok(sel) => self.queue_fcp(sel, None, buf),
                     Err(FsError::FileNotFound) => write_sw_raw(buf, 0x6A, 0x82),
@@ -299,8 +293,8 @@ impl UsimApp {
         aid: Option<&[u8]>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        let fcp_len = build_fcp(sel, aid, &mut self.rsp_queue);
-        self.rsp_queue_len = fcp_len as u8;
+        let fcp_len = build_fcp(sel, aid, self.rsp_queue.buf_mut());
+        self.rsp_queue.set_len(fcp_len);
         write_sw_raw(buf, 0x61, fcp_len as u8)
     }
 
@@ -314,20 +308,7 @@ impl UsimApp {
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
             return write_sw_raw(buf, 0x6A, 0x86);
         }
-        let len = self.rsp_queue_len as usize;
-        if len == 0 {
-            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-        }
-        let le = cmd.le().unwrap_or(0) as usize;
-        let copy_len = if le == 0 { len } else { le.min(len) };
-        if buf.len() < copy_len + 2 {
-            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-        }
-        buf[..copy_len].copy_from_slice(&self.rsp_queue[..copy_len]);
-        buf[copy_len] = 0x90;
-        buf[copy_len + 1] = 0x00;
-        self.rsp_queue_len = 0;
-        &buf[..copy_len + 2]
+        self.rsp_queue.get_response(cmd.le(), buf)
     }
 
     // -- READ BINARY --
@@ -341,16 +322,7 @@ impl UsimApp {
         let le = u16::from(cmd.le().unwrap_or(0));
 
         match self.fs.read_binary(offset, le) {
-            Ok(data) => {
-                let data_len = data.len();
-                if buf.len() < data_len + 2 {
-                    return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-                }
-                buf[..data_len].copy_from_slice(data);
-                buf[data_len] = 0x90;
-                buf[data_len + 1] = 0x00;
-                &buf[..data_len + 2]
-            }
+            Ok(data) => write_data_sw(buf, data, StatusWord::Success),
             Err(FsError::NoEfSelected) => write_sw_raw(buf, 0x69, 0x86),
             Err(FsError::NotTransparent) => write_sw_raw(buf, 0x69, 0x81),
             Err(FsError::OffsetOutOfRange) => write_sw_raw(buf, 0x6A, 0x82),
@@ -368,16 +340,7 @@ impl UsimApp {
         let rec_num = cmd.p1();
 
         match self.fs.read_record(rec_num) {
-            Ok(data) => {
-                let data_len = data.len();
-                if buf.len() < data_len + 2 {
-                    return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-                }
-                buf[..data_len].copy_from_slice(data);
-                buf[data_len] = 0x90;
-                buf[data_len + 1] = 0x00;
-                &buf[..data_len + 2]
-            }
+            Ok(data) => write_data_sw(buf, data, StatusWord::Success),
             Err(FsError::NoEfSelected) => write_sw_raw(buf, 0x69, 0x86),
             Err(FsError::NotRecordBased) => write_sw_raw(buf, 0x69, 0x81),
             Err(FsError::RecordOutOfRange) => write_sw_raw(buf, 0x6A, 0x83),
@@ -399,13 +362,7 @@ impl UsimApp {
             None,
             &mut fcp_buf,
         );
-        if buf.len() < fcp_len + 2 {
-            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-        }
-        buf[..fcp_len].copy_from_slice(&fcp_buf[..fcp_len]);
-        buf[fcp_len] = 0x90;
-        buf[fcp_len + 1] = 0x00;
-        &buf[..fcp_len + 2]
+        write_data_sw(buf, &fcp_buf[..fcp_len], StatusWord::Success)
     }
 
     // -- AUTHENTICATE (Milenage UMTS context) --
@@ -440,37 +397,38 @@ impl UsimApp {
                 // Build response: 0xDB <len> <RES_len> [RES] <CK_len> [CK] <IK_len> [IK]
                 // 0xDB + len + (1+8) + (1+16) + (1+16) = 2 + 9 + 17 + 17 = 45
                 let inner_len: u8 = 1 + 8 + 1 + 16 + 1 + 16; // = 43
+                let q = self.rsp_queue.buf_mut();
                 let mut pos: usize = 0;
-                self.rsp_queue[pos] = 0xDB;
+                q[pos] = 0xDB;
                 pos += 1;
-                self.rsp_queue[pos] = inner_len;
+                q[pos] = inner_len;
                 pos += 1;
                 // RES
-                self.rsp_queue[pos] = 0x08;
+                q[pos] = 0x08;
                 pos += 1;
-                self.rsp_queue[pos..pos + 8].copy_from_slice(&result.res);
+                q[pos..pos + 8].copy_from_slice(&result.res);
                 pos += 8;
                 // CK
-                self.rsp_queue[pos] = 0x10;
+                q[pos] = 0x10;
                 pos += 1;
-                self.rsp_queue[pos..pos + 16].copy_from_slice(&result.ck);
+                q[pos..pos + 16].copy_from_slice(&result.ck);
                 pos += 16;
                 // IK
-                self.rsp_queue[pos] = 0x10;
+                q[pos] = 0x10;
                 pos += 1;
-                self.rsp_queue[pos..pos + 16].copy_from_slice(&result.ik);
+                q[pos..pos + 16].copy_from_slice(&result.ik);
                 pos += 16;
 
-                self.rsp_queue_len = pos as u8;
+                self.rsp_queue.set_len(pos);
                 write_sw_raw(buf, 0x61, pos as u8)
             }
             Err(MilenageError::MacFailure) => write_sw_raw(buf, 0x98, 0x62),
             Err(MilenageError::SyncFailure { auts }) => {
-                // Response: 0xDC 0x0E [AUTS:14]
-                self.rsp_queue[0] = 0xDC;
-                self.rsp_queue[1] = 0x0E;
-                self.rsp_queue[2..16].copy_from_slice(&auts);
-                self.rsp_queue_len = 16;
+                let q = self.rsp_queue.buf_mut();
+                q[0] = 0xDC;
+                q[1] = 0x0E;
+                q[2..16].copy_from_slice(&auts);
+                self.rsp_queue.set_len(16);
                 write_sw_raw(buf, 0x61, 16)
             }
         }
@@ -738,7 +696,7 @@ fn write_fcp_ef(
     // Tag 0x88: Short File Identifier (if assigned).
     if let Some(sfi) = ef.sfi {
         // SFI is encoded as (sfi << 3) | 0x04 per ETSI TS 102 221.
-        enc.tag_length_value(0x88, &[(sfi << 3) | 0x04])?;
+        enc.tag_length_value(0x88, &[(sfi.value() << 3) | 0x04])?;
     }
 
     // Tag 0x8A: Life cycle status = 0x05 (activated).
@@ -763,22 +721,6 @@ fn write_ber_len(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Write a `StatusWord` into buf and return a 2-byte slice.
-fn write_sw(buf: &mut [u8], sw: StatusWord) -> &[u8] {
-    let [sw1, sw2] = sw.to_bytes();
-    write_sw_raw(buf, sw1, sw2)
-}
-
-/// Write raw SW1/SW2 into buf and return a 2-byte slice.
-fn write_sw_raw(buf: &mut [u8], sw1: u8, sw2: u8) -> &[u8] {
-    buf[0] = sw1;
-    buf[1] = sw2;
-    &buf[..2]
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -788,15 +730,15 @@ fn write_sw_raw(buf: &mut [u8], sw1: u8, sw2: u8) -> &[u8] {
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
-    use simrs_fs::{AdfSlot, EfDef, EfStructure, FileRef};
+    use simrs_fs::{AdfSlot, EfDef, EfStructure, Fid, FileRef, Sfi};
     use simrs_milenage::OpVariant;
     use simrs_proactive::ProactiveCommand;
 
     // -- Test filesystem --
 
     static EF_ICCID: EfDef = EfDef {
-        fid: 0x2FE2,
-        sfi: Some(2),
+        fid: Fid(0x2FE2),
+        sfi: Some(Sfi(2)),
         structure: EfStructure::Transparent,
         data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
     };
@@ -807,8 +749,8 @@ mod tests {
     ];
 
     static EF_DIR: EfDef = EfDef {
-        fid: 0x2F00,
-        sfi: Some(30),
+        fid: Fid(0x2F00),
+        sfi: Some(Sfi(30)),
         structure: EfStructure::LinearFixed {
             record_size: 8,
             num_records: 2,
@@ -817,21 +759,21 @@ mod tests {
     };
 
     static EF_IMSI: EfDef = EfDef {
-        fid: 0x6F07,
-        sfi: Some(7),
+        fid: Fid(0x6F07),
+        sfi: Some(Sfi(7)),
         structure: EfStructure::Transparent,
         data: &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
     };
 
     static EF_UST: EfDef = EfDef {
-        fid: 0x6F38,
+        fid: Fid(0x6F38),
         sfi: None,
         structure: EfStructure::Transparent,
         data: &[0xFF, 0xFF, 0xFF, 0xFF],
     };
 
     static ADF_USIM_ROOT: DfDef = DfDef {
-        fid: 0xFF01,
+        fid: Fid(0xFF01),
         children: &[FileRef::Ef(&EF_IMSI), FileRef::Ef(&EF_UST)],
     };
 
@@ -843,7 +785,7 @@ mod tests {
     }];
 
     static MF: DfDef = DfDef {
-        fid: 0x3F00,
+        fid: Fid(0x3F00),
         children: &[
             FileRef::Ef(&EF_ICCID),
             FileRef::Ef(&EF_DIR),
@@ -866,7 +808,7 @@ mod tests {
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
         a.pin_manager()
-            .add_pin(PinKey(0x01), &pin_val, 3, &puk_val, 10, true)
+            .add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
             .unwrap();
         a
     }
@@ -1462,7 +1404,7 @@ mod tests {
 
         // Save and restore.
         let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
-        src.save_state(&mut snap);
+        let _ = src.save_state(&mut snap);
         let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
@@ -1497,7 +1439,7 @@ mod tests {
 
         // Save and restore.
         let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
-        src.save_state(&mut snap);
+        let _ = src.save_state(&mut snap);
         let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
@@ -1522,7 +1464,7 @@ mod tests {
     fn snapshot_restore_oversized_rsp_queue_len_returns_false() {
         let src = app();
         let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
-        src.save_state(&mut snap);
+        let _ = src.save_state(&mut snap);
         // rsp_queue_len is the last byte of the snapshot.
         *snap.last_mut().unwrap() = u8::MAX;
         let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
@@ -1601,19 +1543,19 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     use super::*;
-    use simrs_fs::{EfDef, EfStructure, FileRef};
+    use simrs_fs::{EfDef, EfStructure, Fid, FileRef};
     use simrs_milenage::OpVariant;
     use proptest::prelude::*;
 
     static PT_EF: EfDef = EfDef {
-        fid: 0x2FE2,
+        fid: Fid(0x2FE2),
         sfi: None,
         structure: EfStructure::Transparent,
         data: &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
     };
 
     static PT_MF: DfDef = DfDef {
-        fid: 0x3F00,
+        fid: Fid(0x3F00),
         children: &[FileRef::Ef(&PT_EF)],
     };
 
@@ -1627,7 +1569,7 @@ mod proptests {
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
             let mut buf = [0u8; 256];
-            app.handle(&cmd, &mut buf);
+            let _ = app.handle(&cmd, &mut buf);
 
             let rb = [0x00, 0xB0, 0x00, offset, length];
             let cmd = Command::parse(&rb).unwrap();

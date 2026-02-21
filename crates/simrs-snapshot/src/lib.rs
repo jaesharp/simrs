@@ -61,10 +61,10 @@ impl<const RSP_CAP: usize> Snapshot for Sim<RSP_CAP> {
 mod tests {
     use super::*;
     use simrs_sim::{SimEvent, SimResponse};
-    use simrs_fs::DfDef;
+    use simrs_fs::{DfDef, Fid};
 
     static MF: DfDef = DfDef {
-        fid: 0x3F00,
+        fid: Fid(0x3F00),
         children: &[],
     };
 
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn trait_save_restore_roundtrip() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
 
         let mut buf = [0u8; 1024];
         let n = Snapshot::save(&sim, &mut buf);
@@ -150,7 +150,7 @@ mod tests {
     fn state_hash_via_sim() {
         let mut sim = make_sim();
         let h1 = sim.state_hash();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let h2 = sim.state_hash();
         assert_ne!(h1, h2);
     }

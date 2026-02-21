@@ -7,7 +7,7 @@
 //! multi-step flows. A few bridge-level tests validate the full
 //! shmem path using `QemuBridge` with push-all/step-all/pop-all.
 
-use simrs_fs::{AdfSlot, DfDef, EfDef, EfStructure, FileRef};
+use simrs_fs::{AdfSlot, DfDef, EfDef, EfStructure, Fid, FileRef, Sfi};
 use simrs_gsm::GsmApp;
 use simrs_milenage::{MilenageParams, OpVariant};
 use simrs_pin::{PinKey, PinValue};
@@ -25,8 +25,8 @@ static ICCID_DATA: [u8; 10] =
     [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
 static EF_ICCID: EfDef = EfDef {
-    fid: 0x2FE2,
-    sfi: Some(2),
+    fid: Fid(0x2FE2),
+    sfi: Some(Sfi(2)),
     structure: EfStructure::Transparent,
     data: &ICCID_DATA,
 };
@@ -37,8 +37,8 @@ static EF_DIR_DATA: [u8; 16] = [
 ];
 
 static EF_DIR: EfDef = EfDef {
-    fid: 0x2F00,
-    sfi: Some(30),
+    fid: Fid(0x2F00),
+    sfi: Some(Sfi(30)),
     structure: EfStructure::LinearFixed {
         record_size: 8,
         num_records: 2,
@@ -49,41 +49,41 @@ static EF_DIR: EfDef = EfDef {
 static IMSI_DATA: [u8; 9] = [0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0];
 
 static EF_IMSI: EfDef = EfDef {
-    fid: 0x6F07,
-    sfi: Some(7),
+    fid: Fid(0x6F07),
+    sfi: Some(Sfi(7)),
     structure: EfStructure::Transparent,
     data: &IMSI_DATA,
 };
 
 static EF_KC: EfDef = EfDef {
-    fid: 0x6F20,
+    fid: Fid(0x6F20),
     sfi: None,
     structure: EfStructure::Transparent,
     data: &[0xFF; 9],
 };
 
 static DF_GSM: DfDef = DfDef {
-    fid: 0x7F20,
+    fid: Fid(0x7F20),
     children: &[FileRef::Ef(&EF_IMSI), FileRef::Ef(&EF_KC)],
 };
 
 // USIM ADF.
 static EF_USIM_IMSI: EfDef = EfDef {
-    fid: 0x6F07,
-    sfi: Some(7),
+    fid: Fid(0x6F07),
+    sfi: Some(Sfi(7)),
     structure: EfStructure::Transparent,
     data: &IMSI_DATA,
 };
 
 static EF_UST: EfDef = EfDef {
-    fid: 0x6F38,
+    fid: Fid(0x6F38),
     sfi: None,
     structure: EfStructure::Transparent,
     data: &[0xFF, 0xFF, 0xFF, 0xFF],
 };
 
 static ADF_USIM_ROOT: DfDef = DfDef {
-    fid: 0xFF01,
+    fid: Fid(0xFF01),
     children: &[FileRef::Ef(&EF_USIM_IMSI), FileRef::Ef(&EF_UST)],
 };
 
@@ -95,7 +95,7 @@ static ADF_TABLE: [AdfSlot; 1] = [AdfSlot {
 }];
 
 static MF: DfDef = DfDef {
-    fid: 0x3F00,
+    fid: Fid(0x3F00),
     children: &[
         FileRef::Ef(&EF_ICCID),
         FileRef::Ef(&EF_DIR),
@@ -105,10 +105,10 @@ static MF: DfDef = DfDef {
 
 static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
 
-static KI: [u8; 16] = [
+static KI: simrs_gsm::Ki = simrs_gsm::Ki([
     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-];
+]);
 
 // ETSI TS 135 208 Test Set 1.
 static USIM_K: [u8; 16] = [
@@ -135,7 +135,7 @@ fn make_sim() -> Sim<256> {
     let pin = PinValue::new(PIN_VAL);
     let puk = PinValue::new(PUK_VAL);
     gsm.pin_manager()
-        .add_pin(PinKey(0x01), &pin, 3, &puk, 10, true)
+        .add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true)
         .unwrap();
 
     let mil = MilenageParams::with_defaults(USIM_K, OpVariant::Opc(USIM_OPC));
@@ -144,7 +144,7 @@ fn make_sim() -> Sim<256> {
     let pin2 = PinValue::new(PIN_VAL);
     let puk2 = PinValue::new(PUK_VAL);
     usim.pin_manager()
-        .add_pin(PinKey(0x01), &pin2, 3, &puk2, 10, true)
+        .add_pin(PinKey::PIN1, &pin2, 3, &puk2, 10, true)
         .unwrap();
 
     sim
@@ -218,7 +218,7 @@ fn pop_rsp(shmem: &mut [u8]) -> Option<(ShmemMsgType, Vec<u8>)> {
 #[test]
 fn gsm_select_verify_read_imsi() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // SELECT DF.GSM.
     let (sw1, _sw2, _) = send(&mut sim, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
@@ -252,7 +252,7 @@ fn gsm_select_verify_read_imsi() {
 #[test]
 fn gsm_run_gsm_algorithm_comp128() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // SELECT DF.GSM + VERIFY PIN.
     send(&mut sim, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
@@ -289,7 +289,7 @@ fn gsm_run_gsm_algorithm_comp128() {
 #[test]
 fn usim_select_aid_and_authenticate() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // SELECT ADF.USIM by AID.
     let mut select_aid = [0u8; 12];
@@ -361,7 +361,7 @@ fn usim_select_aid_and_authenticate() {
 #[test]
 fn usim_authenticate_mac_failure() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // SELECT ADF.USIM.
     let mut select_aid = [0u8; 12];
@@ -390,7 +390,7 @@ fn usim_authenticate_mac_failure() {
 #[test]
 fn gsm_pin_block_unblock_repin() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // SELECT DF.GSM.
     send(&mut sim, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
@@ -432,7 +432,7 @@ fn gsm_pin_block_unblock_repin() {
 #[test]
 fn warm_reset_clears_session_state() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // SELECT DF.GSM + VERIFY PIN.
     send(&mut sim, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
@@ -459,7 +459,7 @@ fn warm_reset_clears_session_state() {
 #[test]
 fn unsupported_cla_returns_6e00() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     let (sw1, sw2, _) = send(&mut sim, &[0xF0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
     assert_eq!((sw1, sw2), (0x6E, 0x00));
@@ -468,7 +468,7 @@ fn unsupported_cla_returns_6e00() {
 #[test]
 fn gsm_read_record_linear_fixed() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // SELECT EF.DIR (2F00).
     let (sw1, _sw2, _) = send(&mut sim, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0x00]);
@@ -493,7 +493,7 @@ fn gsm_read_record_linear_fixed() {
 #[test]
 fn gsm_status_returns_current_df() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // SELECT DF.GSM.
     send(&mut sim, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
@@ -510,7 +510,7 @@ fn gsm_status_returns_current_df() {
 #[test]
 fn usim_proactive_display_text_cycle() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // Queue proactive command.
     let text = b"Hello";
@@ -555,7 +555,7 @@ fn usim_proactive_display_text_cycle() {
 #[test]
 fn usim_verify_pin_correct_and_wrong() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // Correct PIN (CLA=0x00 for USIM).
     let mut verify = [0u8; 13];
@@ -577,7 +577,7 @@ fn usim_verify_pin_correct_and_wrong() {
 #[test]
 fn multiple_select_read_cycles_consistent() {
     let mut sim = make_sim();
-    sim.process(SimEvent::PowerOn);
+    let _ = sim.process(SimEvent::PowerOn);
 
     // VERIFY PIN.
     let mut verify = [0u8; 13];

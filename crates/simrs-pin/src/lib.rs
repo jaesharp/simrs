@@ -44,7 +44,7 @@
 //! use simrs_pin::{PinManager, PinKey, PinValue, PinResult};
 //!
 //! let mut mgr = PinManager::<5>::new();
-//! let pin1 = PinKey(0x01);
+//! let pin1 = PinKey::PIN1;
 //! let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
 //! let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
 //!
@@ -84,12 +84,43 @@ extern crate std;
 ///
 /// ```
 /// use simrs_pin::PinKey;
-/// let pin1 = PinKey(0x01);
-/// let pin2 = PinKey(0x81);
+/// let pin1 = PinKey::PIN1;
+/// let pin2 = PinKey::PIN2;
 /// assert_ne!(pin1, pin2);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PinKey(pub u8);
+
+impl PinKey {
+    /// PIN Application 1 (global). ETSI TS 102 221 Table 9.3.
+    pub const PIN1: Self = Self(0x01);
+    /// PIN Application 1 (local/second). ETSI TS 102 221 Table 9.3.
+    pub const PIN2: Self = Self(0x81);
+    /// Administrative key 1. ETSI TS 102 221 Table 9.3.
+    pub const ADM1: Self = Self(0x0A);
+    /// Administrative key 2. ETSI TS 102 221 Table 9.3.
+    pub const ADM2: Self = Self(0x0B);
+    /// Universal PIN. ETSI TS 102 221 Table 9.3.
+    pub const UNIVERSAL: Self = Self(0x11);
+
+    /// Return the raw `u8` key identifier.
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl core::fmt::Display for PinKey {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::PIN1 => write!(f, "PIN1"),
+            Self::PIN2 => write!(f, "PIN2"),
+            Self::ADM1 => write!(f, "ADM1"),
+            Self::ADM2 => write!(f, "ADM2"),
+            Self::UNIVERSAL => write!(f, "Universal PIN"),
+            _ => write!(f, "PIN(0x{:02X})", self.value()),
+        }
+    }
+}
 
 /// 8-byte PIN or PUK value, ASCII-encoded digits padded with `0xFF`.
 ///
@@ -173,6 +204,7 @@ impl Eq for PinValue {}
 /// assert_eq!(r, PinResult::WrongPin { retries_remaining: 2 });
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[must_use]
 pub enum PinResult {
     /// Operation succeeded.
     Success,
@@ -196,7 +228,7 @@ pub enum PinResult {
 /// ```
 /// use simrs_pin::{PinManager, PinKey, PinValue, PinError};
 /// let mut mgr = PinManager::<1>::new();
-/// let k = PinKey(0x01);
+/// let k = PinKey::PIN1;
 /// let v = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
 /// mgr.add_pin(k, &v, 3, &v, 10, true).unwrap();
 /// assert_eq!(mgr.add_pin(k, &v, 3, &v, 10, true), Err(PinError::DuplicateKey));
@@ -207,6 +239,67 @@ pub enum PinError {
     DuplicateKey,
     /// All `N` slots are occupied.
     SlotsFull,
+}
+
+impl core::fmt::Display for PinError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::DuplicateKey => f.write_str("duplicate key"),
+            Self::SlotsFull => f.write_str("PIN table full"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot cursor helpers
+// ---------------------------------------------------------------------------
+
+pub(crate) struct SnapWriter<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> SnapWriter<'a> {
+    pub(crate) const fn new(buf: &'a mut [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+    pub(crate) fn put_u8(&mut self, v: u8) {
+        self.buf[self.pos] = v;
+        self.pos += 1;
+    }
+    pub(crate) fn put_bytes(&mut self, src: &[u8]) {
+        self.buf[self.pos..self.pos + src.len()].copy_from_slice(src);
+        self.pos += src.len();
+    }
+    pub(crate) fn put_bool(&mut self, v: bool) {
+        self.put_u8(u8::from(v));
+    }
+    pub(crate) const fn finish(self) -> usize {
+        self.pos
+    }
+}
+
+pub(crate) struct SnapReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> SnapReader<'a> {
+    pub(crate) const fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+    pub(crate) fn get_u8(&mut self) -> u8 {
+        let v = self.buf[self.pos];
+        self.pos += 1;
+        v
+    }
+    pub(crate) fn get_bytes(&mut self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.buf[self.pos..self.pos + dst.len()]);
+        self.pos += dst.len();
+    }
+    pub(crate) fn get_bool(&mut self) -> bool {
+        self.get_u8() != 0
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -259,8 +352,8 @@ impl PinSlot {
 /// use simrs_pin::{PinManager, PinKey, PinValue, PinResult};
 ///
 /// let mut mgr = PinManager::<2>::new();
-/// let pin1 = PinKey(0x01);
-/// let pin2 = PinKey(0x81);
+/// let pin1 = PinKey::PIN1;
+/// let pin2 = PinKey::PIN2;
 /// let v1 = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
 /// let v2 = PinValue::new([0x34, 0x33, 0x32, 0x31, 0xFF, 0xFF, 0xFF, 0xFF]);
 /// let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -295,7 +388,7 @@ impl<const N: usize> PinManager<N> {
     /// ```
     /// use simrs_pin::{PinManager, PinKey};
     /// let mgr = PinManager::<5>::new();
-    /// assert_eq!(mgr.retries(PinKey(0x01)), None);
+    /// assert_eq!(mgr.retries(PinKey::PIN1), None);
     /// ```
     pub const fn new() -> Self {
         assert!(N <= 255, "PinManager: N must be <= 255 (count is u8)");
@@ -323,7 +416,7 @@ impl<const N: usize> PinManager<N> {
         // Reject duplicates.
         let mut i = 0;
         while i < self.count as usize {
-            if self.slots[i].key == key.0 {
+            if self.slots[i].key == key.value() {
                 return Err(PinError::DuplicateKey);
             }
             i += 1;
@@ -333,7 +426,7 @@ impl<const N: usize> PinManager<N> {
         }
         let idx = self.count as usize;
         self.slots[idx] = PinSlot {
-            key: key.0,
+            key: key.value(),
             pin: pin.bytes,
             pin_retries: pin_max_retries,
             pin_max: pin_max_retries,
@@ -359,7 +452,7 @@ impl<const N: usize> PinManager<N> {
     /// ```
     /// use simrs_pin::{PinManager, PinKey, PinValue, PinResult};
     /// let mut mgr = PinManager::<1>::new();
-    /// let k = PinKey(0x01);
+    /// let k = PinKey::PIN1;
     /// let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
     /// let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
     /// mgr.add_pin(k, &pin, 3, &puk, 10, true).unwrap();
@@ -403,7 +496,7 @@ impl<const N: usize> PinManager<N> {
     /// ```
     /// use simrs_pin::{PinManager, PinKey, PinValue, PinResult};
     /// let mut mgr = PinManager::<1>::new();
-    /// let k = PinKey(0x01);
+    /// let k = PinKey::PIN1;
     /// let old = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
     /// let new = PinValue::new([0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF]);
     /// let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -445,7 +538,7 @@ impl<const N: usize> PinManager<N> {
     /// ```
     /// use simrs_pin::{PinManager, PinKey, PinValue, PinResult};
     /// let mut mgr = PinManager::<1>::new();
-    /// let k = PinKey(0x01);
+    /// let k = PinKey::PIN1;
     /// let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
     /// let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
     /// mgr.add_pin(k, &pin, 3, &puk, 10, true).unwrap();
@@ -487,7 +580,7 @@ impl<const N: usize> PinManager<N> {
     /// ```
     /// use simrs_pin::{PinManager, PinKey, PinValue, PinResult};
     /// let mut mgr = PinManager::<1>::new();
-    /// let k = PinKey(0x01);
+    /// let k = PinKey::PIN1;
     /// let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
     /// let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
     /// mgr.add_pin(k, &pin, 3, &puk, 10, false).unwrap(); // starts disabled
@@ -531,7 +624,7 @@ impl<const N: usize> PinManager<N> {
     /// ```
     /// use simrs_pin::{PinManager, PinKey, PinValue, PinResult};
     /// let mut mgr = PinManager::<1>::new();
-    /// let k = PinKey(0x01);
+    /// let k = PinKey::PIN1;
     /// let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
     /// let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
     /// mgr.add_pin(k, &pin, 3, &puk, 10, true).unwrap();
@@ -633,55 +726,55 @@ impl<const N: usize> PinManager<N> {
     /// Serialize the PIN manager state into `buf` as flat LE bytes.
     ///
     /// Returns the number of bytes written, or 0 if `buf` is too small.
+    #[must_use]
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return 0;
         }
-        buf[0] = self.count;
-        let mut off = 1;
+        let mut w = SnapWriter::new(buf);
+        w.put_u8(self.count);
         let mut i = 0;
         while i < N {
             let s = &self.slots[i];
-            buf[off] = s.key;
-            buf[off + 1..off + 9].copy_from_slice(&s.pin);
-            buf[off + 9] = s.pin_retries;
-            buf[off + 10] = s.pin_max;
-            buf[off + 11..off + 19].copy_from_slice(&s.puk);
-            buf[off + 19] = s.puk_retries;
-            buf[off + 20] = u8::from(s.enabled);
-            buf[off + 21] = u8::from(s.verified);
-            off += 22;
+            w.put_u8(s.key);
+            w.put_bytes(&s.pin);
+            w.put_u8(s.pin_retries);
+            w.put_u8(s.pin_max);
+            w.put_bytes(&s.puk);
+            w.put_u8(s.puk_retries);
+            w.put_bool(s.enabled);
+            w.put_bool(s.verified);
             i += 1;
         }
-        Self::SNAPSHOT_SIZE
+        w.finish()
     }
 
     /// Restore the PIN manager state from `buf`.
     ///
     /// Returns `true` on success. Returns `false` if `buf` is too small
     /// or contains an invalid count.
+    #[must_use]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return false;
         }
-        let count = buf[0];
+        let mut r = SnapReader::new(buf);
+        let count = r.get_u8();
         if count as usize > N {
             return false;
         }
         self.count = count;
-        let mut off = 1;
         let mut i = 0;
         while i < N {
             let s = &mut self.slots[i];
-            s.key = buf[off];
-            s.pin.copy_from_slice(&buf[off + 1..off + 9]);
-            s.pin_retries = buf[off + 9];
-            s.pin_max = buf[off + 10];
-            s.puk.copy_from_slice(&buf[off + 11..off + 19]);
-            s.puk_retries = buf[off + 19];
-            s.enabled = buf[off + 20] != 0;
-            s.verified = buf[off + 21] != 0;
-            off += 22;
+            s.key = r.get_u8();
+            r.get_bytes(&mut s.pin);
+            s.pin_retries = r.get_u8();
+            s.pin_max = r.get_u8();
+            r.get_bytes(&mut s.puk);
+            s.puk_retries = r.get_u8();
+            s.enabled = r.get_bool();
+            s.verified = r.get_bool();
             i += 1;
         }
         true
@@ -692,7 +785,7 @@ impl<const N: usize> PinManager<N> {
     const fn find_index(&self, key: PinKey) -> Option<usize> {
         let mut i = 0;
         while i < self.count as usize {
-            if self.slots[i].key == key.0 {
+            if self.slots[i].key == key.value() {
                 return Some(i);
             }
             i += 1;
@@ -731,12 +824,12 @@ mod tests {
         let mut mgr = PinManager::<5>::new();
         let pin_val = ascii_pin("1234");
         let puk_val = ascii_pin("12345678");
-        mgr.add_pin(PinKey(0x01), &pin_val, 3, &puk_val, 10, true)
+        mgr.add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
             .unwrap();
         mgr
     }
 
-    const PIN1: PinKey = PinKey(0x01);
+    const PIN1: PinKey = PinKey::PIN1;
 
     // -- VERIFY tests (Gherkin: VERIFY scenarios) --
 
@@ -792,7 +885,7 @@ mod tests {
         let mut mgr = setup();
         let wrong = ascii_pin("0000");
         for _ in 0..3 {
-            mgr.verify(PIN1, &wrong);
+            let _ = mgr.verify(PIN1, &wrong);
         }
         // Now blocked. Correct PIN should return Blocked, not Success.
         assert_eq!(mgr.verify(PIN1, &ascii_pin("1234")), PinResult::Blocked);
@@ -803,7 +896,7 @@ mod tests {
     #[test]
     fn verify_on_disabled_pin_returns_disabled() {
         let mut mgr = setup();
-        mgr.disable(PIN1, &ascii_pin("1234"));
+        let _ = mgr.disable(PIN1, &ascii_pin("1234"));
         assert_eq!(mgr.verify(PIN1, &ascii_pin("1234")), PinResult::Disabled);
         // Counter not decremented.
         assert_eq!(mgr.retries(PIN1), Some(3));
@@ -813,8 +906,8 @@ mod tests {
     fn verify_correct_resets_counter() {
         let mut mgr = setup();
         // Use up two retries.
-        mgr.verify(PIN1, &ascii_pin("0000"));
-        mgr.verify(PIN1, &ascii_pin("0000"));
+        let _ = mgr.verify(PIN1, &ascii_pin("0000"));
+        let _ = mgr.verify(PIN1, &ascii_pin("0000"));
         assert_eq!(mgr.retries(PIN1), Some(1));
         // Correct PIN resets to max.
         assert_eq!(mgr.verify(PIN1, &ascii_pin("1234")), PinResult::Success);
@@ -824,6 +917,7 @@ mod tests {
     #[test]
     fn verify_unknown_key_returns_not_found() {
         let mut mgr = setup();
+        // 0xFF is intentionally not a registered key -- expect NotFound.
         assert_eq!(
             mgr.verify(PinKey(0xFF), &ascii_pin("1234")),
             PinResult::NotFound
@@ -833,7 +927,7 @@ mod tests {
     #[test]
     fn disabled_pin_satisfies_security_condition() {
         let mut mgr = setup();
-        mgr.disable(PIN1, &ascii_pin("1234"));
+        let _ = mgr.disable(PIN1, &ascii_pin("1234"));
         assert!(mgr.is_verified(PIN1));
     }
 
@@ -875,7 +969,7 @@ mod tests {
         let mut mgr = setup();
         let wrong = ascii_pin("0000");
         for _ in 0..3 {
-            mgr.verify(PIN1, &wrong);
+            let _ = mgr.verify(PIN1, &wrong);
         }
         assert_eq!(
             mgr.change(PIN1, &ascii_pin("1234"), &ascii_pin("5678")),
@@ -886,7 +980,7 @@ mod tests {
     #[test]
     fn change_does_not_set_verified() {
         let mut mgr = setup();
-        mgr.change(PIN1, &ascii_pin("1234"), &ascii_pin("5678"));
+        let _ = mgr.change(PIN1, &ascii_pin("1234"), &ascii_pin("5678"));
         assert!(!mgr.is_verified(PIN1));
     }
 
@@ -915,7 +1009,7 @@ mod tests {
     #[test]
     fn disable_already_disabled() {
         let mut mgr = setup();
-        mgr.disable(PIN1, &ascii_pin("1234"));
+        let _ = mgr.disable(PIN1, &ascii_pin("1234"));
         assert_eq!(mgr.disable(PIN1, &ascii_pin("1234")), PinResult::Disabled);
     }
 
@@ -923,7 +1017,7 @@ mod tests {
     fn disable_on_blocked_pin() {
         let mut mgr = setup();
         for _ in 0..3 {
-            mgr.verify(PIN1, &ascii_pin("0000"));
+            let _ = mgr.verify(PIN1, &ascii_pin("0000"));
         }
         assert_eq!(mgr.disable(PIN1, &ascii_pin("1234")), PinResult::Blocked);
     }
@@ -933,7 +1027,7 @@ mod tests {
     #[test]
     fn enable_disabled_pin_with_correct_pin() {
         let mut mgr = setup();
-        mgr.disable(PIN1, &ascii_pin("1234"));
+        let _ = mgr.disable(PIN1, &ascii_pin("1234"));
         assert_eq!(mgr.enable(PIN1, &ascii_pin("1234")), PinResult::Success);
         assert!(mgr.is_enabled(PIN1));
         assert!(!mgr.is_verified(PIN1)); // must VERIFY separately
@@ -942,7 +1036,7 @@ mod tests {
     #[test]
     fn enable_with_wrong_pin() {
         let mut mgr = setup();
-        mgr.disable(PIN1, &ascii_pin("1234"));
+        let _ = mgr.disable(PIN1, &ascii_pin("1234"));
         assert_eq!(
             mgr.enable(PIN1, &ascii_pin("0000")),
             PinResult::WrongPin {
@@ -956,7 +1050,7 @@ mod tests {
     fn enable_already_enabled_is_noop() {
         let mut mgr = setup();
         // Verify first so verified flag is set.
-        mgr.verify(PIN1, &ascii_pin("1234"));
+        let _ = mgr.verify(PIN1, &ascii_pin("1234"));
         assert!(mgr.is_verified(PIN1));
         // Enable on already-enabled PIN is a no-op success.
         assert_eq!(mgr.enable(PIN1, &ascii_pin("1234")), PinResult::Success);
@@ -968,7 +1062,7 @@ mod tests {
     fn enable_on_blocked_pin() {
         let mut mgr = setup();
         for _ in 0..3 {
-            mgr.verify(PIN1, &ascii_pin("0000"));
+            let _ = mgr.verify(PIN1, &ascii_pin("0000"));
         }
         assert_eq!(mgr.enable(PIN1, &ascii_pin("1234")), PinResult::Blocked);
     }
@@ -979,7 +1073,7 @@ mod tests {
     fn unblock_with_correct_puk() {
         let mut mgr = setup();
         for _ in 0..3 {
-            mgr.verify(PIN1, &ascii_pin("0000"));
+            let _ = mgr.verify(PIN1, &ascii_pin("0000"));
         }
         assert!(mgr.is_blocked(PIN1));
 
@@ -998,7 +1092,7 @@ mod tests {
     fn unblock_with_wrong_puk() {
         let mut mgr = setup();
         for _ in 0..3 {
-            mgr.verify(PIN1, &ascii_pin("0000"));
+            let _ = mgr.verify(PIN1, &ascii_pin("0000"));
         }
         assert_eq!(
             mgr.unblock(PIN1, &ascii_pin("00000000"), &ascii_pin("5678")),
@@ -1013,11 +1107,11 @@ mod tests {
     fn unblock_with_exhausted_puk_returns_blocked() {
         let mut mgr = setup();
         for _ in 0..3 {
-            mgr.verify(PIN1, &ascii_pin("0000"));
+            let _ = mgr.verify(PIN1, &ascii_pin("0000"));
         }
         // Exhaust PUK.
         for _ in 0..10 {
-            mgr.unblock(PIN1, &ascii_pin("00000000"), &ascii_pin("5678"));
+            let _ = mgr.unblock(PIN1, &ascii_pin("00000000"), &ascii_pin("5678"));
         }
         assert_eq!(mgr.puk_retries(PIN1), Some(0));
         // Now even correct PUK fails.
@@ -1031,13 +1125,13 @@ mod tests {
     fn unblock_does_not_reset_puk_counter() {
         let mut mgr = setup();
         for _ in 0..3 {
-            mgr.verify(PIN1, &ascii_pin("0000"));
+            let _ = mgr.verify(PIN1, &ascii_pin("0000"));
         }
         // One wrong PUK attempt.
-        mgr.unblock(PIN1, &ascii_pin("00000000"), &ascii_pin("5678"));
+        let _ = mgr.unblock(PIN1, &ascii_pin("00000000"), &ascii_pin("5678"));
         assert_eq!(mgr.puk_retries(PIN1), Some(9));
         // Correct PUK unblocks but PUK counter stays at 9.
-        mgr.unblock(PIN1, &ascii_pin("12345678"), &ascii_pin("5678"));
+        let _ = mgr.unblock(PIN1, &ascii_pin("12345678"), &ascii_pin("5678"));
         assert_eq!(mgr.puk_retries(PIN1), Some(9));
     }
 
@@ -1058,7 +1152,8 @@ mod tests {
         let mut mgr = PinManager::<1>::new();
         let v = ascii_pin("1234");
         let p = ascii_pin("12345678");
-        mgr.add_pin(PinKey(0x01), &v, 3, &p, 10, true).unwrap();
+        mgr.add_pin(PinKey::PIN1, &v, 3, &p, 10, true).unwrap();
+        // 0x02 is intentionally not a named constant -- any distinct key suffices here.
         assert_eq!(
             mgr.add_pin(PinKey(0x02), &v, 3, &p, 10, true),
             Err(PinError::SlotsFull)
@@ -1071,16 +1166,16 @@ mod tests {
         let p1_val = ascii_pin("1234");
         let p2_val = ascii_pin("4321");
         let puk = ascii_pin("12345678");
-        mgr.add_pin(PinKey(0x01), &p1_val, 3, &puk, 10, true)
+        mgr.add_pin(PinKey::PIN1, &p1_val, 3, &puk, 10, true)
             .unwrap();
-        mgr.add_pin(PinKey(0x81), &p2_val, 3, &puk, 10, true)
+        mgr.add_pin(PinKey::PIN2, &p2_val, 3, &puk, 10, true)
             .unwrap();
 
         // Wrong PIN1 attempt.
-        mgr.verify(PinKey(0x01), &ascii_pin("0000"));
+        let _ = mgr.verify(PinKey::PIN1, &ascii_pin("0000"));
         // PIN2 unaffected.
-        assert_eq!(mgr.retries(PinKey(0x81)), Some(3));
-        assert!(!mgr.is_blocked(PinKey(0x81)));
+        assert_eq!(mgr.retries(PinKey::PIN2), Some(3));
+        assert!(!mgr.is_blocked(PinKey::PIN2));
     }
 
     // -- SESSION RESET test --
@@ -1088,7 +1183,7 @@ mod tests {
     #[test]
     fn reset_clears_verified_flags() {
         let mut mgr = setup();
-        mgr.verify(PIN1, &ascii_pin("1234"));
+        let _ = mgr.verify(PIN1, &ascii_pin("1234"));
         assert!(mgr.is_verified(PIN1));
         mgr.reset_verified();
         // Verified cleared, but counter preserved.
@@ -1127,7 +1222,7 @@ mod tests {
     fn save_restore_roundtrip_preserves_state() {
         let mut mgr = setup();
         // Verify PIN to set the verified flag.
-        mgr.verify(PIN1, &ascii_pin("1234"));
+        let _ = mgr.verify(PIN1, &ascii_pin("1234"));
         assert!(mgr.is_verified(PIN1));
 
         let mut buf = [0u8; PinManager::<5>::SNAPSHOT_SIZE];
@@ -1148,12 +1243,12 @@ mod tests {
     fn save_restore_preserves_degraded_counters() {
         let mut mgr = setup();
         // Two wrong attempts.
-        mgr.verify(PIN1, &ascii_pin("9999"));
-        mgr.verify(PIN1, &ascii_pin("9999"));
+        let _ = mgr.verify(PIN1, &ascii_pin("9999"));
+        let _ = mgr.verify(PIN1, &ascii_pin("9999"));
         assert_eq!(mgr.retries(PIN1), Some(1));
 
         let mut buf = [0u8; PinManager::<5>::SNAPSHOT_SIZE];
-        mgr.save_state(&mut buf);
+        let _ = mgr.save_state(&mut buf);
 
         let mut restored = PinManager::<5>::new();
         assert!(restored.restore_state(&buf));
@@ -1166,31 +1261,31 @@ mod tests {
     fn save_restore_with_multiple_pins() {
         let mut mgr = PinManager::<5>::new();
         let puk = ascii_pin("12345678");
-        mgr.add_pin(PinKey(0x01), &ascii_pin("1111"), 3, &puk, 10, true).unwrap();
-        mgr.add_pin(PinKey(0x81), &ascii_pin("2222"), 5, &puk, 8, false).unwrap();
-        mgr.add_pin(PinKey(0x0A), &ascii_pin("3333"), 2, &puk, 4, true).unwrap();
+        mgr.add_pin(PinKey::PIN1, &ascii_pin("1111"), 3, &puk, 10, true).unwrap();
+        mgr.add_pin(PinKey::PIN2, &ascii_pin("2222"), 5, &puk, 8, false).unwrap();
+        mgr.add_pin(PinKey::ADM1, &ascii_pin("3333"), 2, &puk, 4, true).unwrap();
 
-        mgr.verify(PinKey(0x01), &ascii_pin("1111"));
+        let _ = mgr.verify(PinKey::PIN1, &ascii_pin("1111"));
         // Wrong attempt on PIN 0x0A.
-        mgr.verify(PinKey(0x0A), &ascii_pin("0000"));
+        let _ = mgr.verify(PinKey::ADM1, &ascii_pin("0000"));
 
         let mut buf = [0u8; PinManager::<5>::SNAPSHOT_SIZE];
-        mgr.save_state(&mut buf);
+        let _ = mgr.save_state(&mut buf);
 
         let mut restored = PinManager::<5>::new();
         assert!(restored.restore_state(&buf));
 
         // PIN 0x01: verified, 3 retries (reset on success).
-        assert!(restored.is_verified(PinKey(0x01)));
-        assert_eq!(restored.retries(PinKey(0x01)), Some(3));
+        assert!(restored.is_verified(PinKey::PIN1));
+        assert_eq!(restored.retries(PinKey::PIN1), Some(3));
 
         // PIN 0x81: disabled, not verified, 5 retries.
-        assert!(!restored.is_enabled(PinKey(0x81)));
-        assert_eq!(restored.retries(PinKey(0x81)), Some(5));
+        assert!(!restored.is_enabled(PinKey::PIN2));
+        assert_eq!(restored.retries(PinKey::PIN2), Some(5));
 
         // PIN 0x0A: enabled, 1 retry remaining.
-        assert!(restored.is_enabled(PinKey(0x0A)));
-        assert_eq!(restored.retries(PinKey(0x0A)), Some(1));
+        assert!(restored.is_enabled(PinKey::ADM1));
+        assert_eq!(restored.retries(PinKey::ADM1), Some(1));
     }
 
     #[test]
@@ -1242,9 +1337,9 @@ mod proptests {
         #[test]
         fn correct_pin_always_succeeds(pin_val in arb_pin_value(), puk_val in arb_pin_value()) {
             let mut mgr = PinManager::<1>::new();
-            mgr.add_pin(PinKey(0x01), &pin_val, 3, &puk_val, 10, true).unwrap();
-            prop_assert_eq!(mgr.verify(PinKey(0x01), &pin_val), PinResult::Success);
-            prop_assert!(mgr.is_verified(PinKey(0x01)));
+            mgr.add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true).unwrap();
+            prop_assert_eq!(mgr.verify(PinKey::PIN1, &pin_val), PinResult::Success);
+            prop_assert!(mgr.is_verified(PinKey::PIN1));
         }
 
         // Retry counter decrements exactly once per wrong attempt.
@@ -1258,9 +1353,9 @@ mod proptests {
             prop_assume!(pin_val != wrong_val);
             let puk = PinValue::new([0x30; 8]);
             let mut mgr = PinManager::<1>::new();
-            mgr.add_pin(PinKey(0x01), &pin_val, max_retries, &puk, 10, true).unwrap();
-            mgr.verify(PinKey(0x01), &wrong_val);
-            prop_assert_eq!(mgr.retries(PinKey(0x01)), Some(max_retries - 1));
+            mgr.add_pin(PinKey::PIN1, &pin_val, max_retries, &puk, 10, true).unwrap();
+            let _ = mgr.verify(PinKey::PIN1, &wrong_val);
+            prop_assert_eq!(mgr.retries(PinKey::PIN1), Some(max_retries - 1));
         }
 
         // After unblock, the new PIN works and old PIN does not.
@@ -1271,30 +1366,30 @@ mod proptests {
             puk_val in arb_pin_value(),
         ) {
             let mut mgr = PinManager::<1>::new();
-            mgr.add_pin(PinKey(0x01), &old_pin, 1, &puk_val, 10, true).unwrap();
+            mgr.add_pin(PinKey::PIN1, &old_pin, 1, &puk_val, 10, true).unwrap();
             // Block by one wrong attempt (max_retries = 1).
-            mgr.verify(PinKey(0x01), &PinValue::EMPTY);
-            prop_assert!(mgr.is_blocked(PinKey(0x01)));
+            let _ = mgr.verify(PinKey::PIN1, &PinValue::EMPTY);
+            prop_assert!(mgr.is_blocked(PinKey::PIN1));
             // Unblock.
             prop_assert_eq!(
-                mgr.unblock(PinKey(0x01), &puk_val, &new_pin),
+                mgr.unblock(PinKey::PIN1, &puk_val, &new_pin),
                 PinResult::Success,
             );
             // New PIN works.
-            prop_assert_eq!(mgr.verify(PinKey(0x01), &new_pin), PinResult::Success);
+            prop_assert_eq!(mgr.verify(PinKey::PIN1, &new_pin), PinResult::Success);
         }
 
         // Disable then enable round-trips back to unverified enabled state.
         #[test]
         fn disable_enable_roundtrip(pin_val in arb_pin_value(), puk_val in arb_pin_value()) {
             let mut mgr = PinManager::<1>::new();
-            mgr.add_pin(PinKey(0x01), &pin_val, 3, &puk_val, 10, true).unwrap();
-            prop_assert_eq!(mgr.disable(PinKey(0x01), &pin_val), PinResult::Success);
-            prop_assert!(!mgr.is_enabled(PinKey(0x01)));
-            prop_assert!(mgr.is_verified(PinKey(0x01))); // disabled => satisfied
-            prop_assert_eq!(mgr.enable(PinKey(0x01), &pin_val), PinResult::Success);
-            prop_assert!(mgr.is_enabled(PinKey(0x01)));
-            prop_assert!(!mgr.is_verified(PinKey(0x01))); // must VERIFY again
+            mgr.add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true).unwrap();
+            prop_assert_eq!(mgr.disable(PinKey::PIN1, &pin_val), PinResult::Success);
+            prop_assert!(!mgr.is_enabled(PinKey::PIN1));
+            prop_assert!(mgr.is_verified(PinKey::PIN1)); // disabled => satisfied
+            prop_assert_eq!(mgr.enable(PinKey::PIN1, &pin_val), PinResult::Success);
+            prop_assert!(mgr.is_enabled(PinKey::PIN1));
+            prop_assert!(!mgr.is_verified(PinKey::PIN1)); // must VERIFY again
         }
     }
 }

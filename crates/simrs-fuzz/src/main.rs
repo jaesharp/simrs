@@ -5,8 +5,8 @@
 //!
 //! Configurable via `SIMRS_FUZZ_ITERS` env var (default 100,000).
 
-use simrs_fs::{DfDef, EfDef, EfStructure, FileRef};
-use simrs_hle::{hle_apdu, hle_init, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_state_hash};
+use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef, Sfi};
+use simrs_hle::{hle_apdu, hle_init, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_state_hash, Ki};
 use simrs_sim::Sim;
 use std::collections::HashSet;
 
@@ -15,26 +15,26 @@ use std::collections::HashSet;
 // ---------------------------------------------------------------------------
 
 static EF_ICCID: EfDef = EfDef {
-    fid: 0x2FE2,
+    fid: Fid(0x2FE2),
     sfi: None,
     structure: EfStructure::Transparent,
     data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
 };
 
 static EF_IMSI: EfDef = EfDef {
-    fid: 0x6F07,
-    sfi: Some(7),
+    fid: Fid(0x6F07),
+    sfi: Some(Sfi(7)),
     structure: EfStructure::Transparent,
     data: &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
 };
 
 static DF_GSM: DfDef = DfDef {
-    fid: 0x7F20,
+    fid: Fid(0x7F20),
     children: &[FileRef::Ef(&EF_IMSI)],
 };
 
 static MF: DfDef = DfDef {
-    fid: 0x3F00,
+    fid: Fid(0x3F00),
     children: &[FileRef::Ef(&EF_ICCID), FileRef::Df(&DF_GSM)],
 };
 
@@ -236,7 +236,7 @@ fn main() {
         .unwrap_or(100_000);
 
     eprintln!("[simrs-fuzz] initializing SIM...");
-    hle_init(&ATR, &MF, [0x11; 16], [0x22; 16], [0x33; 16]);
+    hle_init(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 16]);
     hle_reset();
 
     // Take initial snapshot.
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn smoke_test_short_fuzz_run() {
-        hle_init(&ATR, &MF, [0x11; 16], [0x22; 16], [0x33; 16]);
+        hle_init(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 16]);
         hle_reset();
 
         let snap_size = Sim::<256>::SNAPSHOT_SIZE;

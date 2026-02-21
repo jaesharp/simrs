@@ -65,6 +65,17 @@ pub enum BerError {
     Truncated,
 }
 
+impl core::fmt::Display for BerError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferFull => f.write_str("buffer full"),
+            Self::InvalidTag => f.write_str("invalid tag"),
+            Self::InvalidLength => f.write_str("invalid length"),
+            Self::Truncated => f.write_str("truncated"),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Encoder
 // ---------------------------------------------------------------------------

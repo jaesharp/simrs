@@ -325,8 +325,8 @@ impl MilenageParams {
 }
 
 pub struct AuthOutput { pub res: [u8; 8], pub ck: [u8; 16], pub ik: [u8; 16], pub kc: [u8; 8] }
-pub enum MilenageError { MacFailure, SqnOutOfRange }
-pub enum ParamError    { DuplicateCi, DuplicateRi }
+pub enum MilenageError { MacFailure, SyncFailure { auts: [u8; 14] } }
+pub enum ParamError    { DuplicateCiRi { first: usize, second: usize } }
 ```
 
 ---
@@ -340,7 +340,8 @@ pub enum ParamError    { DuplicateCi, DuplicateRi }
 The filesystem is defined as **`const` statics** — no runtime allocation. EF content lives in the consuming crates ([`simrs-gsm`](#simrs-gsm), [`simrs-usim`](#simrs-usim)); `simrs-fs` only defines the tree node types.
 
 ```rust
-pub type Fid = u16;
+pub struct Fid(pub u16);       // newtype; see Fid::MF, Fid::CUR_ADF, Fid::NONE
+pub struct Sfi(pub u8);        // newtype for Short File Identifier
 
 pub enum EfStructure {
     Transparent,
@@ -348,17 +349,11 @@ pub enum EfStructure {
     Cyclic      { record_size: u8, num_records: u8 },
 }
 
-pub enum EfData {
-    Static(&'static [u8]),
-    AllFf { size: usize },
-    Records { record_size: u8, records: &'static [&'static [u8]] },
-}
-
 pub struct EfDef {
     pub fid:       Fid,
-    pub sfi:       Option<u8>,
+    pub sfi:       Option<Sfi>,
     pub structure: EfStructure,
-    pub data:      EfData,
+    pub data:      &'static [u8],
 }
 
 pub struct DfDef {
@@ -470,15 +465,16 @@ Constructs GSM 11.11 §9.2.1 SELECT responses:
 ```rust
 pub struct GsmApp {
     pub fs:  SelectionCtx,
-    pub pin: PinManager,
-    pub ki:  [u8; 16],
-    // response queue for GET RESPONSE
+    pin: PinManager<5>,
+    ki:  Ki,                    // COMP128 key; newtype wrapping [u8; 16]
+    rsp_queue: ResponseQueue<23>,
 }
 
 impl GsmApp {
-    pub fn new(mf: &'static DfDef, ki: [u8; 16]) -> Self;
+    pub const fn new(mf: &'static DfDef, ki: Ki) -> Self;
     /// Returns bytes to send (data + SW appended).
-    pub fn handle<'buf>(&'buf mut self, cmd: &Command<'_>, buf: &'buf mut [u8])
+    #[must_use]
+    pub fn handle<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8])
         -> &'buf [u8];
 }
 ```
@@ -497,21 +493,24 @@ Post-APDU hook: if proactive command pending and SW would be `90 00`, rewrites t
 
 ```rust
 pub struct UsimApp {
-    pub fs:        SelectionCtx,
-    pub pin:       PinManager,
-    pub milenage:  MilenageParams,
-    pub proactive: ProactiveState,
+    fs:        SelectionCtx,
+    pin:       PinManager<5>,
+    milenage:  MilenageParams,
+    proactive: ProactiveState,
+    rsp_queue: ResponseQueue<64>,
 }
 
 pub struct ProactiveState {
-    pending: Option<([u8; 256], usize)>,   // encoded command + len
-    cmd_seq: u8,
+    buf: [u8; 256],
+    len: usize,
+    seq: u8,
 }
 
 impl UsimApp {
-    pub fn new(mf: &'static DfDef, adfs: &'static [AdfSlot],
-               milenage: MilenageParams) -> Self;
-    pub fn handle<'buf>(&'buf mut self, cmd: &Command<'_>, buf: &'buf mut [u8])
+    pub const fn new(mf: &'static DfDef, adfs: &'static [AdfSlot],
+                     milenage: MilenageParams) -> Self;
+    #[must_use]
+    pub fn handle<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8])
         -> &'buf [u8];
 }
 ```
@@ -529,26 +528,16 @@ The single public entry point for external code (transport, fuzzer, HLE layer).
 ```rust
 pub enum SimEvent<'a> { PowerOn, Reset, Apdu(&'a [u8]) }
 
-pub enum SimResponse<'buf> {
-    Atr(&'static [u8]),
-    Apdu { data: &'buf [u8], sw1: u8, sw2: u8 },
-    ProactivePending { fetch_len: u8 },  // SW1=91
+#[must_use]
+pub enum SimResponse<'a> {
+    Atr(&'a [u8]),
+    Apdu { data: &'a [u8], sw1: u8, sw2: u8 },
     Ignored,                             // malformed < 4 bytes
 }
 
-pub struct SimParams {
-    pub atr:        &'static [u8],
-    pub filesystem: &'static DfDef,
-    pub adf_table:  &'static [AdfSlot],
-    pub milenage:   Option<MilenageParams>,
-    pub pins:       &'static [PinInit],
-}
-
-pub struct PinInit { pub key: PinKey, pub value: PinValue, pub retries: u8 }
-
 pub struct Sim<const RSP_CAP: usize = 256>;
 impl<const RSP_CAP: usize> Sim<RSP_CAP> {
-    pub const fn new(params: SimParams) -> Self;
+    pub const fn new(atr: &'static [u8], mf: &'static DfDef) -> Self;
     /// Pure: event in → response out. Never panics.
     pub fn process<'s>(&'s mut self, event: SimEvent<'_>) -> SimResponse<'s>;
 }
@@ -632,15 +621,15 @@ Daemon that bridges simrs to QEMU's virtual smart card interface via shmem trans
 **Deps:** [`simrs-sim`](#simrs-sim)
 
 ```rust
-pub trait Snapshot: Sized {
-    const BLOB_SIZE: usize;
-    fn save   (&self,         buf: &mut [u8; Self::BLOB_SIZE]);
-    fn restore(               buf: &    [u8; Self::BLOB_SIZE]) -> Self;
-    fn state_hash(&self) -> u64;  // fast dedup; not cryptographic
+pub trait Snapshot {
+    const SIZE: usize;
+    fn save(&self, buf: &mut [u8]) -> usize;      // returns bytes written, 0 on failure
+    fn restore(&mut self, buf: &[u8]) -> bool;     // returns true on success
+    fn state_hash(&self) -> u64;                   // fast dedup; not cryptographic
 }
 ```
 
-`BLOB_SIZE` is a const associated — callers stack-allocate `[u8; Sim::BLOB_SIZE]`.
+`SIZE` is a const associated -- callers stack-allocate `[u8; Sim::<256>::SNAPSHOT_SIZE]`.
 
 ### `simrs-hle`
 

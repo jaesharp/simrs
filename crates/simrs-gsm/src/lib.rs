@@ -28,19 +28,19 @@
 //! # Example
 //!
 //! ```
-//! use simrs_gsm::GsmApp;
+//! use simrs_gsm::{GsmApp, Ki};
 //! use simrs_iso7816::Command;
-//! use simrs_fs::{DfDef, EfDef, EfStructure, FileRef};
+//! use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef};
 //! use simrs_pin::{PinKey, PinValue};
 //!
 //! static EF: EfDef = EfDef {
-//!     fid: 0x2FE2, sfi: None,
+//!     fid: Fid(0x2FE2), sfi: None,
 //!     structure: EfStructure::Transparent,
 //!     data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
 //! };
-//! static MF: DfDef = DfDef { fid: 0x3F00, children: &[FileRef::Ef(&EF)] };
+//! static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[FileRef::Ef(&EF)] };
 //!
-//! let ki = [0x01; 16];
+//! let ki = Ki([0x01; 16]);
 //! let mut app = GsmApp::new(&MF, ki);
 //!
 //! // SELECT MF
@@ -55,10 +55,58 @@
 
 use simrs_comp128::comp128;
 use simrs_fs::{
-    AdfSlot, DfDef, EfDef, EfStructure, FsError, SelectionCtx, SelectedFile,
+    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsError, SelectionCtx, SelectedFile,
 };
-use simrs_iso7816::{ins, Command, StatusWord};
+use simrs_iso7816::{ins, Command, ResponseQueue, StatusWord, write_data_sw, write_sw, write_sw_raw};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/// COMP128 authentication key (Ki), 128 bits.
+///
+/// Newtype wrapper preventing accidental interchange with other 16-byte
+/// key material (Milenage `K`, `OPc`). Derefs to `[u8; 16]` for transparent
+/// use in cryptographic operations.
+///
+/// ```
+/// use simrs_gsm::Ki;
+/// let ki = Ki([0x11; 16]);
+/// assert_eq!(ki[0], 0x11);
+/// assert_eq!(ki.len(), 16);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ki(pub [u8; 16]);
+
+impl Ki {
+    /// Return a reference to the raw key bytes.
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
+}
+
+impl core::ops::Deref for Ki {
+    type Target = [u8; 16];
+    fn deref(&self) -> &[u8; 16] {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for Ki {
+    fn deref_mut(&mut self) -> &mut [u8; 16] {
+        &mut self.0
+    }
+}
+
+impl core::fmt::Display for Ki {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for b in &self.0 {
+            write!(f, "{b:02X}")?;
+        }
+        Ok(())
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -66,9 +114,6 @@ use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
 
 /// GSM CLA byte.
 const CLA_GSM: u8 = 0xA0;
-
-/// Maximum response queue size (SELECT response).
-const RSP_QUEUE_CAP: usize = 23;
 
 /// DF/MF SELECT response length per GSM 11.11 clause 9.2.1.
 const DF_RSP_LEN: usize = 23;
@@ -92,9 +137,8 @@ const SW_NO_EF_SELECTED: [u8; 2] = [0x94, 0x00];
 pub struct GsmApp {
     fs: SelectionCtx,
     pin: PinManager<5>,
-    ki: [u8; 16],
-    rsp_queue: [u8; RSP_QUEUE_CAP],
-    rsp_queue_len: u8,
+    ki: Ki,
+    rsp_queue: ResponseQueue<23>,
 }
 
 impl GsmApp {
@@ -103,19 +147,18 @@ impl GsmApp {
     /// # Example
     ///
     /// ```
-    /// use simrs_gsm::GsmApp;
-    /// use simrs_fs::DfDef;
+    /// use simrs_gsm::{GsmApp, Ki};
+    /// use simrs_fs::{DfDef, Fid};
     ///
-    /// static MF: DfDef = DfDef { fid: 0x3F00, children: &[] };
-    /// let app = GsmApp::new(&MF, [0u8; 16]);
+    /// static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[] };
+    /// let app = GsmApp::new(&MF, Ki([0u8; 16]));
     /// ```
-    pub const fn new(mf: &'static DfDef, ki: [u8; 16]) -> Self {
+    pub const fn new(mf: &'static DfDef, ki: Ki) -> Self {
         Self {
             fs: SelectionCtx::new(mf),
             pin: PinManager::new(),
             ki,
-            rsp_queue: [0u8; RSP_QUEUE_CAP],
-            rsp_queue_len: 0,
+            rsp_queue: ResponseQueue::new(),
         }
     }
 
@@ -128,11 +171,12 @@ impl GsmApp {
 
     /// Snapshot buffer size in bytes (159).
     pub const SNAPSHOT_SIZE: usize =
-        SelectionCtx::SNAPSHOT_SIZE + PinManager::<5>::SNAPSHOT_SIZE + 16 + RSP_QUEUE_CAP + 1;
+        SelectionCtx::SNAPSHOT_SIZE + PinManager::<5>::SNAPSHOT_SIZE + 16 + ResponseQueue::<23>::SNAPSHOT_SIZE;
 
     /// Serialize the GSM application state into `buf`.
     ///
     /// Returns the number of bytes written, or 0 if `buf` is too small.
+    #[must_use]
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return 0;
@@ -140,11 +184,10 @@ impl GsmApp {
         let mut off = 0;
         off += self.fs.save_state(&mut buf[off..]);
         off += self.pin.save_state(&mut buf[off..]);
-        buf[off..off + 16].copy_from_slice(&self.ki);
+        buf[off..off + 16].copy_from_slice(&*self.ki);
         off += 16;
-        buf[off..off + RSP_QUEUE_CAP].copy_from_slice(&self.rsp_queue);
-        off += RSP_QUEUE_CAP;
-        buf[off] = self.rsp_queue_len;
+        off += self.rsp_queue.save_state(&mut buf[off..]);
+        let _ = off;
         Self::SNAPSHOT_SIZE
     }
 
@@ -152,6 +195,7 @@ impl GsmApp {
     ///
     /// Returns `true` on success. The `adfs` parameter is passed through
     /// to `SelectionCtx::restore_state` (typically `&[]` for GSM).
+    #[must_use]
     pub fn restore_state(
         &mut self,
         buf: &[u8],
@@ -171,13 +215,11 @@ impl GsmApp {
         off += PinManager::<5>::SNAPSHOT_SIZE;
         self.ki.copy_from_slice(&buf[off..off + 16]);
         off += 16;
-        self.rsp_queue.copy_from_slice(&buf[off..off + RSP_QUEUE_CAP]);
-        off += RSP_QUEUE_CAP;
-        let queue_len = buf[off];
-        if queue_len as usize > RSP_QUEUE_CAP {
+        if !self.rsp_queue.restore_state(&buf[off..]) {
             return false;
         }
-        self.rsp_queue_len = queue_len;
+        off += ResponseQueue::<23>::SNAPSHOT_SIZE;
+        let _ = off;
         true
     }
 
@@ -188,6 +230,7 @@ impl GsmApp {
     ///
     /// Returns `6E 00` (class not supported) if CLA is not `0xA0`.
     /// Returns `6D 00` (instruction not supported) for unknown INS.
+    #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub fn handle<'buf>(
         &mut self,
@@ -201,7 +244,7 @@ impl GsmApp {
 
         // Any command other than GET RESPONSE clears the response queue.
         if cmd.ins() != ins::GET_RESPONSE {
-            self.rsp_queue_len = 0;
+            self.rsp_queue.clear();
         }
 
         match cmd.ins() {
@@ -232,21 +275,21 @@ impl GsmApp {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
-        let fid = u16::from_be_bytes([cmd.data()[0], cmd.data()[1]]);
+        let fid = Fid::from_be_bytes([cmd.data()[0], cmd.data()[1]]);
         match self.fs.select_by_fid(fid) {
             Ok(sel) => {
                 // Build the GSM SELECT response and queue it.
                 let rsp_len = match sel {
                     SelectedFile::Df(df) => {
-                        build_df_response(df, &mut self.rsp_queue);
+                        build_df_response(df, self.rsp_queue.buf_mut());
                         DF_RSP_LEN
                     }
                     SelectedFile::Ef(ef) => {
-                        build_ef_response(ef, &mut self.rsp_queue);
+                        build_ef_response(ef, self.rsp_queue.buf_mut());
                         EF_RSP_LEN
                     }
                 };
-                self.rsp_queue_len = rsp_len as u8;
+                self.rsp_queue.set_len(rsp_len);
                 // Return 9F XX (response data available).
                 write_sw_raw(buf, 0x9F, rsp_len as u8)
             }
@@ -265,20 +308,7 @@ impl GsmApp {
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
             return write_sw_raw(buf, 0x6A, 0x86);
         }
-        let len = self.rsp_queue_len as usize;
-        if len == 0 {
-            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-        }
-        let le = cmd.le().unwrap_or(0) as usize;
-        let n = if le == 0 { len } else { le.min(len) };
-        if buf.len() < n + 2 {
-            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-        }
-        buf[..n].copy_from_slice(&self.rsp_queue[..n]);
-        buf[n] = 0x90;
-        buf[n + 1] = 0x00;
-        self.rsp_queue_len = 0;
-        &buf[..n + 2]
+        self.rsp_queue.get_response(cmd.le(), buf)
     }
 
     // -- READ BINARY --
@@ -292,16 +322,7 @@ impl GsmApp {
         let le = u16::from(cmd.le().unwrap_or(0));
 
         match self.fs.read_binary(offset, le) {
-            Ok(data) => {
-                let n = data.len();
-                if buf.len() < n + 2 {
-                    return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-                }
-                buf[..n].copy_from_slice(data);
-                buf[n] = 0x90;
-                buf[n + 1] = 0x00;
-                &buf[..n + 2]
-            }
+            Ok(data) => write_data_sw(buf, data, StatusWord::Success),
             Err(FsError::NoEfSelected) => write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]),
             Err(FsError::NotTransparent) => write_sw_raw(buf, SW_FILE_INCONSISTENT[0], SW_FILE_INCONSISTENT[1]),
             Err(FsError::OffsetOutOfRange) => write_sw_raw(buf, 0x94, 0x02),
@@ -321,16 +342,7 @@ impl GsmApp {
         // We accept any P2 and just use the record number.
 
         match self.fs.read_record(rec_num) {
-            Ok(data) => {
-                let n = data.len();
-                if buf.len() < n + 2 {
-                    return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-                }
-                buf[..n].copy_from_slice(data);
-                buf[n] = 0x90;
-                buf[n + 1] = 0x00;
-                &buf[..n + 2]
-            }
+            Ok(data) => write_data_sw(buf, data, StatusWord::Success),
             Err(FsError::NoEfSelected) => write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]),
             Err(FsError::NotRecordBased) => write_sw_raw(buf, SW_FILE_INCONSISTENT[0], SW_FILE_INCONSISTENT[1]),
             Err(FsError::RecordOutOfRange) => write_sw_raw(buf, 0x94, 0x02),
@@ -352,13 +364,7 @@ impl GsmApp {
         build_df_response(self.fs.current_df(), &mut rsp);
         let le = cmd.le().unwrap_or(0) as usize;
         let n = if le == 0 { DF_RSP_LEN } else { le.min(DF_RSP_LEN) };
-        if buf.len() < n + 2 {
-            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-        }
-        buf[..n].copy_from_slice(&rsp[..n]);
-        buf[n] = 0x90;
-        buf[n + 1] = 0x00;
-        &buf[..n + 2]
+        write_data_sw(buf, &rsp[..n], StatusWord::Success)
     }
 
     // -- RUN GSM ALGORITHM (COMP128) --
@@ -380,9 +386,9 @@ impl GsmApp {
         let result = comp128(&self.ki, &rand);
 
         // Queue 12-byte result: 4-byte SRES + 8-byte Kc.
-        self.rsp_queue[..4].copy_from_slice(&result.sres);
-        self.rsp_queue[4..12].copy_from_slice(&result.kc);
-        self.rsp_queue_len = 12;
+        self.rsp_queue.buf_mut()[..4].copy_from_slice(&result.sres);
+        self.rsp_queue.buf_mut()[4..12].copy_from_slice(&result.kc);
+        self.rsp_queue.set_len(12);
 
         write_sw_raw(buf, 0x9F, 0x0C)
     }
@@ -477,7 +483,7 @@ impl GsmApp {
 // ---------------------------------------------------------------------------
 
 /// Build a 23-byte DF/MF SELECT response per GSM 11.11 clause 9.2.1.
-fn build_df_response(df: &DfDef, out: &mut [u8; RSP_QUEUE_CAP]) {
+fn build_df_response(df: &DfDef, out: &mut [u8; 23]) {
     out.fill(0x00);
 
     // Bytes 0-1: RFU (0x0000).
@@ -491,7 +497,7 @@ fn build_df_response(df: &DfDef, out: &mut [u8; RSP_QUEUE_CAP]) {
     out[5] = fid_be[1];
 
     // Byte 6: file type (0x01 = MF, 0x02 = DF).
-    out[6] = if df.fid == 0x3F00 { 0x01 } else { 0x02 };
+    out[6] = if df.fid == Fid::MF { 0x01 } else { 0x02 };
 
     // Bytes 7-11: RFU.
     // Byte 12: GSM-specific data length (10 bytes follow).
@@ -527,7 +533,7 @@ fn build_df_response(df: &DfDef, out: &mut [u8; RSP_QUEUE_CAP]) {
 
 /// Build a 15-byte EF SELECT response per GSM 11.11 clause 9.2.1.
 #[allow(clippy::cast_possible_truncation)]
-fn build_ef_response(ef: &EfDef, out: &mut [u8; RSP_QUEUE_CAP]) {
+fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
     out.fill(0x00);
 
     // Bytes 0-1: RFU.
@@ -574,36 +580,19 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; RSP_QUEUE_CAP]) {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Write a `StatusWord` into buf and return a 2-byte slice.
-fn write_sw(buf: &mut [u8], sw: StatusWord) -> &[u8] {
-    let [sw1, sw2] = sw.to_bytes();
-    write_sw_raw(buf, sw1, sw2)
-}
-
-/// Write raw SW1/SW2 into buf and return a 2-byte slice.
-fn write_sw_raw(buf: &mut [u8], sw1: u8, sw2: u8) -> &[u8] {
-    buf[0] = sw1;
-    buf[1] = sw2;
-    &buf[..2]
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_fs::{EfDef, EfStructure, FileRef};
+    use simrs_fs::{EfDef, EfStructure, Fid, FileRef, Sfi};
 
     // -- Test filesystem --
 
     static EF_ICCID: EfDef = EfDef {
-        fid: 0x2FE2,
-        sfi: Some(2),
+        fid: Fid(0x2FE2),
+        sfi: Some(Sfi(2)),
         structure: EfStructure::Transparent,
         data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
     };
@@ -614,8 +603,8 @@ mod tests {
     ];
 
     static EF_DIR: EfDef = EfDef {
-        fid: 0x2F00,
-        sfi: Some(30),
+        fid: Fid(0x2F00),
+        sfi: Some(Sfi(30)),
         structure: EfStructure::LinearFixed {
             record_size: 8,
             num_records: 2,
@@ -630,7 +619,7 @@ mod tests {
     ];
 
     static EF_ADN: EfDef = EfDef {
-        fid: 0x6F3A,
+        fid: Fid(0x6F3A),
         sfi: None,
         structure: EfStructure::LinearFixed {
             record_size: 14,
@@ -640,31 +629,31 @@ mod tests {
     };
 
     static DF_TELECOM: DfDef = DfDef {
-        fid: 0x7F10,
+        fid: Fid(0x7F10),
         children: &[FileRef::Ef(&EF_ADN)],
     };
 
     static EF_IMSI: EfDef = EfDef {
-        fid: 0x6F07,
-        sfi: Some(7),
+        fid: Fid(0x6F07),
+        sfi: Some(Sfi(7)),
         structure: EfStructure::Transparent,
         data: &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
     };
 
     static EF_KC: EfDef = EfDef {
-        fid: 0x6F20,
+        fid: Fid(0x6F20),
         sfi: None,
         structure: EfStructure::Transparent,
         data: &[0xFF; 9],
     };
 
     static DF_GSM: DfDef = DfDef {
-        fid: 0x7F20,
+        fid: Fid(0x7F20),
         children: &[FileRef::Ef(&EF_IMSI), FileRef::Ef(&EF_KC)],
     };
 
     static MF: DfDef = DfDef {
-        fid: 0x3F00,
+        fid: Fid(0x3F00),
         children: &[
             FileRef::Ef(&EF_ICCID),
             FileRef::Ef(&EF_DIR),
@@ -673,15 +662,15 @@ mod tests {
         ],
     };
 
-    static KI: [u8; 16] = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-                            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF];
+    static KI: Ki = Ki([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+                         0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);
 
     fn app() -> GsmApp {
         let mut a = GsmApp::new(&MF, KI);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
         a.pin_manager()
-            .add_pin(PinKey(0x01), &pin_val, 3, &puk_val, 10, true)
+            .add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
             .unwrap();
         a
     }
@@ -1075,7 +1064,7 @@ mod tests {
         assert_eq!(written, GsmApp::SNAPSHOT_SIZE);
 
         // Create a fresh app and restore into it.
-        let mut restored = GsmApp::new(&MF, [0u8; 16]);
+        let mut restored = GsmApp::new(&MF, Ki([0u8; 16]));
         assert!(restored.restore_state(&snap, &[]));
 
         // Verify: read EF.IMSI works (fs state restored to DF.GSM + EF.IMSI).
@@ -1106,8 +1095,8 @@ mod tests {
 
         // Save and restore.
         let mut snap = [0u8; GsmApp::SNAPSHOT_SIZE];
-        app.save_state(&mut snap);
-        let mut restored = GsmApp::new(&MF, [0u8; 16]);
+        let _ = app.save_state(&mut snap);
+        let mut restored = GsmApp::new(&MF, Ki([0u8; 16]));
         assert!(restored.restore_state(&snap, &[]));
 
         // Same RAND must produce same result (Ki preserved).
@@ -1131,7 +1120,7 @@ mod tests {
     fn snapshot_restore_oversized_rsp_queue_len_returns_false() {
         let src = app();
         let mut snap = [0u8; GsmApp::SNAPSHOT_SIZE];
-        src.save_state(&mut snap);
+        let _ = src.save_state(&mut snap);
         // rsp_queue_len is the last byte of the snapshot.
         *snap.last_mut().unwrap() = u8::MAX;
         let mut dst = app();
@@ -1146,18 +1135,18 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     use super::*;
-    use simrs_fs::{EfDef, EfStructure, FileRef};
+    use simrs_fs::{EfDef, EfStructure, Fid, FileRef};
     use proptest::prelude::*;
 
     static PT_EF: EfDef = EfDef {
-        fid: 0x2FE2,
+        fid: Fid(0x2FE2),
         sfi: None,
         structure: EfStructure::Transparent,
         data: &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
     };
 
     static PT_MF: DfDef = DfDef {
-        fid: 0x3F00,
+        fid: Fid(0x3F00),
         children: &[FileRef::Ef(&PT_EF)],
     };
 
@@ -1166,11 +1155,11 @@ mod proptests {
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
             prop_assume!(u16::from(offset) + u16::from(length) <= 8);
-            let mut app = GsmApp::new(&PT_MF, [0u8; 16]);
+            let mut app = GsmApp::new(&PT_MF, Ki([0u8; 16]));
             let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
             let mut buf = [0u8; 256];
-            app.handle(&cmd, &mut buf);
+            let _ = app.handle(&cmd, &mut buf);
 
             let rb = [0xA0, 0xB0, 0x00, offset, length];
             let cmd = Command::parse(&rb).unwrap();
@@ -1183,7 +1172,7 @@ mod proptests {
         // RUN GSM ALGORITHM always produces 12-byte result matching comp128.
         #[test]
         fn run_gsm_algo_matches_comp128(rand in proptest::collection::vec(any::<u8>(), 16..=16)) {
-            let ki = [0xAB; 16];
+            let ki = Ki([0xAB; 16]);
             let mut app = GsmApp::new(&PT_MF, ki);
             let mut apdu = [0u8; 21];
             apdu[0] = 0xA0;
@@ -1193,7 +1182,7 @@ mod proptests {
 
             let cmd = Command::parse(&apdu).unwrap();
             let mut buf = [0u8; 256];
-            app.handle(&cmd, &mut buf);
+            let _ = app.handle(&cmd, &mut buf);
 
             let cmd2 = Command::parse(&[0xA0, 0xC0, 0x00, 0x00, 0x0C]).unwrap();
             let rsp = app.handle(&cmd2, &mut buf);

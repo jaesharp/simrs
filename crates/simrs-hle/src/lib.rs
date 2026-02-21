@@ -28,6 +28,10 @@ use simrs_fs::DfDef;
 use simrs_milenage::{MilenageParams, OpVariant};
 use simrs_sim::{Sim, SimEvent, SimResponse};
 
+/// Re-export [`simrs_gsm::Ki`] so callers of [`hle_init`] don't need a
+/// direct dependency on `simrs-gsm`.
+pub use simrs_gsm::Ki;
+
 thread_local! {
     static SIM: RefCell<Option<Sim<256>>> = const { RefCell::new(None) };
 }
@@ -42,7 +46,7 @@ thread_local! {
 pub fn hle_init(
     atr: &'static [u8],
     mf: &'static DfDef,
-    ki: [u8; 16],
+    ki: simrs_gsm::Ki,
     k: [u8; 16],
     opc: [u8; 16],
 ) {
@@ -142,24 +146,24 @@ pub fn hle_state_hash() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_fs::{EfDef, EfStructure, FileRef};
+    use simrs_fs::{EfDef, EfStructure, Fid, FileRef};
 
     static EF_ICCID: EfDef = EfDef {
-        fid: 0x2FE2,
+        fid: Fid(0x2FE2),
         sfi: None,
         structure: EfStructure::Transparent,
         data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
     };
 
     static MF: DfDef = DfDef {
-        fid: 0x3F00,
+        fid: Fid(0x3F00),
         children: &[FileRef::Ef(&EF_ICCID)],
     };
 
     static ATR: [u8; 2] = [0x3B, 0x00];
 
     fn init() {
-        hle_init(&ATR, &MF, [0x11; 16], [0x22; 16], [0x33; 16]);
+        hle_init(&ATR, &MF, simrs_gsm::Ki([0x11; 16]), [0x22; 16], [0x33; 16]);
     }
 
     #[test]
