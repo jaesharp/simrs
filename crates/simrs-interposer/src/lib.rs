@@ -12,6 +12,7 @@
 
 // Many 3GPP/swICC terms used in docs (OPc, USIM, ATR, swICC, etc.)
 #![allow(clippy::doc_markdown)]
+#![warn(missing_docs)]
 
 pub mod capture;
 pub mod divergence;

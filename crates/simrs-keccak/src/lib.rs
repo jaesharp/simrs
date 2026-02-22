@@ -284,7 +284,7 @@ mod tests {
         assert_eq!(a, b, "identical inputs must produce identical outputs");
     }
 
-    /// Known-answer test: Keccak-f[1600] with lane[0] = 0x01 (rest zero).
+    /// Known-answer test: Keccak-f\[1600\] with lane[0] = 0x01 (rest zero).
     ///
     /// A single-bit input state exercises all steps (theta parity is non-trivial,
     /// rho rotates non-zero lanes, pi rearranges them, chi applies non-linear mixing).
@@ -330,7 +330,7 @@ mod tests {
         }
     }
 
-    /// Known-answer test: Keccak-f[1600] with all-ones input (every lane = `0xFFFF_FFFF_FFFF_FFFF`).
+    /// Known-answer test: Keccak-f\[1600\] with all-ones input (every lane = `0xFFFF_FFFF_FFFF_FFFF`).
     ///
     /// This input exercises the full dynamic range of all step mappings.
     /// Theta with all-ones parity produces a specific XOR pattern, rho

@@ -21,6 +21,7 @@
 //! This crate is fully `no_std`. No heap allocation.
 #![no_std]
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 #![deny(clippy::all, clippy::pedantic)]
 #![allow(clippy::doc_markdown)]        // ETSI/3GPP terms: OTA, SPI, KIc, KID, TAR, etc.
 #![allow(clippy::missing_errors_doc)]  // Error types are self-documenting

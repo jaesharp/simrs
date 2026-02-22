@@ -52,10 +52,10 @@ LSI COMMAND, END OF PROACTIVE UICC SESSION.
 
 ## API
 
-- `ProactiveCommand` enum -- 46 variants covering all supported command types
-- `encode(cmd, cmd_number, buf) -> Result<usize, ProactiveError>` -- BER-TLV encoding
-- `encoded_len(cmd, cmd_number) -> usize` -- dry-run length calculation
-- `ProactiveState` -- pending command buffer, `91 XX` SW override, FETCH/RESPONSE cycle
+- `ProactiveCommand` enum -- 46 variants covering all command types listed above
+- `encode(cmd, cmd_number, buf) -> Result<usize, ProactiveError>` -- BER-TLV encoding into caller-provided buffer
+- `encoded_len(cmd, cmd_number) -> usize` -- dry-run length calculation (no buffer needed)
+- `ProactiveState` -- pending command buffer, `91 XX` SW override, FETCH/TERMINAL RESPONSE cycle
 - `ProactiveState::queue_command()` / `.fetch()` / `.override_status()`
 - `ProactiveState::handle_envelope()` -- menu selection and event download parsing
 - `ProactiveState::handle_terminal_response()` -- result extraction
