@@ -289,20 +289,20 @@ impl<'a> SnapReader<'a> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Const-compatible byte equality for non-secret operator configuration.
+/// Const-compatible constant-time equality for two 16-byte arrays.
 ///
-/// NOT constant-time -- uses early-return comparison. Safe here because
-/// (c_i, r_i) are operator-chosen public parameters, not secret key material.
-/// For secret data, use `simrs_consttime::ct_eq` instead.
+/// Uses XOR accumulation (no early return) so execution time is independent
+/// of where differences occur. The (c_i, r_i) values compared here are
+/// public operator configuration, but constant-time costs nothing and
+/// avoids any future misuse if this helper is called on secret data.
 const fn param_eq16(a: &[u8; 16], b: &[u8; 16]) -> bool {
+    let mut acc = 0u8;
     let mut i = 0;
     while i < 16 {
-        if a[i] != b[i] {
-            return false;
-        }
+        acc |= a[i] ^ b[i];
         i += 1;
     }
-    true
+    acc == 0
 }
 
 /// XOR two 16-byte blocks: `out = a XOR b`.
