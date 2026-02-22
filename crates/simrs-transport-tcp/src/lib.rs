@@ -43,7 +43,7 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
-use simrs_transport::{CardEvent, CardTransport, TransportError};
+use simrs_transport::{CardEvent, CardTransport, Transport, TransportError};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
@@ -433,6 +433,152 @@ impl CardTransport for SwIccClient {
         }
         let msg = SwIccMessage::new_response(Ctrl::Success, atr, 0);
         self.send_msg(&msg)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SwIccTerminal
+// ---------------------------------------------------------------------------
+
+/// A swICC terminal-side client.
+///
+/// Connects to a swICC PC/SC server and sends APDU commands to the
+/// virtual card connected to that server. Implements [`Transport`] for
+/// the terminal (command-sending) perspective.
+///
+/// Use [`SwIccClient`] for the card (command-receiving) perspective.
+pub struct SwIccTerminal {
+    stream: TcpStream,
+    /// Wire buffer for sending/receiving complete messages.
+    wire_buf: [u8; MSG_MAX],
+}
+
+impl SwIccTerminal {
+    /// Connect to a swICC PC/SC server at the given address.
+    ///
+    /// The address should be in `"host:port"` format (e.g. `"127.0.0.1:37324"`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::IoError`] if the TCP connection fails.
+    pub fn connect(addr: &str) -> Result<Self, TransportError> {
+        let stream = TcpStream::connect(addr).map_err(|_| TransportError::IoError)?;
+        Ok(Self {
+            stream,
+            wire_buf: [0u8; MSG_MAX],
+        })
+    }
+
+    /// Create a terminal from an already-connected `TcpStream`.
+    ///
+    /// Useful for testing or when the connection is established externally.
+    pub const fn from_stream(stream: TcpStream) -> Self {
+        Self {
+            stream,
+            wire_buf: [0u8; MSG_MAX],
+        }
+    }
+
+    /// Send a cold reset and return the ATR response.
+    ///
+    /// Sends [`Ctrl::MockResetColdPpsY`] and reads the response message
+    /// (expected to be [`Ctrl::Success`] with ATR data).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::IoError`] on I/O failure, or
+    /// [`TransportError::InvalidMessage`] if the response has an unexpected
+    /// control byte.
+    pub fn reset_cold(&mut self) -> Result<SwIccMessage, TransportError> {
+        let msg = SwIccMessage::new(Ctrl::MockResetColdPpsY);
+        self.send_msg(&msg)?;
+        self.recv_msg()
+    }
+
+    /// Send a warm reset and return the ATR response.
+    ///
+    /// Sends [`Ctrl::MockResetWarmPpsY`] and reads the response message
+    /// (expected to be [`Ctrl::Success`] with ATR data).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::IoError`] on I/O failure, or
+    /// [`TransportError::InvalidMessage`] if the response has an unexpected
+    /// control byte.
+    pub fn reset_warm(&mut self) -> Result<SwIccMessage, TransportError> {
+        let msg = SwIccMessage::new(Ctrl::MockResetWarmPpsY);
+        self.send_msg(&msg)?;
+        self.recv_msg()
+    }
+
+    /// Send a [`SwIccMessage`] over the wire.
+    fn send_msg(&mut self, msg: &SwIccMessage) -> Result<(), TransportError> {
+        let n = msg.encode(&mut self.wire_buf)?;
+        self.stream
+            .write_all(&self.wire_buf[..n])
+            .map_err(|_| TransportError::IoError)
+    }
+
+    /// Receive a [`SwIccMessage`] from the wire.
+    fn recv_msg(&mut self) -> Result<SwIccMessage, TransportError> {
+        // Read header (4 bytes).
+        read_exact(&mut self.stream, &mut self.wire_buf[..HDR_SIZE])?;
+
+        let payload_size = u32::from_le_bytes([
+            self.wire_buf[0],
+            self.wire_buf[1],
+            self.wire_buf[2],
+            self.wire_buf[3],
+        ]) as usize;
+
+        if !(DATA_OVERHEAD..=DATA_MAX).contains(&payload_size) {
+            return Err(TransportError::InvalidMessage);
+        }
+
+        // Read payload.
+        read_exact(
+            &mut self.stream,
+            &mut self.wire_buf[HDR_SIZE..HDR_SIZE + payload_size],
+        )?;
+
+        SwIccMessage::decode(&self.wire_buf[..HDR_SIZE + payload_size])
+    }
+}
+
+impl Transport for SwIccTerminal {
+    type Error = TransportError;
+
+    /// Send an APDU command and receive the response.
+    ///
+    /// Sends the command as a [`Ctrl::None`] message, reads the response
+    /// (expecting [`Ctrl::Success`]), and copies response data to `rsp`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::BufferTooSmall`] if `cmd` exceeds `BUF_MAX`
+    /// or `rsp` is too small for the response data.
+    /// Returns [`TransportError::IoError`] if the peer sent [`Ctrl::Failure`].
+    /// Returns [`TransportError::InvalidMessage`] for any other control byte.
+    fn exchange(&mut self, cmd: &[u8], rsp: &mut [u8]) -> Result<usize, Self::Error> {
+        if cmd.len() > BUF_MAX {
+            return Err(TransportError::BufferTooSmall);
+        }
+        let request = SwIccMessage::new_response(Ctrl::None, cmd, 0);
+        self.send_msg(&request)?;
+
+        let msg = self.recv_msg()?;
+        match msg.ctrl {
+            Ctrl::Success => {
+                let data = msg.buf();
+                if data.len() > rsp.len() {
+                    return Err(TransportError::BufferTooSmall);
+                }
+                rsp[..data.len()].copy_from_slice(data);
+                Ok(data.len())
+            }
+            Ctrl::Failure => Err(TransportError::IoError),
+            _ => Err(TransportError::InvalidMessage),
+        }
     }
 }
 
@@ -833,5 +979,271 @@ mod tests {
         let oversized = [0u8; BUF_MAX + 1];
         let err = card.send_atr(&oversized).unwrap_err();
         assert_eq!(err, TransportError::BufferTooSmall);
+    }
+
+    // -- SwIccTerminal tests --
+
+    /// Create a connected `SwIccTerminal` + `SwIccClient` pair.
+    ///
+    /// The terminal sends commands; the client receives them (acts as card).
+    fn terminal_card_pair() -> (SwIccTerminal, SwIccClient) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let terminal_stream = TcpStream::connect(addr).unwrap();
+        let (card_stream, _) = listener.accept().unwrap();
+        (
+            SwIccTerminal::from_stream(terminal_stream),
+            SwIccClient::from_stream(card_stream),
+        )
+    }
+
+    #[test]
+    fn terminal_exchange_apdu() {
+        let (mut terminal, mut card) = terminal_card_pair();
+
+        // Terminal sends SELECT MF in a background-ish manner:
+        // we need to do this from a thread because exchange() blocks
+        // waiting for the card response.
+        let handle = std::thread::spawn(move || {
+            let select_mf = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+            let mut rsp = [0u8; 258];
+            let n = terminal.exchange(&select_mf, &mut rsp).unwrap();
+            (terminal, rsp, n)
+        });
+
+        // Card receives APDU.
+        let mut cmd_buf = [0u8; 261];
+        let event = card.recv(&mut cmd_buf).unwrap();
+        assert_eq!(event, CardEvent::Apdu(7));
+        assert_eq!(
+            &cmd_buf[..7],
+            &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]
+        );
+
+        // Card sends response (SW 90 00).
+        card.send(&[0x90, 0x00]).unwrap();
+
+        // Terminal gets the response.
+        let (_terminal, rsp, n) = handle.join().unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(&rsp[..n], &[0x90, 0x00]);
+    }
+
+    #[test]
+    fn terminal_exchange_response_data() {
+        let (mut terminal, mut card) = terminal_card_pair();
+
+        let handle = std::thread::spawn(move || {
+            // READ BINARY P1=0x00 P2=0x00 Le=0x08
+            let read_bin = [0x00, 0xB0, 0x00, 0x00, 0x08];
+            let mut rsp = [0u8; 258];
+            let n = terminal.exchange(&read_bin, &mut rsp).unwrap();
+            (rsp, n)
+        });
+
+        let mut cmd_buf = [0u8; 261];
+        let event = card.recv(&mut cmd_buf).unwrap();
+        assert_eq!(event, CardEvent::Apdu(5));
+
+        // Card responds with 8 data bytes + SW.
+        let response_data = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x90, 0x00];
+        card.send(&response_data).unwrap();
+
+        let (rsp, n) = handle.join().unwrap();
+        assert_eq!(n, 10);
+        assert_eq!(&rsp[..n], &response_data);
+    }
+
+    #[test]
+    fn terminal_reset_cold() {
+        let (mut terminal, mut card) = terminal_card_pair();
+
+        let handle = std::thread::spawn(move || terminal.reset_cold());
+
+        // Card receives power-on.
+        let mut buf = [0u8; 261];
+        let event = card.recv(&mut buf).unwrap();
+        assert_eq!(event, CardEvent::PowerOn);
+
+        // Card sends ATR.
+        let atr = [0x3B, 0x9F, 0x96, 0x80];
+        card.send_atr(&atr).unwrap();
+
+        let rsp = handle.join().unwrap().unwrap();
+        assert_eq!(rsp.ctrl, Ctrl::Success);
+        assert_eq!(rsp.buf(), &atr);
+    }
+
+    #[test]
+    fn terminal_reset_warm() {
+        let (mut terminal, mut card) = terminal_card_pair();
+
+        let handle = std::thread::spawn(move || terminal.reset_warm());
+
+        // Card receives warm reset.
+        let mut buf = [0u8; 261];
+        let event = card.recv(&mut buf).unwrap();
+        assert_eq!(event, CardEvent::WarmReset);
+
+        // Card sends ATR.
+        let atr = [0x3B, 0x00];
+        card.send_atr(&atr).unwrap();
+
+        let rsp = handle.join().unwrap().unwrap();
+        assert_eq!(rsp.ctrl, Ctrl::Success);
+        assert_eq!(rsp.buf(), &atr);
+    }
+
+    #[test]
+    fn terminal_exchange_failure_response() {
+        let (mut terminal, mut card) = terminal_card_pair();
+
+        let handle = std::thread::spawn(move || {
+            let cmd = [0x00, 0xA4, 0x00, 0x00];
+            let mut rsp = [0u8; 258];
+            terminal.exchange(&cmd, &mut rsp)
+        });
+
+        // Card receives the command.
+        let mut cmd_buf = [0u8; 261];
+        card.recv(&mut cmd_buf).unwrap();
+
+        // Card sends Failure response (using raw send_msg via a SwIccClient
+        // acting as the wire -- we need to send Ctrl::Failure).
+        // SwIccClient::send always uses Ctrl::Success, so we construct the
+        // message manually and use the underlying stream.
+        let fail_msg = SwIccMessage::new(Ctrl::Failure);
+        let mut wire = [0u8; MSG_MAX];
+        let n = fail_msg.encode(&mut wire).unwrap();
+        std::io::Write::write_all(&mut card.stream, &wire[..n]).unwrap();
+
+        let result = handle.join().unwrap();
+        assert_eq!(result, Err(TransportError::IoError));
+    }
+
+    #[test]
+    fn terminal_disconnect() {
+        let (mut terminal, card) = terminal_card_pair();
+
+        // Drop card side to simulate disconnect.
+        drop(card);
+
+        let cmd = [0x00, 0xA4, 0x00, 0x00];
+        let mut rsp = [0u8; 258];
+        let err = terminal.exchange(&cmd, &mut rsp).unwrap_err();
+        assert_eq!(err, TransportError::Disconnected);
+    }
+
+    #[test]
+    fn terminal_rsp_buffer_too_small() {
+        let (mut terminal, mut card) = terminal_card_pair();
+
+        let handle = std::thread::spawn(move || {
+            let cmd = [0x00, 0xB0, 0x00, 0x00];
+            let mut rsp = [0u8; 2]; // too small for 10-byte response
+            terminal.exchange(&cmd, &mut rsp)
+        });
+
+        let mut cmd_buf = [0u8; 261];
+        card.recv(&mut cmd_buf).unwrap();
+
+        // Card responds with more data than the terminal buffer can hold.
+        let big_response = [0xAA; 10];
+        card.send(&big_response).unwrap();
+
+        let result = handle.join().unwrap();
+        assert_eq!(result, Err(TransportError::BufferTooSmall));
+    }
+
+    #[test]
+    fn terminal_exchange_oversized_cmd() {
+        let (mut terminal, _card) = terminal_card_pair();
+
+        let oversized = [0u8; BUF_MAX + 1];
+        let mut rsp = [0u8; 258];
+        let err = terminal.exchange(&oversized, &mut rsp).unwrap_err();
+        assert_eq!(err, TransportError::BufferTooSmall);
+    }
+
+    #[test]
+    fn terminal_full_roundtrip() {
+        let (mut terminal, mut card) = terminal_card_pair();
+
+        // Step 1: Cold reset.
+        let handle = std::thread::spawn(move || {
+            let reset_rsp = terminal.reset_cold().unwrap();
+            (terminal, reset_rsp)
+        });
+
+        let mut buf = [0u8; 261];
+        let event = card.recv(&mut buf).unwrap();
+        assert_eq!(event, CardEvent::PowerOn);
+        let atr = [0x3B, 0x9F, 0x96, 0x80];
+        card.send_atr(&atr).unwrap();
+
+        let (mut terminal, reset_rsp) = handle.join().unwrap();
+        assert_eq!(reset_rsp.ctrl, Ctrl::Success);
+        assert_eq!(reset_rsp.buf(), &atr);
+
+        // Step 2: SELECT MF.
+        let handle = std::thread::spawn(move || {
+            let select_mf = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+            let mut rsp = [0u8; 258];
+            let n = terminal.exchange(&select_mf, &mut rsp).unwrap();
+            (terminal, rsp, n)
+        });
+
+        let event = card.recv(&mut buf).unwrap();
+        assert_eq!(event, CardEvent::Apdu(7));
+        card.send(&[0x90, 0x00]).unwrap();
+
+        let (mut terminal, rsp, n) = handle.join().unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(&rsp[..n], &[0x90, 0x00]);
+
+        // Step 3: READ BINARY.
+        let handle = std::thread::spawn(move || {
+            let read_bin = [0x00, 0xB0, 0x00, 0x00, 0x04];
+            let mut rsp = [0u8; 258];
+            let n = terminal.exchange(&read_bin, &mut rsp).unwrap();
+            (rsp, n)
+        });
+
+        let event = card.recv(&mut buf).unwrap();
+        assert_eq!(event, CardEvent::Apdu(5));
+        card.send(&[0xDE, 0xAD, 0xBE, 0xEF, 0x90, 0x00]).unwrap();
+
+        let (rsp, n) = handle.join().unwrap();
+        assert_eq!(n, 6);
+        assert_eq!(&rsp[..n], &[0xDE, 0xAD, 0xBE, 0xEF, 0x90, 0x00]);
+    }
+
+    #[test]
+    fn terminal_multiple_exchanges() {
+        let (mut terminal, mut card) = terminal_card_pair();
+
+        // Perform 5 back-to-back exchanges.
+        for i in 0u8..5 {
+            let handle = std::thread::spawn(move || {
+                let cmd = [0x80, 0x10 + i, 0x00, 0x00];
+                let mut rsp = [0u8; 258];
+                let n = terminal.exchange(&cmd, &mut rsp).unwrap();
+                (terminal, rsp, n)
+            });
+
+            let mut cmd_buf = [0u8; 261];
+            let event = card.recv(&mut cmd_buf).unwrap();
+            assert_eq!(event, CardEvent::Apdu(4));
+            assert_eq!(cmd_buf[1], 0x10 + i);
+
+            // Card responds with the command INS byte echoed + SW.
+            card.send(&[cmd_buf[1], 0x90, 0x00]).unwrap();
+
+            let (t, rsp, n) = handle.join().unwrap();
+            terminal = t;
+            assert_eq!(n, 3);
+            assert_eq!(rsp[0], 0x10 + i);
+            assert_eq!(&rsp[1..3], &[0x90, 0x00]);
+        }
     }
 }

@@ -1,0 +1,15 @@
+[package]
+name        = "simrs-pcap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PCAP + GSMTAP SIM frame encoder -- no_std, no alloc, zero deps"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+
+[lints]
+workspace = true
