@@ -289,8 +289,12 @@ impl<'a> SnapReader<'a> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Const-compatible equality check for two 16-byte arrays.
-const fn const_eq16(a: &[u8; 16], b: &[u8; 16]) -> bool {
+/// Const-compatible byte equality for non-secret operator configuration.
+///
+/// NOT constant-time -- uses early-return comparison. Safe here because
+/// (c_i, r_i) are operator-chosen public parameters, not secret key material.
+/// For secret data, use `simrs_consttime::ct_eq` instead.
+const fn param_eq16(a: &[u8; 16], b: &[u8; 16]) -> bool {
     let mut i = 0;
     while i < 16 {
         if a[i] != b[i] {
@@ -513,7 +517,7 @@ impl MilenageParams {
             let mut j = i + 1;
             while j < 5 {
                 if ri[i as usize] == ri[j as usize]
-                    && const_eq16(&ci[i as usize], &ci[j as usize])
+                    && param_eq16(&ci[i as usize], &ci[j as usize])
                 {
                     return Err(ParamError::DuplicateCiRi {
                         first: i,

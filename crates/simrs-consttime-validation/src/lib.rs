@@ -82,8 +82,10 @@ impl TTest {
         let n1 = self.n[1] as f64;
         let mean0 = self.sum[0] / n0;
         let mean1 = self.sum[1] / n1;
-        let var0 = (self.sum_sq[0] - self.sum[0] * self.sum[0] / n0) / (n0 - 1.0);
-        let var1 = (self.sum_sq[1] - self.sum[1] * self.sum[1] / n1) / (n1 - 1.0);
+        // Clamp to zero: floating-point cancellation can produce tiny negative
+        // values when timing samples cluster at large magnitudes (nanoseconds).
+        let var0 = ((self.sum_sq[0] - self.sum[0] * self.sum[0] / n0) / (n0 - 1.0)).max(0.0);
+        let var1 = ((self.sum_sq[1] - self.sum[1] * self.sum[1] / n1) / (n1 - 1.0)).max(0.0);
         let se = (var0 / n0 + var1 / n1).sqrt();
         if se < 1e-15 {
             return 0.0;
@@ -218,9 +220,9 @@ pub fn dudect_test<T, F0, F1, R>(
     name: &'static str,
     samples: u64,
     rng: &mut Rng,
-    mut prepare_class0: F0,
-    mut prepare_class1: F1,
-    mut run: R,
+    prepare_class0: F0,
+    prepare_class1: F1,
+    run: R,
 ) -> TestResult
 where
     F0: FnMut(&mut Rng) -> T,
@@ -231,9 +233,9 @@ where
         name,
         samples,
         rng,
-        &mut prepare_class0,
-        &mut prepare_class1,
-        &mut run,
+        prepare_class0,
+        prepare_class1,
+        run,
         DEFAULT_THRESHOLD,
     )
 }
@@ -243,9 +245,9 @@ pub fn dudect_test_with_threshold<T, F0, F1, R>(
     name: &'static str,
     samples: u64,
     rng: &mut Rng,
-    prepare_class0: &mut F0,
-    prepare_class1: &mut F1,
-    run: &mut R,
+    mut prepare_class0: F0,
+    mut prepare_class1: F1,
+    mut run: R,
     threshold: f64,
 ) -> TestResult
 where
