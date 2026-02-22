@@ -55,7 +55,7 @@
 
 use simrs_bertlv::Encoder;
 use simrs_fs::{
-    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsData, FsError, SelectionCtx, SelectedFile,
+    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsData, FsError, SelectionCtx, SelectedFile, Sfi,
 };
 use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
 use simrs_milenage::{AuthAlgorithm, MilenageError, MilenageParams};
@@ -95,8 +95,12 @@ const SFI_INDICATOR: u8 = 0x04;
 const PS_DO_TAG: u8 = 0x90;
 
 // 3GPP TS 31.102 clause 7.1.2: AUTHENTICATE protocol constants.
+#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
+const P2_GSM_CONTEXT: u8 = 0x00;
 const P2_UMTS_CONTEXT: u8 = 0x81;
 const AUTH_DATA_LEN: usize = 34;
+#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
+const GSM_AUTH_DATA_LEN: usize = 17; // 0x10 || RAND(16)
 const AUTH_VECTOR_LEN_PREFIX: u8 = 0x10;
 const AUTH_SUCCESS_TAG: u8 = 0xDB;
 const AUTH_SYNC_FAILURE_TAG: u8 = 0xDC;
@@ -104,6 +108,15 @@ const AUTS_LEN: u8 = 0x0E;
 const AUTH_RES_LEN: u8 = 0x08;
 const AUTH_CK_IK_LEN: u8 = 0x10;
 const AUTH_SUCCESS_INNER_LEN: u8 = 1 + AUTH_RES_LEN + 1 + AUTH_CK_IK_LEN + 1 + AUTH_CK_IK_LEN;
+
+// GSM context response constants (TS 31.102 clause 7.1.2).
+#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
+const GSM_SRES_LEN: u8 = 0x04;
+#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
+const GSM_KC_LEN: u8 = 0x08;
+// Total GSM response: 0x04 || SRES(4) || 0x08 || Kc(8) = 14 bytes.
+#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
+const GSM_AUTH_RSP_LEN: usize = 1 + 4 + 1 + 8;
 
 // ---------------------------------------------------------------------------
 // AuthenticateResult
@@ -422,6 +435,16 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
+        // P2 determines response data format:
+        // 0x00 = return FCI (treated as FCP per common practice).
+        // 0x04 = return FCP template.
+        // 0x0C = no data returned, just SW 90 00.
+        // Other values are rejected per ETSI TS 102 221.
+        let no_data = match cmd.p2() {
+            0x00 | 0x04 => false,
+            0x0C => true,
+            _ => return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
+        };
         match cmd.p1() {
             0x00 => {
                 // Select by FID.
@@ -430,6 +453,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
                 }
                 let fid = Fid::from_be_bytes([cmd.data()[0], cmd.data()[1]]);
                 match self.fs.select_by_fid(fid) {
+                    Ok(_) if no_data => write_sw(buf, StatusWord::Success),
                     Ok(sel) => self.queue_fcp(sel, None, buf),
                     Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
                     Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
@@ -438,11 +462,23 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             0x04 => {
                 // Select by AID.
                 match self.fs.select_by_aid(cmd.data(), self.adfs) {
+                    Ok(_) if no_data => write_sw(buf, StatusWord::Success),
                     Ok(sel) => {
                         let aid = cmd.data();
                         self.queue_fcp(sel, Some(aid), buf)
                     }
                     Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
+                    Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+                }
+            }
+            0x08 | 0x09 => {
+                // Select by path: P1=0x08 from MF, P1=0x09 from current DF.
+                let from_mf = cmd.p1() == 0x08;
+                match self.fs.select_by_path(cmd.data(), from_mf) {
+                    Ok(_) if no_data => write_sw(buf, StatusWord::Success),
+                    Ok(sel) => self.queue_fcp(sel, None, buf),
+                    Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
+                    Err(FsError::InvalidPath) => write_sw(buf, StatusWord::WrongLength),
                     Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
                 }
             }
@@ -494,12 +530,21 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
-        let offset = u16::from_be_bytes([cmd.p1(), cmd.p2()]);
-        let le = u16::from(cmd.le().unwrap_or(0));
 
-        let Some(ef) = self.fs.current_ef() else {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        // SFI-based access: P1 bit 7 set means SFI in P1[4:0], offset in P2.
+        let (ef, offset) = if cmd.p1() & 0x80 != 0 {
+            let sfi_val = cmd.p1() & 0x1F;
+            let Some(ef) = self.fs.find_ef_by_sfi(Sfi(sfi_val)) else {
+                return write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND));
+            };
+            (ef, u16::from(cmd.p2()))
+        } else {
+            let Some(ef) = self.fs.current_ef() else {
+                return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            };
+            (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
         };
+        let le = u16::from(cmd.le().unwrap_or(0));
 
         match self.data.read_binary(ef, offset, le) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
@@ -511,13 +556,47 @@ impl<A: AuthAlgorithm> UsimApp<A> {
 
     // -- READ RECORD --
 
+    /// Resolve record number from P1 and P2 mode bits.
+    ///
+    /// P2 low 3 bits encode the record access mode per ETSI TS 102 221:
+    /// - 0x02: next record (P1 + 1; if P1 == 0, use record 1)
+    /// - 0x03: previous record (P1 - 1)
+    /// - 0x04: absolute (P1 = record number)
+    ///
+    /// Returns `Ok(record_number)` or `Err(status_word)` on invalid mode.
+    fn resolve_record_num(p1: u8, p2: u8) -> Result<u8, StatusWord> {
+        match p2 & 0x07 {
+            0x04 => Ok(p1),
+            0x02 => {
+                // Next: if P1 == 0, start at record 1; otherwise P1 + 1.
+                if p1 == 0 {
+                    Ok(1)
+                } else {
+                    p1.checked_add(1).ok_or(StatusWord::wrong_params(sw2::RECORD_NOT_FOUND))
+                }
+            }
+            0x03 => {
+                // Previous: P1 - 1.
+                if p1 <= 1 {
+                    Err(StatusWord::wrong_params(sw2::RECORD_NOT_FOUND))
+                } else {
+                    Ok(p1 - 1)
+                }
+            }
+            _ => Err(StatusWord::wrong_params(sw2::WRONG_P1_P2)),
+        }
+    }
+
     fn handle_read_record<'buf>(
         &self,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
-        let rec_num = cmd.p1();
+        let rec_num = match Self::resolve_record_num(cmd.p1(), cmd.p2()) {
+            Ok(n) => n,
+            Err(sw) => return write_sw(buf, sw),
+        };
 
         let Some(ef) = self.fs.current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
@@ -539,10 +618,21 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
-        let Some(ef) = self.fs.current_ef() else {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+
+        // SFI-based access: P1 bit 7 set means SFI in P1[4:0], offset in P2.
+        let (ef, offset) = if cmd.p1() & 0x80 != 0 {
+            let sfi_val = cmd.p1() & 0x1F;
+            let Some(ef) = self.fs.find_ef_by_sfi(Sfi(sfi_val)) else {
+                return write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND));
+            };
+            (ef, u16::from(cmd.p2()))
+        } else {
+            let Some(ef) = self.fs.current_ef() else {
+                return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            };
+            (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
         };
-        let offset = u16::from_be_bytes([cmd.p1(), cmd.p2()]);
+
         match self.data.write_binary(ef, offset, cmd.data()) {
             Ok(()) => write_sw(buf, StatusWord::Success),
             Err(FsError::NotTransparent) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
@@ -559,10 +649,13 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        let rec_num = match Self::resolve_record_num(cmd.p1(), cmd.p2()) {
+            Ok(n) => n,
+            Err(sw) => return write_sw(buf, sw),
+        };
         let Some(ef) = self.fs.current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
-        let rec_num = cmd.p1();
         match self.data.write_record(ef, rec_num, cmd.data()) {
             Ok(()) => write_sw(buf, StatusWord::Success),
             Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
@@ -586,6 +679,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         match self.data.increase(ef, cmd.data()) {
             Ok(new_val) => write_data_sw(buf, new_val, StatusWord::Success),
             Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(FsError::IncreaseOverflow) => write_sw(buf, StatusWord::Other(0x98, 0x50)),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
     }
@@ -598,12 +692,27 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         // Per ETSI TS 102 221 clause 11.1.2:
-        // P1: 0x00 = no indication (current DF).
-        // P2: 0x00 = FCP template, 0x0C = no data returned.
-        if cmd.p1() != 0x00 {
-            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        // P1: 0x00 = no indication (current DF info).
+        // P1: 0x01 = current DF info (same as 0x00).
+        // P1: 0x02 = no data returned, just SW 90 00.
+        // P2: 0x00 = FCP template.
+        // P2: 0x01 = DF name (AID) TLV if available, otherwise FCP.
+        // P2: 0x0C = no data returned.
+        match cmd.p1() {
+            0x00 | 0x01 => self.status_with_data(cmd.p2(), buf),
+            0x02 => write_sw(buf, StatusWord::Success),
+            _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         }
-        match cmd.p2() {
+    }
+
+    /// STATUS response for P1=0x00/0x01: return data according to P2.
+    #[allow(clippy::cast_possible_truncation)]
+    fn status_with_data<'buf>(
+        &self,
+        p2: u8,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        match p2 {
             0x00 => {
                 let mut fcp_buf = [0u8; FCP_BUF_CAP];
                 let fcp_len = build_fcp(
@@ -613,12 +722,38 @@ impl<A: AuthAlgorithm> UsimApp<A> {
                 );
                 write_data_sw(buf, &fcp_buf[..fcp_len], StatusWord::Success)
             }
+            0x01 => {
+                // Return just the AID as TLV tag 0x84 if an ADF is
+                // selected; otherwise fall back to full FCP.
+                let aid = self.fs.current_adf().and_then(|adf| {
+                    self.adfs.iter().find(|s| core::ptr::eq(s.root, adf)).map(|s| s.aid)
+                });
+                if let Some(aid_bytes) = aid {
+                    // tag 0x84, length, AID bytes.
+                    let tlv_len = 2 + aid_bytes.len();
+                    buf[0] = fcp::DF_NAME;
+                    buf[1] = aid_bytes.len() as u8;
+                    buf[2..2 + aid_bytes.len()].copy_from_slice(aid_bytes);
+                    let sw_pos = tlv_len;
+                    buf[sw_pos] = 0x90;
+                    buf[sw_pos + 1] = 0x00;
+                    &buf[..tlv_len + 2]
+                } else {
+                    let mut fcp_buf = [0u8; FCP_BUF_CAP];
+                    let fcp_len = build_fcp(
+                        SelectedFile::Df(self.fs.current_df()),
+                        None,
+                        &mut fcp_buf,
+                    );
+                    write_data_sw(buf, &fcp_buf[..fcp_len], StatusWord::Success)
+                }
+            }
             0x0C => write_sw(buf, StatusWord::Success),
             _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         }
     }
 
-    // -- AUTHENTICATE (Milenage UMTS context) --
+    // -- AUTHENTICATE (Milenage UMTS / GSM context) --
 
     #[allow(clippy::cast_possible_truncation)]
     fn handle_authenticate<'buf>(
@@ -628,11 +763,20 @@ impl<A: AuthAlgorithm> UsimApp<A> {
     ) -> &'buf [u8] {
         // Note: AUTHENTICATE does not require PIN1 verification per
         // ETSI TS 102 221 -- it has its own security context.
-        // P2=0x81: UMTS/EPS AKA security context.
-        if cmd.p2() != P2_UMTS_CONTEXT {
-            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        match cmd.p2() {
+            P2_UMTS_CONTEXT => self.handle_authenticate_umts(cmd, buf),
+            P2_GSM_CONTEXT => self.handle_authenticate_gsm(cmd, buf),
+            _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         }
+    }
 
+    /// UMTS security context (P2=0x81): full AKA with RAND + AUTN.
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_authenticate_umts<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
         let data = cmd.data();
         // Data: 0x10 [RAND:16] 0x10 [AUTN:16] = 34 bytes.
         if data.len() != AUTH_DATA_LEN {
@@ -667,6 +811,57 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             self.rsp_queue.set_len(n);
             write_sw(buf, StatusWord::bytes_available(n as u8))
         }
+    }
+
+    /// GSM security context (P2=0x00): compute SRES and Kc from RAND.
+    ///
+    /// Per TS 31.102 clause 7.1.2 and TS 33.102 Annex B (c3 conversion):
+    /// - SRES = f2(RAND) truncated to 4 bytes
+    /// - CK = f3(RAND), IK = f4(RAND)
+    /// - Kc = CK[0..8] xor CK[8..16] xor IK[0..8] xor IK[8..16]
+    ///
+    /// Response: 0x04 || SRES(4) || 0x08 || Kc(8), queued via GET RESPONSE.
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_authenticate_gsm<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        let data = cmd.data();
+        // Data: 0x10 [RAND:16] = 17 bytes.
+        if data.len() != GSM_AUTH_DATA_LEN {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+        if data[0] != AUTH_VECTOR_LEN_PREFIX {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        let mut rand = [0u8; 16];
+        rand.copy_from_slice(&data[1..17]);
+
+        // Compute SRES = f2(RAND)[0..4].
+        let res = self.auth.f2(&rand);
+        let mut sres = [0u8; 4];
+        sres.copy_from_slice(&res[..4]);
+
+        // Compute Kc per TS 33.102 Annex B c3 conversion:
+        // Kc = CK1 xor CK2 xor IK1 xor IK2
+        // where CK = CK1(8) || CK2(8), IK = IK1(8) || IK2(8).
+        let ck = self.auth.f3(&rand);
+        let ik = self.auth.f4(&rand);
+        let mut kc = [0u8; 8];
+        for i in 0..8 {
+            kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
+        }
+
+        // Encode response: 0x04 || SRES(4) || 0x08 || Kc(8).
+        let q = self.rsp_queue.buf_mut();
+        q[0] = GSM_SRES_LEN;
+        q[1..5].copy_from_slice(&sres);
+        q[5] = GSM_KC_LEN;
+        q[6..14].copy_from_slice(&kc);
+        self.rsp_queue.set_len(GSM_AUTH_RSP_LEN);
+        write_sw(buf, StatusWord::bytes_available(GSM_AUTH_RSP_LEN as u8))
     }
 
     // -- VERIFY PIN --
@@ -1413,6 +1608,45 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x6A, 0x83));
     }
 
+    #[test]
+    fn read_record_mode_absolute() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
+        // P2=0x04: absolute mode, P1=2 -> record 2.
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x02, 0x04, 0x08]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 8 + 2);
+        // Record 2 is all 0xFF in EF.DIR.
+        assert_eq!(buf[0], 0xFF);
+    }
+
+    #[test]
+    fn read_record_mode_next() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
+        // P2=0x02: next mode, P1=0 -> record 1 (first).
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x00, 0x02, 0x08]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x61); // first record starts with TLV tag
+        // P2=0x02: next mode, P1=1 -> record 2.
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x02, 0x08]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0xFF); // second record
+    }
+
+    #[test]
+    fn read_record_mode_previous() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
+        // P2=0x03: previous mode, P1=2 -> record 1.
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x02, 0x03, 0x08]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x61); // first record
+        // P2=0x03: previous mode, P1=1 -> error (no record 0).
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x03, 0x08]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x83));
+    }
+
     // -- STATUS --
 
     #[test]
@@ -1537,6 +1771,78 @@ mod tests {
               0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
         );
         assert_eq!(sw(&buf, len), (0x67, 0x00));
+    }
+
+    #[test]
+    fn authenticate_gsm_context_success() {
+        let mut app = app();
+        // Use ETSI TS 135 208 Test Set 1 RAND.
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+
+        // Build AUTHENTICATE APDU: P2=0x00 (GSM context), data = 0x10 || RAND.
+        let mut apdu = [0u8; 5 + 17];
+        apdu[0] = 0x00; // CLA
+        apdu[1] = 0x88; // INS = AUTHENTICATE
+        apdu[2] = 0x00; // P1
+        apdu[3] = 0x00; // P2 = GSM context
+        apdu[4] = 0x11; // Lc = 17
+        apdu[5] = 0x10; // RAND length prefix
+        apdu[6..22].copy_from_slice(&rand_val);
+
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x61, 0x0E)); // 14 bytes available
+
+        // GET RESPONSE.
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, 0x0E]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Response: 0x04 || SRES(4) || 0x08 || Kc(8).
+        assert_eq!(buf[0], 0x04); // SRES length tag
+        assert_eq!(buf[5], 0x08); // Kc length tag
+
+        // Verify SRES = f2(RAND)[0..4].
+        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let res = params.f2(&rand_val);
+        assert_eq!(&buf[1..5], &res[..4]);
+
+        // Verify Kc = CK1 xor CK2 xor IK1 xor IK2.
+        let ck = params.f3(&rand_val);
+        let ik = params.f4(&rand_val);
+        let mut expected_kc = [0u8; 8];
+        for i in 0..8 {
+            expected_kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
+        }
+        assert_eq!(&buf[6..14], &expected_kc);
+    }
+
+    #[test]
+    fn authenticate_gsm_context_wrong_length() {
+        let mut app = app();
+        // Send only 10 bytes of data instead of 17 (0x10 || RAND).
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x88, 0x00, 0x00, 0x0A,
+              0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09],
+        );
+        assert_eq!(sw(&buf, len), (0x67, 0x00));
+    }
+
+    #[test]
+    fn authenticate_unknown_p2_rejected() {
+        let mut app = app();
+        // P2=0x42 is not a valid security context.
+        let mut apdu = [0u8; 5 + 17];
+        apdu[0] = 0x00;
+        apdu[1] = 0x88;
+        apdu[2] = 0x00;
+        apdu[3] = 0x42; // invalid P2
+        apdu[4] = 0x11;
+        apdu[5] = 0x10;
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x6A, 0x86)); // wrong P1-P2
     }
 
     // -- AuthenticateResult::encode --
@@ -2229,6 +2535,34 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x69, 0x86)); // no current EF
     }
 
+    #[test]
+    fn update_record_mode_next() {
+        let mut app = app();
+        // SELECT ADF.USIM, then EF.FDN (linear-fixed, record_size=10, 2 records).
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        // UPDATE RECORD with P2=0x02 (next), P1=1 -> writes record 2.
+        let mut apdu = [0x58u8; 5 + 10];
+        apdu[0] = 0x00; // CLA
+        apdu[1] = 0xDC; // INS = UPDATE RECORD
+        apdu[2] = 0x01; // P1 = 1
+        apdu[3] = 0x02; // P2 = next mode
+        apdu[4] = 0x0A; // Lc = 10
+        // data bytes 5..15 are 0x58 (from initialization)
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Verify record 2 was written (absolute read).
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x02, 0x04, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x58);
+        // Verify record 1 was NOT changed (still 'Alice...').
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x41); // 'A'
+    }
+
     // -- INCREASE --
 
     #[test]
@@ -2262,6 +2596,26 @@ mod tests {
         let (buf, len) = send(&mut app,
             &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
         assert_eq!(sw(&buf, len), (0x69, 0x86)); // no current EF
+    }
+
+    #[test]
+    fn increase_to_max_then_overflow() {
+        let mut app = app();
+        // SELECT ADF.USIM, then EF.ACC (cyclic, record_size=4, 3 records).
+        // Record 1 = [0x00, 0x00, 0x01, 0x00].
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x78]);
+        // Increase to max: 0xFFFFFFFF - 0x00000100 = 0xFFFFFEFF.
+        let (buf, len) = send(&mut app,
+            &[0x00, 0x32, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFE, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(&buf[..4], &[0xFF, 0xFF, 0xFF, 0xFF]);
+        // Now any further increase should overflow: SW 98 50.
+        let (buf, len) = send(&mut app,
+            &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
+        assert_eq!(sw(&buf, len), (0x98, 0x50));
     }
 
     // -- Unknown INS --
@@ -2546,6 +2900,169 @@ mod tests {
         let (buf, len) = send(&mut app, &apdu);
         // Should get MAC failure (98 62), not security error (69 82).
         assert_eq!(sw(&buf, len), (0x98, 0x62));
+    }
+
+    // -- SELECT by path tests --
+
+    #[test]
+    fn select_p1_08_path_from_mf() {
+        let mut app = app();
+        // SELECT by path from MF: EF.ICCID (2FE2).
+        // P1=0x08, P2=0x04 (FCP requested), data = path bytes.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xA4, 0x08, 0x04, 0x02, 0x2F, 0xE2],
+        );
+        // Should return 61 XX (FCP available via GET RESPONSE).
+        assert_eq!(buf[0], 0x61);
+        assert_eq!(len, 2);
+    }
+
+    #[test]
+    fn select_p1_09_path_from_current() {
+        let mut app = app();
+        // First select ADF USIM by AID to set current DF.
+        send(
+            &mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+        );
+        // SELECT by path from current DF: EF.IMSI (6F07).
+        // P1=0x09, P2=0x04 (FCP requested), data = path bytes.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xA4, 0x09, 0x04, 0x02, 0x6F, 0x07],
+        );
+        assert_eq!(buf[0], 0x61);
+        assert_eq!(len, 2);
+    }
+
+    // -- SFI-based READ/UPDATE BINARY tests --
+
+    #[test]
+    fn read_binary_by_sfi() {
+        let mut app = app();
+        // EF_ICCID has SFI=2 and is under MF. No need to SELECT the EF.
+        // READ BINARY with SFI: P1 = 0x80 | SFI, P2 = offset.
+        // P1 = 0x80 | 0x02 = 0x82, P2 = 0x00, Le = 0x0A.
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x82, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 10 + 2); // 10 data bytes + SW
+        assert_eq!(
+            &buf[..10],
+            &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0]
+        );
+    }
+
+    #[test]
+    fn update_binary_by_sfi() {
+        let mut app = app();
+        // UPDATE BINARY via SFI=2 (EF_ICCID): P1 = 0x80 | 0x02 = 0x82,
+        // P2 = 0x00 (offset), data = 2 bytes to write.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xD6, 0x82, 0x00, 0x02, 0xAA, 0xBB],
+        );
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Verify the write by reading back via SFI.
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x82, 0x00, 0x02]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(&buf[..2], &[0xAA, 0xBB]);
+    }
+
+    #[test]
+    fn read_binary_sfi_not_found() {
+        let mut app = app();
+        // SFI=31 does not exist under MF.
+        // P1 = 0x80 | 0x1F = 0x9F, P2 = 0x00, Le = 0x01.
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x9F, 0x00, 0x01]);
+        // Should return 6A 82 (file not found).
+        assert_eq!(sw(&buf, len), (0x6A, 0x82));
+    }
+
+    // -- STATUS P1/P2 variant tests (3C) --
+
+    #[test]
+    fn status_p1_01() {
+        // P1=0x01 should behave the same as P1=0x00 (current DF info).
+        let mut app = app();
+        // STATUS with P1=0x01, P2=0x00 (FCP).
+        let (buf, len) = send(&mut app, &[0x00, 0xF2, 0x01, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x62); // FCP template tag
+        let fcp_len = buf[1] as usize;
+        let fcp = &buf[2..2 + fcp_len];
+        let fid_val = find_tlv_tag(fcp, 0x83).unwrap();
+        assert_eq!(fid_val, &[0x3F, 0x00]); // MF FID
+    }
+
+    #[test]
+    fn status_p1_02_no_data() {
+        // P1=0x02 should return just SW 90 00, no data.
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x00, 0xF2, 0x02, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 2); // just SW, no data
+    }
+
+    #[test]
+    fn status_invalid_p1() {
+        // Invalid P1 (e.g. 0x05) should return 6A 86 (wrong P1-P2).
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x00, 0xF2, 0x05, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x86));
+    }
+
+    #[test]
+    fn status_default_p2() {
+        // P2=0x01 with an ADF selected should return AID as TLV 0x84.
+        let mut app = app();
+        // Select ADF USIM by AID.
+        send(
+            &mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+        );
+        // STATUS P1=0x00, P2=0x01 (DF name / AID).
+        let (buf, len) = send(&mut app, &[0x00, 0xF2, 0x00, 0x01, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Response should be TLV: tag 0x84, len 0x07, AID bytes.
+        assert_eq!(buf[0], 0x84); // DF name tag
+        assert_eq!(buf[1], 0x07); // AID length
+        assert_eq!(&buf[2..9], &USIM_AID);
+    }
+
+    // -- SELECT P2 variant tests (3F) --
+
+    #[test]
+    fn select_p2_00_returns_fcp() {
+        // P2=0x00 (FCI) should be treated same as P2=0x04, returning FCP.
+        let mut app = app();
+        let (buf, _len) = send(&mut app, &[0x00, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
+        assert_eq!(buf[0], 0x61); // data available via GET RESPONSE
+        let fcp_len = buf[1] as usize;
+        let mut gr = [0x00, 0xC0, 0x00, 0x00, 0x00];
+        gr[4] = fcp_len as u8;
+        let (buf, len) = send(&mut app, &gr);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x62); // FCP template
+    }
+
+    #[test]
+    fn select_p2_0c_no_data() {
+        // P2=0x0C should perform the selection but return just SW 90 00.
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x00, 0x0C, 0x02, 0x3F, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 2); // just SW, no data
+    }
+
+    #[test]
+    fn select_p2_invalid_rejected() {
+        // Invalid P2 (e.g. 0x08) should return 6A 86 (wrong P1-P2).
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x00, 0x08, 0x02, 0x3F, 0x00]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x86));
     }
 }
 

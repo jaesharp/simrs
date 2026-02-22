@@ -360,6 +360,11 @@ pub enum FsError {
     /// Write data does not fit: record size mismatch (UPDATE RECORD),
     /// value exceeds record size (INCREASE), or data beyond EF boundary.
     DataTooLarge,
+    /// Path data is malformed (e.g. odd number of bytes).
+    InvalidPath,
+    /// INCREASE would overflow: the sum exceeds the maximum representable
+    /// value for the record size.
+    IncreaseOverflow,
 }
 
 impl core::fmt::Display for FsError {
@@ -374,6 +379,8 @@ impl core::fmt::Display for FsError {
             Self::StoreFull => f.write_str("data store full"),
             Self::TooManyFiles => f.write_str("too many files"),
             Self::DataTooLarge => f.write_str("data too large"),
+            Self::InvalidPath => f.write_str("invalid path"),
+            Self::IncreaseOverflow => f.write_str("increase overflow: max value reached"),
         }
     }
 }
@@ -729,12 +736,17 @@ impl<const CAP: usize> FsData<CAP> {
         let end = start + rs;
 
         // Big-endian addition: add `value` (right-aligned) to the record.
+        // We work on a temporary copy so the original record is not modified
+        // when overflow is detected.
+        let mut tmp = [0u8; 256];
+        tmp[..rs].copy_from_slice(&self.buf[start..end]);
+
         let mut carry: u16 = 0;
         let val_off = rs - value.len();
         let mut i = rs;
         while i > 0 {
             i -= 1;
-            let rec_byte = u16::from(self.buf[start + i]);
+            let rec_byte = u16::from(tmp[i]);
             let val_byte = if i >= val_off {
                 u16::from(value[i - val_off])
             } else {
@@ -743,10 +755,15 @@ impl<const CAP: usize> FsData<CAP> {
             let sum = rec_byte + val_byte + carry;
             #[allow(clippy::cast_possible_truncation)] // intentional: keep low byte
             let lo = sum as u8;
-            self.buf[start + i] = lo;
+            tmp[i] = lo;
             carry = sum >> 8;
         }
 
+        if carry > 0 {
+            return Err(FsError::IncreaseOverflow);
+        }
+
+        self.buf[start..end].copy_from_slice(&tmp[..rs]);
         Ok(&self.buf[start..end])
     }
 
@@ -1033,6 +1050,59 @@ impl SelectionCtx {
     /// The currently active ADF, if any.
     pub const fn current_adf(&self) -> Option<&'static DfDef> {
         self.cur_adf
+    }
+
+    /// Select a file by walking a path of FID byte pairs.
+    ///
+    /// `path` must contain an even number of bytes; each consecutive pair
+    /// is interpreted as a big-endian FID. If `from_mf` is `true`
+    /// (P1=0x08), the context is reset to MF before walking. If `false`
+    /// (P1=0x09), the walk starts from the current DF.
+    ///
+    /// An empty path (zero bytes) selects MF (when `from_mf`) or the
+    /// current DF (when not `from_mf`).
+    ///
+    /// # Errors
+    ///
+    /// - [`FsError::InvalidPath`] if `path.len()` is odd.
+    /// - [`FsError::FileNotFound`] if any intermediate FID is not found.
+    pub fn select_by_path(
+        &mut self,
+        path: &[u8],
+        from_mf: bool,
+    ) -> Result<SelectedFile, FsError> {
+        if !path.len().is_multiple_of(2) {
+            return Err(FsError::InvalidPath);
+        }
+        if from_mf {
+            self.cur_df = self.mf;
+            self.cur_ef = None;
+            self.cur_adf = None;
+        }
+        if path.is_empty() {
+            return Ok(SelectedFile::Df(self.cur_df));
+        }
+        let mut last = SelectedFile::Df(self.cur_df);
+        for pair in path.chunks_exact(2) {
+            let fid = Fid::from_be_bytes([pair[0], pair[1]]);
+            last = self.select_by_fid(fid)?;
+        }
+        Ok(last)
+    }
+
+    /// Find an EF by Short File Identifier among the current DF's children.
+    ///
+    /// Returns the matching EF definition if found, or `None` if no child
+    /// EF has the given SFI.
+    pub fn find_ef_by_sfi(&self, sfi: Sfi) -> Option<&'static EfDef> {
+        for child in self.cur_df.children {
+            if let FileRef::Ef(ef) = child {
+                if ef.sfi == Some(sfi) {
+                    return Some(ef);
+                }
+            }
+        }
+        None
     }
 
     // -- snapshot --
@@ -1674,6 +1744,97 @@ mod tests {
         let mut c2 = ctx();
         assert!(!c2.restore_state(&small, &[]));
     }
+
+    // -- SELECT by path tests --
+
+    #[test]
+    fn select_by_path_from_mf() {
+        let mut c = ctx();
+        // Navigate away from MF first.
+        c.select_by_fid(Fid(0x7F10)).unwrap();
+        // Path from MF: DF.GSM (7F20) -> EF.IMSI (6F07).
+        let sel = c
+            .select_by_path(&[0x7F, 0x20, 0x6F, 0x07], true)
+            .unwrap();
+        assert_eq!(sel.fid(), Fid(0x6F07));
+        assert!(matches!(sel, SelectedFile::Ef(_)));
+        assert_eq!(c.current_df().fid, Fid(0x7F20));
+    }
+
+    #[test]
+    fn select_by_path_from_current() {
+        let mut c = ctx();
+        // Navigate to DF.GSM first.
+        c.select_by_fid(Fid(0x7F20)).unwrap();
+        // Path from current DF: EF.IMSI (6F07).
+        let sel = c
+            .select_by_path(&[0x6F, 0x07], false)
+            .unwrap();
+        assert_eq!(sel.fid(), Fid(0x6F07));
+        assert!(matches!(sel, SelectedFile::Ef(_)));
+        assert_eq!(c.current_df().fid, Fid(0x7F20));
+    }
+
+    #[test]
+    fn select_by_path_odd_length_fails() {
+        let mut c = ctx();
+        assert_eq!(
+            c.select_by_path(&[0x7F, 0x20, 0x6F], true),
+            Err(FsError::InvalidPath)
+        );
+    }
+
+    #[test]
+    fn select_by_path_intermediate_not_found() {
+        let mut c = ctx();
+        // First FID does not exist under MF.
+        assert_eq!(
+            c.select_by_path(&[0xAA, 0xBB, 0x6F, 0x07], true),
+            Err(FsError::FileNotFound)
+        );
+    }
+
+    #[test]
+    fn select_by_path_empty() {
+        let mut c = ctx();
+        // Empty path from MF selects MF.
+        let sel = c.select_by_path(&[], true).unwrap();
+        assert_eq!(sel.fid(), Fid(0x3F00));
+        assert!(matches!(sel, SelectedFile::Df(_)));
+
+        // Navigate to DF.GSM.
+        c.select_by_fid(Fid(0x7F20)).unwrap();
+        // Empty path from current selects current DF.
+        let sel = c.select_by_path(&[], false).unwrap();
+        assert_eq!(sel.fid(), Fid(0x7F20));
+        assert!(matches!(sel, SelectedFile::Df(_)));
+    }
+
+    // -- find_ef_by_sfi tests --
+
+    #[test]
+    fn find_ef_by_sfi_present() {
+        let c = ctx();
+        // EF_ICCID has SFI(2) and is a child of MF.
+        let ef = c.find_ef_by_sfi(Sfi(2)).unwrap();
+        assert_eq!(ef.fid, Fid(0x2FE2));
+    }
+
+    #[test]
+    fn find_ef_by_sfi_absent() {
+        let c = ctx();
+        // No EF under MF has SFI(99).
+        assert!(c.find_ef_by_sfi(Sfi(99)).is_none());
+    }
+
+    #[test]
+    fn find_ef_by_sfi_no_sfi_on_ef() {
+        let mut c = ctx();
+        // Navigate to DF.TELECOM. EF_ADN has sfi: None.
+        c.select_by_fid(Fid(0x7F10)).unwrap();
+        // SFI(1) should not match EF_ADN (which has no SFI).
+        assert!(c.find_ef_by_sfi(Sfi(1)).is_none());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2041,6 +2202,25 @@ mod fsdata_tests {
         // Verify it persists via read_record
         let rec = s.read_record(&EF_CY, 1).unwrap();
         assert_eq!(result, rec);
+    }
+
+    #[test]
+    fn increase_overflow_returns_error() {
+        let mut s = store();
+        // EF_CY record 1 = [0xA1, 0xA2, 0xA3] (3 bytes, max = 0xFFFFFF).
+        // Adding 0xFFFFFF - 0xA1A2A3 + 1 = 0x5E5D5D will overflow.
+        // First, set record to max: add (0xFF - 0xA1, 0xFF - 0xA2, 0xFF - 0xA3)
+        // = (0x5E, 0x5D, 0x5C)
+        let result = s.increase(&EF_CY, &[0x5E, 0x5D, 0x5C]).unwrap();
+        assert_eq!(result, &[0xFF, 0xFF, 0xFF]);
+        // Now any further increase should overflow.
+        assert_eq!(
+            s.increase(&EF_CY, &[0x00, 0x00, 0x01]),
+            Err(FsError::IncreaseOverflow)
+        );
+        // Verify the record is unchanged after overflow.
+        let rec = s.read_record(&EF_CY, 1).unwrap();
+        assert_eq!(rec, &[0xFF, 0xFF, 0xFF]);
     }
 
     // -- snapshot --
