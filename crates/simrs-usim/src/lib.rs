@@ -3064,6 +3064,347 @@ mod tests {
         let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x00, 0x08, 0x02, 0x3F, 0x00]);
         assert_eq!(sw(&buf, len), (0x6A, 0x86));
     }
+
+    // ===================================================================
+    // Access control test matrix
+    //
+    // Systematically verifies that every command subject to PIN1 gating
+    // is rejected (SW 69 82) when PIN1 has not been verified, and
+    // succeeds (SW != 69 82) when PIN1 has been verified.
+    //
+    // Also verifies that commands which are NOT PIN-gated never return
+    // 69 82, even when PIN1 has not been verified.
+    // ===================================================================
+
+    mod access_control {
+        use super::*;
+
+        /// Extract the two status-word bytes from a response buffer.
+        fn sw_from_response(buf: &[u8], len: usize) -> (u8, u8) {
+            (buf[len - 2], buf[len - 1])
+        }
+
+        /// Select EF.ICCID (transparent, FID 0x2FE2) under MF.
+        fn select_ef_iccid(app: &mut UsimApp) {
+            send(app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        }
+
+        /// Select EF.DIR (linear-fixed, FID 0x2F00) under MF.
+        fn select_ef_dir(app: &mut UsimApp) {
+            send(app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]);
+        }
+
+        /// Select ADF.USIM by AID, then EF.ACC (cyclic, FID 0x6F78).
+        fn select_ef_acc(app: &mut UsimApp) {
+            send(app,
+                &[0x00, 0xA4, 0x04, 0x04, 0x07,
+                  0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+            send(app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x78]);
+        }
+
+        /// Select ADF.USIM by AID, then EF.FDN (linear-fixed, FID 0x6F3B).
+        fn select_ef_fdn(app: &mut UsimApp) {
+            send(app,
+                &[0x00, 0xA4, 0x04, 0x04, 0x07,
+                  0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+            send(app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        }
+
+        /// Verify PIN1 with the correct value ("1234" padded).
+        fn verify_pin1(app: &mut UsimApp) {
+            send(app,
+                &[0x00, 0x20, 0x00, 0x01, 0x08,
+                  0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        }
+
+        const SECURITY_NOT_SATISFIED: (u8, u8) = (0x69, 0x82);
+
+        // ---------------------------------------------------------------
+        // PIN1-GATED operations: must fail (69 82) without PIN1
+        // ---------------------------------------------------------------
+
+        // -- READ BINARY (INS 0xB0) --
+
+        #[test]
+        fn read_binary_rejected_without_pin1() {
+            let mut app = app_with_pin1_enabled();
+            select_ef_iccid(&mut app);
+            let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+            assert_eq!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "READ BINARY must be rejected when PIN1 is not verified"
+            );
+        }
+
+        #[test]
+        fn read_binary_succeeds_with_pin1() {
+            let mut app = app_with_pin1_enabled();
+            verify_pin1(&mut app);
+            select_ef_iccid(&mut app);
+            let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+            assert_ne!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "READ BINARY must succeed when PIN1 is verified"
+            );
+        }
+
+        // -- UPDATE BINARY (INS 0xD6) --
+
+        #[test]
+        fn update_binary_rejected_without_pin1() {
+            let mut app = app_with_pin1_enabled();
+            select_ef_iccid(&mut app);
+            let (buf, len) = send(&mut app,
+                &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+            assert_eq!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "UPDATE BINARY must be rejected when PIN1 is not verified"
+            );
+        }
+
+        #[test]
+        fn update_binary_succeeds_with_pin1() {
+            let mut app = app_with_pin1_enabled();
+            verify_pin1(&mut app);
+            select_ef_iccid(&mut app);
+            let (buf, len) = send(&mut app,
+                &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+            assert_ne!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "UPDATE BINARY must succeed when PIN1 is verified"
+            );
+        }
+
+        // -- READ RECORD (INS 0xB2) --
+
+        #[test]
+        fn read_record_rejected_without_pin1() {
+            let mut app = app_with_pin1_enabled();
+            select_ef_dir(&mut app);
+            // P1=1, P2=0x04 (absolute), Le=0x08.
+            let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x08]);
+            assert_eq!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "READ RECORD must be rejected when PIN1 is not verified"
+            );
+        }
+
+        #[test]
+        fn read_record_succeeds_with_pin1() {
+            let mut app = app_with_pin1_enabled();
+            verify_pin1(&mut app);
+            select_ef_dir(&mut app);
+            let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x08]);
+            assert_ne!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "READ RECORD must succeed when PIN1 is verified"
+            );
+        }
+
+        // -- UPDATE RECORD (INS 0xDC) --
+
+        #[test]
+        fn update_record_rejected_without_pin1() {
+            let mut app = app_with_pin1_enabled();
+            select_ef_fdn(&mut app);
+            // Write 10-byte record (matching EF.FDN record_size).
+            let mut apdu = [0xFFu8; 5 + 10];
+            apdu[0] = 0x00; // CLA
+            apdu[1] = 0xDC; // INS = UPDATE RECORD
+            apdu[2] = 0x01; // P1 = record 1
+            apdu[3] = 0x04; // P2 = absolute
+            apdu[4] = 0x0A; // Lc = 10
+            let (buf, len) = send(&mut app, &apdu);
+            assert_eq!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "UPDATE RECORD must be rejected when PIN1 is not verified"
+            );
+        }
+
+        #[test]
+        fn update_record_succeeds_with_pin1() {
+            let mut app = app_with_pin1_enabled();
+            verify_pin1(&mut app);
+            select_ef_fdn(&mut app);
+            let mut apdu = [0xFFu8; 5 + 10];
+            apdu[0] = 0x00;
+            apdu[1] = 0xDC;
+            apdu[2] = 0x01;
+            apdu[3] = 0x04;
+            apdu[4] = 0x0A;
+            let (buf, len) = send(&mut app, &apdu);
+            assert_ne!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "UPDATE RECORD must succeed when PIN1 is verified"
+            );
+        }
+
+        // -- INCREASE (INS 0x32) --
+
+        #[test]
+        fn increase_rejected_without_pin1() {
+            let mut app = app_with_pin1_enabled();
+            select_ef_acc(&mut app);
+            // INCREASE by 1 (4-byte value for 4-byte record).
+            let (buf, len) = send(&mut app,
+                &[0x00, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01]);
+            assert_eq!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "INCREASE must be rejected when PIN1 is not verified"
+            );
+        }
+
+        #[test]
+        fn increase_succeeds_with_pin1() {
+            let mut app = app_with_pin1_enabled();
+            verify_pin1(&mut app);
+            select_ef_acc(&mut app);
+            let (buf, len) = send(&mut app,
+                &[0x00, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01]);
+            assert_ne!(
+                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                "INCREASE must succeed when PIN1 is verified"
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // NON-PIN-GATED operations: must NOT return 69 82 even without
+        // PIN1 verification
+        // ---------------------------------------------------------------
+
+        // -- SELECT (INS 0xA4) --
+
+        #[test]
+        fn select_not_gated_by_pin1() {
+            let mut app = app_with_pin1_enabled();
+            // SELECT MF by FID.
+            let (buf, len) = send(&mut app,
+                &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+            let status = sw_from_response(&buf, len);
+            assert_ne!(
+                status, SECURITY_NOT_SATISFIED,
+                "SELECT must not be gated by PIN1"
+            );
+            // Expect 61 xx (data available) or 90 00.
+            assert!(
+                status.0 == 0x61 || status.0 == 0x90,
+                "SELECT should return 61 xx or 90 00, got {:02X} {:02X}",
+                status.0, status.1
+            );
+        }
+
+        // -- AUTHENTICATE (INS 0x88) --
+
+        #[test]
+        fn authenticate_not_gated_by_pin1() {
+            let mut app = app_with_pin1_enabled();
+            // Build AUTHENTICATE APDU with P2=0x81 (UMTS context),
+            // zeroed RAND + AUTN (will cause MAC failure, not security error).
+            let mut apdu = [0u8; 5 + 34];
+            apdu[0] = 0x00; // CLA
+            apdu[1] = 0x88; // INS = AUTHENTICATE
+            apdu[2] = 0x00; // P1
+            apdu[3] = 0x81; // P2 = UMTS context
+            apdu[4] = 0x22; // Lc = 34
+            apdu[5] = 0x10; // RAND length prefix
+            apdu[22] = 0x10; // AUTN length prefix
+            let (buf, len) = send(&mut app, &apdu);
+            let status = sw_from_response(&buf, len);
+            assert_ne!(
+                status, SECURITY_NOT_SATISFIED,
+                "AUTHENTICATE must not be gated by PIN1"
+            );
+            // Expect 98 62 (MAC failure) since RAND/AUTN are zeroed.
+            assert_eq!(
+                status, (0x98, 0x62),
+                "AUTHENTICATE with garbage AUTN should return MAC failure (98 62)"
+            );
+        }
+
+        // -- STATUS (INS 0xF2) --
+
+        #[test]
+        fn status_not_gated_by_pin1() {
+            let mut app = app_with_pin1_enabled();
+            let (buf, len) = send(&mut app,
+                &[0x00, 0xF2, 0x00, 0x00, 0x00]);
+            let status = sw_from_response(&buf, len);
+            assert_ne!(
+                status, SECURITY_NOT_SATISFIED,
+                "STATUS must not be gated by PIN1"
+            );
+            // Expect 90 00 (data inline) or 61 xx.
+            assert!(
+                status.0 == 0x90 || status.0 == 0x61,
+                "STATUS should return 90 00 or 61 xx, got {:02X} {:02X}",
+                status.0, status.1
+            );
+        }
+
+        // -- GET RESPONSE (INS 0xC0) --
+
+        #[test]
+        fn get_response_not_gated_by_pin1() {
+            let mut app = app_with_pin1_enabled();
+            // Issue a SELECT first to queue FCP data, then GET RESPONSE.
+            send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+            let (buf, len) = send(&mut app,
+                &[0x00, 0xC0, 0x00, 0x00, 0x20]);
+            let status = sw_from_response(&buf, len);
+            assert_ne!(
+                status, SECURITY_NOT_SATISFIED,
+                "GET RESPONSE must not be gated by PIN1"
+            );
+        }
+
+        // -- VERIFY (INS 0x20) --
+
+        #[test]
+        fn verify_not_gated_by_pin1() {
+            let mut app = app_with_pin1_enabled();
+            // Query PIN1 retry count (empty data).
+            let (buf, len) = send(&mut app,
+                &[0x00, 0x20, 0x00, 0x01, 0x00]);
+            let status = sw_from_response(&buf, len);
+            assert_ne!(
+                status, SECURITY_NOT_SATISFIED,
+                "VERIFY must not be gated by PIN1"
+            );
+        }
+
+        // -- TERMINAL PROFILE (INS 0x10, CLA 0x80) --
+
+        #[test]
+        fn terminal_profile_not_gated_by_pin1() {
+            let mut app = app_with_pin1_enabled();
+            let (buf, len) = send(&mut app,
+                &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF]);
+            let status = sw_from_response(&buf, len);
+            assert_ne!(
+                status, SECURITY_NOT_SATISFIED,
+                "TERMINAL PROFILE must not be gated by PIN1"
+            );
+            assert!(
+                status.0 == 0x90 || status.0 == 0x91,
+                "TERMINAL PROFILE should return 90 00 or 91 xx, got {:02X} {:02X}",
+                status.0, status.1
+            );
+        }
+
+        // -- ENVELOPE (INS 0xC2, CLA 0x80) --
+
+        #[test]
+        fn envelope_not_gated_by_pin1() {
+            let mut app = app_with_pin1_enabled();
+            let (buf, len) = send(&mut app,
+                &[0x80, 0xC2, 0x00, 0x00, 0x02, 0xD0, 0x00]);
+            let status = sw_from_response(&buf, len);
+            assert_ne!(
+                status, SECURITY_NOT_SATISFIED,
+                "ENVELOPE must not be gated by PIN1"
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

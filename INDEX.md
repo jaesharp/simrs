@@ -1,6 +1,6 @@
 # simrs Crate Index
 
-> 22 crates. Pure `no_std` (where marked). Zero external runtime dependencies.
+> 24 crates. Pure `no_std` (where marked). Zero external runtime dependencies.
 > Port of [swsim](https://github.com/nicktool/SIMurai) to Rust for bare-metal SIM/USIM simulation and Shannon baseband fuzzing.
 >
 > Colours follow the [Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
@@ -38,6 +38,7 @@ graph TB
 
     subgraph comp_layer ["Composition"]
         MIL["simrs-milenage<br/><i>f1-f5 UMTS auth</i>"]
+        TUAK["simrs-tuak<br/><i>TUAK f1-f5 3GPP auth</i>"]
         FS["simrs-fs<br/><i>MF/DF/ADF/EF tree</i>"]
         PIN["simrs-pin<br/><i>verify/unblock SM</i>"]
         PRO["simrs-proactive<br/><i>CAT command encode</i>"]
@@ -48,12 +49,14 @@ graph TB
         BER["simrs-bertlv<br/><i>encode/decode</i>"]
         RIJ["simrs-rijndael<br/><i>AES-128</i>"]
         C128["simrs-comp128<br/><i>A3/A8 GSM</i>"]
+        KEC["simrs-keccak<br/><i>Keccak-f[1600] permutation</i>"]
     end
 
     %% Meta -> Application
     FUZZ ==> HLE
     FUZZ --> SNAP
     HLE ==> SIM
+    HLE ==> TUAK
     HLE --> SNAP
     SNAP --> SIM
 
@@ -81,6 +84,8 @@ graph TB
     USIM --> PRO
 
     %% Composition -> Foundation
+    TUAK --> KEC
+    TUAK --> MIL
     MIL --> RIJ
     FS --> ISO
     FS --> BER
@@ -104,8 +109,8 @@ graph TB
     classDef meta_std fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
     classDef entry fill:#E69F00,stroke:#333,color:#000,stroke-width:3px
 
-    class ISO,BER,RIJ,C128 foundation
-    class MIL,FS,PIN,PRO composition
+    class ISO,BER,RIJ,C128,KEC foundation
+    class MIL,TUAK,FS,PIN,PRO composition
     class GSM,USIM application
     class SIM entry
     class TR,SHM,VIO,PERI,SHAN boundary
@@ -124,7 +129,9 @@ graph TB
 | [`simrs-bertlv`](crates/simrs-bertlv/) | Foundation | yes | BER-TLV encoder/decoder with dry-run mode | -- | [API](docs/architecture.md#simrs-bertlv) |
 | [`simrs-rijndael`](crates/simrs-rijndael/) | Foundation | yes | AES-128 block cipher (encrypt only, `const fn` key sched) | -- | [API](docs/architecture.md#simrs-rijndael) |
 | [`simrs-comp128`](crates/simrs-comp128/) | Foundation | yes | `COMP128v1` GSM A3/A8 authentication | -- | [API](docs/architecture.md#simrs-comp128) |
+| [`simrs-keccak`](crates/simrs-keccak/) | Foundation | yes | Keccak-f[1600] permutation for TUAK | -- | [API](docs/architecture.md#simrs-keccak) |
 | [`simrs-milenage`](crates/simrs-milenage/) | Composition | yes | Milenage f1--f5 UMTS authentication | [rijndael](crates/simrs-rijndael/) | [API](docs/architecture.md#simrs-milenage) |
+| [`simrs-tuak`](crates/simrs-tuak/) | Composition | yes | TUAK f1--f5 3GPP auth (Keccak-based) | [keccak](crates/simrs-keccak/), [milenage](crates/simrs-milenage/) | [API](docs/architecture.md#simrs-tuak) |
 | [`simrs-fs`](crates/simrs-fs/) | Composition | yes | ICC filesystem model (MF/DF/ADF/EF), `const` trees | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-fs) |
 | [`simrs-pin`](crates/simrs-pin/) | Composition | yes | PIN/PUK state machine (verify, change, unblock) | [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-pin) |
 | [`simrs-proactive`](crates/simrs-proactive/) | Composition | yes | Proactive UICC / CAT command encoding | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-proactive) |
@@ -160,7 +167,9 @@ graph TB
 | NIST FIPS 197 | [rijndael](crates/simrs-rijndael/) | AES-128 |
 | ISO/IEC 8825-1 | [bertlv](crates/simrs-bertlv/) | BER-TLV encoding rules |
 | 3GPP TS 51.011 V4.15.0 | [gsm](crates/simrs-gsm/) | GSM SIM-ME interface (successor to GSM 11.11) |
-| 3GPP TS 35.231 | Future | TUAK algorithm (Keccak-based) |
+| 3GPP TS 35.231 | [tuak](crates/simrs-tuak/) | TUAK algorithm |
+| 3GPP TS 35.232 | [tuak](crates/simrs-tuak/) | TUAK test vectors |
+| 3GPP TS 35.233 | [tuak](crates/simrs-tuak/) | TUAK design conformance |
 | ETSI TS 102 225 | Future | Secured packet structure (OTA) |
 | ETSI TS 102 226 | Future | Remote APDU structure (OTA) |
 

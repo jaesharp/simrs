@@ -33,6 +33,8 @@ graph LR
         S12["TS 102 223"]
         S13["TS 31.111"]
         S14["GSM 11.11"]
+        S15["TS 35.232"]
+        S16["TS 35.233"]
     end
 
     subgraph crates ["simrs Crates"]
@@ -40,7 +42,9 @@ graph LR
         BER["simrs-bertlv"]
         RIJ["simrs-rijndael"]
         C128["simrs-comp128"]
+        KEC["simrs-keccak"]
         MIL["simrs-milenage"]
+        TUAK["simrs-tuak"]
         FS["simrs-fs"]
         PIN["simrs-pin"]
         PRO["simrs-proactive"]
@@ -55,7 +59,11 @@ graph LR
     S3 --> BER
     S4 --> RIJ
     S5 --> MIL
-    S6 -.->|"future: TUAK"| MIL
+    S6 --> TUAK
+    S15 --> TUAK
+    S16 --> TUAK
+    TUAK --> KEC
+    TUAK --> MIL
     S7 --> MIL
     S8 --> USIM
     S9 -.->|"future: 5G-AKA"| USIM
@@ -71,10 +79,10 @@ graph LR
     classDef application fill:#E69F00,stroke:#333,color:#000
     classDef std fill:#F0F0F0,stroke:#666,color:#333
 
-    class ISO,BER,RIJ,C128 foundation
-    class MIL,FS,PIN,PRO composition
+    class ISO,BER,RIJ,C128,KEC foundation
+    class MIL,TUAK,FS,PIN,PRO composition
     class GSM,USIM,SIM application
-    class S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14 std
+    class S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14,S15,S16 std
 ```
 
 ## Generation Scope
@@ -83,6 +91,21 @@ graph LR
 |------------|------------|----------------|-------|
 | 2G GSM | COMP128 (A3/A8) | `simrs-comp128`, `simrs-gsm` | Implemented |
 | 3G UMTS | Milenage (f1-f5) | `simrs-milenage`, `simrs-usim` | Implemented |
+| 3G/4G/5G | TUAK (f1-f5, Keccak) | `simrs-keccak`, `simrs-tuak`, `simrs-hle` | Implemented; HLE dispatches Milenage or TUAK |
 | 4G LTE (EPS) | EPS-AKA (Milenage + KASME KDF) | `simrs-usim` | USIM-side identical to 3G; ME-side KDF out of scope |
 | 5G NR NSA | EPS-AKA (via LTE anchor) | `simrs-usim` | No 5G-specific USIM changes needed |
 | 5G NR SA | 5G-AKA / EAP-AKA' | Future: `simrs-usim` + DF_5GS EFs | USIM-side identical; ME-side key derivation new |
+
+## Protocol Coverage (Tier 5)
+
+APDU-level protocol features implemented in `simrs-sim`, `simrs-usim`, and `simrs-gsm`:
+
+| Feature | Standard | Clause | Crate(s) |
+|---------|----------|--------|----------|
+| SELECT by path | ETSI TS 102 221 | 11.1.1 | `simrs-sim` |
+| SFI-based file access | ETSI TS 102 221 | 8.4.2 | `simrs-sim` |
+| CLA byte routing (logical channel, secure messaging) | ETSI TS 102 221 | 10.1.1 | `simrs-sim` |
+| AUTHENTICATE GSM context | 3GPP TS 31.102 | 7.1.2 | `simrs-usim` |
+| READ/UPDATE RECORD modes (current, absolute, next, prev) | ETSI TS 102 221 | 11.3 | `simrs-sim` |
+| INCREASE with overflow detection | ETSI TS 102 221 | 11.3.5 | `simrs-sim` |
+| STATUS response variants (FCP, no data) | ETSI TS 102 221 | 11.1.2 | `simrs-sim` |

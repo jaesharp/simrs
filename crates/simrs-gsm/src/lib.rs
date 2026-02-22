@@ -1811,6 +1811,285 @@ mod tests {
         let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
+
+    // -----------------------------------------------------------------------
+    // Access control test matrix
+    //
+    // Systematically verifies that PIN1-gated operations are denied when
+    // PIN1 is enabled but not verified, and allowed when PIN1 has been
+    // verified.  Also verifies that non-PIN1-gated operations are NOT
+    // blocked by unverified PIN1.
+    //
+    // SW (0x69, 0x82) = SECURITY_NOT_SATISFIED (the PIN gate rejection).
+    // -----------------------------------------------------------------------
+
+    mod access_control {
+        use super::*;
+
+        /// Security-status-not-satisfied status word produced by `pin1_denied()`.
+        const SW_SECURITY: (u8, u8) = (0x69, 0x82);
+
+        /// VERIFY APDU for correct PIN1 ("1234" padded to 8 bytes).
+        const VERIFY_PIN1: [u8; 13] = [
+            0xA0, 0x20, 0x00, 0x01, 0x08,
+            0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
+
+        /// SELECT EF.ICCID (transparent, under MF).
+        const SELECT_EF_ICCID: [u8; 7] = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
+
+        // -- Fixture helpers ------------------------------------------------
+
+        /// App with PIN1 enabled and NOT verified.  File operations that
+        /// check `pin1_denied()` must fail with `SW_SECURITY`.
+        fn denied_fixture() -> GsmApp {
+            app_with_pin1_enabled()
+        }
+
+        /// App with PIN1 enabled AND verified.  File operations that
+        /// check `pin1_denied()` must succeed (SW != `SW_SECURITY`).
+        fn allowed_fixture() -> GsmApp {
+            let mut a = app_with_pin1_enabled();
+            // Verify PIN1 via the PIN manager directly (not via APDU)
+            // so we don't conflate APDU-level behaviour.
+            let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+            let _ = a.pin_manager().verify(PinKey::PIN1, &pin_val);
+            a
+        }
+
+        // ===================================================================
+        // PIN1-GATED operations -- must FAIL without PIN1, succeed with PIN1
+        // ===================================================================
+
+        // -- READ BINARY (INS 0xB0) -----------------------------------------
+
+        #[test]
+        fn read_binary_denied_without_pin1() {
+            let mut app = denied_fixture();
+            send(&mut app, &SELECT_EF_ICCID);
+            let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+            assert_eq!(sw(&buf, len), SW_SECURITY,
+                "READ BINARY must be rejected when PIN1 is not verified");
+        }
+
+        #[test]
+        fn read_binary_allowed_with_pin1() {
+            let mut app = allowed_fixture();
+            send(&mut app, &SELECT_EF_ICCID);
+            let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+            assert_ne!(sw(&buf, len), SW_SECURITY,
+                "READ BINARY must not be rejected when PIN1 is verified");
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "READ BINARY should succeed with 90 00");
+        }
+
+        // -- UPDATE BINARY (INS 0xD6) --------------------------------------
+
+        #[test]
+        fn update_binary_denied_without_pin1() {
+            let mut app = denied_fixture();
+            send(&mut app, &SELECT_EF_ICCID);
+            let (buf, len) = send(&mut app,
+                &[0xA0, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+            assert_eq!(sw(&buf, len), SW_SECURITY,
+                "UPDATE BINARY must be rejected when PIN1 is not verified");
+        }
+
+        #[test]
+        fn update_binary_allowed_with_pin1() {
+            let mut app = allowed_fixture();
+            send(&mut app, &SELECT_EF_ICCID);
+            let (buf, len) = send(&mut app,
+                &[0xA0, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+            assert_ne!(sw(&buf, len), SW_SECURITY,
+                "UPDATE BINARY must not be rejected when PIN1 is verified");
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "UPDATE BINARY should succeed with 90 00");
+        }
+
+        // -- RUN GSM ALGORITHM (INS 0x88) -----------------------------------
+
+        /// Build a RUN GSM ALGORITHM APDU with a 16-byte RAND.
+        fn run_gsm_algo_apdu() -> [u8; 21] {
+            let mut apdu = [0u8; 21];
+            apdu[0] = 0xA0;
+            apdu[1] = 0x88;
+            apdu[2] = 0x00;
+            apdu[3] = 0x00;
+            apdu[4] = 0x10;
+            // Non-trivial RAND to avoid any identity-element concerns.
+            apdu[5..21].copy_from_slice(
+                &[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                  0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]);
+            apdu
+        }
+
+        #[test]
+        fn run_gsm_algo_denied_without_pin1() {
+            let mut app = denied_fixture();
+            let (buf, len) = send(&mut app, &run_gsm_algo_apdu());
+            assert_eq!(sw(&buf, len), SW_SECURITY,
+                "RUN GSM ALGORITHM must be rejected when PIN1 is not verified");
+        }
+
+        #[test]
+        fn run_gsm_algo_allowed_with_pin1() {
+            let mut app = allowed_fixture();
+            let (buf, len) = send(&mut app, &run_gsm_algo_apdu());
+            assert_ne!(sw(&buf, len), SW_SECURITY,
+                "RUN GSM ALGORITHM must not be rejected when PIN1 is verified");
+            // Successful RUN GSM ALGORITHM returns 9F 0C (12 bytes available).
+            assert_eq!(sw(&buf, len), (0x9F, 0x0C),
+                "RUN GSM ALGORITHM should queue 12-byte response");
+        }
+
+        // ===================================================================
+        // NON-PIN1-GATED operations -- must succeed without PIN1
+        // ===================================================================
+
+        // -- SELECT (INS 0xA4) ----------------------------------------------
+
+        #[test]
+        fn select_allowed_without_pin1() {
+            let mut app = denied_fixture();
+            let (buf, len) = send(&mut app,
+                &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
+            assert_ne!(sw(&buf, len), SW_SECURITY,
+                "SELECT must not be blocked by unverified PIN1");
+            // SELECT MF returns 9F 17 (23-byte response queued).
+            assert_eq!((buf[0], buf[1]), (0x9F, 23),
+                "SELECT MF should return 9F 17");
+        }
+
+        // -- STATUS (INS 0xF2) ----------------------------------------------
+
+        #[test]
+        fn status_allowed_without_pin1() {
+            let mut app = denied_fixture();
+            let (buf, len) = send(&mut app,
+                &[0xA0, 0xF2, 0x00, 0x00, 0x17]);
+            assert_ne!(sw(&buf, len), SW_SECURITY,
+                "STATUS must not be blocked by unverified PIN1");
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "STATUS should succeed with 90 00");
+        }
+
+        // -- VERIFY (INS 0x20) ----------------------------------------------
+
+        #[test]
+        fn verify_allowed_without_pin1() {
+            let mut app = denied_fixture();
+            // VERIFY itself must not require PIN1 to be pre-verified.
+            // Send VERIFY with the correct PIN1.
+            let (buf, len) = send(&mut app, &VERIFY_PIN1);
+            assert_ne!(sw(&buf, len), SW_SECURITY,
+                "VERIFY must not be blocked by unverified PIN1");
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "VERIFY with correct PIN should succeed");
+        }
+
+        #[test]
+        fn verify_retry_query_allowed_without_pin1() {
+            let mut app = denied_fixture();
+            // VERIFY with P3=0 (Le=0) queries retry count -- also not gated.
+            let (buf, len) = send(&mut app,
+                &[0xA0, 0x20, 0x00, 0x01, 0x00]);
+            assert_ne!(sw(&buf, len), SW_SECURITY,
+                "VERIFY retry query must not be blocked by unverified PIN1");
+            // Expect 63 C3 (3 retries remaining).
+            assert_eq!(sw(&buf, len), (0x63, 0xC3),
+                "VERIFY retry query should report 3 retries");
+        }
+
+        // -- GET RESPONSE (INS 0xC0) ----------------------------------------
+
+        #[test]
+        fn get_response_allowed_without_pin1() {
+            let mut app = denied_fixture();
+            // SELECT queues a response; GET RESPONSE retrieves it.
+            // Neither operation is PIN-gated.
+            send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
+            let (buf, len) = send(&mut app,
+                &[0xA0, 0xC0, 0x00, 0x00, 0x17]);
+            assert_ne!(sw(&buf, len), SW_SECURITY,
+                "GET RESPONSE must not be blocked by unverified PIN1");
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "GET RESPONSE should deliver queued data with 90 00");
+        }
+
+        // ===================================================================
+        // Cross-check: verify that denied operations become allowed after
+        // PIN1 verification via APDU (end-to-end, not just fixture-based).
+        // ===================================================================
+
+        #[test]
+        fn read_binary_denied_then_verify_then_allowed() {
+            let mut app = denied_fixture();
+            send(&mut app, &SELECT_EF_ICCID);
+
+            // Step 1: READ BINARY must fail.
+            let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+            assert_eq!(sw(&buf, len), SW_SECURITY,
+                "READ BINARY must fail before VERIFY");
+
+            // Step 2: VERIFY PIN1.
+            let (buf, len) = send(&mut app, &VERIFY_PIN1);
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "VERIFY PIN1 should succeed");
+
+            // Step 3: Re-select (SELECT clears queue but not PIN state).
+            send(&mut app, &SELECT_EF_ICCID);
+
+            // Step 4: READ BINARY must now succeed.
+            let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "READ BINARY must succeed after VERIFY");
+        }
+
+        #[test]
+        fn update_binary_denied_then_verify_then_allowed() {
+            let mut app = denied_fixture();
+            send(&mut app, &SELECT_EF_ICCID);
+
+            // Step 1: UPDATE BINARY must fail.
+            let (buf, len) = send(&mut app,
+                &[0xA0, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+            assert_eq!(sw(&buf, len), SW_SECURITY,
+                "UPDATE BINARY must fail before VERIFY");
+
+            // Step 2: VERIFY PIN1.
+            let (buf, len) = send(&mut app, &VERIFY_PIN1);
+            assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+            // Step 3: Re-select.
+            send(&mut app, &SELECT_EF_ICCID);
+
+            // Step 4: UPDATE BINARY must now succeed.
+            let (buf, len) = send(&mut app,
+                &[0xA0, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "UPDATE BINARY must succeed after VERIFY");
+        }
+
+        #[test]
+        fn run_gsm_algo_denied_then_verify_then_allowed() {
+            let mut app = denied_fixture();
+
+            // Step 1: RUN GSM ALGORITHM must fail.
+            let (buf, len) = send(&mut app, &run_gsm_algo_apdu());
+            assert_eq!(sw(&buf, len), SW_SECURITY,
+                "RUN GSM ALGORITHM must fail before VERIFY");
+
+            // Step 2: VERIFY PIN1.
+            let (buf, len) = send(&mut app, &VERIFY_PIN1);
+            assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+            // Step 3: RUN GSM ALGORITHM must now succeed.
+            let (buf, len) = send(&mut app, &run_gsm_algo_apdu());
+            assert_eq!(sw(&buf, len), (0x9F, 0x0C),
+                "RUN GSM ALGORITHM must succeed after VERIFY");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
