@@ -1090,3 +1090,51 @@ mod tests {
         assert_eq!(trait_f2, inherent_f2);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (DudeCT)
+//
+//   cargo test -p simrs-tuak --features ct-validation --release
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{dudect_test, Rng};
+
+    const SAMPLES: u64 = 10_000;
+
+    /// TUAK f2 (representative of f2345): class 0 = fixed key with fixed
+    /// TopC and random RAND; class 1 = random key with same fixed TopC and
+    /// random RAND.  A non-constant-time implementation would show timing
+    /// differences across different key values.
+    #[test]
+    fn test_tuak_f2_ct() {
+        let topc = [0x83u8; 32];
+        let mut rng = Rng::from_seed(88);
+        let result = dudect_test(
+            "tuak_f2 (fixed key vs random key)",
+            SAMPLES,
+            &mut rng,
+            |rng| {
+                let key = [0x46u8; 16];
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (TuakParams::new(key, TopVariant::TopC(topc)), rand_bytes)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (TuakParams::new(key, TopVariant::TopC(topc)), rand_bytes)
+            },
+            |(params, rand_bytes)| {
+                black_box(params.f2(rand_bytes));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+}

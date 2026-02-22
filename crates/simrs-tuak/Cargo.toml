@@ -8,6 +8,7 @@ description = "TUAK authentication algorithm (3GPP TS 35.231) -- no_std, no_allo
 [features]
 default = []
 std     = []
+ct-validation = []
 
 [dependencies]
 simrs-consttime = { workspace = true }
@@ -15,6 +16,7 @@ simrs-keccak    = { workspace = true }
 simrs-milenage  = { workspace = true }
 
 [dev-dependencies]
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

@@ -725,3 +725,85 @@ mod tests {
         assert_eq!(rij.decrypt(&ct), [0u8; 16]);
     }
 }
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{dudect_test, Rng};
+
+    /// `DudeCT` timing test for AES-128 encryption.
+    ///
+    /// Class 0: fixed key [0u8; 16], random plaintext.
+    /// Class 1: random key, random plaintext.
+    ///
+    /// A constant-time implementation must show no measurable timing
+    /// difference between classes -- the key must not influence execution
+    /// time.
+    #[test]
+    fn test_aes_encrypt_ct() {
+        let mut rng = Rng::from_seed(0xAE5E_0CC7);
+        let result = dudect_test(
+            "AES-128 encrypt (fixed vs random key)",
+            10_000,
+            &mut rng,
+            |rng| {
+                let key = [0u8; 16];
+                let mut plaintext = [0u8; 16];
+                rng.fill_bytes(&mut plaintext);
+                (key, plaintext)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut plaintext = [0u8; 16];
+                rng.fill_bytes(&mut plaintext);
+                (key, plaintext)
+            },
+            |(key, plaintext)| {
+                let cipher = Rijndael::new(key);
+                let ct = cipher.encrypt(plaintext);
+                black_box(ct);
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+
+    /// `DudeCT` timing test for AES-128 decryption.
+    ///
+    /// Class 0: fixed key [0u8; 16], random ciphertext.
+    /// Class 1: random key, random ciphertext.
+    ///
+    /// The inverse cipher must also be constant-time: `InvSubBytes`,
+    /// `InvMixColumns`, and key schedule must not leak through timing.
+    #[test]
+    fn test_aes_decrypt_ct() {
+        let mut rng = Rng::from_seed(0xAE5D_ECC7);
+        let result = dudect_test(
+            "AES-128 decrypt (fixed vs random key)",
+            10_000,
+            &mut rng,
+            |rng| {
+                let key = [0u8; 16];
+                let mut ciphertext = [0u8; 16];
+                rng.fill_bytes(&mut ciphertext);
+                (key, ciphertext)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut ciphertext = [0u8; 16];
+                rng.fill_bytes(&mut ciphertext);
+                (key, ciphertext)
+            },
+            |(key, ciphertext)| {
+                let cipher = Rijndael::new(key);
+                let pt = cipher.decrypt(ciphertext);
+                black_box(pt);
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+}

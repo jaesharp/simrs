@@ -8,12 +8,14 @@ description = "Constant-time primitives for crypto (table lookups, comparisons, 
 [features]
 default = []
 std     = []
+ct-validation = []
 
 [dependencies]
 simrs-consttime-macros = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

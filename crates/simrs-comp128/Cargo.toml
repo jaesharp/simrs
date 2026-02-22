@@ -8,12 +8,14 @@ description = "COMP128v1 (A3/A8) GSM authentication algorithm -- no_std, no_allo
 [features]
 default = []
 std     = []
+ct-validation = []
 
 [dependencies]
 simrs-consttime = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

@@ -516,6 +516,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-consttime",
+ "simrs-consttime-validation",
 ]
 
 [[package]]
@@ -524,6 +525,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-consttime-macros",
+ "simrs-consttime-validation",
 ]
 
 [[package]]
@@ -533,6 +535,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "simrs-consttime-validation"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
 ]
 
 [[package]]
@@ -605,6 +614,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-consttime",
+ "simrs-consttime-validation",
  "simrs-rijndael",
 ]
 
@@ -673,6 +683,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-consttime",
+ "simrs-consttime-validation",
 ]
 
 [[package]]
@@ -723,6 +734,7 @@ name = "simrs-tuak"
 version = "0.1.0"
 dependencies = [
  "simrs-consttime",
+ "simrs-consttime-validation",
  "simrs-keccak",
  "simrs-milenage",
 ]

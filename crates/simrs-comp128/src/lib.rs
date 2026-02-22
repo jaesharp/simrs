@@ -525,3 +525,45 @@ mod proptests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (DudeCT)
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use simrs_consttime_validation::{dudect_test, Rng};
+
+    #[test]
+    fn test_comp128_ct() {
+        let mut rng = Rng::from_seed(42);
+        let fixed_ki = [0xABu8; 16];
+
+        let result = dudect_test(
+            "comp128: fixed Ki vs random Ki",
+            10_000,
+            &mut rng,
+            |rng| {
+                // Class 0: fixed Ki, random RAND
+                let mut rand = [0u8; 16];
+                rng.fill_bytes(&mut rand);
+                (fixed_ki, rand)
+            },
+            |rng| {
+                // Class 1: random Ki, random RAND
+                let mut ki = [0u8; 16];
+                let mut rand = [0u8; 16];
+                rng.fill_bytes(&mut ki);
+                rng.fill_bytes(&mut rand);
+                (ki, rand)
+            },
+            |(ki, rand)| {
+                let r = comp128(ki, rand);
+                core::hint::black_box(r);
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+}

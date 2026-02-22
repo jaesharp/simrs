@@ -667,3 +667,196 @@ mod proptests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// DudeCT constant-time validation tests
+//
+// These tests use statistical timing analysis (Welch's t-test) to detect
+// data-dependent timing behavior. They MUST be run in release mode
+// (`--release` or opt-level >= 2) to avoid false positives from unoptimized
+// debug code paths.
+//
+// Run with:
+//   cargo test -p simrs-consttime --features ct-validation --release
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+#[allow(clippy::cast_possible_truncation)]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{dudect_test, Rng};
+
+    const SAMPLES: u64 = 50_000;
+
+    /// `ct_select`: class 0 = fixed index 0, class 1 = random index.
+    /// Identity table so every index yields a different value; a non-CT
+    /// implementation would show timing differences across cache lines.
+    #[test]
+    fn ct_select_timing() {
+        let table: [u8; 256] = core::array::from_fn(|i| i as u8);
+        let mut rng = Rng::from_seed(1);
+        let result = dudect_test(
+            "ct_select (fixed vs random index)",
+            SAMPLES,
+            &mut rng,
+            |_rng| 0u8,
+            Rng::next_u8,
+            |&index| {
+                black_box(ct_select(&table, index));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+
+    /// `ct_select_n` with 512 entries: class 0 = index 0, class 1 = random index.
+    #[test]
+    fn ct_select_n_timing() {
+        let table: [u8; 512] = core::array::from_fn(|i| (i & 0xFF) as u8);
+        let mut rng = Rng::from_seed(2);
+        let result = dudect_test(
+            "ct_select_n(512) (fixed vs random index)",
+            SAMPLES,
+            &mut rng,
+            |_rng| 0usize,
+            |rng| (rng.next_u64() as usize) % 512,
+            |&index| {
+                black_box(ct_select_n(&table, index));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+
+    /// `ct_xtime`: class 0 = no reduction (high bit clear), class 1 = reduction
+    /// (high bit set). A branching implementation would show different timing
+    /// for the two classes.
+    #[test]
+    fn ct_xtime_timing() {
+        let mut rng = Rng::from_seed(3);
+        let result = dudect_test(
+            "ct_xtime (no-reduce vs reduce)",
+            SAMPLES,
+            &mut rng,
+            |rng| rng.next_u8() & 0x7F,
+            |rng| rng.next_u8() | 0x80,
+            |&b| {
+                black_box(ct_xtime(b));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+
+    /// `ct_eq` (equal vs different): class 0 = identical slices, class 1 =
+    /// slices that differ at a random position. A short-circuiting
+    /// implementation would return faster for early mismatches.
+    #[test]
+    fn ct_eq_equal_vs_different_timing() {
+        let mut rng = Rng::from_seed(4);
+        let result = dudect_test(
+            "ct_eq (equal vs different)",
+            SAMPLES,
+            &mut rng,
+            |rng| {
+                let mut buf = [0u8; 32];
+                rng.fill_bytes(&mut buf);
+                // class 0: both slices identical
+                (buf, buf)
+            },
+            |rng| {
+                let mut a = [0u8; 32];
+                rng.fill_bytes(&mut a);
+                let mut b = a;
+                // class 1: differ at a random position
+                let pos = (rng.next_u64() as usize) % 32;
+                b[pos] ^= 0x01;
+                (a, b)
+            },
+            |pair| {
+                black_box(ct_eq(&pair.0, &pair.1));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+
+    /// `ct_eq` (early diff vs late diff): class 0 = differ at byte 0,
+    /// class 1 = differ at byte 31. A short-circuiting implementation
+    /// would return faster when the first byte already differs.
+    #[test]
+    fn ct_eq_early_vs_late_diff_timing() {
+        let mut rng = Rng::from_seed(5);
+        let result = dudect_test(
+            "ct_eq (early vs late diff)",
+            SAMPLES,
+            &mut rng,
+            |rng| {
+                let mut a = [0u8; 32];
+                rng.fill_bytes(&mut a);
+                let mut b = a;
+                // class 0: differ at byte 0 (early)
+                b[0] ^= 0x01;
+                (a, b)
+            },
+            |rng| {
+                let mut a = [0u8; 32];
+                rng.fill_bytes(&mut a);
+                let mut b = a;
+                // class 1: differ at byte 31 (late)
+                b[31] ^= 0x01;
+                (a, b)
+            },
+            |pair| {
+                black_box(ct_eq(&pair.0, &pair.1));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+
+    /// `ct_is_zero_u8`: class 0 = zero input, class 1 = nonzero input.
+    /// A branching implementation would show different timing.
+    #[test]
+    fn ct_is_zero_u8_timing() {
+        let mut rng = Rng::from_seed(6);
+        let result = dudect_test(
+            "ct_is_zero_u8 (zero vs nonzero)",
+            SAMPLES,
+            &mut rng,
+            |_rng| 0u8,
+            |rng| {
+                let mut v = rng.next_u8();
+                if v == 0 {
+                    v = 1;
+                }
+                v
+            },
+            |&x| {
+                black_box(ct_is_zero_u8(x));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+
+    /// `ct_mux_u8`: class 0 = mask 0xFF (select a), class 1 = mask 0x00
+    /// (select b). A branching mux would show timing differences.
+    #[test]
+    fn ct_mux_u8_timing() {
+        let mut rng = Rng::from_seed(7);
+        let result = dudect_test(
+            "ct_mux_u8 (mask 0xFF vs 0x00)",
+            SAMPLES,
+            &mut rng,
+            |rng| (0xFFu8, rng.next_u8(), rng.next_u8()),
+            |rng| (0x00u8, rng.next_u8(), rng.next_u8()),
+            |&(mask, a, b)| {
+                black_box(ct_mux_u8(mask, a, b));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+}

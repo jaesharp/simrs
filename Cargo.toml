@@ -30,6 +30,7 @@ members = [
     "crates/simrs-pcap",
     "crates/simrs-interposer",
     "crates/simrs-auth-cli",
+    "crates/simrs-consttime-validation",
 ]
 resolver = "2"
 
@@ -70,6 +71,7 @@ simrs-fuzz                = { path = "crates/simrs-fuzz" }
 simrs-ota                 = { path = "crates/simrs-ota",                 default-features = false }
 simrs-pcap                = { path = "crates/simrs-pcap",                default-features = false }
 simrs-interposer          = { path = "crates/simrs-interposer" }
+simrs-consttime-validation = { path = "crates/simrs-consttime-validation" }
 
 # simrs-auth-cli is intentionally absent above -- binary crate, no library target.
 

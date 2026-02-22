@@ -8,6 +8,7 @@ description = "Milenage (f1-f5) UMTS authentication per ETSI TS 135 206 -- no_st
 [features]
 default = []
 std     = []
+ct-validation = []
 
 [dependencies]
 simrs-consttime = { workspace = true }
@@ -15,6 +16,7 @@ simrs-rijndael = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

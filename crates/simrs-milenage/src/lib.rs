@@ -1189,3 +1189,53 @@ mod proptests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (DudeCT)
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{dudect_test, Rng};
+
+    /// DudeCT timing test for Milenage f2 (representative of f2345).
+    ///
+    /// Class 0: fixed K [0x46; 16] with OPc [0x83; 16], random RAND.
+    /// Class 1: random K with same OPc [0x83; 16], random RAND.
+    ///
+    /// A constant-time implementation must show no measurable timing
+    /// difference between classes -- the key must not influence execution
+    /// time.
+    #[test]
+    fn test_milenage_f2_ct() {
+        let mut rng = Rng::from_seed(77);
+        let opc = [0x83u8; 16];
+        let result = dudect_test(
+            "Milenage f2 (fixed vs random key)",
+            10_000,
+            &mut rng,
+            |rng| {
+                let key = [0x46u8; 16];
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |(key, opc, rand_bytes)| {
+                let params = MilenageParams::with_defaults(*key, OpVariant::Opc(*opc));
+                let res = params.f2(rand_bytes);
+                black_box(res);
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+}

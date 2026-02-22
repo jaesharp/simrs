@@ -1,0 +1,16 @@
+[package]
+name        = "simrs-consttime-validation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DudeCT timing verification utilities for constant-time crypto validation"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+getrandom = { workspace = true }
+
+[lints]
+workspace = true
