@@ -106,6 +106,8 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod gsm7;
+
 use simrs_bertlv::{BER_LONG_FORM_1, BER_LONG_FORM_2, BER_SHORT_FORM_MAX, Decoder, Encoder};
 
 // ---------------------------------------------------------------------------
@@ -2063,6 +2065,7 @@ impl EncoderSplitExt for Encoder<'_> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
     use super::*;
     use simrs_bertlv::Decoder;
 
@@ -4686,6 +4689,14 @@ mod tests {
             let real = encode(cmd, 1, &mut buf).unwrap();
             assert_eq!(dry, real, "dry-run mismatch for {cmd:?}");
         }
+    }
+
+
+    #[test]
+    fn proactive_error_display_non_empty() {
+        let e = ProactiveError::BufferTooSmall;
+        let s = alloc::format!("{e}");
+        assert!(!s.is_empty(), "Display for ProactiveError must produce non-empty string");
     }
 }
 

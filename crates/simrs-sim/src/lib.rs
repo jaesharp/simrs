@@ -1111,18 +1111,15 @@ mod tests {
         // CLA=0x01 is interindustry channel 1 -- should route to USIM.
         let mut sim = make_sim();
         let _ = sim.process(SimEvent::PowerOn);
-        // SELECT MF with CLA=0x01. USIM's CLA check (exact 0x00/0x80)
-        // will reject it with 6E 00, confirming that the Sim layer routed
-        // to USIM rather than returning 6E 00 from the Sim layer itself.
-        // (USIM currently only accepts CLA 0x00 and 0x80 at the app level.)
+        // SELECT MF with CLA=0x01. USIM now accepts all interindustry CLA
+        // values. CLA=0x01 targets logical channel 1 which is not open,
+        // so USIM returns 69 86 (command not allowed). This confirms the
+        // Sim layer routed to USIM (not rejecting at the Sim level).
         let rsp = sim.process(SimEvent::Apdu(&[0x01, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
         match rsp {
             SimResponse::Apdu { sw1, sw2, .. } => {
-                // USIM rejects CLA=0x01 with 6E 00 (class not supported
-                // at app level), but the Sim layer routed to USIM (not
-                // rejecting at the Sim level). The key verification is
-                // that CLA=0x01 reaches the USIM handler.
-                assert_eq!((sw1, sw2), (0x6E, 0x00));
+                // Channel 1 not open -> 69 86 (command not allowed).
+                assert_eq!((sw1, sw2), (0x69, 0x86));
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1131,14 +1128,16 @@ mod tests {
     #[cfg(feature = "usim")]
     #[test]
     fn cla_40_routes_to_usim() {
-        // CLA=0x40 is interindustry (further coding) -- should route to USIM.
+        // CLA=0x40 is interindustry (further coding, channel 0) -- should route to USIM.
         let mut sim = make_sim();
         let _ = sim.process(SimEvent::PowerOn);
+        // CLA=0x40 is now accepted as interindustry channel 0, so SELECT MF
+        // succeeds and returns 61 XX (data available via GET RESPONSE).
         let rsp = sim.process(SimEvent::Apdu(&[0x40, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
         match rsp {
-            SimResponse::Apdu { sw1, sw2, .. } => {
-                // Routed to USIM which rejects non-0x00/0x80 CLA values.
-                assert_eq!((sw1, sw2), (0x6E, 0x00));
+            SimResponse::Apdu { sw1, .. } => {
+                // Routed to USIM, SELECT MF succeeds with data available.
+                assert_eq!(sw1, 0x61);
             }
             _ => panic!("expected Apdu response"),
         }

@@ -24,6 +24,7 @@ members = [
     "crates/simrs-snapshot",
     "crates/simrs-hle",
     "crates/simrs-fuzz",
+    "crates/simrs-ota",
 ]
 resolver = "2"
 
@@ -59,6 +60,7 @@ simrs-peripheral-osembed  = { path = "crates/simrs-peripheral-osembed" }
 simrs-snapshot            = { path = "crates/simrs-snapshot",            default-features = false }
 simrs-hle                 = { path = "crates/simrs-hle" }
 simrs-fuzz                = { path = "crates/simrs-fuzz" }
+simrs-ota                 = { path = "crates/simrs-ota",                 default-features = false }
 
 # External test/dev dependencies -- tests run on host (std always available)
 proptest = "1"

@@ -250,6 +250,9 @@ impl core::fmt::Display for PinError {
     }
 }
 
+#[cfg(feature = "std")]
+impl std::error::Error for PinError {}
+
 // ---------------------------------------------------------------------------
 // Snapshot cursor helpers
 // ---------------------------------------------------------------------------
@@ -833,6 +836,7 @@ impl<const N: usize> PinManager<N> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
     use super::*;
 
     // -- Helpers --
@@ -1360,6 +1364,18 @@ mod tests {
         assert!(mgr.set_disabled(PIN1));
         // Access granted without verify.
         assert!(mgr.is_access_granted(PIN1));
+    }
+
+    #[test]
+    fn pin_error_display_non_empty() {
+        let variants: &[PinError] = &[
+            PinError::DuplicateKey,
+            PinError::SlotsFull,
+        ];
+        for v in variants {
+            let s = alloc::format!("{v}");
+            assert!(!s.is_empty(), "Display for {v:?} must produce non-empty string");
+        }
     }
 }
 

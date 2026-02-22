@@ -92,6 +92,9 @@ impl core::fmt::Display for BerError {
     }
 }
 
+#[cfg(feature = "std")]
+impl std::error::Error for BerError {}
+
 // ---------------------------------------------------------------------------
 // Encoder
 // ---------------------------------------------------------------------------
@@ -207,6 +210,30 @@ impl<'buf> Encoder<'buf> {
             let lo = len as u8;
             self.raw(&[BER_LONG_FORM_2, hi, lo])
         }
+    }
+
+    /// Return the written bytes as a `Vec<u8>`.
+    ///
+    /// Only available when the `alloc` feature is enabled. Requires that this
+    /// is a real (non-dry-run) encoder.
+    ///
+    /// Returns an empty `Vec` for dry-run encoders.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Requires alloc feature
+    /// let mut buf = [0u8; 32];
+    /// let mut enc = Encoder::new(&mut buf);
+    /// enc.tag_length_value(0x80, &[0x01]).unwrap();
+    /// let v = enc.to_vec();
+    /// assert_eq!(v, vec![0x80, 0x01, 0x01]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    pub fn to_vec(&self) -> alloc::vec::Vec<u8> {
+        self.buf
+            .as_ref()
+            .map_or_else(alloc::vec::Vec::new, |buf| buf[..self.pos].to_vec())
     }
 }
 
@@ -353,6 +380,7 @@ pub const fn length_of_length(len: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
     use super::*;
 
     // -- Encoder --
@@ -575,6 +603,20 @@ mod tests {
         // Original write is still intact, position unchanged
         assert_eq!(enc.len(), 3);
         assert_eq!(&buf[..3], &[0x80, 0x01, 0x01]);
+    }
+
+    #[test]
+    fn ber_error_display_non_empty() {
+        let variants: &[BerError] = &[
+            BerError::BufferFull,
+            BerError::InvalidTag,
+            BerError::InvalidLength,
+            BerError::Truncated,
+        ];
+        for v in variants {
+            let s = alloc::format!("{v}");
+            assert!(!s.is_empty(), "Display for {v:?} must produce non-empty string");
+        }
     }
 }
 

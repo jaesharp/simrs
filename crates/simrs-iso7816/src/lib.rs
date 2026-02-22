@@ -122,8 +122,16 @@ pub mod ins {
     pub const ENVELOPE: u8 = 0xC2;
     /// INCREASE. ETSI TS 102 221 clause 11.1.7.
     pub const INCREASE: u8 = 0x32;
+    /// SEARCH RECORD. ETSI TS 102 221 clause 11.1.8.
+    pub const SEARCH_RECORD: u8 = 0xA2;
     /// MANAGE CHANNEL. ETSI TS 102 221 clause 11.1.17.
     pub const MANAGE_CHANNEL: u8 = 0x70;
+    /// DEACTIVATE FILE. ETSI TS 102 221 clause 11.1.14.
+    pub const DEACTIVATE_FILE: u8 = 0x04;
+    /// ACTIVATE FILE. ETSI TS 102 221 clause 11.1.15.
+    pub const ACTIVATE_FILE: u8 = 0x44;
+    /// TERMINAL CAPABILITY. ETSI TS 102 221 clause 11.2.5.
+    pub const TERMINAL_CAPABILITY: u8 = 0xAA;
 }
 
 // ---------------------------------------------------------------------------
@@ -486,6 +494,9 @@ impl core::fmt::Display for ApduError {
     }
 }
 
+#[cfg(feature = "std")]
+impl std::error::Error for ApduError {}
+
 /// Parsed APDU command (borrowed from input buffer).
 ///
 /// Borrows the data field from the input byte slice -- no copying.
@@ -832,6 +843,7 @@ impl<const CAP: usize> ResponseQueue<CAP> {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
     use super::*;
 
     // -- StatusWord --
@@ -1123,5 +1135,17 @@ mod tests {
         let mut q = ResponseQueue::<4>::new();
         q.queue(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
         assert_eq!(q.len(), 4);
+    }
+
+    #[test]
+    fn apdu_error_display_non_empty() {
+        let variants: &[ApduError] = &[
+            ApduError::TooShort,
+            ApduError::DataTruncated,
+        ];
+        for v in variants {
+            let s = alloc::format!("{v}");
+            assert!(!s.is_empty(), "Display for {v:?} must produce non-empty string");
+        }
     }
 }

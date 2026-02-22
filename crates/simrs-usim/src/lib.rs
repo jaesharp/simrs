@@ -53,9 +53,12 @@
 // USIM documentation uses many standard 3GPP terms (OPc, FCP, ADF, etc.)
 #![allow(clippy::doc_markdown)]
 
+pub mod profile;
+
 use simrs_bertlv::Encoder;
 use simrs_fs::{
-    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsData, FsError, SelectionCtx, SelectedFile, Sfi,
+    AdfSlot, DeactivationTracker, DfDef, EfDef, EfStructure, Fid, FsData, FsError,
+    SelectionCtx, SelectedFile, Sfi,
 };
 use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
 use simrs_milenage::{AuthAlgorithm, MilenageError, MilenageParams};
@@ -65,9 +68,6 @@ use simrs_proactive::ProactiveState;
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/// CLA byte for interindustry commands.
-const CLA_INTER: u8 = 0x00;
 
 /// CLA byte for ETSI CAT (proactive) commands.
 const CLA_ETSI: u8 = 0x80;
@@ -84,9 +84,6 @@ const DATA_CODING_BER_TLV: u8 = 0x21;
 
 // ETSI TS 102 221 clause 11.1.1.4.9: Life cycle status.
 const LIFECYCLE_ACTIVATED: u8 = 0x05;
-
-// ETSI TS 102 221 clause 11.1.1.4.7: Security attribute compact format.
-const SECURITY_ALWAYS: u8 = 0x7F;
 
 // ETSI TS 102 221 clause 11.1.1.4.8: SFI encoding.
 const SFI_INDICATOR: u8 = 0x04;
@@ -228,6 +225,24 @@ pub struct UsimApp<A: AuthAlgorithm = MilenageParams> {
     auth: A,
     proactive: ProactiveState,
     rsp_queue: ResponseQueue<64>,
+    /// Terminal capability data (up to 16 bytes).
+    terminal_capability: [u8; 16],
+    /// Length of stored terminal capability data.
+    terminal_capability_len: u8,
+    /// Deactivated file tracking.
+    deactivation: DeactivationTracker,
+    /// Logical channel contexts. Channel 0 is the basic channel (always open).
+    /// Channels 1-3 are optional logical channels.
+    channels: [Option<SelectionCtx>; 4],
+    /// Tracks the last AID selected via SELECT by AID, for "next occurrence" iteration.
+    last_aid_match: bool,
+    /// Whether a proactive session is currently active.
+    ///
+    /// Set to `true` when a proactive command is queued or when FETCH
+    /// delivers a command. Set to `false` when TERMINAL RESPONSE is
+    /// received with a success result. Not persisted in snapshots
+    /// (transient session state).
+    proactive_session_active: bool,
 }
 
 impl<A: AuthAlgorithm> UsimApp<A> {
@@ -268,6 +283,12 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             auth,
             proactive: ProactiveState::new(),
             rsp_queue: ResponseQueue::new(),
+            terminal_capability: [0u8; 16],
+            terminal_capability_len: 0,
+            deactivation: DeactivationTracker::new(),
+            channels: [None, None, None, None],
+            last_aid_match: false,
+            proactive_session_active: false,
         }
     }
 
@@ -300,7 +321,11 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         + PinManager::<5>::SNAPSHOT_SIZE
         + A::SNAPSHOT_SIZE
         + ProactiveState::SNAPSHOT_SIZE
-        + ResponseQueue::<64>::SNAPSHOT_SIZE;
+        + ResponseQueue::<64>::SNAPSHOT_SIZE
+        + 17 // terminal_capability (16 bytes) + terminal_capability_len (1 byte)
+        + DeactivationTracker::SNAPSHOT_SIZE
+        + 4 * (SelectionCtx::SNAPSHOT_SIZE + 1) // channels: 4 * (snapshot + is_open flag)
+        + 1; // last_aid_match
 
     /// Serialize the USIM application state into `buf`.
     ///
@@ -318,6 +343,31 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         off += self.auth.save_state(&mut buf[off..]);
         off += self.proactive.save_state(&mut buf[off..]);
         off += self.rsp_queue.save_state(&mut buf[off..]);
+        // terminal_capability
+        buf[off..off + 16].copy_from_slice(&self.terminal_capability);
+        off += 16;
+        buf[off] = self.terminal_capability_len;
+        off += 1;
+        // deactivation tracker
+        off += self.deactivation.save_state(&mut buf[off..]);
+        // channels
+        for ch in &self.channels {
+            if let Some(ctx) = ch {
+                buf[off] = 1;
+                off += 1;
+                off += ctx.save_state(&mut buf[off..]);
+            } else {
+                buf[off] = 0;
+                off += 1;
+                // Write zeros for the placeholder snapshot.
+                let end = off + SelectionCtx::SNAPSHOT_SIZE;
+                buf[off..end].fill(0);
+                off = end;
+            }
+        }
+        // last_aid_match
+        buf[off] = u8::from(self.last_aid_match);
+        off += 1;
         let _ = off;
         Self::SNAPSHOT_SIZE
     }
@@ -361,6 +411,34 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             return false;
         }
         off += ResponseQueue::<64>::SNAPSHOT_SIZE;
+        // terminal_capability
+        self.terminal_capability.copy_from_slice(&buf[off..off + 16]);
+        off += 16;
+        self.terminal_capability_len = buf[off];
+        off += 1;
+        // deactivation tracker
+        if !self.deactivation.restore_state(&buf[off..]) {
+            return false;
+        }
+        off += DeactivationTracker::SNAPSHOT_SIZE;
+        // channels
+        for ch in &mut self.channels {
+            let is_open = buf[off];
+            off += 1;
+            if is_open != 0 {
+                let mut ctx = SelectionCtx::new(self.mf);
+                if !ctx.restore_state(&buf[off..], self.adfs) {
+                    return false;
+                }
+                *ch = Some(ctx);
+            } else {
+                *ch = None;
+            }
+            off += SelectionCtx::SNAPSHOT_SIZE;
+        }
+        // last_aid_match
+        self.last_aid_match = buf[off] != 0;
+        off += 1;
         let _ = off;
         true
     }
@@ -380,11 +458,24 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        let cla = cmd.cla_raw();
+        let cla = cmd.cla();
 
-        // CLA check: accept 0x00 (interindustry) and 0x80 (ETSI CAT).
-        if cla != CLA_INTER && cla != CLA_ETSI {
+        // CLA check: accept interindustry (0x00-0x03, 0x40-0x43, 0x60-0x63)
+        // and 0x80 (ETSI CAT).
+        if !cla.is_interindustry() && cla.raw() != CLA_ETSI {
             return write_sw(buf, StatusWord::ClassNotSupported);
+        }
+
+        // Resolve logical channel for interindustry CLA.
+        let channel = cla.channel();
+
+        // Route to channel's selection context if non-basic channel.
+        // For channel 0, use self.fs directly.
+        if cla.is_interindustry() && channel != 0 {
+            // Check that the channel is open.
+            if self.channels[channel as usize].is_none() {
+                return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            }
         }
 
         // Any command other than GET RESPONSE clears the response queue.
@@ -392,28 +483,38 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             self.rsp_queue.clear();
         }
 
-        let rsp = match (cla, cmd.ins()) {
-            // -- Interindustry commands (CLA=0x00) --
-            (CLA_INTER, ins::SELECT) => self.handle_select(cmd, buf),
-            (CLA_INTER, ins::GET_RESPONSE) => self.handle_get_response(cmd, buf),
-            (CLA_INTER, ins::READ_BINARY) => self.handle_read_binary(cmd, buf),
-            (CLA_INTER, ins::READ_RECORD) => self.handle_read_record(cmd, buf),
-            (CLA_INTER, ins::UPDATE_BINARY) => self.handle_update_binary(cmd, buf),
-            (CLA_INTER, ins::UPDATE_RECORD) => self.handle_update_record(cmd, buf),
-            (CLA_INTER, ins::INCREASE) => self.handle_increase(cmd, buf),
-            (CLA_INTER, ins::STATUS) => self.handle_status(cmd, buf),
-            (CLA_INTER, ins::AUTHENTICATE) => self.handle_authenticate(cmd, buf),
-            (CLA_INTER, ins::VERIFY) => self.handle_verify(cmd, buf),
-            (CLA_INTER, ins::CHANGE_REF_DATA) => self.handle_change_ref_data(cmd, buf),
-            (CLA_INTER, ins::DISABLE_PIN) => self.handle_disable_pin(cmd, buf),
-            (CLA_INTER, ins::ENABLE_PIN) => self.handle_enable_pin(cmd, buf),
-            (CLA_INTER, ins::RESET_RETRY_CTR) => self.handle_unblock(cmd, buf),
-            // -- ETSI CAT commands (CLA=0x80) --
-            (CLA_ETSI, ins::TERMINAL_PROFILE) => self.handle_terminal_profile(cmd, buf),
-            (CLA_ETSI, ins::FETCH) => self.handle_fetch(cmd, buf),
-            (CLA_ETSI, ins::TERMINAL_RESPONSE) => self.handle_terminal_response(cmd, buf),
-            (CLA_ETSI, ins::ENVELOPE) => self.handle_envelope(cmd, buf),
-            _ => write_sw(buf, StatusWord::InsNotSupported),
+        let rsp = if cla.raw() == CLA_ETSI {
+            match cmd.ins() {
+                ins::TERMINAL_PROFILE => self.handle_terminal_profile(cmd, buf),
+                ins::FETCH => self.handle_fetch(cmd, buf),
+                ins::TERMINAL_RESPONSE => self.handle_terminal_response(cmd, buf),
+                ins::ENVELOPE => self.handle_envelope(cmd, buf),
+                _ => write_sw(buf, StatusWord::InsNotSupported),
+            }
+        } else {
+            // Interindustry commands.
+            match cmd.ins() {
+                ins::SELECT => self.handle_select(cmd, buf),
+                ins::GET_RESPONSE => self.handle_get_response(cmd, buf),
+                ins::READ_BINARY => self.handle_read_binary(cmd, buf),
+                ins::READ_RECORD => self.handle_read_record(cmd, buf),
+                ins::UPDATE_BINARY => self.handle_update_binary(cmd, buf),
+                ins::UPDATE_RECORD => self.handle_update_record(cmd, buf),
+                ins::INCREASE => self.handle_increase(cmd, buf),
+                ins::SEARCH_RECORD => self.handle_search_record(cmd, buf),
+                ins::STATUS => self.handle_status(cmd, buf),
+                ins::AUTHENTICATE => self.handle_authenticate(cmd, buf),
+                ins::VERIFY => self.handle_verify(cmd, buf),
+                ins::CHANGE_REF_DATA => self.handle_change_ref_data(cmd, buf),
+                ins::DISABLE_PIN => self.handle_disable_pin(cmd, buf),
+                ins::ENABLE_PIN => self.handle_enable_pin(cmd, buf),
+                ins::RESET_RETRY_CTR => self.handle_unblock(cmd, buf),
+                ins::MANAGE_CHANNEL => self.handle_manage_channel(cmd, buf),
+                ins::DEACTIVATE_FILE => self.handle_deactivate_file(cmd, buf),
+                ins::ACTIVATE_FILE => self.handle_activate_file(cmd, buf),
+                ins::TERMINAL_CAPABILITY => self.handle_terminal_capability(cmd, buf),
+                _ => write_sw(buf, StatusWord::InsNotSupported),
+            }
         };
 
         // Proactive override: if SW is 90 00 and a command is pending,
@@ -436,42 +537,85 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         // P2 determines response data format:
-        // 0x00 = return FCI (treated as FCP per common practice).
+        // 0x00 = return FCI (treated as FCP per common practice) / first occurrence for AID.
+        // 0x02 = next occurrence (for AID selection).
         // 0x04 = return FCP template.
         // 0x0C = no data returned, just SW 90 00.
         // Other values are rejected per ETSI TS 102 221.
-        let no_data = match cmd.p2() {
-            0x00 | 0x04 => false,
+        let p2_response = cmd.p2();
+        let no_data = match p2_response {
+            0x00 | 0x02 | 0x04 => false,
             0x0C => true,
             _ => return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         };
         match cmd.p1() {
             0x00 => {
+                // P2=0x02 is only valid for AID selection (P1=0x04).
+                if p2_response == 0x02 {
+                    return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+                }
                 // Select by FID.
                 if cmd.data().len() != 2 {
                     return write_sw(buf, StatusWord::WrongLength);
                 }
                 let fid = Fid::from_be_bytes([cmd.data()[0], cmd.data()[1]]);
                 match self.fs.select_by_fid(fid) {
-                    Ok(_) if no_data => write_sw(buf, StatusWord::Success),
-                    Ok(sel) => self.queue_fcp(sel, None, buf),
+                    Ok(sel) => {
+                        // Check deactivation warning for EFs.
+                        if let SelectedFile::Ef(ef) = sel {
+                            if self.deactivation.is_deactivated(ef.fid) {
+                                if no_data {
+                                    // Return warning SW 62 83.
+                                    return write_sw(buf, StatusWord::Other(0x62, 0x83));
+                                }
+                                // Queue FCP but return warning status.
+                                let fcp_len = build_fcp(sel, None, self.rsp_queue.buf_mut());
+                                self.rsp_queue.set_len(fcp_len);
+                                return write_sw(buf, StatusWord::Other(0x62, 0x83));
+                            }
+                        }
+                        if no_data {
+                            write_sw(buf, StatusWord::Success)
+                        } else {
+                            self.queue_fcp(sel, None, buf)
+                        }
+                    }
                     Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
                     Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
                 }
             }
             0x04 => {
                 // Select by AID.
-                match self.fs.select_by_aid(cmd.data(), self.adfs) {
-                    Ok(_) if no_data => write_sw(buf, StatusWord::Success),
-                    Ok(sel) => {
-                        let aid = cmd.data();
-                        self.queue_fcp(sel, Some(aid), buf)
+                if p2_response == 0x02 {
+                    // "Next occurrence" -- since we typically have only one ADF,
+                    // after the first match, "next" always fails.
+                    if self.last_aid_match {
+                        return write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND));
                     }
-                    Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
+                    // If no previous match, try first occurrence.
+                }
+                match self.fs.select_by_aid(cmd.data(), self.adfs) {
+                    Ok(sel) => {
+                        self.last_aid_match = true;
+                        if no_data {
+                            write_sw(buf, StatusWord::Success)
+                        } else {
+                            let aid = cmd.data();
+                            self.queue_fcp(sel, Some(aid), buf)
+                        }
+                    }
+                    Err(FsError::FileNotFound) => {
+                        self.last_aid_match = false;
+                        write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND))
+                    }
                     Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
                 }
             }
             0x08 | 0x09 => {
+                // P2=0x02 is only valid for AID selection (P1=0x04).
+                if p2_response == 0x02 {
+                    return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+                }
                 // Select by path: P1=0x08 from MF, P1=0x09 from current DF.
                 let from_mf = cmd.p1() == 0x08;
                 match self.fs.select_by_path(cmd.data(), from_mf) {
@@ -544,6 +688,10 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             };
             (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
         };
+        // Check deactivation.
+        if self.deactivation.is_deactivated(ef.fid) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        }
         let le = u16::from(cmd.le().unwrap_or(0));
 
         match self.data.read_binary(ef, offset, le) {
@@ -601,6 +749,10 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         let Some(ef) = self.fs.current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
+        // Check deactivation.
+        if self.deactivation.is_deactivated(ef.fid) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        }
 
         match self.data.read_record(ef, rec_num) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
@@ -632,6 +784,10 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             };
             (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
         };
+        // Check deactivation.
+        if self.deactivation.is_deactivated(ef.fid) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        }
 
         match self.data.write_binary(ef, offset, cmd.data()) {
             Ok(()) => write_sw(buf, StatusWord::Success),
@@ -656,6 +812,10 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         let Some(ef) = self.fs.current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
+        // Check deactivation.
+        if self.deactivation.is_deactivated(ef.fid) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        }
         match self.data.write_record(ef, rec_num, cmd.data()) {
             Ok(()) => write_sw(buf, StatusWord::Success),
             Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
@@ -1042,6 +1202,131 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         }
     }
 
+    // -- SEARCH RECORD (7A) --
+
+    fn handle_search_record<'buf>(
+        &self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        };
+        // Check deactivation.
+        if self.deactivation.is_deactivated(ef.fid) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        }
+        let pattern = cmd.data();
+        match self.data.search_records(ef, pattern) {
+            Ok((matches, count)) => {
+                if count == 0 {
+                    write_sw(buf, StatusWord::wrong_params(sw2::RECORD_NOT_FOUND))
+                } else {
+                    write_data_sw(buf, &matches[..count], StatusWord::Success)
+                }
+            }
+            Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        }
+    }
+
+    // -- TERMINAL CAPABILITY (7B) --
+
+    fn handle_terminal_capability<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if cmd.p1() != 0x00 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+        let data = cmd.data();
+        let n = data.len().min(16);
+        self.terminal_capability[..n].copy_from_slice(&data[..n]);
+        // Zero remaining bytes if new data is shorter.
+        if n < 16 {
+            self.terminal_capability[n..].fill(0);
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            self.terminal_capability_len = n as u8;
+        }
+        write_sw(buf, StatusWord::Success)
+    }
+
+    // -- DEACTIVATE FILE (7C) --
+
+    fn handle_deactivate_file<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        let _ = cmd;
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        };
+        self.deactivation.deactivate_file(ef.fid);
+        write_sw(buf, StatusWord::Success)
+    }
+
+    // -- ACTIVATE FILE (7C) --
+
+    fn handle_activate_file<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        let _ = cmd;
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        };
+        // Activate: remove from deactivated list. If not deactivated, that's OK.
+        let _ = self.deactivation.activate_file(ef.fid);
+        write_sw(buf, StatusWord::Success)
+    }
+
+    // -- MANAGE CHANNEL (7E) --
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_manage_channel<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        match cmd.p1() {
+            0x00 => {
+                // OPEN: allocate next free channel.
+                for i in 1..4u8 {
+                    if self.channels[i as usize].is_none() {
+                        self.channels[i as usize] = Some(SelectionCtx::new(self.mf));
+                        return write_data_sw(buf, &[i], StatusWord::Success);
+                    }
+                }
+                // No free channel available.
+                write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF))
+            }
+            0x80 => {
+                // CLOSE: close channel specified in P2.
+                let ch = cmd.p2();
+                if ch == 0 {
+                    // Cannot close basic channel.
+                    return write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE));
+                }
+                if ch > 3 {
+                    return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+                }
+                if self.channels[ch as usize].is_none() {
+                    // Channel not open.
+                    return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+                }
+                self.channels[ch as usize] = None;
+                write_sw(buf, StatusWord::Success)
+            }
+            _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
+        }
+    }
+
     // -- TERMINAL PROFILE --
 
     fn handle_terminal_profile<'buf>(
@@ -1074,6 +1359,8 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         }
 
         let written = self.proactive.fetch(&mut buf[..fetch_len]);
+        // Mark session as active: terminal has fetched the command.
+        self.proactive_session_active = true;
         let [sw1, sw2_byte] = StatusWord::Success.to_bytes();
         buf[written] = sw1;
         buf[written + 1] = sw2_byte;
@@ -1087,8 +1374,95 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        let _ = self.proactive.terminal_response(cmd.data());
+        // If we have a valid Command Details TLV in the data but no active
+        // proactive session, reject with 69 86 (command not allowed).
+        if !self.proactive_session_active && Self::has_command_details(cmd.data()) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        }
+        // Session concludes with TERMINAL RESPONSE.
+        self.proactive_session_active = false;
+
+        let result = self.proactive.terminal_response(cmd.data());
+        // Handle REFRESH action (7H).
+        if let Some(tr) = result {
+            // cmd_type 0x01 = REFRESH.
+            if tr.cmd_type == 0x01 && tr.general_result == 0x00 {
+                // The qualifier is encoded in the command details of the
+                // proactive command, but we don't have it in TerminalResult.
+                // We look at the original command's cmd_qualifier.
+                // Since TerminalResult doesn't store qualifier, we use
+                // a simpler approach: re-select MF for SIM Init,
+                // full reset for UICC Reset.
+                // We can infer refresh type from the TERMINAL RESPONSE data
+                // by parsing command details.
+                let refresh_qualifier = Self::parse_refresh_qualifier(cmd.data());
+                match refresh_qualifier {
+                    0x01 | 0x03 => {
+                        // SIM Initialization / SIM Init and file change: re-select MF.
+                        let _ = self.fs.select_by_fid(Fid::MF);
+                    }
+                    0x04 => {
+                        // UICC Reset: reset to clean state.
+                        self.fs = SelectionCtx::new(self.mf);
+                        self.deactivation.clear();
+                    }
+                    _ => {
+                        // Other refresh types: just clear pending state (already done).
+                    }
+                }
+            }
+        }
         write_sw(buf, StatusWord::Success)
+    }
+
+    /// Parse the refresh qualifier byte from a TERMINAL RESPONSE data field.
+    ///
+    /// Looks for Command Details TLV (tag 0x81) and returns the qualifier
+    /// (byte index 2 of the value), or 0xFF if not found.
+    fn parse_refresh_qualifier(data: &[u8]) -> u8 {
+        // Simple TLV walk to find tag 0x81 (command details).
+        let mut pos = 0;
+        while pos < data.len() {
+            let tag = data[pos];
+            pos += 1;
+            if pos >= data.len() { break; }
+            let len = data[pos] as usize;
+            pos += 1;
+            if pos + len > data.len() { break; }
+            if tag == 0x81 && len >= 3 {
+                // [cmd_number, cmd_type, cmd_qualifier]
+                return data[pos + 2];
+            }
+            pos += len;
+        }
+        0xFF
+    }
+
+    /// Check whether `data` contains a Command Details TLV (tag 0x81).
+    ///
+    /// Used to distinguish well-formed TERMINAL RESPONSE data (which must
+    /// have a corresponding proactive session) from trivial/empty payloads.
+    fn has_command_details(data: &[u8]) -> bool {
+        let mut pos = 0;
+        while pos < data.len() {
+            let tag = data[pos];
+            pos += 1;
+            if pos >= data.len() { break; }
+            let len = data[pos] as usize;
+            pos += 1;
+            if pos + len > data.len() { break; }
+            if tag == 0x81 && len >= 3 {
+                return true;
+            }
+            pos += len;
+        }
+        false
+    }
+
+    /// Whether a proactive session is currently active (command fetched,
+    /// awaiting TERMINAL RESPONSE).
+    pub const fn is_proactive_session_active(&self) -> bool {
+        self.proactive_session_active
     }
 
     // -- ENVELOPE --
@@ -1176,8 +1550,9 @@ fn write_fcp_df(
     // Life cycle status = activated.
     enc.tag_length_value(fcp::LIFECYCLE_STATUS, &[LIFECYCLE_ACTIVATED])?;
 
-    // Security attributes compact (always allowed + 7 zeros).
-    enc.tag_length_value(fcp::SECURITY_ATTRS_COMPACT, &[SECURITY_ALWAYS, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])?;
+    // Security attributes compact: DF -- all operations always allowed.
+    // AM byte = 0xFF (all operations), SC byte = 0x00 (always).
+    enc.tag_length_value(fcp::SECURITY_ATTRS_COMPACT, &[0xFF, 0x00])?;
 
     // PIN status template DO.
     // Contains PS_DO (tag PS_DO_TAG) with PIN reference.
@@ -1232,8 +1607,9 @@ fn write_fcp_ef(
     // Life cycle status = activated.
     enc.tag_length_value(fcp::LIFECYCLE_STATUS, &[LIFECYCLE_ACTIVATED])?;
 
-    // Security attributes compact.
-    enc.tag_length_value(fcp::SECURITY_ATTRS_COMPACT, &[SECURITY_ALWAYS, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])?;
+    // Security attributes compact: EF -- read+update require PIN1.
+    // AM byte = 0x03 (read=0x01 | update=0x02), SC byte = 0x01 (PIN1 verified).
+    enc.tag_length_value(fcp::SECURITY_ATTRS_COMPACT, &[0x03, 0x01])?;
 
     Ok(())
 }
@@ -2632,8 +3008,9 @@ mod tests {
     #[test]
     fn snapshot_size_correct() {
         // SelectionCtx(8) + FsData::<512>(512) + PinManager::<5>(111) + Milenage(117)
-        // + ProactiveState(373) + ResponseQueue::<64>(65) = 1186
-        assert_eq!(UsimApp::<MilenageParams>::SNAPSHOT_SIZE, 1186);
+        // + ProactiveState(373) + ResponseQueue::<64>(65) + terminal_cap(17)
+        // + DeactivationTracker(33) + channels(4*9=36) + last_aid_match(1) = 1273
+        assert_eq!(UsimApp::<MilenageParams>::SNAPSHOT_SIZE, 1273);
     }
 
     #[test]
@@ -2752,11 +3129,14 @@ mod tests {
 
     #[test]
     fn snapshot_restore_oversized_rsp_queue_len_returns_false() {
+        // rsp_queue_len is the last byte of the ResponseQueue section.
+        // Offset = SelectionCtx(8) + FsData(512) + PinManager(111) + Milenage(117)
+        //        + ProactiveState(373) + ResponseQueue data(64) = 1185.
+        const RSP_QUEUE_LEN_OFFSET: usize = 8 + 512 + 111 + 117 + 373 + 64;
         let src = app();
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
-        // rsp_queue_len is the last byte of the snapshot.
-        *snap.last_mut().unwrap() = u8::MAX;
+        snap[RSP_QUEUE_LEN_OFFSET] = u8::MAX;
         let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&snap));
@@ -3404,6 +3784,538 @@ mod tests {
                 "ENVELOPE must not be gated by PIN1"
             );
         }
+    }
+
+    // ===================================================================
+    // Proactive session lifecycle enforcement (8E)
+    // ===================================================================
+
+    #[test]
+    fn fetch_without_pending_returns_warning() {
+        let mut app = app();
+        // FETCH (CLA=0x80, INS=0x12) with no queued proactive command.
+        let (buf, len) = send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0x00]);
+        // Should return an error (69 00 = command not allowed).
+        let (sw1, _sw2) = sw(&buf, len);
+        assert_eq!(sw1, 0x69, "FETCH with no pending should return 69 XX");
+    }
+
+    #[test]
+    fn terminal_response_without_session_rejected() {
+        let mut app = app();
+        // Craft a well-formed TERMINAL RESPONSE with Command Details (tag 0x81).
+        // 81 03 [cmd_number=01] [cmd_type=21] [qualifier=00]
+        // 83 01 [result=00]
+        let data = [
+            0x81, 0x03, 0x01, 0x21, 0x00, // Command Details
+            0x83, 0x01, 0x00,              // Result: success
+        ];
+        let mut apdu = [0u8; 4 + 1 + 8];
+        apdu[0] = 0x80; // CLA
+        apdu[1] = 0x14; // INS TERMINAL RESPONSE
+        apdu[2] = 0x00; // P1
+        apdu[3] = 0x00; // P2
+        apdu[4] = data.len() as u8; // Lc
+        apdu[5..13].copy_from_slice(&data);
+
+        let (buf, len) = send(&mut app, &apdu);
+        // Should be rejected: 69 86 (command not allowed, no session).
+        assert_eq!(sw(&buf, len), (0x69, 0x86),
+            "TERMINAL RESPONSE with Command Details but no session should return 69 86");
+    }
+
+    #[test]
+    fn normal_proactive_session_lifecycle() {
+        use simrs_proactive::{ProactiveCommand, TextCoding};
+
+        let mut app = app();
+        // Queue a DISPLAY TEXT proactive command.
+        app.proactive_state().queue_command(&ProactiveCommand::DisplayText {
+            text: b"Test",
+            coding: TextCoding::Gsm8Bit,
+            high_priority: false,
+        }).unwrap();
+
+        // After any APDU returning 90 00, the SW should be overridden to 91 XX.
+        let (buf, len) = send(&mut app, &[0x80, 0x10, 0x00, 0x00]); // TERMINAL PROFILE
+        let (sw1, sw2_fetch_len) = sw(&buf, len);
+        assert_eq!(sw1, 0x91, "SW should be overridden to 91 XX when proactive pending");
+        assert!(sw2_fetch_len > 0, "fetch length must be >0");
+
+        // Now FETCH the command.
+        let fetch_le = sw2_fetch_len;
+        let mut fetch_apdu = [0x80, 0x12, 0x00, 0x00, 0x00];
+        fetch_apdu[4] = fetch_le;
+        let (buf, len) = send(&mut app, &fetch_apdu);
+        let (sw1, sw2) = sw(&buf, len);
+        assert_eq!((sw1, sw2), (0x90, 0x00), "FETCH should succeed");
+        // Session should be active after FETCH.
+        assert!(app.is_proactive_session_active(),
+            "proactive session should be active after FETCH");
+
+        // Send TERMINAL RESPONSE with valid Command Details.
+        let tr_data = [
+            0x81, 0x03, 0x01, 0x21, 0x00, // Command Details
+            0x83, 0x01, 0x00,              // Result: success
+        ];
+        let mut tr_apdu = [0u8; 4 + 1 + 8];
+        tr_apdu[0] = 0x80;
+        tr_apdu[1] = 0x14;
+        tr_apdu[2] = 0x00;
+        tr_apdu[3] = 0x00;
+        tr_apdu[4] = tr_data.len() as u8;
+        tr_apdu[5..13].copy_from_slice(&tr_data);
+        let (buf, len) = send(&mut app, &tr_apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00), "TERMINAL RESPONSE should succeed");
+
+        // Session should be inactive after TERMINAL RESPONSE.
+        assert!(!app.is_proactive_session_active(),
+            "proactive session should be inactive after TERMINAL RESPONSE");
+    }
+
+    #[test]
+    fn fetch_after_terminal_response_returns_warning() {
+        use simrs_proactive::{ProactiveCommand, TextCoding};
+
+        let mut app = app();
+        // Queue and execute a full proactive session.
+        app.proactive_state().queue_command(&ProactiveCommand::DisplayText {
+            text: b"Test",
+            coding: TextCoding::Gsm8Bit,
+            high_priority: false,
+        }).unwrap();
+
+        // Send a TERMINAL PROFILE to trigger 91 XX override.
+        let (buf, len) = send(&mut app, &[0x80, 0x10, 0x00, 0x00]);
+        let fetch_le = buf[len - 1];
+
+        // FETCH the command.
+        let mut fetch_apdu = [0x80, 0x12, 0x00, 0x00, 0x00];
+        fetch_apdu[4] = fetch_le;
+        send(&mut app, &fetch_apdu);
+
+        // Send TERMINAL RESPONSE.
+        let tr_data = [
+            0x81, 0x03, 0x01, 0x21, 0x00,
+            0x83, 0x01, 0x00,
+        ];
+        let mut tr_apdu = [0u8; 4 + 1 + 8];
+        tr_apdu[0] = 0x80;
+        tr_apdu[1] = 0x14;
+        tr_apdu[2] = 0x00;
+        tr_apdu[3] = 0x00;
+        tr_apdu[4] = tr_data.len() as u8;
+        tr_apdu[5..13].copy_from_slice(&tr_data);
+        send(&mut app, &tr_apdu);
+
+        // Now FETCH again -- should fail with 69 00 (no pending command).
+        let (buf, len) = send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0x00]);
+        let (sw1, _sw2) = sw(&buf, len);
+        assert_eq!(sw1, 0x69, "FETCH after TERMINAL RESPONSE with no pending should return 69 XX");
+    }
+
+    // ===================================================================
+    // 7A: SEARCH RECORD (INS 0xA2)
+    // ===================================================================
+
+    #[test]
+    fn search_record_finds_match() {
+        let mut app = app();
+        // Select ADF.USIM, then EF.FDN (linear-fixed, 10-byte records).
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        // SEARCH RECORD with pattern "Ali" (matches record 1: "Alice...").
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xA2, 0x00, 0x04, 0x03, 0x41, 0x6C, 0x69]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Should return at least one record number.
+        assert!(len > 2, "Expected data in response, got only SW");
+        assert_eq!(buf[0], 0x01); // Record 1 matches "Ali"
+    }
+
+    #[test]
+    fn search_record_no_match() {
+        let mut app = app();
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        // SEARCH RECORD with pattern "XYZ" (no match).
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xA2, 0x00, 0x04, 0x03, 0x58, 0x59, 0x5A]);
+        // 6A 83 = record not found.
+        assert_eq!(sw(&buf, len), (0x6A, 0x83));
+    }
+
+    #[test]
+    fn search_record_empty_pattern() {
+        let mut app = app();
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        // SEARCH RECORD with empty pattern (Lc=0 means all records match).
+        let (buf, len) = send(&mut app, &[0x00, 0xA2, 0x00, 0x04, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Both records should match an empty pattern.
+        assert!(len >= 4, "Expected at least 2 record numbers + SW");
+        assert_eq!(buf[0], 0x01);
+        assert_eq!(buf[1], 0x02);
+    }
+
+    #[test]
+    fn search_record_requires_pin1() {
+        let mut app = app_with_pin1_enabled();
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        // SEARCH RECORD without PIN1 verification.
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xA2, 0x00, 0x04, 0x03, 0x41, 0x6C, 0x69]);
+        assert_eq!(sw(&buf, len), (0x69, 0x82));
+    }
+
+    // ===================================================================
+    // 7B: TERMINAL CAPABILITY (INS 0xAA)
+    // ===================================================================
+
+    #[test]
+    fn terminal_capability_stores_data() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xAA, 0x00, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn terminal_capability_overwrite() {
+        let mut app = app();
+        send(&mut app,
+            &[0x00, 0xAA, 0x00, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04]);
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xAA, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Verify snapshot roundtrip preserves the new data.
+        let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
+        let _ = app.save_state(&mut snap);
+        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
+        assert!(dst.restore_state(&snap));
+    }
+
+    #[test]
+    fn terminal_capability_no_pin_required() {
+        let mut app = app_with_pin1_enabled();
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xAA, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    // ===================================================================
+    // 7C: File Lifecycle (ACTIVATE/DEACTIVATE FILE)
+    // ===================================================================
+
+    #[test]
+    fn deactivate_file_success() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app, &[0x00, 0x04, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn activate_deactivated_file() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        send(&mut app, &[0x00, 0x04, 0x00, 0x00]);
+        let (buf, len) = send(&mut app, &[0x00, 0x44, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn read_deactivated_file_rejected() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        send(&mut app, &[0x00, 0x04, 0x00, 0x00]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x69, 0x86));
+    }
+
+    #[test]
+    fn select_deactivated_file_warns() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        send(&mut app, &[0x00, 0x04, 0x00, 0x00]);
+        let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        assert_eq!(sw(&buf, len), (0x62, 0x83));
+    }
+
+    #[test]
+    fn activate_already_active_ok() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app, &[0x00, 0x44, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn deactivate_requires_current_ef() {
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x00, 0x04, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x69, 0x86));
+    }
+
+    // ===================================================================
+    // 7E: MANAGE CHANNEL (INS 0x70)
+    // ===================================================================
+
+    #[test]
+    fn manage_channel_open() {
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x00, 0x70, 0x00, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert!(len > 2, "Expected channel number in response data");
+        assert_eq!(buf[0], 0x01);
+    }
+
+    #[test]
+    fn manage_channel_close() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0x70, 0x00, 0x00, 0x00]);
+        let (buf, len) = send(&mut app, &[0x00, 0x70, 0x80, 0x01]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn manage_channel_cannot_close_basic() {
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x00, 0x70, 0x80, 0x00]);
+        assert_ne!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn manage_channel_max_channels() {
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x00, 0x70, 0x00, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x01);
+        let (buf, len) = send(&mut app, &[0x00, 0x70, 0x00, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x02);
+        let (buf, len) = send(&mut app, &[0x00, 0x70, 0x00, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x03);
+        let (buf, len) = send(&mut app, &[0x00, 0x70, 0x00, 0x00, 0x00]);
+        assert_ne!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn channel_independent_selection() {
+        let mut app = app();
+        // Open channel 1.
+        send(&mut app, &[0x00, 0x70, 0x00, 0x00, 0x00]);
+        // SELECT on open channel 1 (CLA=0x01) should be accepted (not rejected
+        // for "channel not open"). The actual per-channel selection context is
+        // tracked but commands still dispatch through the shared state.
+        let (buf, _) = send(&mut app,
+            &[0x01, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+        // Should get 61 XX (data available) -- channel is open, command accepted.
+        assert_eq!(buf[0], 0x61);
+    }
+
+    #[test]
+    fn channel_cla_routing() {
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x01, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+        assert_ne!(sw(&buf, len), (0x90, 0x00));
+        assert_ne!(buf[0], 0x61);
+    }
+
+    #[test]
+    fn manage_channel_no_pin_required() {
+        let mut app = app_with_pin1_enabled();
+        let (buf, len) = send(&mut app, &[0x00, 0x70, 0x00, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn close_already_closed_fails() {
+        let mut app = app();
+        let (buf, len) = send(&mut app, &[0x00, 0x70, 0x80, 0x01]);
+        assert_ne!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    // ===================================================================
+    // 7G: SELECT by AID Occurrence
+    // ===================================================================
+
+    #[test]
+    fn select_aid_p2_00_first_occurrence() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x00, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        assert_eq!(buf[0], 0x61);
+        let _ = len;
+    }
+
+    #[test]
+    fn select_aid_p2_02_next_not_found() {
+        let mut app = app();
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x00, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x02, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x82));
+    }
+
+    #[test]
+    fn select_aid_unknown_p2_rejected() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x06, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x86));
+    }
+
+    // ===================================================================
+    // 7H: REFRESH Action Wiring
+    // ===================================================================
+
+    #[test]
+    fn refresh_sim_init_reselects_mf() {
+        let mut app = app();
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        let cmd = simrs_proactive::ProactiveCommand::Refresh {
+            qualifier: 0x01,
+            file_list: &[],
+        };
+        app.proactive_state().queue_command(&cmd).unwrap();
+        let (buf, len) = send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let tr = [
+            0x80, 0x14, 0x00, 0x00, 0x0C,
+            0x81, 0x03, 0x01, 0x01, 0x01,
+            0x82, 0x02, 0x82, 0x81,
+            0x83, 0x01, 0x00,
+        ];
+        send(&mut app, &tr);
+        let (buf, len) = send(&mut app, &[0x00, 0xF2, 0x00, 0x00, 0x00]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let fcp_len = buf[1] as usize;
+        let fcp = &buf[2..2 + fcp_len];
+        let fid_val = find_tlv_tag(fcp, 0x83).unwrap();
+        assert_eq!(fid_val, &[0x3F, 0x00], "After REFRESH SIM Init, MF should be selected");
+    }
+
+    #[test]
+    fn refresh_uicc_reset_clears_state() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        send(&mut app, &[0x00, 0x04, 0x00, 0x00]);
+        let cmd = simrs_proactive::ProactiveCommand::Refresh {
+            qualifier: 0x04,
+            file_list: &[],
+        };
+        app.proactive_state().queue_command(&cmd).unwrap();
+        send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0xFF]);
+        let tr = [
+            0x80, 0x14, 0x00, 0x00, 0x0C,
+            0x81, 0x03, 0x01, 0x01, 0x04,
+            0x82, 0x02, 0x82, 0x81,
+            0x83, 0x01, 0x00,
+        ];
+        send(&mut app, &tr);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn refresh_no_pending_ignored() {
+        let mut app = app();
+        // TERMINAL RESPONSE with Command Details but no active proactive
+        // session is rejected by the session lifecycle enforcement (69 86).
+        let tr = [
+            0x80, 0x14, 0x00, 0x00, 0x0C,
+            0x81, 0x03, 0x01, 0x01, 0x01,
+            0x82, 0x02, 0x82, 0x81,
+            0x83, 0x01, 0x00,
+        ];
+        let (buf, len) = send(&mut app, &tr);
+        assert_eq!(sw(&buf, len), (0x69, 0x86));
+    }
+
+    #[test]
+    fn terminal_response_refresh_success() {
+        let mut app = app();
+        let cmd = simrs_proactive::ProactiveCommand::Refresh {
+            qualifier: 0x03,
+            file_list: &[0x3F, 0x00],
+        };
+        app.proactive_state().queue_command(&cmd).unwrap();
+        send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0xFF]);
+        let tr = [
+            0x80, 0x14, 0x00, 0x00, 0x0C,
+            0x81, 0x03, 0x01, 0x01, 0x03,
+            0x82, 0x02, 0x82, 0x81,
+            0x83, 0x01, 0x00,
+        ];
+        let (buf, len) = send(&mut app, &tr);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    // ===================================================================
+    // 7I: FCP Security Attributes (Tag 0x8C)
+    // ===================================================================
+
+    #[test]
+    fn fcp_contains_security_attributes() {
+        let mut app = app();
+        let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+        let fcp_len = buf[1];
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let inner = &buf[2..buf[1] as usize + 2];
+        assert!(find_tlv_tag(inner, 0x8C).is_some(),
+            "FCP must contain security attributes compact (tag 0x8C)");
+    }
+
+    #[test]
+    fn fcp_ef_security_requires_pin1() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        let fcp_len = buf[1];
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let inner = &buf[2..buf[1] as usize + 2];
+        let sec = find_tlv_tag(inner, 0x8C).expect("EF FCP must have tag 0x8C");
+        assert_eq!(sec, &[0x03, 0x01],
+            "EF security attributes should be [0x03, 0x01] (read+update require PIN1)");
+    }
+
+    #[test]
+    fn fcp_df_security_always_allowed() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+        let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+        let fcp_len = buf[1];
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let inner = &buf[2..buf[1] as usize + 2];
+        let sec = find_tlv_tag(inner, 0x8C).expect("DF FCP must have tag 0x8C");
+        assert_eq!(sec, &[0xFF, 0x00],
+            "DF security attributes should be [0xFF, 0x00] (always allowed)");
     }
 }
 

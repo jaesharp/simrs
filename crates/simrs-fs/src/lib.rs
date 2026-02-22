@@ -66,6 +66,9 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+#[cfg(feature = "std")]
+extern crate std;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -384,6 +387,9 @@ impl core::fmt::Display for FsError {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for FsError {}
 
 // ---------------------------------------------------------------------------
 // FsData -- mutable file content store
@@ -765,6 +771,41 @@ impl<const CAP: usize> FsData<CAP> {
 
         self.buf[start..end].copy_from_slice(&tmp[..rs]);
         Ok(&self.buf[start..end])
+    }
+
+    // -- Search operations -------------------------------------------------
+
+    /// Search linear-fixed records for a pattern. Returns matching record numbers.
+    ///
+    /// A record matches if it contains the pattern as a contiguous substring.
+    /// Returns a tuple of (matching record numbers array, count of matches).
+    /// At most 16 matching record numbers are returned.
+    ///
+    /// # Errors
+    ///
+    /// - [`FsError::NotRecordBased`] if the EF is transparent.
+    /// - [`FsError::FileNotFound`] if the EF is not in the store.
+    pub fn search_records(&self, ef: &EfDef, pattern: &[u8]) -> Result<([u8; 16], usize), FsError> {
+        let (record_size, num_records) = match ef.structure {
+            EfStructure::LinearFixed { record_size, num_records }
+            | EfStructure::Cyclic { record_size, num_records } => (record_size, num_records),
+            EfStructure::Transparent => return Err(FsError::NotRecordBased),
+        };
+        let (entry_off, _entry_len) = self.find_entry(ef).ok_or(FsError::FileNotFound)?;
+        let rs = record_size as usize;
+        let mut result = [0u8; 16];
+        let mut count = 0usize;
+
+        for rec_num in 1..=num_records {
+            let idx = (rec_num - 1) as usize;
+            let start = entry_off as usize + idx * rs;
+            let rec_data = &self.buf[start..start + rs];
+            if contains_pattern(rec_data, pattern) && count < 16 {
+                result[count] = rec_num;
+                count += 1;
+            }
+        }
+        Ok((result, count))
     }
 
     // -- Snapshot -----------------------------------------------------------
@@ -1207,12 +1248,135 @@ fn find_df_recursive(df: &'static DfDef, fid: Fid) -> Option<&'static DfDef> {
     None
 }
 
+/// Check if `haystack` contains `needle` as a contiguous substring.
+fn contains_pattern(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.len() > haystack.len() {
+        return false;
+    }
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+// ---------------------------------------------------------------------------
+// Deactivation tracking
+// ---------------------------------------------------------------------------
+
+/// Tracks deactivated file FIDs. Up to 16 files can be deactivated.
+///
+/// Embedded in [`FsData`] or used alongside a [`SelectionCtx`] to track
+/// file lifecycle state.
+pub struct DeactivationTracker {
+    deactivated: [Fid; 16],
+    deactivated_count: u8,
+}
+
+impl Default for DeactivationTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DeactivationTracker {
+    /// Create a new tracker with no deactivated files.
+    pub const fn new() -> Self {
+        Self {
+            deactivated: [Fid::NONE; 16],
+            deactivated_count: 0,
+        }
+    }
+
+    /// Mark a file as deactivated. Returns `true` if the file was added.
+    /// Returns `false` if already deactivated or capacity is full.
+    pub fn deactivate_file(&mut self, fid: Fid) -> bool {
+        if self.is_deactivated(fid) {
+            return false;
+        }
+        if self.deactivated_count as usize >= 16 {
+            return false;
+        }
+        self.deactivated[self.deactivated_count as usize] = fid;
+        self.deactivated_count += 1;
+        true
+    }
+
+    /// Remove a file from the deactivated list (re-activate it).
+    /// Returns `true` if the file was found and removed.
+    pub fn activate_file(&mut self, fid: Fid) -> bool {
+        for i in 0..self.deactivated_count as usize {
+            if self.deactivated[i] == fid {
+                // Swap-remove: replace with last element.
+                let last = self.deactivated_count as usize - 1;
+                self.deactivated[i] = self.deactivated[last];
+                self.deactivated[last] = Fid::NONE;
+                self.deactivated_count -= 1;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if a file is deactivated.
+    pub fn is_deactivated(&self, fid: Fid) -> bool {
+        self.deactivated[..self.deactivated_count as usize].contains(&fid)
+    }
+
+    /// Snapshot buffer size: 16 FIDs (2 bytes each) + 1 count = 33.
+    pub const SNAPSHOT_SIZE: usize = 16 * 2 + 1;
+
+    /// Serialize the deactivation state into `buf`.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    #[must_use]
+    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        for i in 0..16 {
+            let le = self.deactivated[i].to_le_bytes();
+            buf[i * 2] = le[0];
+            buf[i * 2 + 1] = le[1];
+        }
+        buf[32] = self.deactivated_count;
+        Self::SNAPSHOT_SIZE
+    }
+
+    /// Restore the deactivation state from `buf`.
+    ///
+    /// Returns `true` on success.
+    #[must_use]
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        for i in 0..16 {
+            self.deactivated[i] = Fid::from_le_bytes([buf[i * 2], buf[i * 2 + 1]]);
+        }
+        let cnt = buf[32];
+        if cnt as usize > 16 {
+            return false;
+        }
+        self.deactivated_count = cnt;
+        true
+    }
+
+    /// Reset: clear all deactivations.
+    pub const fn clear(&mut self) {
+        self.deactivated = [Fid::NONE; 16];
+        self.deactivated_count = 0;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
     use super::*;
 
     // -- Test filesystem tree --
@@ -1834,6 +1998,27 @@ mod tests {
         c.select_by_fid(Fid(0x7F10)).unwrap();
         // SFI(1) should not match EF_ADN (which has no SFI).
         assert!(c.find_ef_by_sfi(Sfi(1)).is_none());
+    }
+
+    #[test]
+    fn fs_error_display_non_empty() {
+        let variants: &[FsError] = &[
+            FsError::FileNotFound,
+            FsError::NoEfSelected,
+            FsError::NotTransparent,
+            FsError::NotRecordBased,
+            FsError::RecordOutOfRange,
+            FsError::OffsetOutOfRange,
+            FsError::StoreFull,
+            FsError::TooManyFiles,
+            FsError::DataTooLarge,
+            FsError::InvalidPath,
+            FsError::IncreaseOverflow,
+        ];
+        for v in variants {
+            let s = alloc::format!("{v}");
+            assert!(!s.is_empty(), "Display for {v:?} must produce non-empty string");
+        }
     }
 }
 

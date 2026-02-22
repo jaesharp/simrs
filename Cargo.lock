@@ -447,6 +447,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-ota"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-iso7816",
+ "simrs-rijndael",
+]
+
+[[package]]
 name = "simrs-peripheral"
 version = "0.1.0"
 

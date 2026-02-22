@@ -34,7 +34,7 @@
 #![warn(missing_docs)]
 
 use core::cell::RefCell;
-use simrs_fs::DfDef;
+use simrs_fs::{AdfSlot, DfDef};
 use simrs_milenage::{MilenageParams, OpVariant};
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_tuak::{TopVariant, TuakParams};
@@ -132,6 +132,48 @@ pub fn hle_init_tuak(
         let mut sim = Sim::<TuakParams, 256>::new(atr, mf);
         let tuak = TuakParams::new(k, TopVariant::TopC(topc));
         *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], tuak);
+        *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
+        *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
+    });
+}
+
+/// Initialize with Milenage authentication and a custom ADF table.
+///
+/// Like [`hle_init`] but allows passing an ADF table for application
+/// selection by AID. The `adf_table` entries map AIDs to their root DFs.
+pub fn hle_init_with_adf(
+    atr: &'static [u8],
+    mf: &'static DfDef,
+    ki: Ki,
+    k: [u8; 16],
+    opc: [u8; 16],
+    adf_table: &'static [AdfSlot],
+) {
+    SIM.with(|cell| {
+        let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
+        let mil = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
+        *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, adf_table, mil);
+        *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
+        *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
+    });
+}
+
+/// Initialize with TUAK authentication and a custom ADF table.
+///
+/// Like [`hle_init_tuak`] but allows passing an ADF table for application
+/// selection by AID.
+pub fn hle_init_tuak_with_adf(
+    atr: &'static [u8],
+    mf: &'static DfDef,
+    ki: Ki,
+    k: [u8; 16],
+    topc: [u8; 32],
+    adf_table: &'static [AdfSlot],
+) {
+    SIM.with(|cell| {
+        let mut sim = Sim::<TuakParams, 256>::new(atr, mf);
+        let tuak = TuakParams::new(k, TopVariant::TopC(topc));
+        *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, adf_table, tuak);
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
     });
@@ -278,7 +320,7 @@ pub fn hle_state_hash() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_fs::{EfDef, EfStructure, Fid, FileRef};
+    use simrs_fs::{AdfSlot, EfDef, EfStructure, Fid, FileRef};
 
     static EF_ICCID: EfDef = EfDef {
         fid: Fid(0x2FE2),
@@ -544,5 +586,62 @@ mod tests {
         init_tuak();
         assert!(!hle_snapshot_restore(&snap[..n]),
             "restoring Milenage snapshot into TUAK instance must fail");
+    }
+
+    // -------------------------------------------------------------------
+    // ADF table passthrough tests
+    // -------------------------------------------------------------------
+
+    static ADF_ROOT: DfDef = DfDef {
+        fid: Fid(0xFF01),
+        children: &[],
+    };
+
+    static USIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
+
+    static ADF_TABLE: [AdfSlot; 1] = [AdfSlot {
+        aid: &USIM_AID,
+        root: &ADF_ROOT,
+    }];
+
+    #[test]
+    fn hle_init_with_adf_table() {
+        hle_init_with_adf(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 16], &ADF_TABLE);
+        hle_reset();
+        let mut rsp = [0u8; 256];
+        // SELECT by AID: 00 A4 04 00 07 [AID] 00
+        let mut cmd = [0u8; 4 + 1 + 7 + 1];
+        cmd[0] = 0x00; // CLA
+        cmd[1] = 0xA4; // INS SELECT
+        cmd[2] = 0x04; // P1 select by AID
+        cmd[3] = 0x00; // P2
+        cmd[4] = 0x07; // Lc
+        cmd[5..12].copy_from_slice(&USIM_AID);
+        cmd[12] = 0x00; // Le
+        let result = hle_apdu(&cmd, &mut rsp);
+        let (_, sw1, _) = result.expect("SELECT by AID should succeed with ADF table");
+        // 0x61 = bytes available (FCP queued for GET RESPONSE)
+        assert_eq!(sw1, 0x61, "SELECT by AID should return 61 XX with ADF table");
+    }
+
+    #[test]
+    fn hle_init_default_no_adf() {
+        // Standard init passes empty ADF table; SELECT by AID should fail.
+        init();
+        hle_reset();
+        let mut rsp = [0u8; 256];
+        let mut cmd = [0u8; 4 + 1 + 7 + 1];
+        cmd[0] = 0x00;
+        cmd[1] = 0xA4;
+        cmd[2] = 0x04;
+        cmd[3] = 0x00;
+        cmd[4] = 0x07;
+        cmd[5..12].copy_from_slice(&USIM_AID);
+        cmd[12] = 0x00;
+        let result = hle_apdu(&cmd, &mut rsp);
+        let (_, sw1, sw2) = result.expect("should get response");
+        // 6A 82 = file/application not found
+        assert_eq!((sw1, sw2), (0x6A, 0x82),
+            "SELECT by AID with no ADF table should return file not found");
     }
 }

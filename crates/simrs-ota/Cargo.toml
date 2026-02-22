@@ -1,15 +1,17 @@
 [package]
-name        = "simrs-fs"
+name        = "simrs-ota"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ICC filesystem model (MF/DF/ADF/EF) per ETSI TS 102 221 -- no_std"
+description = "OTA secured packet structure per ETSI TS 102 225 / TS 102 226 -- no_std"
 
 [features]
 default = []
 std     = []
 
 [dependencies]
+simrs-rijndael = { workspace = true }
+simrs-iso7816  = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
