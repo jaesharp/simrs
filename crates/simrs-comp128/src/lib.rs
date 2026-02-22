@@ -86,6 +86,32 @@ pub struct Comp128Result {
     pub kc: [u8; 8],
 }
 
+/// Constant-time table lookup for variable-size substitution tables.
+///
+/// Reads ALL `table.len()` entries and masks the result, making the memory
+/// access pattern independent of `index`. Prevents cache-timing side-channel
+/// attacks on secret-derived table indices.
+///
+/// The same approach as `simrs_rijndael::ct_select` but generalized to
+/// arbitrary table sizes (512, 256, 128, 64, 32 entries in COMP128).
+#[inline]
+#[allow(clippy::cast_possible_truncation)]
+fn ct_select_n(table: &[u8], index: usize) -> u8 {
+    let mut result = 0u8;
+    for (i, &entry) in table.iter().enumerate() {
+        let d = i ^ index;
+        // d == 0 when i == index.
+        // For nonzero d, (d | d.wrapping_neg()) has the high bit set.
+        // For d == 0, (d | d.wrapping_neg()) == 0.
+        let nonzero = (d | d.wrapping_neg()) >> (usize::BITS - 1);
+        // nonzero is 1 if d != 0, 0 if d == 0.
+        // Subtracting 1 gives 0xFF if match (d == 0), 0x00 otherwise.
+        let mask = (nonzero as u8).wrapping_sub(1);
+        result |= entry & mask;
+    }
+    result
+}
+
 /// Run the COMP128v1 A3/A8 GSM authentication algorithm.
 ///
 /// Computes SRES and Kc from the subscriber's secret key (Ki) and a random
@@ -181,8 +207,8 @@ pub fn comp128(ki: &[u8; 16], rand: &[u8; 16]) -> Comp128Result {
                     let n = m + half as usize;
                     let y = ((u32::from(x[m]) + 2 * u32::from(x[n])) % modulus) as usize;
                     let z = ((2 * u32::from(x[m]) + u32::from(x[n])) % modulus) as usize;
-                    x[m] = tables[j as usize][y];
-                    x[n] = tables[j as usize][z];
+                    x[m] = ct_select_n(tables[j as usize], y);
+                    x[n] = ct_select_n(tables[j as usize], z);
                 }
             }
         }
@@ -450,6 +476,24 @@ mod tests {
         let r = comp128(&[0xFF; 16], &[0xFF; 16]);
         let all_ff = r.sres == [0xFF; 4] && r.kc == [0xFF; 8];
         assert!(!all_ff, "all-FF input must not produce all-FF output");
+    }
+
+    // -- ct_select_n correctness --
+
+    #[test]
+    fn ct_select_n_all_tables_all_indices() {
+        // Verify ct_select_n returns the correct value for every valid index
+        // in all 5 substitution tables.
+        let tables: [&[u8]; 5] = [&TABLE_0, &TABLE_1, &TABLE_2, &TABLE_3, &TABLE_4];
+        for (j, table) in tables.iter().enumerate() {
+            for i in 0..table.len() {
+                assert_eq!(
+                    ct_select_n(table, i),
+                    table[i],
+                    "ct_select_n(TABLE_{j}, {i}) mismatch"
+                );
+            }
+        }
     }
 }
 

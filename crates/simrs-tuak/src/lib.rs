@@ -56,6 +56,21 @@ extern crate std;
 use simrs_keccak::keccak_f1600_bytes;
 use simrs_milenage::{AuthAlgorithm, AuthOutput, MilenageError};
 
+/// Constant-time byte slice comparison. Returns true if all bytes are equal.
+///
+/// Always examines every byte regardless of where mismatches occur, preventing
+/// timing side-channel attacks on MAC verification.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -385,8 +400,9 @@ impl TuakParams {
         // 4. Compute XMAC-A
         let xmac_a = self.f1(rand, &sqn, &amf);
 
-        // 5. Compare with MAC-A from AUTN[8..16]
-        if xmac_a != autn[8..16] {
+        // 5. Compare with MAC-A from AUTN[8..16] (constant-time to prevent
+        //    timing side-channel leakage of MAC byte positions)
+        if !ct_eq(&xmac_a, &autn[8..16]) {
             return Err(MilenageError::MacFailure);
         }
 

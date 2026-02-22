@@ -300,6 +300,22 @@ const fn const_eq16(a: &[u8; 16], b: &[u8; 16]) -> bool {
     true
 }
 
+/// Constant-time byte slice comparison. Returns true if all bytes are equal.
+///
+/// Always examines every byte regardless of where mismatches occur, preventing
+/// timing side-channel attacks on MAC verification. The comparison accumulates
+/// XOR differences into a single byte; any nonzero result means inequality.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
+}
+
 /// XOR two 16-byte blocks: `out = a XOR b`.
 const fn xor128(a: &[u8; 16], b: &[u8; 16]) -> [u8; 16] {
     let mut out = [0u8; 16];
@@ -684,8 +700,9 @@ impl MilenageParams {
         // 4. Compute XMAC-A
         let xmac_a = self.f1(rand, &sqn, &amf);
 
-        // 5. Compare with MAC-A from AUTN[8..16]
-        if xmac_a != autn[8..16] {
+        // 5. Compare with MAC-A from AUTN[8..16] (constant-time to prevent
+        //    timing side-channel leakage of MAC byte positions)
+        if !ct_eq(&xmac_a, &autn[8..16]) {
             return Err(MilenageError::MacFailure);
         }
 
@@ -1068,6 +1085,40 @@ mod tests {
 
         let mut p2 = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
         assert!(!p2.restore_state(&small));
+    }
+
+    // -- Constant-time comparison tests --
+
+    #[test]
+    fn ct_eq_equal_slices() {
+        let a = [0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3];
+        assert!(ct_eq(&a, &a));
+    }
+
+    #[test]
+    fn ct_eq_single_bit_difference() {
+        let a = [0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3];
+        // Flip a single bit in each position to ensure no early exit
+        for i in 0..a.len() {
+            for bit in 0..8u32 {
+                let mut b = a;
+                b[i] ^= 1 << bit;
+                assert!(!ct_eq(&a, &b), "must detect bit {bit} difference at byte {i}");
+            }
+        }
+    }
+
+    #[test]
+    fn ct_eq_different_lengths() {
+        let a = [0x01, 0x02, 0x03];
+        let b = [0x01, 0x02];
+        assert!(!ct_eq(&a, &b));
+    }
+
+    #[test]
+    fn ct_eq_empty_slices() {
+        let a: [u8; 0] = [];
+        assert!(ct_eq(&a, &a));
     }
 }
 
