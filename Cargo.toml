@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "crates/simrs-consttime-macros",
+    "crates/simrs-consttime",
     "crates/simrs-iso7816",
     "crates/simrs-bertlv",
     "crates/simrs-rijndael",
@@ -39,6 +41,8 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 # Internal crates (path references keep versions in one place)
+simrs-consttime-macros    = { path = "crates/simrs-consttime-macros" }
+simrs-consttime           = { path = "crates/simrs-consttime",           default-features = false }
 simrs-iso7816             = { path = "crates/simrs-iso7816",             default-features = false }
 simrs-bertlv              = { path = "crates/simrs-bertlv",              default-features = false }
 simrs-rijndael            = { path = "crates/simrs-rijndael",            default-features = false }

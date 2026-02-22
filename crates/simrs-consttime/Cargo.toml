@@ -1,17 +1,16 @@
 [package]
-name        = "simrs-milenage"
+name        = "simrs-consttime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Milenage (f1-f5) UMTS authentication per ETSI TS 135 206 -- no_std"
+description = "Constant-time primitives for crypto (table lookups, comparisons, GF arithmetic) -- no_std"
 
 [features]
 default = []
 std     = []
 
 [dependencies]
-simrs-consttime = { workspace = true }
-simrs-rijndael = { workspace = true }
+simrs-consttime-macros = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

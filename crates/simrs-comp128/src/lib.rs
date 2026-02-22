@@ -51,6 +51,8 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use simrs_consttime::ct_select_n;
+
 /// Result of the `COMP128v1` algorithm.
 ///
 /// Contains the Signed Response (SRES) used for network authentication
@@ -84,32 +86,6 @@ pub struct Comp128Result {
     /// Used as the session key for A5/1 or A5/3 encryption.
     /// Byte 7 is always 0x00; byte 6 bottom 2 bits are always 0.
     pub kc: [u8; 8],
-}
-
-/// Constant-time table lookup for variable-size substitution tables.
-///
-/// Reads ALL `table.len()` entries and masks the result, making the memory
-/// access pattern independent of `index`. Prevents cache-timing side-channel
-/// attacks on secret-derived table indices.
-///
-/// The same approach as `simrs_rijndael::ct_select` but generalized to
-/// arbitrary table sizes (512, 256, 128, 64, 32 entries in COMP128).
-#[inline]
-#[allow(clippy::cast_possible_truncation)]
-fn ct_select_n(table: &[u8], index: usize) -> u8 {
-    let mut result = 0u8;
-    for (i, &entry) in table.iter().enumerate() {
-        let d = i ^ index;
-        // d == 0 when i == index.
-        // For nonzero d, (d | d.wrapping_neg()) has the high bit set.
-        // For d == 0, (d | d.wrapping_neg()) == 0.
-        let nonzero = (d | d.wrapping_neg()) >> (usize::BITS - 1);
-        // nonzero is 1 if d != 0, 0 if d == 0.
-        // Subtracting 1 gives 0xFF if match (d == 0), 0x00 otherwise.
-        let mask = (nonzero as u8).wrapping_sub(1);
-        result |= entry & mask;
-    }
-    result
 }
 
 /// Run the COMP128v1 A3/A8 GSM authentication algorithm.

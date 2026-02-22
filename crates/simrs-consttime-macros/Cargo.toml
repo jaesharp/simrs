@@ -1,0 +1,21 @@
+[package]
+name        = "simrs-consttime-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Proc macros for constant-time crypto primitives (derive CtEq)"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+syn         = { version = "2", features = ["full"] }
+quote       = "1"
+
+[dev-dependencies]
+proc-macro2 = "1"
+syn         = { version = "2", features = ["full", "extra-traits"] }
+
+[lints]
+workspace = true

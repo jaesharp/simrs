@@ -10,8 +10,9 @@ default = []
 std     = []
 
 [dependencies]
-simrs-keccak   = { workspace = true }
-simrs-milenage = { workspace = true }
+simrs-consttime = { workspace = true }
+simrs-keccak    = { workspace = true }
+simrs-milenage  = { workspace = true }
 
 [dev-dependencies]
 

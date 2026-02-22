@@ -7,11 +7,12 @@
 //! # Constant-time implementation
 //!
 //! All operations on secret data (S-box substitution, GF(2^8) multiplication)
-//! use constant-time primitives to prevent cache-timing side-channel attacks:
-//! - S-box / inverse S-box lookups use `ct_select`, which reads all 256
+//! use constant-time primitives from `simrs-consttime` to prevent
+//! cache-timing side-channel attacks:
+//! - S-box / inverse S-box lookups use [`ct_select`], which reads all 256
 //!   table entries and masks the result, making the memory access pattern
 //!   independent of the secret index byte.
-//! - `xtime` (multiplication by {02} in GF(2^8)) uses `ct_xtime`, a
+//! - `xtime` (multiplication by {02} in GF(2^8)) uses [`ct_xtime`], a
 //!   branchless arithmetic computation with no table lookup.
 //!
 //! # Standards
@@ -50,6 +51,8 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use simrs_consttime::{ct_select, ct_xtime};
+
 /// AES S-box substitution table.
 /// NIST FIPS 197 clause 5.1.1, Figure 7.
 const SBOX: [u8; 256] = [
@@ -86,40 +89,6 @@ const INV_SBOX: [u8; 256] = {
     }
     table
 };
-
-/// Constant-time table lookup: selects `table[index]` by reading ALL 256
-/// entries and masking, so the memory access pattern is independent of `index`.
-///
-/// Prevents cache-timing side-channel attacks on S-box substitution.
-#[inline]
-#[allow(clippy::cast_possible_truncation)]
-const fn ct_select(table: &[u8; 256], index: u8) -> u8 {
-    let mut result = 0u8;
-    let mut i = 0u32;
-    while i < 256 {
-        let d = (i as u8) ^ index;
-        // d == 0 when i == index.
-        // (d | d.wrapping_neg()) >> 7 is 1 if d != 0, 0 if d == 0.
-        // Subtracting 1 gives 0xFF if d == 0 (match), 0x00 otherwise.
-        let mask = ((d | d.wrapping_neg()) >> 7).wrapping_sub(1);
-        result |= table[i as usize] & mask;
-        i += 1;
-    }
-    result
-}
-
-/// Branchless xtime: multiplication by {02} in GF(2^8) with irreducible
-/// polynomial x^8 + x^4 + x^3 + x + 1 (0x11B).
-///
-/// Equivalent to `XTIME[b]` but computed without table lookup, avoiding
-/// data-dependent memory access. Used for constant-time `MixColumns` and
-/// `InvMixColumns`.
-#[inline]
-const fn ct_xtime(b: u8) -> u8 {
-    // mask = 0xFF if high bit set, 0x00 otherwise (branchless)
-    let mask = ((b >> 7) & 1).wrapping_neg();
-    (b << 1) ^ (mask & 0x1B)
-}
 
 /// AES-128 (Rijndael) block cipher state.
 ///

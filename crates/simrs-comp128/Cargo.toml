@@ -10,6 +10,7 @@ default = []
 std     = []
 
 [dependencies]
+simrs-consttime = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

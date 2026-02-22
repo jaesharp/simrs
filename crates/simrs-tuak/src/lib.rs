@@ -53,23 +53,9 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use simrs_consttime::ct_eq;
 use simrs_keccak::keccak_f1600_bytes;
 use simrs_milenage::{AuthAlgorithm, AuthOutput, MilenageError};
-
-/// Constant-time byte slice comparison. Returns true if all bytes are equal.
-///
-/// Always examines every byte regardless of where mismatches occur, preventing
-/// timing side-channel attacks on MAC verification.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for i in 0..a.len() {
-        diff |= a[i] ^ b[i];
-    }
-    diff == 0
-}
 
 // ---------------------------------------------------------------------------
 // Constants

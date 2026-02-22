@@ -93,6 +93,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use simrs_consttime::ct_eq;
 use simrs_rijndael::Rijndael;
 
 /// Operator variant: either raw OP (computed to OPc on-card) or pre-computed OPc.
@@ -298,22 +299,6 @@ const fn const_eq16(a: &[u8; 16], b: &[u8; 16]) -> bool {
         i += 1;
     }
     true
-}
-
-/// Constant-time byte slice comparison. Returns true if all bytes are equal.
-///
-/// Always examines every byte regardless of where mismatches occur, preventing
-/// timing side-channel attacks on MAC verification. The comparison accumulates
-/// XOR differences into a single byte; any nonzero result means inequality.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for i in 0..a.len() {
-        diff |= a[i] ^ b[i];
-    }
-    diff == 0
 }
 
 /// XOR two 16-byte blocks: `out = a XOR b`.
