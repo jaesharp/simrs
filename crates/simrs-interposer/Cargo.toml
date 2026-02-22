@@ -1,0 +1,24 @@
+[package]
+name = "simrs-interposer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "APDU interposer/proxy/shadow SIM with PCAP capture"
+
+[[bin]]
+name = "simrs-interposer"
+path = "src/main.rs"
+
+[dependencies]
+simrs-pcap          = { workspace = true }
+simrs-transport     = { workspace = true }
+simrs-transport-tcp = { workspace = true }
+simrs-sim           = { workspace = true, features = ["usim", "gsm"] }
+simrs-milenage      = { workspace = true }
+simrs-fs            = { workspace = true }
+simrs-iso7816       = { workspace = true }
+simrs-gsm           = { workspace = true }
+simrs-usim          = { workspace = true }
+
+[lints]
+workspace = true

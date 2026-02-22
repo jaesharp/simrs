@@ -26,6 +26,8 @@ members = [
     "crates/simrs-fuzz",
     "crates/simrs-ota",
     "crates/simrs-pcap",
+    "crates/simrs-interposer",
+    "crates/simrs-auth-cli",
 ]
 resolver = "2"
 
@@ -63,6 +65,13 @@ simrs-hle                 = { path = "crates/simrs-hle" }
 simrs-fuzz                = { path = "crates/simrs-fuzz" }
 simrs-ota                 = { path = "crates/simrs-ota",                 default-features = false }
 simrs-pcap                = { path = "crates/simrs-pcap",                default-features = false }
+simrs-interposer          = { path = "crates/simrs-interposer" }
+
+# simrs-auth-cli is intentionally absent above -- binary crate, no library target.
+
+# External dependencies
+clap       = { version = "4", features = ["derive"] }
+getrandom  = "0.2"
 
 # External test/dev dependencies -- tests run on host (std always available)
 proptest = "1"
