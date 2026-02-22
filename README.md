@@ -19,7 +19,7 @@ cargo clippy --workspace
 
 ## Workspace
 
-22 crates across 5 semantic layers -- from AES-128 primitives up to a snapshot fuzzer harness.
+28 crates across 5 semantic layers -- from AES-128 primitives up to a snapshot fuzzer harness.
 
 | Doc | Contents |
 |-----|----------|

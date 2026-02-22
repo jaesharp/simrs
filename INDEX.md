@@ -161,7 +161,7 @@ graph TB
 | [`simrs-qemu`](crates/simrs-qemu/) | Boundary | **no** | QEMU virtual smart card bridge (shmem + chardev) | [sim](crates/simrs-sim/), [shmem](crates/simrs-transport-shmem/) | [API](docs/architecture.md#simrs-qemu) |
 | [`simrs-snapshot`](crates/simrs-snapshot/) | Meta | yes | Deterministic state serialization (`Snapshot` trait) | [sim](crates/simrs-sim/) | [API](docs/architecture.md#simrs-snapshot) |
 | [`simrs-hle`](crates/simrs-hle/) | Meta | **no** | HLE SIM peripheral, C-ABI `cdylib` for QEMU | [sim](crates/simrs-sim/), [snapshot](crates/simrs-snapshot/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-hle) |
-| [`simrs-fuzz`](crates/simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](crates/simrs-hle/), [snapshot](crates/simrs-snapshot/), [iso7816](crates/simrs-iso7816/), [pcap](crates/simrs-pcap/) | [API](docs/architecture.md#simrs-fuzz) |
+| [`simrs-fuzz`](crates/simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](crates/simrs-hle/), [fs](crates/simrs-fs/), [pcap](crates/simrs-pcap/) | [API](docs/architecture.md#simrs-fuzz) |
 | [`simrs-interposer`](crates/simrs-interposer/) | Meta | **no** | Shadow SIM proxy, APDU interposer with PCAP capture | [sim](crates/simrs-sim/), [transport-tcp](crates/simrs-transport-tcp/), [pcap](crates/simrs-pcap/) | [API](docs/architecture.md#simrs-interposer) |
 | [`simrs-auth-cli`](crates/simrs-auth-cli/) | Meta | **no** | Milenage auth vector CLI for LTE/UMTS test tools | [milenage](crates/simrs-milenage/) | -- |
 

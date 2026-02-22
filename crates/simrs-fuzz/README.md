@@ -18,11 +18,13 @@ graph TD
     end
 
     FUZZ["simrs-fuzz"] --> HLE["simrs-hle"]
-    FUZZ --> SNAP["simrs-snapshot"]
+    FUZZ --> FS["simrs-fs"]
+    FUZZ --> PCAP["simrs-pcap"]
 
     style FUZZ fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
     style HLE fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
-    style SNAP fill:#AA4499,stroke:#333,color:#fff
+    style FS fill:#008060,stroke:#333,color:#fff
+    style PCAP fill:#0072B2,stroke:#333,color:#fff
 ```
 
 ## Features
@@ -34,7 +36,7 @@ graph TD
 
 ## Dependencies
 
-[simrs-hle](../simrs-hle/), [simrs-snapshot](../simrs-snapshot/), [simrs-iso7816](../simrs-iso7816/)
+[simrs-hle](../simrs-hle/), [simrs-fs](../simrs-fs/), [simrs-pcap](../simrs-pcap/)
 
 ## Specs
 

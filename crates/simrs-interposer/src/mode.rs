@@ -44,6 +44,8 @@ pub struct InterposerConfig {
 /// Parse a hex string into a fixed-size byte array.
 ///
 /// Returns `None` if the string has wrong length or invalid hex characters.
+/// Does not accept a `0x` prefix (unlike `simrs-auth-cli`'s variant which
+/// strips `0x`/`0X` and returns `Result<_, String>` with field-name context).
 pub fn parse_hex<const N: usize>(hex: &str) -> Option<[u8; N]> {
     if hex.len() != N * 2 {
         return None;

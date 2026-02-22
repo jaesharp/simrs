@@ -239,7 +239,12 @@ impl Corpus {
 // PCAP writer
 // ---------------------------------------------------------------------------
 
-/// Optional PCAP file writer for recording interesting APDU sequences.
+/// PCAP file writer for recording the triggering APDU of each interesting
+/// fuzz sequence. Uses a monotonic manual timestamp counter (not wall time)
+/// so that PCAP output is deterministic across fuzz runs with the same seed.
+///
+/// This is intentionally separate from `simrs-interposer`'s `PcapCapture`,
+/// which uses wall-clock timestamps and supports ATR/mismatch recording.
 struct PcapWriter {
     file: std::io::BufWriter<File>,
     encoder: PcapEncoder,
@@ -267,6 +272,10 @@ impl PcapWriter {
 
     const fn advance_time(&mut self) {
         self.ts_sec += 1;
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
     }
 }
 
@@ -308,7 +317,7 @@ fn main() {
 
     let mut rng = Rng::new(0xDEAD_BEEF_CAFE_BABE);
     let mut corpus = Corpus::new();
-    let mut apdu_buf = [0u8; 261];
+    let mut apdu_buf = [0u8; 261]; // 5-byte header + up to 256 data
     let mut rsp_buf = [0u8; 261];
     let seq_len_max = 8;
 
@@ -372,7 +381,7 @@ fn main() {
     }
 
     if let Some(ref mut pcap) = pcap {
-        let _ = pcap.file.flush();
+        let _ = pcap.flush();
     }
 
     eprintln!(
@@ -394,9 +403,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fnv1a_deterministic() {
-        let data = b"hello";
-        assert_eq!(fnv1a(data), fnv1a(data));
+    fn fnv1a_known_values() {
+        // FNV-1a 64-bit reference values.
+        assert_eq!(fnv1a(b""), 0xcbf2_9ce4_8422_2325, "empty input = FNV offset basis");
+        assert_eq!(fnv1a(b"hello"), 0xa430_d846_80aa_bd0b);
     }
 
     #[test]
@@ -514,12 +524,19 @@ mod tests {
         let apdu = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
         pcap.record_apdu(Direction::Command, &apdu).unwrap();
         pcap.record_apdu(Direction::Response, &[0x90, 0x00]).unwrap();
-        pcap.file.flush().unwrap();
+        pcap.flush().unwrap();
 
         // Verify file starts with PCAP magic (little-endian).
         let data = std::fs::read(&path).unwrap();
         assert!(data.len() > 24, "PCAP file too small");
         assert_eq!(&data[..4], &[0xd4, 0xc3, 0xb2, 0xa1]);
+
+        // Verify link type = GSMTAP (2342 = 0x0926) at offset 20.
+        assert_eq!(
+            u32::from_le_bytes([data[20], data[21], data[22], data[23]]),
+            2342,
+            "expected GsmTap link type"
+        );
 
         // Clean up.
         let _ = std::fs::remove_file(&path);

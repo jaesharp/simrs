@@ -16,7 +16,6 @@ simrs-transport-tcp = { workspace = true }
 simrs-sim           = { workspace = true, features = ["usim", "gsm"] }
 simrs-milenage      = { workspace = true }
 simrs-fs            = { workspace = true }
-simrs-iso7816       = { workspace = true }
 simrs-gsm           = { workspace = true }
 simrs-usim          = { workspace = true }
 
