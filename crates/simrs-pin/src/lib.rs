@@ -66,6 +66,8 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use simrs_consttime::ct_eq;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -180,8 +182,9 @@ impl PinValue {
 
 impl PartialEq for PinValue {
     fn eq(&self, other: &Self) -> bool {
-        // Compare full 8-byte encoding; properly padded PINs match iff digits match.
-        self.bytes == other.bytes
+        // Constant-time comparison: prevents timing side-channel attacks that
+        // could recover PIN/PUK bytes by measuring early-exit latency.
+        ct_eq(&self.bytes, &other.bytes)
     }
 }
 
@@ -474,7 +477,7 @@ impl<const N: usize> PinManager<N> {
         if slot.pin_retries == 0 {
             return PinResult::Blocked;
         }
-        if slot.pin == val.bytes {
+        if ct_eq(&slot.pin, &val.bytes) {
             slot.pin_retries = slot.pin_max;
             slot.verified = true;
             PinResult::Success
@@ -519,7 +522,7 @@ impl<const N: usize> PinManager<N> {
         if slot.pin_retries == 0 {
             return PinResult::Blocked;
         }
-        if slot.pin != old.bytes {
+        if !ct_eq(&slot.pin, &old.bytes) {
             slot.pin_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.pin_retries,
@@ -561,7 +564,7 @@ impl<const N: usize> PinManager<N> {
         if slot.pin_retries == 0 {
             return PinResult::Blocked;
         }
-        if slot.pin != val.bytes {
+        if !ct_eq(&slot.pin, &val.bytes) {
             slot.pin_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.pin_retries,
@@ -603,7 +606,7 @@ impl<const N: usize> PinManager<N> {
         if slot.enabled {
             return PinResult::Success;
         }
-        if slot.pin != val.bytes {
+        if !ct_eq(&slot.pin, &val.bytes) {
             slot.pin_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.pin_retries,
@@ -650,7 +653,7 @@ impl<const N: usize> PinManager<N> {
         if slot.puk_retries == 0 {
             return PinResult::Blocked;
         }
-        if slot.puk != puk.bytes {
+        if !ct_eq(&slot.puk, &puk.bytes) {
             slot.puk_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.puk_retries,
@@ -1458,5 +1461,48 @@ mod proptests {
             prop_assert!(mgr.is_enabled(PinKey::PIN1));
             prop_assert!(!mgr.is_verified(PinKey::PIN1)); // must VERIFY again
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DudeCT constant-time validation tests
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+#[allow(clippy::cast_possible_truncation)]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{dudect_test, Rng};
+
+    #[test]
+    fn pin_verify_ct() {
+        let mut rng = Rng::from_seed(42);
+        let result = dudect_test(
+            "PinValue::eq (matching vs non-matching)",
+            50_000,
+            &mut rng,
+            |rng| {
+                // Class 0: compare two identical PINs
+                let mut bytes = [0xFFu8; 8];
+                rng.fill_bytes(&mut bytes[..4]);
+                (PinValue::new(bytes), PinValue::new(bytes))
+            },
+            |rng| {
+                // Class 1: compare two PINs differing at random position
+                let mut bytes = [0xFFu8; 8];
+                rng.fill_bytes(&mut bytes[..4]);
+                let a = PinValue::new(bytes);
+                let pos = (rng.next_u64() as usize) % 4;
+                bytes[pos] ^= 0x01;
+                let b = PinValue::new(bytes);
+                (a, b)
+            },
+            |(a, b)| {
+                black_box(a == b);
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
     }
 }

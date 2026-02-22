@@ -284,63 +284,97 @@ mod tests {
         assert_eq!(a, b, "identical inputs must produce identical outputs");
     }
 
-    /// Known-answer test with a non-zero input pattern (lane 0 = 0x01).
+    /// Known-answer test: Keccak-f[1600] with lane[0] = 0x01 (rest zero).
     ///
     /// A single-bit input state exercises all steps (theta parity is non-trivial,
     /// rho rotates non-zero lanes, pi rearranges them, chi applies non-linear mixing).
+    ///
+    /// Reference: independently verified via Python and standalone Rust implementations
+    /// cross-checked against the zero-state KAT from `KeccakCodePackage`.
     #[test]
     fn keccak_f1600_single_bit_input() {
+        let expected: [u64; 25] = [
+            0xE2A9_4439_6F0B_13C6,
+            0x70FE_C06C_EB0B_06C4,
+            0x721D_FC50_18F2_7A42,
+            0x64A2_AF57_149F_7096,
+            0xD3BC_0B3F_2712_E2E6,
+            0x25B8_444D_0AEA_8B74,
+            0x9396_EF81_30F1_BE5C,
+            0x87A9_8F12_B6AD_542C,
+            0x7270_7804_1F4F_63F7,
+            0x92CB_EC31_74D6_F74A,
+            0x23FB_ED32_ED72_0767,
+            0xAC23_29D6_93B1_0D76,
+            0x493D_4A7A_941B_2026,
+            0x7000_69B7_97E2_F86C,
+            0x95D8_E3AE_E6FC_4B8C,
+            0x0BCA_1B8D_9D0D_82FC,
+            0xE2AD_3392_6D47_4C63,
+            0x6A54_15A4_EBED_8DFE,
+            0xED6A_86E4_FECB_AC62,
+            0xD86E_73C1_B945_A137,
+            0x3332_56C2_5284_0104,
+            0x9F11_1FAA_6A08_D2E5,
+            0x6D1F_6A87_4F91_6FEB,
+            0xF716_AE69_D3A5_7F06,
+            0xF5A8_4375_5D53_74AF,
+        ];
+
         let mut state = [0u64; 25];
         state[0] = 0x01;
         keccak_f1600(&mut state);
 
-        // The output must differ from the all-zero-input output.
-        let mut zero_state = [0u64; 25];
-        keccak_f1600(&mut zero_state);
-        assert_ne!(state, zero_state,
-            "single-bit input must produce different output than all-zero input");
-
-        // Lane 0 must not be 0x01 (input unchanged = identity bug).
-        assert_ne!(state[0], 0x01,
-            "lane 0 must change from input value");
-        // State must not be all-zeros (collapsed to zero = catastrophic bug).
-        assert_ne!(state, [0u64; 25],
-            "output must not be all-zeros");
-        // At least 20 of 25 lanes must be non-zero (good diffusion).
-        let nonzero_count = state.iter().filter(|&&x| x != 0).count();
-        assert!(nonzero_count >= 20,
-            "expected good diffusion: at least 20/25 non-zero lanes, got {nonzero_count}");
+        for (i, (&got, &want)) in state.iter().zip(expected.iter()).enumerate() {
+            assert_eq!(got, want, "lane {i}: got {got:#018X}, want {want:#018X}");
+        }
     }
 
-    /// Known-answer test with all-ones input (every lane = 0xFFFFFFFFFFFFFFFF).
+    /// Known-answer test: Keccak-f[1600] with all-ones input (every lane = `0xFFFF_FFFF_FFFF_FFFF`).
     ///
     /// This input exercises the full dynamic range of all step mappings.
     /// Theta with all-ones parity produces a specific XOR pattern, rho
     /// rotates max-value lanes, and chi with max values has distinctive
     /// non-linear behavior.
+    ///
+    /// Reference: independently verified via Python and standalone Rust implementations
+    /// cross-checked against the zero-state KAT from `KeccakCodePackage`.
     #[test]
     fn keccak_f1600_all_ones_input() {
+        let expected: [u64; 25] = [
+            0x9F00_F21B_BA68_17C4,
+            0xCDF5_AA0D_21AF_5E78,
+            0xD653_9ABF_2409_5B97,
+            0x8BB6_F30A_010F_8228,
+            0xF0F7_11BA_0547_331D,
+            0x4F44_3305_58EB_182F,
+            0x2213_B79D_9055_207C,
+            0xEB5E_5B55_CA4F_B490,
+            0x0BFA_EB81_A299_B5D4,
+            0x9E5D_924F_1A65_ED48,
+            0x0046_50C5_33B7_BFB3,
+            0xDDAD_454B_84D7_AB05,
+            0xF03C_E565_03E8_2921,
+            0xCE44_2E92_C672_8660,
+            0x1A9C_E5E4_B37D_DCD3,
+            0xF63B_60E2_7CEA_6F0E,
+            0xCC4C_C7FC_A665_BFAD,
+            0x40CF_4EBA_54A2_285D,
+            0x2725_F1F1_4230_4213,
+            0x554D_327D_E6FB_AD9B,
+            0x1986_6A26_CBC8_BDC2,
+            0xE8C3_C28F_AF02_C7F5,
+            0xC6BC_1F35_12A6_65AE,
+            0xCAA8_31F1_A5DC_86CE,
+            0x3F82_AFE9_1CA4_B9B0,
+        ];
+
         let mut state = [0xFFFF_FFFF_FFFF_FFFFu64; 25];
-        let input_copy = state;
         keccak_f1600(&mut state);
 
-        // Output must differ from input (not identity).
-        assert_ne!(state, input_copy,
-            "permutation of all-ones must not be the identity");
-        // Output must not be all-zeros (not collapsed).
-        assert_ne!(state, [0u64; 25],
-            "permutation of all-ones must not produce all-zeros");
-        // Output must differ from the all-zero-input result.
-        let mut zero_result = [0u64; 25];
-        keccak_f1600(&mut zero_result);
-        assert_ne!(state, zero_result,
-            "all-ones input must produce different output than all-zeros input");
-
-        // Verify determinism: re-running on the same input gives the same output.
-        let mut state2 = [0xFFFF_FFFF_FFFF_FFFFu64; 25];
-        keccak_f1600(&mut state2);
-        assert_eq!(state, state2,
-            "all-ones input must be deterministic");
+        for (i, (&got, &want)) in state.iter().zip(expected.iter()).enumerate() {
+            assert_eq!(got, want, "lane {i}: got {got:#018X}, want {want:#018X}");
+        }
     }
 
     /// Verify that the iota step correctly applies round constants by testing

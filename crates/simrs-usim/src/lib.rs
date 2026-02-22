@@ -4561,6 +4561,240 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x6A, 0x86),
             "P2=0xFF (invalid) must return 6A 86");
     }
+
+    // -----------------------------------------------------------------------
+    // Multi-step AUTHENTICATE protocol sequence tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: build a valid AUTN for the given RAND using Test Set 1 SQN/AMF.
+    fn build_autn(
+        params: &MilenageParams,
+        rand: &[u8; 16],
+        sqn: [u8; 6],
+        amf: [u8; 2],
+    ) -> [u8; 16] {
+        let ak = params.f5(rand);
+        let mac_a = params.f1(rand, &sqn, &amf);
+        let mut autn = [0u8; 16];
+        for i in 0..6 {
+            autn[i] = sqn[i] ^ ak[i];
+        }
+        autn[6..8].copy_from_slice(&amf);
+        autn[8..16].copy_from_slice(&mac_a);
+        autn
+    }
+
+    /// Helper: build an AUTHENTICATE APDU (INS=0x88, P2=0x81 UMTS context).
+    fn build_authenticate_apdu(rand: &[u8; 16], autn: &[u8; 16]) -> [u8; 5 + 34] {
+        let mut apdu = [0u8; 5 + 34];
+        apdu[0] = 0x00; // CLA
+        apdu[1] = 0x88; // INS = AUTHENTICATE
+        apdu[2] = 0x00; // P1
+        apdu[3] = 0x81; // P2 = UMTS context
+        apdu[4] = 0x22; // Lc = 34
+        apdu[5] = 0x10; // RAND length prefix
+        apdu[6..22].copy_from_slice(rand);
+        apdu[22] = 0x10; // AUTN length prefix
+        apdu[23..39].copy_from_slice(autn);
+        apdu
+    }
+
+    /// SELECT ADF USIM APDU (P1=0x04 select by AID, P2=0x04 FCP).
+    const SELECT_ADF_USIM: [u8; 12] = [
+        0x00, 0xA4, 0x04, 0x04, 0x07,
+        0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+    ];
+
+    /// Multi-step sequence: SELECT ADF USIM -> AUTHENTICATE -> verify
+    /// RES/CK/IK in TLV response.
+    ///
+    /// Exercises the real modem boot flow where the baseband first selects the
+    /// USIM application, then runs UMTS AUTHENTICATE with network-supplied
+    /// RAND/AUTN, and parses the structured TLV response.
+    #[test]
+    fn multistep_select_adf_then_authenticate_verify_tlv() {
+        let mut app = app();
+
+        // Step 1: SELECT ADF.USIM by AID.
+        let (buf, _len) = send(&mut app, &SELECT_ADF_USIM);
+        assert_eq!(buf[0], 0x61,
+            "SELECT ADF.USIM must return 61 XX (FCP available)");
+        // Consume the FCP via GET RESPONSE so the pending buffer is cleared.
+        let fcp_len = buf[1];
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00),
+            "GET RESPONSE for SELECT FCP must succeed");
+
+        // Step 2: AUTHENTICATE with valid AUTN.
+        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let amf = [0xB9, 0xB9];
+        let autn = build_autn(&params, &rand_val, sqn, amf);
+        let apdu = build_authenticate_apdu(&rand_val, &autn);
+
+        let (buf, _len) = send(&mut app, &apdu);
+        assert_eq!(buf[0], 0x61,
+            "AUTHENTICATE must return 61 XX (response data available)");
+        let rsp_len = buf[1] as usize;
+
+        // Step 3: GET RESPONSE to retrieve the authentication vector.
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, rsp_len as u8]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00),
+            "GET RESPONSE for AUTHENTICATE must succeed");
+
+        // Step 4: Verify TLV structure.
+        // Response format: 0xDB || inner_len || 0x08 || RES(8) || 0x10 || CK(16) || 0x10 || IK(16)
+        assert_eq!(buf[0], 0xDB, "success tag must be 0xDB");
+        assert_eq!(buf[1], 1 + 8 + 1 + 16 + 1 + 16,
+            "inner length must encode RES(1+8) + CK(1+16) + IK(1+16) = 43");
+        assert_eq!(buf[2], 0x08, "RES length prefix must be 0x08");
+
+        let res_actual = &buf[3..11];
+        assert_eq!(res_actual.len(), 8, "RES must be exactly 8 bytes");
+
+        assert_eq!(buf[11], 0x10, "CK length prefix must be 0x10");
+        let ck_actual = &buf[12..28];
+        assert_eq!(ck_actual.len(), 16, "CK must be exactly 16 bytes");
+
+        assert_eq!(buf[28], 0x10, "IK length prefix must be 0x10");
+        let ik_actual = &buf[29..45];
+        assert_eq!(ik_actual.len(), 16, "IK must be exactly 16 bytes");
+
+        // Step 5: Cross-check against independent Milenage computation.
+        let expected = params.authenticate(&rand_val, &autn).unwrap();
+        assert_eq!(res_actual, &expected.res, "RES must match Milenage f2");
+        assert_eq!(ck_actual, &expected.ck, "CK must match Milenage f3");
+        assert_eq!(ik_actual, &expected.ik, "IK must match Milenage f4");
+
+        // Non-triviality: none of the outputs should be all-zeros.
+        assert_ne!(expected.res, [0u8; 8], "RES must not be trivial");
+        assert_ne!(expected.ck, [0u8; 16], "CK must not be trivial");
+        assert_ne!(expected.ik, [0u8; 16], "IK must not be trivial");
+    }
+
+    /// Multi-step sequence: SELECT ADF USIM -> AUTHENTICATE with bad AUTN ->
+    /// verify SW 98 62 (MAC failure).
+    ///
+    /// Simulates a network attack or corruption scenario where the AUTN MAC
+    /// does not match. The USIM must reject the authentication and return the
+    /// correct status word without leaking any key material.
+    #[test]
+    fn multistep_select_adf_then_authenticate_bad_autn() {
+        let mut app = app();
+
+        // Step 1: SELECT ADF.USIM by AID.
+        let (buf, _len) = send(&mut app, &SELECT_ADF_USIM);
+        assert_eq!(buf[0], 0x61,
+            "SELECT ADF.USIM must return 61 XX");
+        // Consume FCP.
+        let fcp_len = buf[1];
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Step 2: AUTHENTICATE with corrupted AUTN.
+        // Use a valid RAND but construct an AUTN with a deliberately wrong
+        // MAC-A (bitwise NOT of the real MAC).
+        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let amf = [0xB9, 0xB9];
+        let mut autn = build_autn(&params, &rand_val, sqn, amf);
+
+        // Corrupt the MAC-A (bytes 8..16) by bitwise NOT.
+        for b in &mut autn[8..16] {
+            *b = !*b;
+        }
+
+        let apdu = build_authenticate_apdu(&rand_val, &autn);
+        let (buf, len) = send(&mut app, &apdu);
+
+        // Must get SW 98 62 (authentication error / MAC failure).
+        assert_eq!(sw(&buf, len), (0x98, 0x62),
+            "corrupted AUTN MAC must produce SW 98 62");
+
+        // Verify the response is just the 2-byte status word -- no data leaked.
+        assert_eq!(len, 2,
+            "MAC failure response must contain only the status word");
+    }
+
+    /// Multi-step sequence: two sequential AUTHENTICATEs with different RAND
+    /// values produce different RES values.
+    ///
+    /// Verifies that the USIM correctly handles back-to-back AUTHENTICATE
+    /// commands (as happens during inter-RAT handovers or re-authentication)
+    /// and that distinct RAND inputs produce distinct outputs -- confirming
+    /// the cipher is not stuck or returning stale results.
+    #[test]
+    fn multistep_two_sequential_authenticates_different_res() {
+        let mut app = app();
+
+        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let amf = [0xB9, 0xB9];
+
+        // First AUTHENTICATE with ETSI TS 135 208 Test Set 1 RAND.
+        let rand1: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let autn1 = build_autn(&params, &rand1, sqn, amf);
+        let apdu1 = build_authenticate_apdu(&rand1, &autn1);
+
+        let (buf, _len) = send(&mut app, &apdu1);
+        assert_eq!(buf[0], 0x61, "first AUTHENTICATE must succeed (61 XX)");
+        let rsp_len1 = buf[1];
+        let (buf1, len1) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, rsp_len1]);
+        assert_eq!(sw(&buf1, len1), (0x90, 0x00),
+            "first GET RESPONSE must succeed");
+        let mut res1 = [0u8; 8];
+        res1.copy_from_slice(&buf1[3..11]);
+
+        // Second AUTHENTICATE with a different RAND (ETSI TS 135 208 Test Set 2).
+        let rand2: [u8; 16] = [
+            0xB9, 0xBE, 0xAD, 0x00, 0x47, 0x5E, 0x7B, 0x05,
+            0x7B, 0x54, 0x0E, 0xA4, 0x02, 0xD5, 0x55, 0xB4,
+        ];
+        let autn2 = build_autn(&params, &rand2, sqn, amf);
+        let apdu2 = build_authenticate_apdu(&rand2, &autn2);
+
+        let (buf, _len) = send(&mut app, &apdu2);
+        assert_eq!(buf[0], 0x61, "second AUTHENTICATE must succeed (61 XX)");
+        let rsp_len2 = buf[1];
+        let (buf2, len2) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, rsp_len2]);
+        assert_eq!(sw(&buf2, len2), (0x90, 0x00),
+            "second GET RESPONSE must succeed");
+        let mut res2 = [0u8; 8];
+        res2.copy_from_slice(&buf2[3..11]);
+
+        // Both RES values must be non-trivial.
+        assert_ne!(res1, [0u8; 8], "first RES must not be all-zeros");
+        assert_ne!(res2, [0u8; 8], "second RES must not be all-zeros");
+
+        // The two RES values must differ (different RAND => different output).
+        assert_ne!(res1, res2,
+            "different RAND values must produce different RES values");
+
+        // Cross-check each RES against independent Milenage computation.
+        let expected1 = params.authenticate(&rand1, &autn1).unwrap();
+        let expected2 = params.authenticate(&rand2, &autn2).unwrap();
+        assert_eq!(res1, expected1.res,
+            "first RES must match independent Milenage");
+        assert_eq!(res2, expected2.res,
+            "second RES must match independent Milenage");
+
+        // CK and IK must also differ between the two runs.
+        assert_ne!(&buf1[12..28], &buf2[12..28],
+            "different RAND must produce different CK");
+        assert_ne!(&buf1[29..45], &buf2[29..45],
+            "different RAND must produce different IK");
+    }
 }
 
 // ---------------------------------------------------------------------------

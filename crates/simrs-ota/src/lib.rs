@@ -31,6 +31,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use simrs_consttime::ct_eq;
 use simrs_rijndael::Rijndael;
 
 /// AES block size in bytes.
@@ -696,7 +697,7 @@ pub fn decode_command_packet(
             let padded_len = apply_padding(&recompute_buf[..region_len], &mut mac_padded)?;
             let computed_mac = aes_cbc_mac(km, &mac_padded[..padded_len]);
 
-            if computed_mac != received_mac {
+            if !ct_eq(&computed_mac, &received_mac) {
                 return Err(OtaError::MacVerifyFailed);
             }
         } else {

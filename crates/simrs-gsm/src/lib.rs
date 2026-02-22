@@ -2154,6 +2154,169 @@ mod tests {
             "wrong PIN while blocked must return 69 83"
         );
     }
+
+    /// After exhausting PIN1, unblock it via UNBLOCK CHV (INS 0x2C) with the
+    /// correct PUK and a new PIN, then verify the new PIN works.
+    ///
+    /// This is the full APDU-level recovery sequence: exhaust PIN -> unblock
+    /// with PUK -> verify with new PIN -> confirm file access restored.
+    #[test]
+    fn puk_unblock_after_pin_exhaustion_via_apdu() {
+        let mut app = app_with_pin1_enabled();
+
+        // Wrong PIN: "9999".
+        let wrong_pin = [
+            0xA0, 0x20, 0x00, 0x01, 0x08,
+            0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
+
+        // Exhaust all 3 PIN retries.
+        let (buf, len) = send(&mut app, &wrong_pin);
+        assert_eq!(
+            sw(&buf, len), (0x63, 0xC2),
+            "first wrong PIN: expected 2 retries remaining"
+        );
+        let (buf, len) = send(&mut app, &wrong_pin);
+        assert_eq!(
+            sw(&buf, len), (0x63, 0xC1),
+            "second wrong PIN: expected 1 retry remaining"
+        );
+        let (buf, len) = send(&mut app, &wrong_pin);
+        assert_eq!(
+            sw(&buf, len), (0x63, 0xC0),
+            "third wrong PIN: expected 0 retries (blocked)"
+        );
+
+        // Confirm PIN is blocked.
+        let correct_old_pin = [
+            0xA0, 0x20, 0x00, 0x01, 0x08,
+            0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
+        let (buf, len) = send(&mut app, &correct_old_pin);
+        assert_eq!(
+            sw(&buf, len), (0x69, 0x83),
+            "PIN must be blocked after 3 wrong attempts"
+        );
+
+        // UNBLOCK CHV: PUK "12345678" + new PIN "5678".
+        let unblock_apdu = [
+            0xA0, 0x2C, 0x00, 0x01, 0x10,
+            0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, // PUK
+            0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF, // new PIN "5678"
+        ];
+        let (buf, len) = send(&mut app, &unblock_apdu);
+        assert_eq!(
+            sw(&buf, len), (0x90, 0x00),
+            "UNBLOCK CHV with correct PUK must succeed"
+        );
+
+        // Verify with the new PIN "5678".
+        let new_pin_verify = [
+            0xA0, 0x20, 0x00, 0x01, 0x08,
+            0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
+        let (buf, len) = send(&mut app, &new_pin_verify);
+        assert_eq!(
+            sw(&buf, len), (0x90, 0x00),
+            "VERIFY with new PIN after unblock must succeed"
+        );
+
+        // Confirm retry counter was restored to maximum (3).
+        // Query via VERIFY with P3=0.
+        let retry_query = [0xA0, 0x20, 0x00, 0x01, 0x00];
+        let (buf, len) = send(&mut app, &retry_query);
+        assert_eq!(
+            sw(&buf, len), (0x63, 0xC3),
+            "PIN retry counter must be restored to 3 after unblock"
+        );
+
+        // Confirm PIN-gated file access works: SELECT EF.ICCID + READ BINARY.
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(
+            sw(&buf, len), (0x90, 0x00),
+            "READ BINARY must succeed after PUK unblock + PIN verify"
+        );
+    }
+
+    /// Exhaust all 10 PUK retries via UNBLOCK CHV (INS 0x2C) with wrong PUK
+    /// values, verifying the retry counter decrements each time, and confirm
+    /// the PUK is permanently blocked afterward.
+    #[test]
+    fn puk_exhaustion_via_apdu() {
+        let mut app = app_with_pin1_enabled();
+
+        // First block PIN1 so UNBLOCK CHV is the relevant operation.
+        let wrong_pin = [
+            0xA0, 0x20, 0x00, 0x01, 0x08,
+            0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
+        send(&mut app, &wrong_pin);
+        send(&mut app, &wrong_pin);
+        send(&mut app, &wrong_pin);
+
+        // Confirm PIN is blocked.
+        let (buf, len) = send(&mut app, &wrong_pin);
+        assert_eq!(
+            sw(&buf, len), (0x69, 0x83),
+            "PIN must be blocked before PUK exhaustion test"
+        );
+
+        // Wrong PUK: "99999999" + dummy new PIN "1111".
+        let wrong_puk = [
+            0xA0, 0x2C, 0x00, 0x01, 0x10,
+            0x39, 0x39, 0x39, 0x39, 0x39, 0x39, 0x39, 0x39, // wrong PUK
+            0x31, 0x31, 0x31, 0x31, 0xFF, 0xFF, 0xFF, 0xFF, // new PIN (irrelevant)
+        ];
+
+        // Send 10 wrong PUK attempts, verifying retry counter decrements.
+        // PUK starts with 10 retries.
+        for attempt in 1..=10u8 {
+            let expected_remaining = 10 - attempt;
+            let (buf, len) = send(&mut app, &wrong_puk);
+
+            if expected_remaining > 0 {
+                assert_eq!(
+                    sw(&buf, len),
+                    (0x63, 0xC0 | expected_remaining),
+                    "PUK attempt {attempt}: expected {expected_remaining} retries remaining"
+                );
+            } else {
+                // Last attempt: 0 retries remaining -> 63 C0.
+                assert_eq!(
+                    sw(&buf, len), (0x63, 0xC0),
+                    "PUK attempt 10: expected 0 retries remaining (63 C0)"
+                );
+            }
+        }
+
+        // PUK is now permanently blocked. Correct PUK must be rejected.
+        let correct_puk = [
+            0xA0, 0x2C, 0x00, 0x01, 0x10,
+            0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, // correct PUK
+            0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF, // new PIN
+        ];
+        let (buf, len) = send(&mut app, &correct_puk);
+        assert_eq!(
+            sw(&buf, len), (0x69, 0x83),
+            "correct PUK while PUK-blocked must return 69 83"
+        );
+
+        // Another wrong PUK while blocked must also return 69 83.
+        let (buf, len) = send(&mut app, &wrong_puk);
+        assert_eq!(
+            sw(&buf, len), (0x69, 0x83),
+            "wrong PUK while PUK-blocked must return 69 83"
+        );
+
+        // Query PUK retry counter via UNBLOCK CHV with P3=0.
+        let puk_retry_query = [0xA0, 0x2C, 0x00, 0x01, 0x00];
+        let (buf, len) = send(&mut app, &puk_retry_query);
+        assert_eq!(
+            sw(&buf, len), (0x63, 0xC0),
+            "PUK retry query must report 0 retries after exhaustion"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

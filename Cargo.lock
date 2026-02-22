@@ -623,6 +623,8 @@ name = "simrs-ota"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "simrs-consttime",
+ "simrs-consttime-validation",
  "simrs-iso7816",
  "simrs-rijndael",
 ]
@@ -651,6 +653,8 @@ name = "simrs-pin"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "simrs-consttime",
+ "simrs-consttime-validation",
 ]
 
 [[package]]

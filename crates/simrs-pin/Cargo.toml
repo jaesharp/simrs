@@ -8,11 +8,14 @@ description = "PIN/PUK management state machine per ETSI TS 102 221 -- no_std"
 [features]
 default = []
 std     = []
+ct-validation = []
 
 [dependencies]
+simrs-consttime = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

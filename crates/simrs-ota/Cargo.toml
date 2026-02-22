@@ -8,13 +8,16 @@ description = "OTA secured packet structure per ETSI TS 102 225 / TS 102 226 -- 
 [features]
 default = []
 std     = []
+ct-validation = []
 
 [dependencies]
 simrs-rijndael = { workspace = true }
 simrs-iso7816  = { workspace = true }
+simrs-consttime = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true
