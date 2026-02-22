@@ -1175,6 +1175,125 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // APDU boundary tests
+    // -----------------------------------------------------------------------
+
+    /// APDU with exactly 4 bytes (CLA INS P1 P2, no Lc, no data, no Le).
+    /// This is the minimum valid APDU. With a known CLA, the application layer
+    /// should process it (not Ignored).
+    #[test]
+    fn apdu_4_byte_header_only() {
+        let mut sim = make_sim();
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // STATUS command (INS=0xF2 for GSM, INS=0xF2 for USIM) with no data.
+        #[cfg(feature = "usim")]
+        let apdu = [0x00u8, 0xF2, 0x00, 0x0C]; // STATUS P2=0x0C (no FCI data)
+        #[cfg(all(feature = "gsm", not(feature = "usim")))]
+        let apdu = [0xA0u8, 0xF2, 0x00, 0x00];
+        #[cfg(not(any(feature = "gsm", feature = "usim")))]
+        let apdu = [0x00u8, 0xF2, 0x00, 0x00];
+
+        let rsp = sim.process(SimEvent::Apdu(&apdu));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                // Must get a real response (not Ignored). Exact SW depends on features.
+                #[cfg(any(feature = "gsm", feature = "usim"))]
+                assert_eq!(sw1, 0x90, "4-byte APDU should be processed, got SW {sw1:02X} {sw2:02X}");
+                #[cfg(not(any(feature = "gsm", feature = "usim")))]
+                assert_eq!((sw1, sw2), (0x6E, 0x00), "no features: CLA not supported");
+            }
+            _ => panic!("expected Apdu response for 4-byte APDU"),
+        }
+    }
+
+    /// APDU with Lc=0 and explicit empty data field (5-byte case: CLA INS P1 P2 Le=0).
+    /// Le=0x00 means Le=256 in short APDU encoding.
+    #[cfg(feature = "usim")]
+    #[test]
+    fn apdu_le_zero_means_256() {
+        let mut sim = make_sim();
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // SELECT MF first to have a valid context.
+        let _ = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
+
+        // STATUS with Le=0x00 (= 256 bytes requested).
+        // The card should return what it has (FCP or status data), not error.
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xF2, 0x00, 0x0C, 0x00]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "STATUS with Le=0 should succeed");
+            }
+            _ => panic!("expected Apdu response"),
+        }
+    }
+
+    /// Unknown INS code must return 6D 00 (instruction not supported).
+    /// Uses INS=0xFE which is not assigned in any supported application.
+    #[test]
+    fn unknown_ins_returns_6d00_boundary() {
+        let mut sim = make_sim();
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // INS=0xFE is not a valid instruction in GSM or USIM.
+        #[cfg(feature = "usim")]
+        let apdu = [0x00u8, 0xFE, 0x00, 0x00];
+        #[cfg(all(feature = "gsm", not(feature = "usim")))]
+        let apdu = [0xA0u8, 0xFE, 0x00, 0x00];
+        #[cfg(not(any(feature = "gsm", feature = "usim")))]
+        let apdu = [0x00u8, 0xFE, 0x00, 0x00];
+
+        let rsp = sim.process(SimEvent::Apdu(&apdu));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                #[cfg(any(feature = "gsm", feature = "usim"))]
+                assert_eq!((sw1, sw2), (0x6D, 0x00),
+                    "unknown INS must return 6D 00");
+                #[cfg(not(any(feature = "gsm", feature = "usim")))]
+                assert_eq!((sw1, sw2), (0x6E, 0x00),
+                    "no features: CLA not supported");
+            }
+            _ => panic!("expected Apdu response"),
+        }
+    }
+
+    /// Wrong CLA class returns 6E 00. Tests a range of CLA bytes that
+    /// should never be routed to any application.
+    #[test]
+    fn wrong_cla_classes_return_6e00() {
+        let mut sim = make_sim();
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // CLA values in the 0xBX and 0xFX ranges are not assigned to any family.
+        for cla in [0xB0, 0xB1, 0xBF, 0xF0, 0xF1, 0xFF] {
+            let apdu = [cla, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
+            let rsp = sim.process(SimEvent::Apdu(&apdu));
+            match rsp {
+                SimResponse::Apdu { sw1, sw2, data } => {
+                    assert_eq!((sw1, sw2), (0x6E, 0x00),
+                        "CLA 0x{cla:02X} must return 6E 00, got {sw1:02X} {sw2:02X}");
+                    assert!(data.is_empty(),
+                        "error response for CLA 0x{cla:02X} must have empty data");
+                }
+                _ => panic!("expected Apdu response for CLA 0x{cla:02X}"),
+            }
+        }
+    }
+
+    /// APDU with exactly 3 bytes (too short) returns Ignored.
+    /// This boundary test ensures the 4-byte minimum is enforced.
+    #[test]
+    fn apdu_3_bytes_returns_ignored() {
+        let mut sim = make_sim();
+        let _ = sim.process(SimEvent::PowerOn);
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00]));
+        assert!(matches!(rsp, SimResponse::Ignored),
+            "3-byte APDU must return Ignored");
+    }
+
+    // -----------------------------------------------------------------------
     // Proptest
     // -----------------------------------------------------------------------
 

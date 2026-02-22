@@ -41,6 +41,13 @@ const BLOCK_SIZE: usize = 16;
 // ---------------------------------------------------------------------------
 
 /// OTA packet processing error.
+///
+/// ```
+/// use simrs_ota::OtaError;
+///
+/// let err = OtaError::BufferTooSmall;
+/// assert_eq!(format!("{err}"), "output buffer too small");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OtaError {
     /// Output buffer is too small for the encoded packet.
@@ -106,6 +113,16 @@ pub enum CryptoAlgo {
 /// Security Parameter Indicator (SPI) -- TS 102 225 clause 5.1.1.
 ///
 /// Two bytes controlling the security applied to a command or response packet.
+///
+/// ```
+/// use simrs_ota::{Spi, RedundancyCheck};
+///
+/// // SPI with CC integrity and ciphering enabled
+/// let spi = Spi { spi1: 0x06, spi2: 0x01 };
+/// assert_eq!(spi.redundancy_check(), RedundancyCheck::Cc);
+/// assert!(spi.ciphering());
+/// assert!(spi.por_required());
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Spi {
     /// First SPI byte (redundancy check, ciphering, counter indicators).
@@ -297,6 +314,25 @@ impl Default for RemoteApdu {
 /// `CLA | INS | P1 | P2 | Lc | Data[Lc]`
 ///
 /// For case 1 (no data), it is just `CLA | INS | P1 | P2`.
+///
+/// ```
+/// use simrs_ota::{RemoteApdu, encode_remote_apdus};
+///
+/// // SELECT MF (3F00) -- case 3 APDU with 2 bytes of data
+/// let mut apdu = RemoteApdu::new();
+/// apdu.cla = 0xA0;
+/// apdu.ins = 0xA4;
+/// apdu.p1 = 0x00;
+/// apdu.p2 = 0x00;
+/// apdu.data[0] = 0x3F;
+/// apdu.data[1] = 0x00;
+/// apdu.data_len = 2;
+///
+/// let mut buf = [0u8; 64];
+/// let len = encode_remote_apdus(&[apdu], &mut buf).unwrap();
+/// assert_eq!(len, 7); // CLA + INS + P1 + P2 + Lc + 2 data bytes
+/// assert_eq!(&buf[..7], &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
+/// ```
 pub fn encode_remote_apdus(
     apdus: &[RemoteApdu],
     buf: &mut [u8],
@@ -422,6 +458,35 @@ const CC_SIZE: usize = 8;
 /// - `buf`: Output buffer, must be large enough to hold the complete packet.
 ///
 /// Returns the total number of bytes written to `buf`.
+///
+/// # Example: Encode and decode a command packet without security
+///
+/// ```
+/// use simrs_ota::{CommandPacketHeader, Spi, KeyId, encode_command_packet, decode_command_packet};
+///
+/// let hdr = CommandPacketHeader {
+///     spi: Spi { spi1: 0x00, spi2: 0x00 },
+///     kic: KeyId::new(0x00),
+///     kid: KeyId::new(0x00),
+///     tar: [0xB0, 0x00, 0x10],
+///     counter: [0x00, 0x00, 0x00, 0x00, 0x01],
+///     padding_counter: 0,
+/// };
+/// let payload = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
+///
+/// let mut buf = [0u8; 256];
+/// let len = encode_command_packet(&hdr, &payload, None, None, &mut buf).unwrap();
+/// assert!(len > 0);
+///
+/// // Decode it back
+/// let mut dec_hdr = CommandPacketHeader::new();
+/// let mut dec_data = [0u8; 256];
+/// let dlen = decode_command_packet(
+///     &buf[..len], None, None, &mut dec_hdr, &mut dec_data,
+/// ).unwrap();
+/// assert_eq!(&dec_data[..dlen], &payload);
+/// assert_eq!(dec_hdr.tar, [0xB0, 0x00, 0x10]);
+/// ```
 pub fn encode_command_packet(
     hdr: &CommandPacketHeader,
     data: &[u8],
@@ -675,6 +740,24 @@ pub fn decode_command_packet(
 /// - `buf`: Output buffer.
 ///
 /// Returns the total number of bytes written.
+///
+/// ```
+/// use simrs_ota::{Spi, encode_response_packet};
+///
+/// let tar = [0xB0, 0x00, 0x10];
+/// let counter = [0x00, 0x00, 0x00, 0x00, 0x01];
+/// let spi = Spi { spi1: 0x00, spi2: 0x00 }; // no security
+///
+/// let mut buf = [0u8; 256];
+/// let len = encode_response_packet(
+///     &tar, &counter, 0x00, &[], &spi, None, None, &mut buf,
+/// ).unwrap();
+///
+/// // RPL(2) + RHL(1) + TAR(3) + CNTR(5) + PCNTR(1) + STATUS(1) = 13
+/// assert_eq!(len, 13);
+/// assert_eq!(&buf[3..6], &tar);
+/// assert_eq!(buf[12], 0x00); // status code
+/// ```
 #[allow(clippy::too_many_arguments)]
 pub fn encode_response_packet(
     tar: &[u8; 3],

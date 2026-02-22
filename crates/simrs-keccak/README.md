@@ -23,7 +23,7 @@ None (leaf crate).
 
 ## Tests
 
-4 unit tests + 1 doctest: all-zero known-answer test (KeccakCodePackage reference),
+4 unit tests + 3 doctests: all-zero known-answer test (KeccakCodePackage reference),
 byte/lane round-trip equivalence, non-identity, determinism.
 
 ## Specs

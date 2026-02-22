@@ -365,7 +365,7 @@ pub trait AuthAlgorithm {
     /// # Errors
     ///
     /// Returns [`MilenageError::MacFailure`] if MAC verification fails,
-    /// or [`MilenageError::SqnOutOfRange`] if the sequence number is stale.
+    /// or [`MilenageError::SyncFailure`] if the sequence number is stale.
     fn authenticate(&self, rand: &[u8; 16], autn: &[u8; 16]) -> Result<AuthOutput, MilenageError>;
 
     /// Serialize algorithm state.

@@ -35,15 +35,13 @@ graph LR
 
     classDef foundation fill:#0072B2,stroke:#333,color:#fff
     classDef application fill:#E69F00,stroke:#333,color:#000
-    classDef future fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
 
-    class COMP,MIL foundation
-    class TUAK future
+    class COMP,MIL,TUAK foundation
     class G2,G3,G4,G5 application
     class XOR foundation
 ```
 
-**Tradeoff: Milenage vs TUAK.** Milenage (TS 35.206) uses AES-128 and is universally deployed. TUAK (TS 35.231) uses Keccak-f[1600] (SHA-3 basis) and supports 256-bit keys, offering cryptographic diversity and better post-quantum margins. simrs implements Milenage first (P0). TUAK is P2 -- the f1-f5 interface is identical, so it's a drop-in via a trait.
+**Tradeoff: Milenage vs TUAK.** Milenage (TS 35.206) uses AES-128 and is universally deployed. TUAK (TS 35.231) uses Keccak-f[1600] (SHA-3 basis) and supports 256-bit keys, offering cryptographic diversity and better post-quantum margins. Both are implemented: Milenage in `simrs-milenage`, TUAK in `simrs-tuak` (backed by `simrs-keccak`). Both implement the `AuthAlgorithm` trait, so `simrs-hle` dispatches to either at runtime.
 
 | Aspect | Milenage (TS 35.206) | TUAK (TS 35.231) |
 |--------|---------------------|------------------|
@@ -69,7 +67,7 @@ The 3GPP f1-f5 function set defines a common interface for authentication algori
 | f5 | TS 35.205 clause 3.6 | `fn f5(&self, rand: &[u8; 16]) -> [u8; 6]` | Implemented |
 | f5* | TS 35.205 clause 3.7 | `fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6]` | Implemented |
 
-**Trait extraction (planned):** The `AuthAlgorithm` trait below is the target abstraction for TUAK support. Currently `simrs-usim` calls `MilenageParams` directly; extracting this trait is a prerequisite for TUAK (TS 35.231) as a drop-in replacement.
+**`AuthAlgorithm` trait:** The `AuthAlgorithm` trait (defined in `simrs-milenage`) abstracts the 3GPP f1-f5 function set. Both `MilenageParams` and `TuakParams` implement it, and `simrs-usim` is generic over `A: AuthAlgorithm`. `simrs-hle` dispatches to either algorithm at runtime via a `SimInstance` enum.
 
 ```rust
 /// Authentication algorithm set producing the 3GPP f1-f5 outputs.
@@ -78,6 +76,9 @@ The 3GPP f1-f5 function set defines a common interface for authentication algori
 /// # Standards
 /// - TS 35.205 clause 3 (function interface)
 /// - TS 33.102 clause 6.3 (usage in AKA)
+///
+/// Implemented by `MilenageParams` (simrs-milenage) and
+/// `TuakParams` (simrs-tuak).
 pub trait AuthAlgorithm {
     /// f1: Network auth code MAC-A (8 bytes typically)
     fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8];
@@ -96,7 +97,7 @@ pub trait AuthAlgorithm {
 }
 ```
 
-**Current state:** `MilenageParams` provides all f1-f5 functions with signatures conforming to TS 35.205. Future `TuakParams` support requires extracting this trait so `simrs-usim` can accept `impl AuthAlgorithm` rather than `MilenageParams` directly.
+**Current state:** Both `MilenageParams` and `TuakParams` implement `AuthAlgorithm`. `simrs-usim` and `simrs-sim` are generic over `A: AuthAlgorithm`, and `simrs-hle` selects the algorithm at initialization time.
 
 ---
 

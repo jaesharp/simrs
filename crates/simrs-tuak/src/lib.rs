@@ -1,13 +1,13 @@
 //! TUAK authentication algorithm (3GPP TS 35.231).
 //!
 //! Pure Rust implementation of the TUAK authentication and key generation
-//! functions for USIM. Built on Keccak-f[1600] via `simrs-keccak`.
+//! functions for USIM. Built on Keccak-f\[1600\] via `simrs-keccak`.
 //!
 //! Implements the [`AuthAlgorithm`] trait for integration with `simrs-usim`.
 //!
 //! # Algorithm Structure
 //!
-//! TUAK uses the Keccak-f[1600] permutation directly (not the sponge construction).
+//! TUAK uses the Keccak-f\[1600\] permutation directly (not the sponge construction).
 //! A 200-byte (1600-bit) state is constructed from:
 //!
 //! ```text
@@ -18,7 +18,7 @@
 //! All multi-byte fields are stored in reversed (big-endian-to-little-endian) byte
 //! order within the Keccak state per TS 35.231 clause 4.
 //!
-//! After applying Keccak-f[1600], outputs are extracted from specific byte positions
+//! After applying Keccak-f\[1600\], outputs are extracted from specific byte positions
 //! and reversed back to big-endian.
 //!
 //! # Output Sizes
@@ -33,7 +33,7 @@
 //! # TOPc Computation
 //!
 //! `TOPc` is derived from the operator constant `TOP` and the subscriber key `K`
-//! by running Keccak-f[1600] with `TOP` in the TOPc position, `INSTANCE=0x00`,
+//! by running Keccak-f\[1600\] with `TOP` in the TOPc position, `INSTANCE=0x00`,
 //! and zeroed RAND/SQN/AMF fields. The first 32 bytes of the output become TOPc.
 //!
 //! # Standards
@@ -148,7 +148,7 @@ impl<'a> SnapReader<'a> {
 /// TOP variant for initialization (analogous to Milenage's OpVariant).
 ///
 /// Either a pre-computed TOPc (256-bit) or a raw TOP value from which
-/// TOPc will be derived using Keccak-f[1600].
+/// TOPc will be derived using Keccak-f\[1600\].
 ///
 /// # Standards
 /// - 3GPP TS 35.231 clause 6.1 -- TOPc derivation
@@ -209,7 +209,7 @@ impl TuakParams {
     /// Create with standard parameters.
     ///
     /// If `top` is [`TopVariant::Top`], TOPc is derived from K and TOP using
-    /// Keccak-f[1600] per TS 35.231 clause 6.1.
+    /// Keccak-f\[1600\] per TS 35.231 clause 6.1.
     ///
     /// ```
     /// use simrs_tuak::{TuakParams, TopVariant};
@@ -577,7 +577,7 @@ fn tuak_f1_core(
     // SQN (6 bytes, reversed)
     push_data(&mut buf, OFF_SQN, sqn);
 
-    // Apply Keccak-f[1600]
+    // Apply Keccak-f\[1600\]
     keccak_f1600_bytes(&mut buf);
     buf
 }
@@ -596,7 +596,7 @@ fn tuak_f2345_core(
 
     // AMF and SQN are zero (already zeroed by init_state).
 
-    // Apply Keccak-f[1600]
+    // Apply Keccak-f\[1600\]
     keccak_f1600_bytes(&mut buf);
     buf
 }
@@ -615,7 +615,7 @@ fn tuak_f5star_core(
 
     // AMF and SQN are zero (already zeroed by init_state).
 
-    // Apply Keccak-f[1600]
+    // Apply Keccak-f\[1600\]
     keccak_f1600_bytes(&mut buf);
     buf
 }
@@ -630,7 +630,7 @@ fn compute_topc(key: &[u8; 16], top: &[u8; 32]) -> [u8; 32] {
 
     // RAND, AMF, SQN are all zero (already zeroed by init_state).
 
-    // Apply Keccak-f[1600]
+    // Apply Keccak-f\[1600\]
     keccak_f1600_bytes(&mut buf);
 
     // Extract first 32 bytes (reversed)
@@ -678,7 +678,7 @@ fn tuak_core_with_instance(
     // Padding
     buf[OFF_PAD_1F] = 0x1F;
     buf[OFF_PAD_80] = 0x80;
-    // Apply Keccak-f[1600]
+    // Apply Keccak-f\[1600\]
     keccak_f1600_bytes(&mut buf);
     buf
 }

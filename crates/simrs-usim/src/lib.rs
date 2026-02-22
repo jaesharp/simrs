@@ -4317,6 +4317,178 @@ mod tests {
         assert_eq!(sec, &[0xFF, 0x00],
             "DF security attributes should be [0xFF, 0x00] (always allowed)");
     }
+
+    // -----------------------------------------------------------------------
+    // AUTHENTICATE multi-step tests
+    // -----------------------------------------------------------------------
+
+    /// AUTHENTICATE UMTS (P2=0x81) with TS 135 208 Test Set 1 vectors.
+    /// Verifies that the full RES/CK/IK response matches independently
+    /// computed Milenage output byte-for-byte.
+    #[test]
+    fn authenticate_umts_known_vectors_res_ck_ik() {
+        let mut app = app();
+        // Select ADF USIM.
+        send(
+            &mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+        );
+
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+
+        // Compute AUTN from known SQN and AMF.
+        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let amf = [0xB9, 0xB9];
+        let ak = params.f5(&rand_val);
+        let mac_a = params.f1(&rand_val, &sqn, &amf);
+
+        let mut autn = [0u8; 16];
+        for i in 0..6 { autn[i] = sqn[i] ^ ak[i]; }
+        autn[6..8].copy_from_slice(&amf);
+        autn[8..16].copy_from_slice(&mac_a);
+
+        // Build AUTHENTICATE APDU.
+        let mut apdu = [0u8; 5 + 34];
+        apdu[0] = 0x00;
+        apdu[1] = 0x88;
+        apdu[3] = 0x81;
+        apdu[4] = 0x22;
+        apdu[5] = 0x10;
+        apdu[6..22].copy_from_slice(&rand_val);
+        apdu[22] = 0x10;
+        apdu[23..39].copy_from_slice(&autn);
+
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x61, 0x2D), "expected 61 2D (45 bytes available)");
+
+        // GET RESPONSE
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, 0x2D]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Independently compute expected values.
+        let expected = params.authenticate(&rand_val, &autn).unwrap();
+
+        // Verify RES (8 bytes at offset 3).
+        assert_eq!(&buf[3..11], &expected.res,
+            "RES must match Milenage f2 output");
+
+        // Verify CK (16 bytes at offset 12).
+        assert_eq!(&buf[12..28], &expected.ck,
+            "CK must match Milenage f3 output");
+
+        // Verify IK (16 bytes at offset 29).
+        assert_eq!(&buf[29..45], &expected.ik,
+            "IK must match Milenage f4 output");
+
+        // Sanity: none of RES/CK/IK should be all-zeros (non-trivial output).
+        assert_ne!(expected.res, [0u8; 8], "RES must not be all-zeros");
+        assert_ne!(expected.ck, [0u8; 16], "CK must not be all-zeros");
+        assert_ne!(expected.ik, [0u8; 16], "IK must not be all-zeros");
+    }
+
+    /// AUTHENTICATE with corrupted MAC in AUTN must return SW 98 62
+    /// (authentication error). This uses a valid RAND but an AUTN with
+    /// a deliberately wrong MAC-A.
+    #[test]
+    fn authenticate_umts_wrong_mac_returns_9862() {
+        let mut app = app();
+        // Use a non-zero RAND (not identity element).
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+
+        // Build AUTN with a deliberately corrupted MAC (all 0xAA).
+        let mut autn = [0u8; 16];
+        // SQN^AK = arbitrary
+        autn[0..6].copy_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
+        // AMF = arbitrary
+        autn[6..8].copy_from_slice(&[0x00, 0x00]);
+        // MAC-A = garbage (extremely unlikely to match real MAC)
+        autn[8..16].copy_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22]);
+
+        let mut apdu = [0u8; 5 + 34];
+        apdu[0] = 0x00;
+        apdu[1] = 0x88;
+        apdu[3] = 0x81;
+        apdu[4] = 0x22;
+        apdu[5] = 0x10;
+        apdu[6..22].copy_from_slice(&rand_val);
+        apdu[22] = 0x10;
+        apdu[23..39].copy_from_slice(&autn);
+
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(
+            sw(&buf, len), (0x98, 0x62),
+            "wrong MAC must return 98 62 (authentication error)"
+        );
+    }
+
+    /// AUTHENTICATE P2 context selection: P2=0x81 is UMTS, P2=0x00 is GSM,
+    /// and any other P2 value must be rejected with 6A 86.
+    #[test]
+    fn authenticate_p2_context_selection() {
+        let mut app = app();
+
+        // P2=0x81 (UMTS context) with garbage AUTN: should return 98 62 (MAC fail),
+        // proving the UMTS path was entered.
+        let mut umts_apdu = [0u8; 5 + 34];
+        umts_apdu[0] = 0x00;
+        umts_apdu[1] = 0x88;
+        umts_apdu[3] = 0x81; // UMTS
+        umts_apdu[4] = 0x22;
+        umts_apdu[5] = 0x10;
+        umts_apdu[22] = 0x10;
+        let (buf, len) = send(&mut app, &umts_apdu);
+        assert_eq!(sw(&buf, len), (0x98, 0x62),
+            "P2=0x81 must route to UMTS AUTHENTICATE");
+
+        // P2=0x00 (GSM context) with valid-format data: should return 61 0E (success),
+        // proving the GSM path was entered.
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let mut gsm_apdu = [0u8; 5 + 17];
+        gsm_apdu[0] = 0x00;
+        gsm_apdu[1] = 0x88;
+        gsm_apdu[3] = 0x00; // GSM
+        gsm_apdu[4] = 0x11;
+        gsm_apdu[5] = 0x10;
+        gsm_apdu[6..22].copy_from_slice(&rand_val);
+        let (buf, len) = send(&mut app, &gsm_apdu);
+        assert_eq!(sw(&buf, len), (0x61, 0x0E),
+            "P2=0x00 must route to GSM AUTHENTICATE and return 14 bytes");
+
+        // P2=0x82 (GBA_U/bootstrap, not supported): should return 6A 86.
+        let mut gba_apdu = [0u8; 5 + 34];
+        gba_apdu[0] = 0x00;
+        gba_apdu[1] = 0x88;
+        gba_apdu[3] = 0x82; // GBA_U -- not supported
+        gba_apdu[4] = 0x22;
+        gba_apdu[5] = 0x10;
+        gba_apdu[22] = 0x10;
+        let (buf, len) = send(&mut app, &gba_apdu);
+        assert_eq!(sw(&buf, len), (0x6A, 0x86),
+            "P2=0x82 (unsupported context) must return 6A 86");
+
+        // P2=0xFF (invalid): should also return 6A 86.
+        let mut inv_apdu = [0u8; 5 + 34];
+        inv_apdu[0] = 0x00;
+        inv_apdu[1] = 0x88;
+        inv_apdu[3] = 0xFF;
+        inv_apdu[4] = 0x22;
+        inv_apdu[5] = 0x10;
+        inv_apdu[22] = 0x10;
+        let (buf, len) = send(&mut app, &inv_apdu);
+        assert_eq!(sw(&buf, len), (0x6A, 0x86),
+            "P2=0xFF (invalid) must return 6A 86");
+    }
 }
 
 // ---------------------------------------------------------------------------

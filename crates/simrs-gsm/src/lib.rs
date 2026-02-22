@@ -2090,6 +2090,70 @@ mod tests {
                 "RUN GSM ALGORITHM must succeed after VERIFY");
         }
     }
+
+    // -----------------------------------------------------------------------
+    // PIN exhaustion sequence -- APDU-level integration test
+    // -----------------------------------------------------------------------
+
+    /// Full APDU-level PIN exhaustion sequence per GSM 11.11.
+    ///
+    /// Sends 3 wrong VERIFY PINs, checking remaining tries decrement from
+    /// 3 -> 2 -> 1 -> blocked. Then verifies that a correct PIN is also
+    /// rejected while blocked (SW 69 83).
+    ///
+    /// This tests the real protocol behavior end-to-end through the APDU
+    /// handler, not just the PIN state machine directly.
+    #[test]
+    fn pin_exhaustion_sequence_via_apdu() {
+        let mut app = app_with_pin1_enabled();
+
+        // Wrong PIN: "9999" (0x39 0x39 0x39 0x39 padded with 0xFF).
+        let wrong_pin = [
+            0xA0, 0x20, 0x00, 0x01, 0x08,
+            0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
+
+        // Correct PIN: "1234" (0x31 0x32 0x33 0x34 padded with 0xFF).
+        let correct_pin = [
+            0xA0, 0x20, 0x00, 0x01, 0x08,
+            0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
+
+        // Attempt 1 (wrong): should return 63 C2 (2 retries remaining).
+        let (buf, len) = send(&mut app, &wrong_pin);
+        assert_eq!(
+            sw(&buf, len), (0x63, 0xC2),
+            "first wrong PIN: expected 2 retries remaining (63 C2)"
+        );
+
+        // Attempt 2 (wrong): should return 63 C1 (1 retry remaining).
+        let (buf, len) = send(&mut app, &wrong_pin);
+        assert_eq!(
+            sw(&buf, len), (0x63, 0xC1),
+            "second wrong PIN: expected 1 retry remaining (63 C1)"
+        );
+
+        // Attempt 3 (wrong): should return 63 C0 (0 retries remaining -- blocked).
+        let (buf, len) = send(&mut app, &wrong_pin);
+        assert_eq!(
+            sw(&buf, len), (0x63, 0xC0),
+            "third wrong PIN: expected 0 retries remaining (63 C0)"
+        );
+
+        // PIN is now blocked. Correct PIN must be rejected with 69 83.
+        let (buf, len) = send(&mut app, &correct_pin);
+        assert_eq!(
+            sw(&buf, len), (0x69, 0x83),
+            "correct PIN while blocked must return 69 83 (authentication method blocked)"
+        );
+
+        // Another wrong PIN while blocked must also return 69 83.
+        let (buf, len) = send(&mut app, &wrong_pin);
+        assert_eq!(
+            sw(&buf, len), (0x69, 0x83),
+            "wrong PIN while blocked must return 69 83"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

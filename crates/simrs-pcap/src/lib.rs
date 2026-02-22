@@ -100,6 +100,22 @@ pub enum GsmTapSimSubType {
 /// - bit 0: direction  (0 = command, 1 = response)
 /// - bit 1: ATR flag   (0 = APDU, 1 = ATR)
 /// - bit 2: mismatch   (0 = match, 1 = divergence)
+///
+/// ```
+/// use simrs_pcap::{SimpleFlags, Direction};
+///
+/// // Command APDU, no mismatch
+/// let f = SimpleFlags::new(Direction::Command, false, false);
+/// assert_eq!(f.as_byte(), 0x00);
+/// assert_eq!(f.direction(), Direction::Command);
+/// assert!(!f.is_atr());
+/// assert!(!f.is_mismatch());
+///
+/// // Response ATR with mismatch
+/// let f = SimpleFlags::new(Direction::Response, true, true);
+/// assert_eq!(f.as_byte(), 0x07);
+/// assert_eq!(SimpleFlags::from_byte(f.as_byte()), f);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SimpleFlags(u8);
 
@@ -196,6 +212,22 @@ const fn put_be32(buf: &mut [u8], off: usize, v: u32) -> usize {
 /// Encode a 24-byte PCAP global (file) header in little-endian.
 ///
 /// Returns [`GLOBAL_HEADER_SIZE`] on success, or `0` if `buf` is too small.
+///
+/// ```
+/// use simrs_pcap::{encode_global_header, LinkType, GLOBAL_HEADER_SIZE, PCAP_MAGIC};
+///
+/// let mut buf = [0u8; 24];
+/// let n = encode_global_header(&mut buf, LinkType::GsmTap, 65535);
+/// assert_eq!(n, GLOBAL_HEADER_SIZE);
+///
+/// // First 4 bytes are the PCAP magic number in little-endian
+/// let magic = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+/// assert_eq!(magic, PCAP_MAGIC);
+///
+/// // Returns 0 if buffer is too small
+/// let mut small = [0u8; 23];
+/// assert_eq!(encode_global_header(&mut small, LinkType::GsmTap, 65535), 0);
+/// ```
 pub const fn encode_global_header(buf: &mut [u8], link_type: LinkType, snap_len: u32) -> usize {
     if buf.len() < GLOBAL_HEADER_SIZE {
         return 0;
@@ -214,6 +246,18 @@ pub const fn encode_global_header(buf: &mut [u8], link_type: LinkType, snap_len:
 /// Encode a 16-byte PCAP record (per-packet) header in little-endian.
 ///
 /// Returns [`RECORD_HEADER_SIZE`] on success, or `0` if `buf` is too small.
+///
+/// ```
+/// use simrs_pcap::{encode_record_header, RECORD_HEADER_SIZE};
+///
+/// let mut buf = [0u8; 16];
+/// let n = encode_record_header(&mut buf, 1_700_000_000, 123_456, 100, 100);
+/// assert_eq!(n, RECORD_HEADER_SIZE);
+///
+/// // Verify timestamp (little-endian u32 at offset 0)
+/// let ts = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+/// assert_eq!(ts, 1_700_000_000);
+/// ```
 pub const fn encode_record_header(
     buf: &mut [u8],
     ts_sec: u32,
@@ -280,6 +324,28 @@ pub const fn encode_gsmtap_sim(
 // ---------------------------------------------------------------------------
 
 /// Stateful PCAP encoder that knows the chosen link type.
+///
+/// ```
+/// use simrs_pcap::{PcapEncoder, LinkType, Direction, GLOBAL_HEADER_SIZE};
+///
+/// let enc = PcapEncoder::new(LinkType::User0);
+///
+/// // Write the global header
+/// let mut buf = [0u8; 512];
+/// let ghdr_len = enc.global_header(&mut buf);
+/// assert_eq!(ghdr_len, GLOBAL_HEADER_SIZE);
+///
+/// // Encode a command APDU packet after the global header
+/// let apdu = [0x00, 0xA4, 0x04, 0x00, 0x02, 0x3F, 0x00];
+/// let pkt_len = enc.encode_apdu(
+///     &mut buf[ghdr_len..], 1_700_000_000, 0, Direction::Command, &apdu,
+/// );
+/// assert!(pkt_len > 0);
+///
+/// // Total file size so far
+/// let total = ghdr_len + pkt_len;
+/// assert!(total < 512);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PcapEncoder {
     link_type: LinkType,

@@ -1,6 +1,6 @@
 //! HLE (High-Level Emulation) SIM peripheral for QEMU.
 //!
-//! Provides a safe Rust API around a thread-local [`SimInstance`]
+//! Provides a safe Rust API around a thread-local `SimInstance`
 //! enum that dispatches to either Milenage or TUAK authentication.
 //! QEMU hooks firmware function calls (e.g. `sim_send_apdu`) and
 //! forwards APDU buffers to simrs via these functions instead of emulating

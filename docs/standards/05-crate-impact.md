@@ -23,6 +23,12 @@ What 4G-LTE and 5G-NR support means for each simrs crate.
 | [simrs-sim](../../crates/simrs-sim/) | No change | No change | No change | -- |
 | [simrs-hle](../../crates/simrs-hle/) | No change | No change | No change | -- |
 | [simrs-snapshot](../../crates/simrs-snapshot/) | +EPS EF state | +DF_5GS EF state | No change | P1 |
+| [simrs-keccak](../../crates/simrs-keccak/) | None | None | None | -- |
+| [simrs-tuak](../../crates/simrs-tuak/) | Used identically | Used identically | Used identically | P0 |
+| [simrs-ota](../../crates/simrs-ota/) | No change | No change | No change | -- |
+| [simrs-pcap](../../crates/simrs-pcap/) | No change | No change | No change | -- |
+| [simrs-interposer](../../crates/simrs-interposer/) | No change | No change | No change | -- |
+| [simrs-auth-cli](../../crates/simrs-auth-cli/) | No change | No change | No change | -- |
 
 ---
 
@@ -32,12 +38,12 @@ What 4G-LTE and 5G-NR support means for each simrs crate.
 
 **Status:** No changes needed for any generation. The USIM runs f1-f5 identically for 3G/4G/5G. The AMF separation bit (0 for 3G/4G, 1 for 5G) is passed through AUTN but doesn't change the USIM-side computation.
 
-**Future:** Extract `AuthAlgorithm` trait from `MilenageParams` to enable TUAK (f1-f5 signatures already conform to TS 35.205 clause 3) as a drop-in. The trait interface matches the 3GPP f1-f5 function signatures exactly. TUAK implementation (P2) would add a `simrs-tuak` crate depending on a new `simrs-keccak` crate.
+**Done:** The `AuthAlgorithm` trait is defined in `simrs-milenage` and implemented by both `MilenageParams` and `TuakParams`. `simrs-usim` and `simrs-sim` are generic over `A: AuthAlgorithm`. `simrs-hle` selects the algorithm at runtime.
 
-```rust
-// Future crate dependency for TUAK support:
-//   simrs-tuak -> simrs-keccak (Keccak-f[1600] permutation)
-// Both would implement the AuthAlgorithm trait from simrs-milenage.
+```
+Crate dependency for TUAK support (implemented):
+  simrs-tuak -> simrs-keccak (Keccak-f[1600] permutation)
+  simrs-tuak -> simrs-milenage (AuthAlgorithm trait, AuthOutput, MilenageError)
 ```
 
 ### `simrs-fs`
@@ -87,7 +93,7 @@ What 4G-LTE and 5G-NR support means for each simrs crate.
 | 3 | proactive, gsm, usim | EPS EFs, DF_5GS EFs, AUTHENTICATE (all gens) |
 | 4 | sim, transport, peripheral | No generation-specific changes |
 | 5 | snapshot, hle, fuzz | Include EPS + 5G state in snapshots |
-| Future | simrs-tuak, simrs-keccak | TUAK algorithm (256-bit K for 5G SUCI) |
+| Done | simrs-tuak, simrs-keccak | TUAK algorithm (256-bit K for 5G SUCI) |
 | Future | simrs-kdf | HMAC-SHA-256 KDF for ME-side derivation (KASME, KAUSF) |
 | Future | simrs-ecies | ECIES for SUCI computation (Curve25519 / secp256r1) |
 

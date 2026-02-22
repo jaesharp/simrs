@@ -212,7 +212,7 @@ graph LR
     class UICC,APP composition
 ```
 
-**Impact on simrs:** OTA is primarily a transport concern. For fuzzing, we may want to inject OTA-style envelopes to test Shannon's SMS-PP handling. The ENVELOPE handler in `simrs-usim` needs to accept tag D1 data and route it. Full SCP80 unwrapping (3DES/AES + MAC verification) is P3.
+**Impact on simrs:** OTA packet encoding and decoding (AES-128 CBC-MAC + CBC encryption) is implemented in `simrs-ota`. Remote APDU structure per TS 102 226 is also handled. For fuzzing, we can inject OTA-style envelopes to test Shannon's SMS-PP handling. The ENVELOPE handler in `simrs-usim` needs to accept tag D1 data and route it to `simrs-ota` for SCP80 unwrapping.
 
 ---
 

@@ -393,7 +393,7 @@ mod tests {
     use super::*;
     use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef};
     use simrs_milenage::MilenageParams;
-    use simrs_sim::Sim;
+    use simrs_sim::{Sim, SimEvent, SimResponse};
     use simrs_transport_shmem::{ShmemHeader, MAGIC, VERSION};
 
     const RING_SIZE: u32 = 512;
@@ -724,12 +724,55 @@ mod tests {
 
     // -- sim_mut --
 
+    /// Verify that `sim_mut()` provides mutable access to the inner Sim
+    /// and that modifications through it are reflected in bridge behavior.
+    /// This test would fail if `sim_mut()` returned a dead reference or a copy.
+    ///
+    /// Strategy: push an APDU command into the ring BEFORE creating the bridge,
+    /// then use `sim_mut()` to power on the card. If `sim_mut()` returns a real
+    /// reference to the inner Sim, the APDU step will produce a real application
+    /// response. If `sim_mut()` were a no-op or copy, the card would stay Off
+    /// and the APDU would be Ignored (producing the 6F 00 fallback).
     #[test]
-    fn sim_mut_accessible() {
+    fn sim_mut_returns_functional_reference() {
         let mut shmem = make_shmem();
-        let sim = make_sim();
-        let mut bridge = QemuBridge::new(sim, &mut shmem).unwrap();
-        let _sim = bridge.sim_mut();
+
+        // Pre-load the APDU command into the cmd ring before the bridge is created.
+        push_cmd(&mut shmem, ShmemMsgType::Apdu, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+
+        {
+            let sim = make_sim();
+            let mut bridge = QemuBridge::new(sim, &mut shmem).unwrap();
+
+            // Power on the sim via sim_mut() so the card is in Ready state.
+            // This is the key assertion: sim_mut() must return the actual inner Sim.
+            let rsp = bridge.sim_mut().process(SimEvent::PowerOn);
+            match rsp {
+                SimResponse::Atr(atr) => {
+                    assert_eq!(atr, &ATR, "sim_mut() must return the actual inner Sim");
+                }
+                _ => panic!("expected Atr response from sim_mut().process(PowerOn)"),
+            }
+
+            // Now step the bridge to process the pre-loaded APDU.
+            // The card was powered on via sim_mut(), so step() should produce
+            // a real application-layer response.
+            assert!(bridge.step().unwrap(), "bridge should process the APDU");
+        }
+
+        // Pop the APDU response from the rsp ring.
+        let (msg_type, payload) = pop_rsp(&mut shmem).unwrap();
+        assert_eq!(msg_type, ShmemMsgType::Apdu);
+        assert!(payload.len() >= 2, "APDU response must have at least SW1 SW2");
+
+        // The SELECT MF should produce a real response (not the 6F 00 fallback
+        // that would occur if the card were still Off / sim_mut() didn't work).
+        let sw1 = payload[payload.len() - 2];
+        let sw2 = payload[payload.len() - 1];
+        assert_ne!(
+            (sw1, sw2), (0x6F, 0x00),
+            "response must not be fallback 6F 00 -- sim_mut() state must persist in bridge"
+        );
     }
 
     // -- encode_response --

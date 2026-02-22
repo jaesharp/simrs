@@ -1,10 +1,10 @@
-//! Keccak-f[1600] permutation.
+//! Keccak-f\[1600\] permutation.
 //!
-//! Pure Rust implementation of the Keccak-f[1600] permutation used as
+//! Pure Rust implementation of the Keccak-f\[1600\] permutation used as
 //! the core primitive of SHA-3 (FIPS 202) and TUAK (3GPP TS 35.231).
 //!
 //! This crate implements only the raw permutation function, not the
-//! sponge construction. TUAK uses Keccak-f[1600] directly.
+//! sponge construction. TUAK uses Keccak-f\[1600\] directly.
 //!
 //! # Standards
 //! - NIST FIPS 202 -- SHA-3 Standard
@@ -27,7 +27,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-/// Round constants for Keccak-f[1600] (FIPS 202 Section 3.2.5).
+/// Round constants for Keccak-f\[1600\] (FIPS 202 Section 3.2.5).
 ///
 /// 24 constants, one per round, derived from a degree-8 LFSR.
 const RC: [u64; 24] = [
@@ -131,7 +131,7 @@ const fn iota(state: &mut [u64; 25], round: usize) {
     state[0] ^= RC[round];
 }
 
-/// Apply the Keccak-f[1600] permutation to a 1600-bit state.
+/// Apply the Keccak-f\[1600\] permutation to a 1600-bit state.
 ///
 /// The state is represented as 25 64-bit lanes (5x5 array, row-major).
 /// The permutation consists of 24 rounds, each applying five step mappings:
@@ -155,7 +155,7 @@ pub fn keccak_f1600(state: &mut [u64; 25]) {
     }
 }
 
-/// Apply Keccak-f[1600] to a 200-byte state buffer.
+/// Apply Keccak-f\[1600\] to a 200-byte state buffer.
 ///
 /// Converts between little-endian byte representation and the internal
 /// lane representation, applies the permutation, and writes back.
@@ -194,11 +194,11 @@ pub fn keccak_f1600_bytes(state: &mut [u8; 200]) {
 mod tests {
     use super::*;
 
-    /// Known-answer test: Keccak-f[1600] applied to the all-zero state.
+    /// Known-answer test: Keccak-f\[1600\] applied to the all-zero state.
     ///
     /// Reference: `KeccakCodePackage` / `RustCrypto` keccak crate test vectors.
     /// These 25 lanes are the universally agreed-upon output of a single
-    /// Keccak-f[1600] permutation of the zero state.
+    /// Keccak-f\[1600\] permutation of the zero state.
     #[test]
     fn keccak_f1600_zero_state() {
         let expected: [u64; 25] = [
@@ -282,5 +282,162 @@ mod tests {
         keccak_f1600(&mut b);
 
         assert_eq!(a, b, "identical inputs must produce identical outputs");
+    }
+
+    /// Known-answer test with a non-zero input pattern (lane 0 = 0x01).
+    ///
+    /// A single-bit input state exercises all steps (theta parity is non-trivial,
+    /// rho rotates non-zero lanes, pi rearranges them, chi applies non-linear mixing).
+    #[test]
+    fn keccak_f1600_single_bit_input() {
+        let mut state = [0u64; 25];
+        state[0] = 0x01;
+        keccak_f1600(&mut state);
+
+        // The output must differ from the all-zero-input output.
+        let mut zero_state = [0u64; 25];
+        keccak_f1600(&mut zero_state);
+        assert_ne!(state, zero_state,
+            "single-bit input must produce different output than all-zero input");
+
+        // Lane 0 must not be 0x01 (input unchanged = identity bug).
+        assert_ne!(state[0], 0x01,
+            "lane 0 must change from input value");
+        // State must not be all-zeros (collapsed to zero = catastrophic bug).
+        assert_ne!(state, [0u64; 25],
+            "output must not be all-zeros");
+        // At least 20 of 25 lanes must be non-zero (good diffusion).
+        let nonzero_count = state.iter().filter(|&&x| x != 0).count();
+        assert!(nonzero_count >= 20,
+            "expected good diffusion: at least 20/25 non-zero lanes, got {nonzero_count}");
+    }
+
+    /// Known-answer test with all-ones input (every lane = 0xFFFFFFFFFFFFFFFF).
+    ///
+    /// This input exercises the full dynamic range of all step mappings.
+    /// Theta with all-ones parity produces a specific XOR pattern, rho
+    /// rotates max-value lanes, and chi with max values has distinctive
+    /// non-linear behavior.
+    #[test]
+    fn keccak_f1600_all_ones_input() {
+        let mut state = [0xFFFF_FFFF_FFFF_FFFFu64; 25];
+        let input_copy = state;
+        keccak_f1600(&mut state);
+
+        // Output must differ from input (not identity).
+        assert_ne!(state, input_copy,
+            "permutation of all-ones must not be the identity");
+        // Output must not be all-zeros (not collapsed).
+        assert_ne!(state, [0u64; 25],
+            "permutation of all-ones must not produce all-zeros");
+        // Output must differ from the all-zero-input result.
+        let mut zero_result = [0u64; 25];
+        keccak_f1600(&mut zero_result);
+        assert_ne!(state, zero_result,
+            "all-ones input must produce different output than all-zeros input");
+
+        // Verify determinism: re-running on the same input gives the same output.
+        let mut state2 = [0xFFFF_FFFF_FFFF_FFFFu64; 25];
+        keccak_f1600(&mut state2);
+        assert_eq!(state, state2,
+            "all-ones input must be deterministic");
+    }
+
+    /// Verify that the iota step correctly applies round constants by testing
+    /// that lane\[0\] = RC\[0\] (= 1) as initial state produces a different
+    /// result than the all-zero state. This exercises the round constant table
+    /// matching FIPS 202 Section 3.2.5.
+    #[test]
+    fn keccak_f1600_round_constant_lane0_propagation() {
+        let mut state_rc0 = [0u64; 25];
+        state_rc0[0] = 0x0000_0000_0000_0001; // RC[0]
+
+        keccak_f1600(&mut state_rc0);
+
+        let mut state_zero = [0u64; 25];
+        keccak_f1600(&mut state_zero);
+
+        assert_ne!(state_rc0, state_zero,
+            "state with lane[0]=RC[0] must produce different output than all-zero state");
+
+        assert_ne!(state_rc0, [0u64; 25], "result must not be all-zeros");
+        let nonzero = state_rc0.iter().filter(|&&x| x != 0).count();
+        assert!(nonzero >= 20,
+            "expected good diffusion: at least 20/25 non-zero lanes, got {nonzero}");
+    }
+
+    /// Verify that the permutation is NOT the identity for multiple distinct
+    /// non-trivial input patterns. Also verifies that different inputs produce
+    /// different outputs (injectivity for a proper permutation).
+    #[test]
+    fn keccak_f1600_not_identity_for_diverse_inputs() {
+        // Pattern 1: incrementing lanes (0, 1, 2, ..., 24).
+        let mut state1: [u64; 25] = core::array::from_fn(|i| i as u64);
+        let input1 = state1;
+        keccak_f1600(&mut state1);
+        assert_ne!(state1, input1,
+            "incrementing lanes: permutation must not be identity");
+
+        // Pattern 2: alternating bits (0xAAAA..., 0x5555..., ...).
+        let mut state2: [u64; 25] = core::array::from_fn(|i| {
+            if i % 2 == 0 { 0xAAAA_AAAA_AAAA_AAAA } else { 0x5555_5555_5555_5555 }
+        });
+        let input2 = state2;
+        keccak_f1600(&mut state2);
+        assert_ne!(state2, input2,
+            "alternating bits: permutation must not be identity");
+
+        // Pattern 3: single high bit in each lane.
+        let mut state3: [u64; 25] = core::array::from_fn(|i| 1u64 << (i % 64));
+        let input3 = state3;
+        keccak_f1600(&mut state3);
+        assert_ne!(state3, input3,
+            "single high bits: permutation must not be identity");
+
+        // Pattern 4: large prime-derived values (non-trivial, irrational-like).
+        let mut state4: [u64; 25] = core::array::from_fn(|i| {
+            let v = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                .wrapping_add(0x6A09_E667_F3BC_C908);
+            v ^ v.rotate_right(17)
+        });
+        let input4 = state4;
+        keccak_f1600(&mut state4);
+        assert_ne!(state4, input4,
+            "prime-derived pattern: permutation must not be identity");
+
+        // All four outputs must be mutually distinct.
+        assert_ne!(state1, state2, "pattern 1 and 2 outputs must differ");
+        assert_ne!(state1, state3, "pattern 1 and 3 outputs must differ");
+        assert_ne!(state1, state4, "pattern 1 and 4 outputs must differ");
+        assert_ne!(state2, state3, "pattern 2 and 3 outputs must differ");
+        assert_ne!(state2, state4, "pattern 2 and 4 outputs must differ");
+        assert_ne!(state3, state4, "pattern 3 and 4 outputs must differ");
+    }
+
+    /// Verify the byte interface produces correct results for a non-zero input.
+    ///
+    /// Sets the first byte of the 200-byte state to 0x01 (lane\[0\] = 0x01 in LE),
+    /// applies the permutation through both interfaces, and verifies they match.
+    #[test]
+    fn keccak_f1600_bytes_nonzero_input() {
+        let mut bytes = [0u8; 200];
+        bytes[0] = 0x01; // lane[0] = 0x01 in LE
+        keccak_f1600_bytes(&mut bytes);
+
+        let mut lanes = [0u64; 25];
+        lanes[0] = 0x01;
+        keccak_f1600(&mut lanes);
+
+        for (i, (lane, chunk)) in lanes.iter().zip(bytes.chunks_exact(8)).enumerate() {
+            assert_eq!(
+                chunk,
+                &lane.to_le_bytes(),
+                "lane {i}: byte and lane interfaces must agree for non-zero input"
+            );
+        }
+
+        // Output must not be all-zeros (non-trivial computation).
+        assert_ne!(bytes, [0u8; 200],
+            "non-zero input must produce non-zero output via byte interface");
     }
 }

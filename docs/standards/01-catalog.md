@@ -37,9 +37,9 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 | 3GPP TS 35.206 | Milenage: Algorithm spec | V16.0.0 | [milenage](../../crates/simrs-milenage/) | f1-f5, f1*, f5*, OPc |
 | 3GPP TS 35.207 | Milenage: Test data | V16.0.0 | [milenage](../../crates/simrs-milenage/) | 6 test sets |
 | 3GPP TS 35.208 | Milenage: Design conformance | V16.0.0 | [milenage](../../crates/simrs-milenage/) | Verification data |
-| 3GPP TS 35.231 | TUAK: Algorithm spec | V15.0.0 | Future | Keccak-based alternative to Milenage |
-| 3GPP TS 35.232 | TUAK: Test data | V12.1.0 | Future | Test vectors |
-| 3GPP TS 35.233 | TUAK: Design conformance | V12.1.0 | Future | Verification data |
+| 3GPP TS 35.231 | TUAK: Algorithm spec | V15.0.0 | [tuak](../../crates/simrs-tuak/) | Keccak-based alternative to Milenage |
+| 3GPP TS 35.232 | TUAK: Test data | V12.1.0 | [tuak](../../crates/simrs-tuak/) | Test vectors |
+| 3GPP TS 35.233 | TUAK: Design conformance | V12.1.0 | [tuak](../../crates/simrs-tuak/) | Verification data |
 
 ## Security Architecture
 
@@ -55,8 +55,8 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 | Spec | Title | Rel-17 | Rel-18 | simrs Crate |
 |------|-------|--------|--------|-------------|
 | ETSI TS 102 223 | Card Application Toolkit (CAT) | V17.2.0 | V18.2.0 | [proactive](../../crates/simrs-proactive/) |
-| ETSI TS 102 225 | Secured packet structure | V17.x | V18.1.0 | Future |
-| ETSI TS 102 226 | Remote APDU structure | V17.0.0 | V18.5.0 | Future |
+| ETSI TS 102 225 | Secured packet structure | V17.x | V18.1.0 | [ota](../../crates/simrs-ota/) |
+| ETSI TS 102 226 | Remote APDU structure | V17.0.0 | V18.5.0 | [ota](../../crates/simrs-ota/) |
 | 3GPP TS 31.115 | Secured packet (3GPP) | V17.x | -- | Future |
 | 3GPP TS 31.116 | Remote APDU (3GPP) | V17.x | -- | Future |
 | ETSI TS 102 241 | UICC API for Java Card | V17.5.0 | -- | N/A |
