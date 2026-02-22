@@ -20,6 +20,26 @@ graph TD
     style SIM fill:#E69F00,stroke:#333,color:#000
 ```
 
+## EF Catalog
+
+Full GSM EF catalog: 19 EFs under DF.GSM (7F20).
+
+EF definitions use typed constructors (`EfDef::transparent`, `EfDef::linear_fixed`,
+`EfDef::cyclic`) with compile-time validation. All DFs have compile-time FID
+uniqueness assertions via `simrs_fs::assert_fids_unique`.
+
+## Feature Flags and Profile Tiers
+
+EFs are gated by compile-time feature flags:
+
+| Feature | Description | EF Count | FsData Capacity |
+|---------|-------------|----------|-----------------|
+| `profile-minimal` | IMSI, Kc, LOCI, ACC, SST | 9 EFs | `FsData<256, 16>` |
+| `profile-standard` (default) | Full GSM 11.11 EF set | 19 EFs | `FsData<1024, 32>` |
+
+The public profile module (`simrs_gsm::profile`) provides `static` EF definitions
+for DF.GSM (7F20). 138+ tests.
+
 ## Standards
 
 | Spec | Coverage |

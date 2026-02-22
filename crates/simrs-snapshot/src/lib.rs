@@ -66,7 +66,7 @@ mod tests {
     use simrs_milenage::MilenageParams;
 
     static MF: DfDef = DfDef {
-        fid: Fid(0x3F00),
+        fid: Fid::new(0x3F00),
         children: &[],
     };
 
@@ -89,7 +89,7 @@ mod tests {
         let mut sim = make_sim();
         let _ = sim.process(SimEvent::PowerOn);
 
-        let mut buf = [0u8; 2048];
+        let mut buf = [0u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE];
         let n = Snapshot::save(&sim, &mut buf);
         assert_eq!(n, <Sim<MilenageParams, 256> as Snapshot>::SIZE);
 
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn trait_restore_invalid_data_returns_false() {
         let mut sim = make_sim();
-        let mut buf = [0u8; 2048];
+        let mut buf = [0u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE];
         let n = Snapshot::save(&sim, &mut buf);
         buf[0] = 0xFF; // invalid card state
         assert!(!Snapshot::restore(&mut sim, &buf[..n]));
@@ -140,8 +140,8 @@ mod tests {
             <Sim<MilenageParams, 512> as Snapshot>::SIZE,
         );
 
-        let mut buf1 = [0u8; 2048];
-        let mut buf2 = [0u8; 2048];
+        let mut buf1 = [0u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE];
+        let mut buf2 = [0u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE];
         let n1 = Snapshot::save(&sim_small, &mut buf1);
         let n2 = Snapshot::save(&sim_large, &mut buf2);
         assert_eq!(n1, n2);

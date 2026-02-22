@@ -6,7 +6,11 @@ license.workspace = true
 description = "GSM 11.11 SIM application layer (A3/A8, SELECT response) -- no_std"
 
 [features]
-default = []
+default = ["profile-standard"]
+
+# Profile tiers (additive)
+profile-minimal  = []   # IMSI, Kc, LOCI, ACC, SST (9 EFs, FsData<256, 16>)
+profile-standard = []   # Full GSM 11.11 EF set (19 EFs, FsData<1024, 32>)
 
 [dependencies]
 simrs-iso7816 = { workspace = true }

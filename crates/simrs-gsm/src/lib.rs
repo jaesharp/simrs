@@ -31,15 +31,15 @@
 //! ```
 //! use simrs_gsm::{GsmApp, Ki};
 //! use simrs_iso7816::Command;
-//! use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef};
+//! use simrs_fs::{DfDef, EfDef, Fid, FileRef};
 //! use simrs_pin::{PinKey, PinValue};
 //!
-//! static EF: EfDef = EfDef {
-//!     fid: Fid(0x2FE2), sfi: None,
-//!     structure: EfStructure::Transparent,
-//!     data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
-//! };
-//! static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[FileRef::Ef(&EF)] };
+//! static EF: EfDef = EfDef::transparent(
+//!     Fid::new(0x2FE2),
+//!     None,
+//!     &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
+//! );
+//! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[FileRef::Ef(&EF)] };
 //!
 //! let ki = Ki([0x01; 16]);
 //! let mut app = GsmApp::new(&MF, ki);
@@ -54,10 +54,32 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod profile;
+
 use simrs_comp128::comp128;
 use simrs_fs::{
-    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsData, FsError, SelectionCtx, SelectedFile,
+    AdfSlot, DfDef, EfDef, Fid, FsData, FsError, SelectionCtx, SelectedFile,
 };
+
+// ---------------------------------------------------------------------------
+// Feature-gated filesystem capacity constants
+// ---------------------------------------------------------------------------
+
+/// Filesystem data buffer capacity in bytes.
+#[cfg(all(feature = "profile-minimal", not(feature = "profile-standard")))]
+const FS_CAP: usize = 256;
+
+/// Filesystem data buffer capacity in bytes.
+#[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
+const FS_CAP: usize = 1024;
+
+/// Maximum number of EF entries in the filesystem.
+#[cfg(all(feature = "profile-minimal", not(feature = "profile-standard")))]
+const FS_MAX_EFS: usize = 16;
+
+/// Maximum number of EF entries in the filesystem.
+#[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
+const FS_MAX_EFS: usize = 32;
 use simrs_iso7816::{ins, sw2, Command, ResponseQueue, StatusWord, write_data_sw, write_sw, write_sw_raw};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
 
@@ -149,11 +171,6 @@ const UNBLOCK_CHV_INIT_10_RETRIES: u8 = 0x8A;
 // GSM 11.11 proprietary status word: offset/record out of range.
 const SW_OUT_OF_RANGE: [u8; 2] = [0x94, 0x02];
 
-// GSM 11.11 clause 10.3.3: EF structure type codes.
-const EF_STRUCTURE_TRANSPARENT: u8 = 0x00;
-const EF_STRUCTURE_LINEAR_FIXED: u8 = 0x01;
-const EF_STRUCTURE_CYCLIC: u8 = 0x03;
-
 // COMP128 result structure.
 const SRES_LEN: usize = 4;
 const KC_LEN: usize = 8;
@@ -176,7 +193,7 @@ const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
 /// COMP128 key, and the response queue for GET RESPONSE.
 pub struct GsmApp {
     fs: SelectionCtx,
-    data: FsData<256>,
+    data: FsData<FS_CAP, FS_MAX_EFS>,
     mf: &'static DfDef,
     pin: PinManager<5>,
     ki: Ki,
@@ -188,8 +205,8 @@ impl GsmApp {
     ///
     /// # Panics
     ///
-    /// Panics if the total EF data in `mf` exceeds 256 bytes or the tree
-    /// contains more than 32 elementary files.
+    /// Panics if the total EF data in `mf` exceeds the profile-dependent
+    /// `FsData` buffer capacity or the EF count limit.
     ///
     /// # Example
     ///
@@ -197,7 +214,7 @@ impl GsmApp {
     /// use simrs_gsm::{GsmApp, Ki};
     /// use simrs_fs::{DfDef, Fid};
     ///
-    /// static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[] };
+    /// static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
     /// let app = GsmApp::new(&MF, Ki([0u8; 16]));
     /// ```
     pub fn new(mf: &'static DfDef, ki: Ki) -> Self {
@@ -222,7 +239,7 @@ impl GsmApp {
 
     /// Snapshot buffer size in bytes.
     pub const SNAPSHOT_SIZE: usize =
-        SelectionCtx::SNAPSHOT_SIZE + FsData::<256>::SNAPSHOT_SIZE + PinManager::<5>::SNAPSHOT_SIZE + 16 + ResponseQueue::<23>::SNAPSHOT_SIZE;
+        SelectionCtx::SNAPSHOT_SIZE + FsData::<FS_CAP, FS_MAX_EFS>::SNAPSHOT_SIZE + PinManager::<5>::SNAPSHOT_SIZE + 16 + ResponseQueue::<23>::SNAPSHOT_SIZE;
 
     /// Serialize the GSM application state into `buf`.
     ///
@@ -269,7 +286,7 @@ impl GsmApp {
         if !self.data.restore_state(&buf[off..]) {
             return false;
         }
-        off += FsData::<256>::SNAPSHOT_SIZE;
+        off += FsData::<FS_CAP, FS_MAX_EFS>::SNAPSHOT_SIZE;
         if !self.pin.restore_state(&buf[off..]) {
             return false;
         }
@@ -776,13 +793,13 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
 
     // Bytes 0-1: RFU.
     // Bytes 2-3: file size (big-endian).
-    let size = ef.data.len() as u16;
+    let size = ef.data().len() as u16;
     let size_be = size.to_be_bytes();
     out[2] = size_be[0];
     out[3] = size_be[1];
 
     // Bytes 4-5: File ID.
-    let fid_be = ef.fid.to_be_bytes();
+    let fid_be = ef.fid().to_be_bytes();
     out[4] = fid_be[0];
     out[5] = fid_be[1];
 
@@ -790,10 +807,7 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
     out[6] = FILE_TYPE_EF;
 
     // Byte 7: 0x01 for cyclic, 0x00 otherwise.
-    out[7] = match ef.structure {
-        EfStructure::Cyclic { .. } => 0x01,
-        _ => 0x00,
-    };
+    out[7] = ef.structure().gsm_increase_byte();
 
     // Bytes 8-10: access conditions (all zeros = always allowed).
     // Byte 11: file status (not invalidated).
@@ -803,18 +817,10 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
     out[12] = EF_EXTRA_DATA_LEN;
 
     // Byte 13: EF structure.
-    out[13] = match ef.structure {
-        EfStructure::Transparent | EfStructure::BerTlv => EF_STRUCTURE_TRANSPARENT,
-        EfStructure::LinearFixed { .. } => EF_STRUCTURE_LINEAR_FIXED,
-        EfStructure::Cyclic { .. } => EF_STRUCTURE_CYCLIC,
-    };
+    out[13] = ef.structure().gsm_structure_byte();
 
     // Byte 14: record length.
-    out[14] = match ef.structure {
-        EfStructure::LinearFixed { record_size, .. }
-        | EfStructure::Cyclic { record_size, .. } => record_size,
-        EfStructure::Transparent | EfStructure::BerTlv => 0x00,
-    };
+    out[14] = ef.structure().record_size();
 }
 
 // ---------------------------------------------------------------------------
@@ -824,31 +830,27 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_fs::{EfDef, EfStructure, Fid, FileRef, Sfi};
+    use simrs_fs::{EfDef, Fid, FileRef, Sfi};
 
     // -- Test filesystem --
 
-    static EF_ICCID: EfDef = EfDef {
-        fid: Fid(0x2FE2),
-        sfi: Some(Sfi(2)),
-        structure: EfStructure::Transparent,
-        data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
-    };
+    static EF_ICCID: EfDef = EfDef::transparent(
+        Fid::new(0x2FE2),
+        Some(Sfi::new(2)),
+        &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
+    );
 
     static EF_DIR_DATA: [u8; 16] = [
         0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
 
-    static EF_DIR: EfDef = EfDef {
-        fid: Fid(0x2F00),
-        sfi: Some(Sfi(30)),
-        structure: EfStructure::LinearFixed {
-            record_size: 8,
-            num_records: 2,
-        },
-        data: &EF_DIR_DATA,
-    };
+    static EF_DIR: EfDef = EfDef::linear_fixed(
+        Fid::new(0x2F00),
+        Some(Sfi::new(30)),
+        8, 2,
+        &EF_DIR_DATA,
+    );
 
     static EF_ADN_DATA: [u8; 42] = [
         0x41, 0x6C, 0x69, 0x63, 0x65, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -856,15 +858,12 @@ mod tests {
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
 
-    static EF_ADN: EfDef = EfDef {
-        fid: Fid(0x6F3A),
-        sfi: None,
-        structure: EfStructure::LinearFixed {
-            record_size: 14,
-            num_records: 3,
-        },
-        data: &EF_ADN_DATA,
-    };
+    static EF_ADN: EfDef = EfDef::linear_fixed(
+        Fid::new(0x6F3A),
+        None,
+        14, 3,
+        &EF_ADN_DATA,
+    );
 
     static EF_CCP_DATA: [u8; 12] = [
         0x00, 0x00, 0x01, 0x00,  // record 1: value = 0x000100
@@ -872,42 +871,37 @@ mod tests {
         0x00, 0x00, 0x00, 0x00,  // record 3
     ];
 
-    static EF_CCP: EfDef = EfDef {
-        fid: Fid(0x6F14),
-        sfi: None,
-        structure: EfStructure::Cyclic {
-            record_size: 4,
-            num_records: 3,
-        },
-        data: &EF_CCP_DATA,
-    };
+    static EF_CCP: EfDef = EfDef::cyclic(
+        Fid::new(0x6F14),
+        None,
+        4, 3,
+        &EF_CCP_DATA,
+    );
 
     static DF_TELECOM: DfDef = DfDef {
-        fid: Fid(0x7F10),
+        fid: Fid::new(0x7F10),
         children: &[FileRef::Ef(&EF_ADN), FileRef::Ef(&EF_CCP)],
     };
 
-    static EF_IMSI: EfDef = EfDef {
-        fid: Fid(0x6F07),
-        sfi: Some(Sfi(7)),
-        structure: EfStructure::Transparent,
-        data: &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
-    };
+    static EF_IMSI: EfDef = EfDef::transparent(
+        Fid::new(0x6F07),
+        Some(Sfi::new(7)),
+        &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
+    );
 
-    static EF_KC: EfDef = EfDef {
-        fid: Fid(0x6F20),
-        sfi: None,
-        structure: EfStructure::Transparent,
-        data: &[0xFF; 9],
-    };
+    static EF_KC: EfDef = EfDef::transparent(
+        Fid::new(0x6F20),
+        None,
+        &[0xFF; 9],
+    );
 
     static DF_GSM: DfDef = DfDef {
-        fid: Fid(0x7F20),
+        fid: Fid::new(0x7F20),
         children: &[FileRef::Ef(&EF_IMSI), FileRef::Ef(&EF_KC)],
     };
 
     static MF: DfDef = DfDef {
-        fid: Fid(0x3F00),
+        fid: Fid::new(0x3F00),
         children: &[
             FileRef::Ef(&EF_ICCID),
             FileRef::Ef(&EF_DIR),
@@ -1672,8 +1666,13 @@ mod tests {
 
     #[test]
     fn snapshot_size_correct() {
-        // fs(8) + data(256) + pin(111) + ki(16) + rsp_queue(23) + rsp_queue_len(1) = 415
-        assert_eq!(GsmApp::SNAPSHOT_SIZE, 415);
+        // SelectionCtx + FsData + PinManager<5> + Ki(16) + ResponseQueue<23>
+        let expected = simrs_fs::SelectionCtx::SNAPSHOT_SIZE
+            + simrs_fs::FsData::<{ super::FS_CAP }, { super::FS_MAX_EFS }>::SNAPSHOT_SIZE
+            + simrs_pin::PinManager::<5>::SNAPSHOT_SIZE
+            + 16
+            + simrs_iso7816::ResponseQueue::<23>::SNAPSHOT_SIZE;
+        assert_eq!(GsmApp::SNAPSHOT_SIZE, expected);
     }
 
     #[test]
@@ -2317,6 +2316,317 @@ mod tests {
             "PUK retry query must report 0 retries after exhaustion"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Reference profile tests -- Phase 7
+    // -----------------------------------------------------------------------
+
+    /// Create a [`GsmApp`] from the reference GSM profile with PIN1 verified.
+    fn ref_app() -> GsmApp {
+        use crate::profile;
+        let ki = Ki([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
+                     0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]);
+        let mut a = GsmApp::new(&profile::REFERENCE_MF_GSM, ki);
+        let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+        a.pin_manager()
+            .add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
+            .unwrap();
+        let _ = a.pin_manager().verify(PinKey::PIN1, &pin_val);
+        a
+    }
+
+    // -- SELECT and READ on reference profile EFs --
+
+    /// SELECT MF on reference profile returns response data available.
+    #[test]
+    fn ref_select_mf() {
+        let mut app = ref_app();
+        let (buf, len) = send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
+        assert_eq!(len, 2);
+        assert_eq!(buf[0], 0x9F, "SELECT MF must return 9F XX");
+        assert_eq!(buf[1], 23, "MF response must be 23 bytes");
+    }
+
+    /// SELECT DF.GSM and verify response has correct FID.
+    #[test]
+    fn ref_select_df_gsm() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xC0, 0x00, 0x00, 0x17]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[4], 0x7F, "FID high byte");
+        assert_eq!(buf[5], 0x20, "FID low byte");
+        assert_eq!(buf[6], 0x02, "file type = DF");
+    }
+
+    /// SELECT EF.ICCID from MF and read its 10-byte content.
+    #[test]
+    fn ref_read_ef_iccid() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 10 + 2, "EF.ICCID must be 10 bytes");
+        // First nibble-swapped byte should be 0x98 (ICCID starts with 89)
+        assert_eq!(buf[0], 0x98, "EF.ICCID first byte must be 0x98");
+    }
+
+    /// SELECT DF.GSM, then EF.IMSI, and verify content.
+    #[test]
+    fn ref_read_ef_imsi() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x07]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x09]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 9 + 2, "EF.IMSI must be 9 bytes");
+        assert_eq!(buf[0], 0x08, "IMSI length byte must be 0x08");
+    }
+
+    /// READ EF.Kc (9 bytes) and verify CKSN.
+    #[test]
+    fn ref_read_ef_kc() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x20]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x09]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 9 + 2);
+        assert_eq!(buf[8], 0x07, "EF.Kc CKSN must be 0x07 (no key)");
+    }
+
+    /// READ EF.SST (14 bytes).
+    #[test]
+    fn ref_read_ef_sst() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x38]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0E]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 14 + 2);
+    }
+
+    /// READ EF.LOCI (11 bytes) and verify structure.
+    #[test]
+    fn ref_read_ef_loci() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x7E]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0B]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 11 + 2);
+        assert_eq!(buf[10], 0x03, "LOCI update status must be 0x03");
+    }
+
+    /// SELECT EF.AD (3 bytes) and read.
+    #[test]
+    fn ref_read_ef_ad() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0xAD]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x03]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 3 + 2);
+    }
+
+    /// UPDATE BINARY on EF.AD and verify round-trip.
+    #[test]
+    fn ref_update_binary_roundtrip_ef_ad() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0xAD]);
+        // Write [0xAA, 0xBB, 0xCC]
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x00, 0x03, 0xAA, 0xBB, 0xCC]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Read back
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x03]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(&buf[..3], &[0xAA, 0xBB, 0xCC],
+            "read-back must match written data");
+    }
+
+    /// Navigate MF -> DF.GSM -> EF.IMSI -> MF -> EF.ICCID round-trip.
+    #[test]
+    fn ref_navigation_roundtrip() {
+        let mut app = ref_app();
+        // MF -> DF.GSM
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        // EF.IMSI
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x07]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x09]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x08, "IMSI length byte");
+        // Back to MF
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
+        // EF.ICCID
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x98, "ICCID first byte");
+    }
+
+    /// SELECT EF response structure fields for a transparent EF from reference profile.
+    #[test]
+    fn ref_ef_select_response_structure() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x38]); // EF.SST
+        let (buf, len) = send(&mut app, &[0xA0, 0xC0, 0x00, 0x00, 0x0F]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[4], 0x6F, "FID high");
+        assert_eq!(buf[5], 0x38, "FID low");
+        assert_eq!(buf[6], 0x04, "file type = EF");
+        assert_eq!(buf[13], 0x00, "structure = transparent");
+        // File size (bytes 2-3, big-endian) should be 14.
+        let file_size = u16::from_be_bytes([buf[2], buf[3]]);
+        assert_eq!(file_size, 14, "EF.SST file size must be 14 bytes");
+    }
+
+    /// Sequential SELECT of multiple EFs in DF.GSM.
+    #[test]
+    fn ref_sequential_select_df_gsm_efs() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+
+        // Table of (FID_hi, FID_lo, expected_data_size) for transparent EFs.
+        let efs: [(u8, u8, u8); 7] = [
+            (0x6F, 0x07, 9),   // EF.IMSI
+            (0x6F, 0x20, 9),   // EF.Kc
+            (0x6F, 0x31, 1),   // EF.HPPLMN
+            (0x6F, 0x38, 14),  // EF.SST
+            (0x6F, 0x78, 2),   // EF.ACC
+            (0x6F, 0x7E, 11),  // EF.LOCI
+            (0x6F, 0xAD, 3),   // EF.AD
+        ];
+
+        for (hi, lo, size) in &efs {
+            send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, *hi, *lo]);
+            let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, *size]);
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "READ BINARY on EF {hi:#04X}{lo:02X} must succeed");
+            assert_eq!(len, *size as usize + 2,
+                "EF {hi:#04X}{lo:02X} data length mismatch");
+        }
+    }
+
+    /// RUN GSM ALGORITHM on reference profile produces valid COMP128 result.
+    #[test]
+    fn ref_run_gsm_algo() {
+        let mut app = ref_app();
+        let rand: [u8; 16] = [0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+                               0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35];
+        let mut apdu = [0u8; 21];
+        apdu[0] = 0xA0;
+        apdu[1] = 0x88;
+        apdu[4] = 0x10;
+        apdu[5..21].copy_from_slice(&rand);
+
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x9F, 0x0C), "RUN GSM ALGO must queue 12 bytes");
+
+        let (buf, len) = send(&mut app, &[0xA0, 0xC0, 0x00, 0x00, 0x0C]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 12 + 2);
+
+        // Verify against direct COMP128 computation.
+        let ki = Ki([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
+                     0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]);
+        let expected = comp128(&ki, &rand);
+        assert_eq!(&buf[..4], &expected.sres, "SRES mismatch");
+        assert_eq!(&buf[4..12], &expected.kc, "Kc mismatch");
+    }
+
+    // -----------------------------------------------------------------------
+    // Adversarial / defensive tests -- Phase 7
+    // -----------------------------------------------------------------------
+
+    /// SELECT nonexistent FID on reference profile.
+    #[test]
+    fn ref_select_nonexistent_fid() {
+        let mut app = ref_app();
+        let (buf, len) = send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0xDE, 0xAD]);
+        assert_eq!(sw(&buf, len), (0x94, 0x04), "nonexistent FID must return 94 04");
+    }
+
+    /// READ BINARY past end of EF.ICCID.
+    #[test]
+    fn ref_read_binary_past_end() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        // EF.ICCID is 10 bytes. Read 5 bytes at offset 8 goes past end.
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x08, 0x05]);
+        assert_eq!(sw(&buf, len), (0x94, 0x02), "read past end must return 94 02");
+    }
+
+    /// UPDATE BINARY past end of EF.
+    #[test]
+    fn ref_update_binary_past_end() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0xAD]); // EF.AD (3 bytes)
+        // Write 4 bytes at offset 1 = 5 bytes total, exceeds 3.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x01, 0x04, 0x01, 0x02, 0x03, 0x04]);
+        assert_eq!(sw(&buf, len), (0x94, 0x02), "update past end must return 94 02");
+    }
+
+    /// READ BINARY with no EF selected on reference profile.
+    #[test]
+    fn ref_read_binary_no_ef() {
+        let mut app = ref_app();
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x01]);
+        assert_eq!(sw(&buf, len), (0x94, 0x00), "no EF selected must return 94 00");
+    }
+
+    /// RUN GSM ALGORITHM with wrong-length RAND.
+    #[test]
+    fn ref_run_gsm_algo_wrong_length() {
+        let mut app = ref_app();
+        // Only 8 bytes instead of 16.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x88, 0x00, 0x00, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+        assert_eq!(sw(&buf, len), (0x67, 0x00), "wrong RAND length must return 67 00");
+    }
+
+    /// STATUS on reference profile shows MF by default.
+    #[test]
+    fn ref_status_shows_mf() {
+        let mut app = ref_app();
+        let (buf, len) = send(&mut app, &[0xA0, 0xF2, 0x00, 0x00, 0x17]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[4], 0x3F);
+        assert_eq!(buf[5], 0x00);
+    }
+
+    /// Multiple updates at different offsets verify each other.
+    #[test]
+    fn ref_multi_update_binary() {
+        let mut app = ref_app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x7B]); // EF.FPLMN (12 bytes)
+
+        // Write [0x11, 0x22] at offset 0
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x00, 0x02, 0x11, 0x22]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Write [0x33, 0x44] at offset 4
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x04, 0x02, 0x33, 0x44]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Read all 12 bytes -- first 2 changed, bytes 4-5 changed, rest unchanged
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0C]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x11);
+        assert_eq!(buf[1], 0x22);
+        assert_eq!(buf[2], 0xFF); // unchanged
+        assert_eq!(buf[3], 0xFF); // unchanged
+        assert_eq!(buf[4], 0x33);
+        assert_eq!(buf[5], 0x44);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2326,22 +2636,47 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     use super::*;
-    use simrs_fs::{EfDef, EfStructure, Fid, FileRef};
+    use simrs_fs::{EfDef, Fid, FileRef};
     use proptest::prelude::*;
 
-    static PT_EF: EfDef = EfDef {
-        fid: Fid(0x2FE2),
-        sfi: None,
-        structure: EfStructure::Transparent,
-        data: &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
-    };
+    static PT_EF: EfDef = EfDef::transparent(
+        Fid::new(0x2FE2),
+        None,
+        &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
+    );
 
     static PT_MF: DfDef = DfDef {
-        fid: Fid(0x3F00),
+        fid: Fid::new(0x3F00),
         children: &[FileRef::Ef(&PT_EF)],
     };
 
+    // Linear-fixed EF for record-based proptest.
+    static PT_LF_DATA: [u8; 18] = [
+        0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6,
+        0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6,
+        0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
+    ];
+
+    static PT_LF_EF: EfDef = EfDef::linear_fixed(
+        Fid::new(0x6F3A),
+        None,
+        6, 3,
+        &PT_LF_DATA,
+    );
+
+    static PT_DF: DfDef = DfDef {
+        fid: Fid::new(0x7F20),
+        children: &[FileRef::Ef(&PT_LF_EF)],
+    };
+
+    static PT_MF2: DfDef = DfDef {
+        fid: Fid::new(0x3F00),
+        children: &[FileRef::Ef(&PT_EF), FileRef::Df(&PT_DF)],
+    };
+
     proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
         // Any valid READ BINARY offset+length within file returns 90 00.
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
@@ -2385,6 +2720,84 @@ mod proptests {
             let expected = comp128(&ki, &rand_arr);
             prop_assert_eq!(&buf[..4], &expected.sres);
             prop_assert_eq!(&buf[4..12], &expected.kc);
+        }
+
+        // Out-of-bounds READ BINARY always fails.
+        #[test]
+        fn read_binary_out_of_bounds_fails(offset in 0u16..256, length in 1u8..=255u8) {
+            prop_assume!(u32::from(offset) + u32::from(length) > 8);
+            let mut app = GsmApp::new(&PT_MF, Ki([0u8; 16]));
+            let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
+            let cmd = Command::parse(&sel).unwrap();
+            let mut buf = [0u8; 256];
+            let _ = app.handle(&cmd, &mut buf);
+
+            let off_hi = (offset >> 8) as u8;
+            let off_lo = (offset & 0xFF) as u8;
+            let rb = [0xA0, 0xB0, off_hi, off_lo, length];
+            let cmd = Command::parse(&rb).unwrap();
+            let rsp = app.handle(&cmd, &mut buf);
+            let len = rsp.len();
+            prop_assert_ne!((buf[len-2], buf[len-1]), (0x90, 0x00),
+                "out-of-bounds READ BINARY must not succeed");
+        }
+
+        // Arbitrary data written via UPDATE BINARY reads back identically.
+        #[test]
+        #[allow(clippy::cast_possible_truncation)] // data.len() is 1..=8, fits in u8
+        fn update_binary_roundtrip(data in proptest::collection::vec(any::<u8>(), 1..=8)) {
+            let mut app = GsmApp::new(&PT_MF, Ki([0u8; 16]));
+            let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
+            let cmd = Command::parse(&sel).unwrap();
+            let mut buf = [0u8; 256];
+            let _ = app.handle(&cmd, &mut buf);
+
+            let lc = data.len() as u8;
+            let mut apdu = [0u8; 5 + 8];
+            apdu[0] = 0xA0;
+            apdu[1] = 0xD6;
+            apdu[2] = 0x00;
+            apdu[3] = 0x00;
+            apdu[4] = lc;
+            apdu[5..5 + data.len()].copy_from_slice(&data);
+
+            let cmd = Command::parse(&apdu[..5 + data.len()]).unwrap();
+            let rsp = app.handle(&cmd, &mut buf);
+            let len = rsp.len();
+            prop_assert_eq!((buf[len-2], buf[len-1]), (0x90, 0x00),
+                "UPDATE BINARY must succeed");
+
+            let rb = [0xA0, 0xB0, 0x00, 0x00, lc];
+            let cmd = Command::parse(&rb).unwrap();
+            let rsp = app.handle(&cmd, &mut buf);
+            let len = rsp.len();
+            prop_assert_eq!((buf[len-2], buf[len-1]), (0x90, 0x00),
+                "READ BINARY after update must succeed");
+            prop_assert_eq!(&buf[..data.len()], &data[..],
+                "read-back data must match written data");
+        }
+
+        // For any valid record number, READ RECORD succeeds.
+        #[test]
+        fn read_record_in_bounds(rec in 1u8..=3u8) {
+            let mut app = GsmApp::new(&PT_MF2, Ki([0u8; 16]));
+            // Navigate to DF, then EF
+            let sel_df = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20];
+            let cmd = Command::parse(&sel_df).unwrap();
+            let mut buf = [0u8; 256];
+            let _ = app.handle(&cmd, &mut buf);
+
+            let sel_ef = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x3A];
+            let cmd = Command::parse(&sel_ef).unwrap();
+            let _ = app.handle(&cmd, &mut buf);
+
+            let rr = [0xA0, 0xB2, rec, 0x04, 0x06];
+            let cmd = Command::parse(&rr).unwrap();
+            let rsp = app.handle(&cmd, &mut buf);
+            let len = rsp.len();
+            prop_assert_eq!((buf[len-2], buf[len-1]), (0x90, 0x00),
+                "READ RECORD {} must succeed", rec);
+            prop_assert_eq!(len, 6 + 2, "record data must be 6 bytes");
         }
     }
 }

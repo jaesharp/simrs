@@ -82,33 +82,33 @@ All commands are BER-TLV with outer tag `0xD0`. Each starts with Command Details
 
 | Type | Hex | Command | simrs Support |
 |------|-----|---------|---------------|
-| 0x01 | REFRESH | Force file re-read | P1 |
-| 0x11 | SEND SS | Send supplementary service | P3 |
-| 0x13 | SEND SHORT MESSAGE | Send SMS | P2 |
-| 0x20 | SET UP EVENT LIST | Register for events | P2 |
-| 0x21 | DISPLAY TEXT | Show text on screen | P0 (implemented in swsim) |
-| 0x22 | GET INKEY | Single character input | P2 |
-| 0x23 | GET INPUT | Multi-character input | P2 |
-| 0x24 | SELECT ITEM | Menu selection | P2 |
-| 0x25 | SET UP MENU | Install persistent menu | P0 (implemented in swsim) |
+| 0x01 | REFRESH | Force file re-read | Implemented |
+| 0x11 | SEND SS | Send supplementary service | Implemented |
+| 0x13 | SEND SHORT MESSAGE | Send SMS | Implemented |
+| 0x05 | SET UP EVENT LIST | Register for events | Implemented |
+| 0x21 | DISPLAY TEXT | Show text on screen | Implemented |
+| 0x22 | GET INKEY | Single character input | Implemented |
+| 0x23 | GET INPUT | Multi-character input | Implemented |
+| 0x24 | SELECT ITEM | Menu selection | Implemented |
+| 0x25 | SET UP MENU | Install persistent menu | Implemented |
 
 ### Browser & Bearer
 
 | Type | Hex | Command | simrs Support |
 |------|-----|---------|---------------|
-| 0x15 | LAUNCH BROWSER | Open URL | P1 (implemented in swsim) |
-| 0x40 | OPEN CHANNEL | Open data channel (BIP) | P3 |
-| 0x41 | CLOSE CHANNEL | Close data channel | P3 |
-| 0x42 | RECEIVE DATA | Read from channel | P3 |
-| 0x43 | SEND DATA | Write to channel | P3 |
+| 0x15 | LAUNCH BROWSER | Open URL | Implemented |
+| 0x40 | OPEN CHANNEL | Open data channel (BIP) | Implemented |
+| 0x41 | CLOSE CHANNEL | Close data channel | Implemented |
+| 0x42 | RECEIVE DATA | Read from channel | Implemented |
+| 0x43 | SEND DATA | Write to channel | Implemented |
 
 ### Tone & Call
 
 | Type | Hex | Command | simrs Support |
 |------|-----|---------|---------------|
-| 0x20 | PLAY TONE | Audio feedback | P1 (implemented in swsim) |
-| 0x10 | SET UP CALL | Initiate voice call | P2 |
-| 0x34 | SET UP IDLE MODE TEXT | Idle screen text | P3 |
+| 0x20 | PLAY TONE | Audio feedback | Implemented |
+| 0x10 | SET UP CALL | Initiate voice call | Implemented |
+| 0x28 | SET UP IDLE MODE TEXT | Idle screen text | Implemented |
 
 ---
 
@@ -218,9 +218,9 @@ graph LR
 
 ## Tradeoff: Proactive Depth
 
-swsim implements 7 proactive commands (DISPLAY TEXT, SET UP MENU, LAUNCH BROWSER, PLAY TONE, OPEN CHANNEL, SET UP CALL, SEND SMS). The full CAT spec defines 30+.
+`simrs-proactive` implements 46 proactive command variants in its `ProactiveCommand` enum, covering all commands from ETSI TS 102 223 including display/input (DISPLAY TEXT, GET INKEY, GET INPUT, SELECT ITEM, SET UP MENU), telephony (SET UP CALL, SEND SMS, SEND USSD, SEND SS, SEND DTMF, PLAY TONE), browsing (LAUNCH BROWSER), BIP (OPEN/CLOSE/RECEIVE/SEND DATA, GET CHANNEL STATUS), card management (REFRESH, POLL INTERVAL, POLLING OFF, MORE TIME, TIMER MANAGEMENT), and session control (COMMAND CONTAINER, ENCAPSULATED SESSION CONTROL, END OF PROACTIVE UICC SESSION), among others.
 
-For Shannon fuzzing, we primarily need:
+For Shannon fuzzing, the key mechanisms are:
 - **TERMINAL PROFILE** acceptance (Shannon sends this on boot)
 - **FETCH/TERMINAL RESPONSE** cycle (core mechanism)
 - **SET UP MENU** (default app from swsim)
@@ -228,4 +228,4 @@ For Shannon fuzzing, we primarily need:
 
 Additional commands are additive -- they can be implemented incrementally without architectural changes, since the BER-TLV encoding is generic (handled by `simrs-bertlv`) and only the TLV payload changes per command type.
 
-**Decision:** Implement the 7 commands from swsim as P0. Add remaining commands as P2/P3 based on what Shannon firmware actually exercises.
+**Decision:** All command types from the TS 102 223 catalog are defined in `simrs-proactive`. Encoding support is implemented for the full set; Shannon-specific exercising determines which commands get active use in fuzzing profiles.

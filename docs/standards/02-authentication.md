@@ -154,7 +154,7 @@ SW: 98 62  (no data)
 
 `MilenageParams::authenticate()` returns `Result<AuthOutput, MilenageError>` where `AuthOutput { res, ck, ik, kc }` and `MilenageError::SyncFailure { auts }` / `MilenageError::MacFailure`.
 
-**Typed response wrapper (planned):** The `AuthenticateResult` enum below captures these three outcomes as a first-class type. Currently the USIM handler builds the BER-TLV response inline from `AuthOutput`.
+**Typed response wrapper (implemented):** The `AuthenticateResult` enum in `simrs-usim` captures these three outcomes as a first-class type with an `encode()` method that produces the BER-TLV response.
 
 ```rust
 /// Result of AUTHENTICATE command processing.
@@ -440,9 +440,9 @@ pub enum SqnPolicy {
 The **AMF separation bit** (bit 0 of AMF octet 1) distinguishes 5G vectors (bit=1) from 3G/4G (bit=0), but the USIM doesn't act on it -- it verifies MAC-A regardless. The ME uses it to decide which key derivation to perform.
 
 This means **no changes to `simrs-milenage` or `simrs-usim` AUTHENTICATE handling are needed for 5G support**. The 5G-specific work is:
-1. Adding DF_5GS EFs to the filesystem (P1)
-2. Handling UPDATE RECORD for EF5GS3GPPNSC (written by ME after auth) (P1)
-3. Optionally implementing SUCI computation (P3)
+1. DF_5GS EFs (17 EFs) are defined in `simrs-usim::profile` (implemented)
+2. UPDATE RECORD for EF5GS3GPPNSC is handled by the standard record-write path (implemented)
+3. Optionally implementing SUCI computation (future -- requires ECIES)
 
 ---
 
@@ -457,7 +457,7 @@ This means **no changes to `simrs-milenage` or `simrs-usim` AUTHENTICATE handlin
 | 5G EFs needed | No (NR is transparent to USIM) | Yes (4F01-4F0D) |
 | AMF separation bit | 0 | 1 |
 
-**Impact on simrs:** For Shannon fuzzing in NSA mode, the current simrs USIM (with EPS EFs) is sufficient. For SA mode, we need the DF_5GS directory and its EFs. The filesystem definitions go in `simrs-usim`'s data module.
+**Impact on simrs:** For Shannon fuzzing in NSA mode, the current simrs USIM (with EPS EFs) is sufficient. For SA mode, the DF_5GS directory (17 EFs, Rel-15 through Rel-17) is implemented in `simrs-usim::profile` and included in all profile tiers.
 
 ---
 
@@ -472,7 +472,7 @@ Kc = CK[0] ^ CK[8]  || CK[1] ^ CK[9]  || CK[2] ^ CK[10] || CK[3] ^ CK[11]
 (i.e., XOR the two halves of CK to get 8 bytes)
 ```
 
-This is already used in swsim's `milenage()` function and will be in `simrs-milenage`.
+This is already used in swsim's `milenage()` function and is implemented in `simrs-milenage`.
 
 ---
 

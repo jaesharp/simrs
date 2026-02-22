@@ -15,20 +15,24 @@ What 4G-LTE and 5G-NR support means for each simrs crate.
 | [simrs-rijndael](../../crates/simrs-rijndael/) | None | None | None | -- |
 | [simrs-comp128](../../crates/simrs-comp128/) | None (2G only) | None | None | -- |
 | [simrs-milenage](../../crates/simrs-milenage/) | Used identically | Used identically | Used identically | P0 |
-| [simrs-fs](../../crates/simrs-fs/) | EPS EFs (6FE3, 6FE4) | +DF_5GS (5FC0, 4F01-4F11) | No change | P1 |
+| [simrs-fs](../../crates/simrs-fs/) | EPS EFs (6FE3, 6FE4) | +DF_5GS (5FC0, 4F01-4F11) -- implemented | No change | Done |
 | [simrs-pin](../../crates/simrs-pin/) | No change | No change | No change | -- |
 | [simrs-proactive](../../crates/simrs-proactive/) | No change | +5G events (Rel-16) | No change | P2 |
 | [simrs-gsm](../../crates/simrs-gsm/) | No change (2G compat) | No change | No change | -- |
-| [simrs-usim](../../crates/simrs-usim/) | AUTHENTICATE, EPS EFs | +DF_5GS EFs, SUCI info | No change | P1 |
+| [simrs-usim](../../crates/simrs-usim/) | AUTHENTICATE, EPS EFs | +DF_5GS EFs, SUCI info | No change | Done |
 | [simrs-sim](../../crates/simrs-sim/) | No change | No change | No change | -- |
 | [simrs-hle](../../crates/simrs-hle/) | No change | No change | No change | -- |
-| [simrs-snapshot](../../crates/simrs-snapshot/) | +EPS EF state | +DF_5GS EF state | No change | P1 |
+| [simrs-snapshot](../../crates/simrs-snapshot/) | +EPS EF state | +EPS + 5G EF state -- implemented | No change | Done |
 | [simrs-keccak](../../crates/simrs-keccak/) | None | None | None | -- |
 | [simrs-tuak](../../crates/simrs-tuak/) | Used identically | Used identically | Used identically | P0 |
 | [simrs-ota](../../crates/simrs-ota/) | No change | No change | No change | -- |
 | [simrs-pcap](../../crates/simrs-pcap/) | No change | No change | No change | -- |
 | [simrs-interposer](../../crates/simrs-interposer/) | No change | No change | No change | -- |
 | [simrs-auth-cli](../../crates/simrs-auth-cli/) | No change | No change | No change | -- |
+| [simrs-consttime](../../crates/simrs-consttime/) | None | None | None | -- |
+| [simrs-consttime-macros](../../crates/simrs-consttime-macros/) | None | None | None | -- |
+| [simrs-consttime-validation](../../crates/simrs-consttime-validation/) | None | None | None | -- |
+| [simrs-transport-tcp](../../crates/simrs-transport-tcp/) | No change | No change | No change | -- |
 
 ---
 
@@ -48,22 +52,24 @@ Crate dependency for TUAK support (implemented):
 
 ### `simrs-fs`
 
-**Changes needed:**
-1. Add DF_5GS (FID 5FC0) as a child of ADF_USIM
-2. Add all Rel-15 EFs (4F01-4F0A) with appropriate types and default data
-3. Add Rel-16 EFs (4F0B-4F0E) as stubs
-4. `DfDef` needs to support nested DFs (DF_5GS under ADF_USIM)
+**Implemented:**
+1. DF_5GS (FID 5FC0) added as a child of ADF_USIM
+2. All Rel-15 EFs (4F01-4F0A) defined with appropriate types and default data
+3. Rel-16 EFs (4F0B-4F0E) defined
+4. `DfDef` supports nested DFs (DF_5GS under ADF_USIM)
 
 **Already supported:** `SelectionCtx` handles DF navigation. `EfData::AllFf` handles stub EFs at zero cost.
 
 ### `simrs-usim`
 
-**Changes needed (P1):**
-1. Define DF_5GS filesystem as `const` statics in a `data::df_5gs` module
-2. Handle SELECT into DF_5GS
-3. Handle READ BINARY / READ RECORD for 5G EFs
-4. Handle UPDATE RECORD for EF5GS3GPPNSC (ME writes security context)
-5. Handle UPDATE BINARY for EF5GS3GPPLOCI (ME writes 5G-GUTI)
+**Implemented:**
+1. DF_5GS filesystem defined as `const` statics in a `data::df_5gs` module
+2. SELECT into DF_5GS handled
+3. READ BINARY / READ RECORD for 5G EFs handled
+4. UPDATE RECORD for EF5GS3GPPNSC (ME writes security context) handled
+5. UPDATE BINARY for EF5GS3GPPLOCI (ME writes 5G-GUTI) handled
+
+Full catalog: 90 ADF EFs + 17 DF_5GS + ISIM + HPSIM.
 
 **No changes needed for AUTHENTICATE** -- the handler is already generation-agnostic.
 
@@ -76,26 +82,29 @@ Crate dependency for TUAK support (implemented):
 - Add 5G-specific PROVIDE LOCAL INFORMATION values (serving NSSAI, etc.)
 - These are additive; existing command encoding is unaffected.
 
+Note: many proactive commands are already implemented (DISPLAY TEXT, GET INPUT, SET UP MENU, SEND SMS, PLAY TONE, PROVIDE LOCAL INFORMATION, etc.).
+
 ### `simrs-snapshot`
 
-**Changes needed (P1):**
-- Include DF_5GS EF contents in the snapshot blob
-- The `Snapshot::BLOB_SIZE` const will increase to accommodate 5G state
+**Implemented:**
+- DF_5GS EF contents included in the snapshot blob
+- EPS + 5G EF state included in snapshots
 
 ---
 
 ## Implementation Phases (updated with 4G/5G scope)
 
-| Phase | Crates | 4G/5G Content |
-|-------|--------|---------------|
-| 1 | rijndael, comp128, iso7816, bertlv | None (generation-agnostic) |
-| 2 | milenage, fs, pin | Add AuthAlgorithm trait; DF_5GS directory structure |
-| 3 | proactive, gsm, usim | EPS EFs, DF_5GS EFs, AUTHENTICATE (all gens) |
-| 4 | sim, transport, peripheral | No generation-specific changes |
-| 5 | snapshot, hle, fuzz | Include EPS + 5G state in snapshots |
-| Done | simrs-tuak, simrs-keccak | TUAK algorithm (256-bit K for 5G SUCI) |
-| Future | simrs-kdf | HMAC-SHA-256 KDF for ME-side derivation (KASME, KAUSF) |
-| Future | simrs-ecies | ECIES for SUCI computation (Curve25519 / secp256r1) |
+| Phase | Crates | 4G/5G Content | Status |
+|-------|--------|---------------|--------|
+| 1 | rijndael, comp128, iso7816, bertlv | None (generation-agnostic) | Done |
+| 2 | milenage, fs, pin | AuthAlgorithm trait; DF_5GS directory structure | Done |
+| 3 | proactive, gsm, usim | EPS EFs, DF_5GS EFs, AUTHENTICATE (all gens) | Done |
+| 4 | sim, transport, peripheral | No generation-specific changes | Done |
+| 5 | snapshot, hle, fuzz | EPS + 5G state in snapshots | Done |
+| 6 | fs, usim, consttime | Type system: EfDef constructors, Sfi/Fid validation, compile-time FID uniqueness | Done |
+| -- | simrs-tuak, simrs-keccak | TUAK algorithm (256-bit K for 5G SUCI) | Done |
+| Future | simrs-kdf | HMAC-SHA-256 KDF for ME-side derivation (KASME, KAUSF) | -- |
+| Future | simrs-ecies | ECIES for SUCI computation (Curve25519 / secp256r1) | -- |
 
 ---
 

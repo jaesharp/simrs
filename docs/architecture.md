@@ -9,8 +9,14 @@
   - [`simrs-bertlv`](#simrs-bertlv)
   - [`simrs-rijndael`](#simrs-rijndael)
   - [`simrs-comp128`](#simrs-comp128)
+  - [`simrs-keccak`](#simrs-keccak)
+  - [`simrs-consttime`](#simrs-consttime)
+  - [`simrs-consttime-macros`](#simrs-consttime-macros)
+  - [`simrs-pcap`](#simrs-pcap)
 - [Layer 2 — Crypto + Filesystem](#layer-2--crypto--filesystem)
   - [`simrs-milenage`](#simrs-milenage)
+  - [`simrs-tuak`](#simrs-tuak)
+  - [`simrs-ota`](#simrs-ota)
   - [`simrs-fs`](#simrs-fs)
   - [`simrs-pin`](#simrs-pin)
 - [Layer 3 — Application](#layer-3--application)
@@ -29,12 +35,18 @@
   - [`simrs-peripheral-shannon`](#simrs-peripheral-shannon)
   - [`simrs-peripheral-osembed`](#simrs-peripheral-osembed)
   - [`simrs-qemu`](#simrs-qemu)
+  - [`simrs-interposer`](#simrs-interposer)
 - [Layer 7 — Fuzzing Infrastructure](#layer-7--fuzzing-infrastructure)
   - [`simrs-snapshot`](#simrs-snapshot)
   - [`simrs-hle`](#simrs-hle)
   - [`simrs-fuzz`](#simrs-fuzz)
+- [Layer 8 — CLI Tools](#layer-8--cli-tools)
+  - [`simrs-auth-cli`](#simrs-auth-cli)
+  - [`simrs-consttime-validation`](#simrs-consttime-validation)
 - [Data Flows](#data-flows)
 - [Standards Reference](#standards-reference)
+
+**31 crates** | **1337 tests** | zero clippy/doc warnings
 
 ---
 
@@ -65,9 +77,15 @@ graph TD
     BER[simrs-bertlv]
     RIJ[simrs-rijndael]
     C128[simrs-comp128]
+    KEC[simrs-keccak]
+    CT[simrs-consttime]
+    CTM[simrs-consttime-macros]
+    PCAP[simrs-pcap]
 
     %% Composition (Teal)
     MIL[simrs-milenage]
+    TUAK[simrs-tuak]
+    OTA[simrs-ota]
     FS[simrs-fs]
     PIN[simrs-pin]
     PRO[simrs-proactive]
@@ -86,13 +104,25 @@ graph TD
     SHAN[simrs-peripheral-shannon]
     OSEM[simrs-peripheral-osembed]
     QEMU[simrs-qemu]
+    INTERP[simrs-interposer]
 
     %% Meta (Mauve)
     SNAP[simrs-snapshot]
     HLE[simrs-hle]
     FUZZ[simrs-fuzz]
 
+    %% CLI (Mauve, std)
+    AUTH[simrs-auth-cli]
+    CTV[simrs-consttime-validation]
+
+    CT  --> CTM
     MIL --> RIJ
+    TUAK --> KEC
+    TUAK --> CT
+    TUAK --> MIL
+    OTA --> RIJ
+    OTA --> ISO
+    OTA --> CT
     FS  --> ISO
     FS  --> BER
     PIN --> ISO
@@ -127,6 +157,10 @@ graph TD
     SHAN    --> ISO
     OSEM    --> PERI
     OSEM    --> ISO
+    INTERP  --> SIM
+    INTERP  --> PCAP
+    INTERP  --> TR
+    INTERP  --> TR_TCP
     SNAP    --> SIM
     HLE     ==> SIM
     HLE     --> SNAP
@@ -134,6 +168,7 @@ graph TD
     FUZZ    ==> HLE
     FUZZ    --> SNAP
     FUZZ    --> ISO
+    AUTH    --> MIL
 
     %% Per DIAGRAM_STYLE_GUIDE.md
     classDef foundation fill:#0072B2,stroke:#333,color:#fff
@@ -145,14 +180,14 @@ graph TD
     classDef meta fill:#AA4499,stroke:#333,color:#fff
     classDef meta_std fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
 
-    class ISO,BER,RIJ,C128 foundation
-    class MIL,FS,PIN,PRO composition
+    class ISO,BER,RIJ,C128,KEC,CT,CTM,PCAP foundation
+    class MIL,TUAK,OTA,FS,PIN,PRO composition
     class GSM,USIM application
     class SIM entry
     class TR,TR_SHM,TR_VIO,PERI,SHAN boundary
-    class TR_TCP,OSEM,QEMU boundary_std
+    class TR_TCP,OSEM,QEMU,INTERP boundary_std
     class SNAP meta
-    class HLE,FUZZ meta_std
+    class HLE,FUZZ,AUTH,CTV meta_std
 ```
 
 **Legend:** Solid border = `no_std`. Dashed = requires `std`. Thick = entry point. `==>` = hot path. `-.->` = feature-gated.
@@ -377,6 +412,44 @@ Used exclusively by [`simrs-gsm`](#simrs-gsm).
 
 ---
 
+### `simrs-keccak`
+
+**Standards:** NIST FIPS 202 (SHA-3)
+
+**Deps:** none
+
+Keccak-f[1600] permutation. Used exclusively by [`simrs-tuak`](#simrs-tuak).
+
+---
+
+### `simrs-consttime`
+
+**Standards:** n/a (defensive crypto engineering)
+
+**Deps:** [`simrs-consttime-macros`](#simrs-consttime-macros)
+
+Constant-time primitives for cryptographic code: table lookups, comparisons, GF(2^8) arithmetic. All operations avoid data-dependent branches and memory accesses. The companion proc-macro crate `simrs-consttime-macros` provides `#[derive(CtEq)]`.
+
+---
+
+### `simrs-consttime-macros`
+
+**Deps:** none (proc-macro crate, depends on `syn`/`quote`/`proc-macro2`)
+
+Proc macros for constant-time crypto primitives. Provides `#[derive(CtEq)]` for struct-level constant-time equality.
+
+---
+
+### `simrs-pcap`
+
+**Standards:** libpcap file format, GSMTAP (Osmocom)
+
+**Deps:** none
+
+PCAP + GSMTAP SIM frame encoder. Zero dependencies, `no_std`. Used by [`simrs-interposer`](#simrs-interposer) for APDU trace capture.
+
+---
+
 ## Layer 2 — Crypto + Filesystem
 
 ### `simrs-milenage`
@@ -415,6 +488,26 @@ pub enum ParamError    { DuplicateCiRi { first: usize, second: usize } }
 
 ---
 
+### `simrs-tuak`
+
+**Standards:** 3GPP TS 35.231 (TUAK algorithm)
+
+**Deps:** [`simrs-keccak`](#simrs-keccak), [`simrs-consttime`](#simrs-consttime), [`simrs-milenage`](#simrs-milenage)
+
+TUAK authentication algorithm -- a Keccak-based alternative to Milenage. Reuses the `AuthOutput` / `MilenageError` types from `simrs-milenage` for API compatibility.
+
+---
+
+### `simrs-ota`
+
+**Standards:** ETSI TS 102 225 (secured packets), ETSI TS 102 226 (remote APDU)
+
+**Deps:** [`simrs-rijndael`](#simrs-rijndael), [`simrs-iso7816`](#simrs-iso7816), [`simrs-consttime`](#simrs-consttime)
+
+OTA secured packet structure: command/response packet parsing, MAC computation (AES-CBC), encryption. Used for remote SIM provisioning and management.
+
+---
+
 ### `simrs-fs`
 
 **Standards:** ETSI TS 102 221 clause 8 (file structure), 3GPP TS 31.102 clause 4 (USIM files), GSM 11.11 clause 10
@@ -423,20 +516,59 @@ pub enum ParamError    { DuplicateCiRi { first: usize, second: usize } }
 
 The filesystem is defined as **`const` statics** -- no runtime allocation. EF content lives in the consuming crates ([`simrs-gsm`](#simrs-gsm), [`simrs-usim`](#simrs-usim)); `simrs-fs` only defines the tree node types.
 
+#### Type System Invariants
+
+All identifier and definition types enforce invariants at construction time:
+
+- **`Fid`** and **`Sfi`** have private fields with `const fn new()` validators. `Fid::new(0)` panics (compile-time in const context). `Sfi::new(v)` panics unless `1..=30`. Both provide `from_raw()` for APDU parsing where any value must be accepted.
+- **`EfDef`** has private fields with four typed constructors: `transparent()`, `linear_fixed()`, `cyclic()`, `ber_tlv()`. The record-based constructors assert `data.len() == record_size * num_records` at compile time.
+- **`assert_fids_unique(&[u16])`** is a `const fn` used at file scope (`const _: () = ...`) to detect duplicate FIDs within a DF at compile time. Used 12 times across `simrs-gsm` and `simrs-usim` profiles.
+
+#### EfStructure Method Dispatch
+
+`EfStructure` centralizes all structure-dependent logic into methods, replacing what were previously 12+ `match` dispatch sites scattered across `simrs-gsm` and `simrs-usim`:
+
+| Method | Returns | Purpose |
+|--------|---------|---------|
+| `is_binary_accessible()` | `bool` | `Transparent` or `BerTlv` |
+| `is_record_based()` | `bool` | `LinearFixed` or `Cyclic` |
+| `record_params()` | `Option<(u8, u8)>` | `(record_size, num_records)` |
+| `is_cyclic()` | `bool` | Cyclic only |
+| `record_size()` | `u8` | 0 for transparent/BER-TLV |
+| `gsm_structure_byte()` | `u8` | GSM 11.11 byte 14 |
+| `gsm_increase_byte()` | `u8` | GSM 11.11 byte 7 |
+| `fcp_descriptor_byte()` | `u8` | UICC FCP tag 0x82 |
+| `fcp_descriptor_data()` | `([u8; 5], usize)` | Full FCP descriptor TLV payload |
+| `expected_data_len()` | `Option<usize>` | Compile-time data length validation |
+
+#### FsData Dual Const Generics
+
+`FsData<CAP, MAX_EFS>` holds runtime-mutable copies of all EF data. Both parameters are `const` generics, sized by feature-gated profile tier constants:
+
+| Tier | `CAP` | `MAX_EFS` | Typical EF count |
+|------|-------|-----------|------------------|
+| `profile-minimal` | 1024 | 40 | ~31 EFs |
+| `profile-standard` | 4096 | 80 | ~56 EFs |
+| `profile-full` | 8192 | 160 | ~113 EFs |
+
 ```rust
 // --- File identifiers (TS 102 221 clause 8.2) ---
-pub struct Fid(pub u16);
+pub struct Fid(u16);  // private field
 impl Fid {
-    pub const MF: Self = Self(0x3F00);       // TS 102 221 clause 8.3.1
-    pub const CUR_ADF: Self = Self(0x7FFF);  // TS 102 221 clause 8.4.2
-    pub const NONE: Self = Self(0xFFFF);     // sentinel
+    pub const MF: Self;        // 0x3F00
+    pub const CUR_ADF: Self;   // 0x7FFF
+    pub const NONE: Self;      // 0xFFFF (sentinel)
+    pub const fn new(val: u16) -> Self;      // panics if val == 0
+    pub const fn from_raw(val: u16) -> Self; // unchecked (APDU parsing)
     pub const fn value(self) -> u16;
     pub const fn to_be_bytes(self) -> [u8; 2];
     pub const fn from_be_bytes(bytes: [u8; 2]) -> Self;
 }
 
-pub struct Sfi(pub u8);          // TS 102 221 clause 8.2.2
+pub struct Sfi(u8);  // private field
 impl Sfi {
+    pub const fn new(val: u8) -> Self;       // panics unless 1..=30
+    pub const fn from_raw(val: u8) -> Self;  // unchecked (APDU parsing)
     pub const fn value(self) -> u8;
 }
 
@@ -444,28 +576,48 @@ pub enum EfStructure {
     Transparent,
     LinearFixed { record_size: u8, num_records: u8 },
     Cyclic      { record_size: u8, num_records: u8 },
+    BerTlv,
+}
+// + 10 methods (see table above)
+
+pub struct EfDef { /* fields private */ }
+impl EfDef {
+    pub const fn transparent(fid: Fid, sfi: Option<Sfi>, data: &'static [u8]) -> Self;
+    pub const fn linear_fixed(fid: Fid, sfi: Option<Sfi>,
+        record_size: u8, num_records: u8, data: &'static [u8]) -> Self;  // asserts len
+    pub const fn cyclic(fid: Fid, sfi: Option<Sfi>,
+        record_size: u8, num_records: u8, data: &'static [u8]) -> Self;  // asserts len
+    pub const fn ber_tlv(fid: Fid, sfi: Option<Sfi>, data: &'static [u8]) -> Self;
+    pub const fn fid(&self) -> Fid;
+    pub const fn sfi(&self) -> Option<Sfi>;
+    pub const fn structure(&self) -> EfStructure;
+    pub const fn data(&self) -> &'static [u8];
 }
 
-pub struct EfDef {
-    pub fid: Fid, pub sfi: Option<Sfi>,
-    pub structure: EfStructure, pub data: &'static [u8],
-}
 pub struct DfDef { pub fid: Fid, pub children: &'static [FileRef] }
 pub enum FileRef { Ef(&'static EfDef), Df(&'static DfDef) }
 pub struct AdfSlot { pub aid: &'static [u8], pub root: &'static DfDef }
+
+/// Compile-time DF FID uniqueness check.
+pub const fn assert_fids_unique(fids: &[u16]);
+
+/// Mutable file content store (dual const generics).
+pub struct FsData<const CAP: usize, const MAX_EFS: usize> { /* internal */ }
+impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
+    pub const fn new() -> Self;
+    pub fn init(&mut self, df: &'static DfDef);
+    pub fn init_with_adfs(&mut self, df: &'static DfDef, adfs: &'static [AdfSlot]);
+    pub fn read(&self, ef: &'static EfDef, offset: usize, len: usize) -> Option<&[u8]>;
+    pub fn write(&mut self, ef: &'static EfDef, offset: usize, data: &[u8]) -> bool;
+    pub const SNAPSHOT_SIZE: usize;
+    pub fn save_state(&self, buf: &mut [u8]) -> usize;
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool;
+}
 
 // --- Selection state machine ---
 pub enum SelectedFile {
     Df(&'static DfDef),
     Ef(&'static EfDef),
-}
-impl SelectedFile {
-    pub const fn fid(&self) -> Fid;
-}
-
-pub enum FsError {
-    FileNotFound, NoEfSelected, NotTransparent,
-    NotRecordBased, RecordOutOfRange, OffsetOutOfRange,
 }
 
 pub struct SelectionCtx { /* internal: cur_df, cur_ef, cur_adf */ }
@@ -637,13 +789,38 @@ impl GsmApp {
 
 ### `simrs-usim`
 
-**Standards:** ETSI TS 102 221 V16.4.0 (UICC interface), 3GPP TS 31.102 V17 (USIM application), TS 31.102 clause 7.1.2 (AUTHENTICATE)
+**Standards:** ETSI TS 102 221 V16.4.0 (UICC interface), 3GPP TS 31.102 V17 (USIM application), TS 31.102 clause 7.1.2 (AUTHENTICATE), 3GPP TS 31.103 (ISIM), 3GPP TS 31.104 (HPSIM)
 
 **Deps:** [`simrs-iso7816`](#simrs-iso7816), [`simrs-bertlv`](#simrs-bertlv), [`simrs-milenage`](#simrs-milenage), [`simrs-fs`](#simrs-fs), [`simrs-pin`](#simrs-pin), [`simrs-proactive`](#simrs-proactive)
 
 Handles interindustry + ETSI-class APDUs: SELECT (FCP BER-TLV via dry-run/real-run), READ BINARY, READ RECORD, UPDATE BINARY, UPDATE RECORD, VERIFY, CHANGE REFERENCE DATA, DISABLE/ENABLE PIN, RESET RETRY COUNTER, GET RESPONSE, AUTHENTICATE (TS 31.102 clause 7.1.2), TERMINAL PROFILE, FETCH, TERMINAL RESPONSE, ENVELOPE, STATUS.
 
 Post-APDU hook: if proactive command pending and SW would be `90 00`, rewrites to `91 XX` (TS 102 223 clause 6.1).
+
+#### SIM Profile Catalog
+
+The `profile` module provides the full `const`-static filesystem tree. EFs are gated by additive feature flags:
+
+| Feature | Description | EFs | `FsData` sizing |
+|---------|-------------|-----|-----------------|
+| `profile-minimal` | LTE attach minimum | ~31 | `<1024, 40>` |
+| `profile-standard` (default) | + SMS, phonebook, 5GS | ~56 | `<4096, 80>` |
+| `profile-full` | Full TS 31.102 catalog | ~113 | `<8192, 160>` |
+
+Application ADFs are independently additive:
+
+| Feature | Standard | EFs |
+|---------|----------|-----|
+| (always) ADF.USIM | TS 31.102 | ~91 ADF EFs + 17 DF_5GS |
+| `isim` | TS 31.103 | 10 EFs (IMPI, IMPU, Domain, ...) |
+| `hpsim` | TS 31.104 | 3 EFs (ARR, HPST, AD) |
+| `telecom` | TS 102 221 | 12 EFs (ADN, FDN, SMS, ...) |
+
+Meta features for convenience: `profile-lte`, `profile-5g`, `profile-ims`, `profile-all`.
+
+DF_5GS (17 EFs, ~482 bytes) is included in all tiers. GSM profile (`simrs-gsm`) has its own independent profile with `profile-minimal` (~8 EFs) and `profile-standard` (~22 EFs).
+
+All DFs use compile-time `assert_fids_unique` to prevent duplicate FIDs.
 
 ```rust
 pub struct UsimApp { /* fields private: fs, adfs, pin, milenage, proactive, rsp_queue */ }
@@ -757,6 +934,12 @@ Linux kernel SIM slot ioctls (Android RIL, character device).
 
 Daemon that bridges simrs to QEMU's virtual smart card interface via shmem transport.
 
+### `simrs-interposer`
+
+**Deps:** [`simrs-sim`](#simrs-sim), [`simrs-pcap`](#simrs-pcap), [`simrs-transport`](#simrs-transport), [`simrs-transport-tcp`](#simrs-transport-tcp), [`simrs-gsm`](#simrs-gsm), [`simrs-usim`](#simrs-usim), [`simrs-milenage`](#simrs-milenage), [`simrs-fs`](#simrs-fs)
+
+Binary crate. APDU interposer/proxy that sits between a real SIM and modem, with optional shadow SIM and PCAP/GSMTAP trace capture.
+
 ---
 
 ## Layer 7 — Fuzzing Infrastructure
@@ -798,6 +981,22 @@ Return `0` = ok, `-1` = buffer too small / bad blob.
 **Deps:** [`simrs-hle`](#simrs-hle), [`simrs-snapshot`](#simrs-snapshot), [`simrs-iso7816`](#simrs-iso7816)
 
 Binary crate. Structure-aware APDU mutator (understands CLA/INS/P1/P2/Lc/Le boundaries). Drives the snapshot-restore-mutate-execute-feedback loop.
+
+---
+
+## Layer 8 — CLI Tools
+
+### `simrs-auth-cli`
+
+**Deps:** [`simrs-milenage`](#simrs-milenage), `clap`, `getrandom`
+
+Binary crate (`simrs-auth`). Milenage authentication vector CLI for LTE/UMTS test environments. Generates RAND/AUTN/RES/CK/IK vectors from Ki+OP/OPc.
+
+### `simrs-consttime-validation`
+
+**Deps:** `getrandom`
+
+DudeCT timing verification utilities. Used as a dev-dependency by `simrs-consttime`, `simrs-tuak`, and `simrs-ota` to validate constant-time properties of cryptographic implementations.
 
 ---
 

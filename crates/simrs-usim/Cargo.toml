@@ -6,7 +6,26 @@ license.workspace = true
 description = "3GPP USIM application layer (Milenage auth, FCP, TERMINAL PROFILE) -- no_std"
 
 [features]
-default = []
+default = ["profile-standard"]
+
+# Profile tiers (additive: full includes standard includes minimal)
+# DF_5GS (17 EFs, 482B) is included in all tiers.
+profile-minimal  = []   # LTE attach minimum (31 EFs, FsData<1024, 40>)
+profile-standard = []   # Baseline USIM + SMS + 5GS (56 EFs, FsData<4096, 80>)
+profile-full     = ["profile-standard"]  # Full TS 31.102 catalog (113 EFs, FsData<8192, 160>)
+
+# Application ADFs (additive)
+isim  = []   # ADF.ISIM per TS 31.103 (~10 EFs)
+hpsim = []   # ADF.HPSIM per TS 31.104 (~5 EFs)
+
+# DF population (additive)
+telecom = []  # Populate DF_TELECOM per ETSI TS 102 221 (~12 EFs)
+
+# Meta flags -- convenient feature sets
+profile-lte  = ["profile-standard"]
+profile-5g   = ["profile-standard"]
+profile-ims  = ["profile-full", "isim"]
+profile-all  = ["profile-full", "isim", "hpsim", "telecom"]
 
 [dependencies]
 simrs-iso7816   = { workspace = true }

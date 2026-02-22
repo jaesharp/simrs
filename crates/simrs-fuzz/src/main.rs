@@ -6,7 +6,7 @@
 //! Configurable via `SIMRS_FUZZ_ITERS` env var (default 100,000).
 //! Set `SIMRS_FUZZ_PCAP=path` to write interesting APDU sequences to a PCAP file.
 
-use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef, Sfi};
+use simrs_fs::{DfDef, EfDef, Fid, FileRef, Sfi};
 use simrs_hle::{hle_apdu, hle_init, hle_init_tuak, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_snapshot_size, hle_state_hash, hle_tick, Ki};
 use simrs_pcap::{Direction, LinkType, PcapEncoder};
 use std::collections::HashSet;
@@ -17,27 +17,25 @@ use std::io::Write;
 // Test filesystem
 // ---------------------------------------------------------------------------
 
-static EF_ICCID: EfDef = EfDef {
-    fid: Fid(0x2FE2),
-    sfi: None,
-    structure: EfStructure::Transparent,
-    data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
-};
+static EF_ICCID: EfDef = EfDef::transparent(
+    Fid::new(0x2FE2),
+    None,
+    &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
+);
 
-static EF_IMSI: EfDef = EfDef {
-    fid: Fid(0x6F07),
-    sfi: Some(Sfi(7)),
-    structure: EfStructure::Transparent,
-    data: &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
-};
+static EF_IMSI: EfDef = EfDef::transparent(
+    Fid::new(0x6F07),
+    Some(Sfi::new(7)),
+    &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
+);
 
 static DF_GSM: DfDef = DfDef {
-    fid: Fid(0x7F20),
+    fid: Fid::new(0x7F20),
     children: &[FileRef::Ef(&EF_IMSI)],
 };
 
 static MF: DfDef = DfDef {
-    fid: Fid(0x3F00),
+    fid: Fid::new(0x3F00),
     children: &[FileRef::Ef(&EF_ICCID), FileRef::Df(&DF_GSM)],
 };
 

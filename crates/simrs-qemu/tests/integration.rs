@@ -7,7 +7,7 @@
 //! multi-step flows. A few bridge-level tests validate the full
 //! shmem path using `QemuBridge` with push-all/step-all/pop-all.
 
-use simrs_fs::{AdfSlot, DfDef, EfDef, EfStructure, Fid, FileRef, Sfi};
+use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, Sfi};
 use simrs_gsm::GsmApp;
 use simrs_milenage::{MilenageParams, OpVariant};
 use simrs_pin::{PinKey, PinValue};
@@ -24,66 +24,58 @@ use simrs_usim::UsimApp;
 static ICCID_DATA: [u8; 10] =
     [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
-static EF_ICCID: EfDef = EfDef {
-    fid: Fid(0x2FE2),
-    sfi: Some(Sfi(2)),
-    structure: EfStructure::Transparent,
-    data: &ICCID_DATA,
-};
+static EF_ICCID: EfDef = EfDef::transparent(
+    Fid::new(0x2FE2),
+    Some(Sfi::new(2)),
+    &ICCID_DATA,
+);
 
 static EF_DIR_DATA: [u8; 16] = [
     0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
-static EF_DIR: EfDef = EfDef {
-    fid: Fid(0x2F00),
-    sfi: Some(Sfi(30)),
-    structure: EfStructure::LinearFixed {
-        record_size: 8,
-        num_records: 2,
-    },
-    data: &EF_DIR_DATA,
-};
+static EF_DIR: EfDef = EfDef::linear_fixed(
+    Fid::new(0x2F00),
+    Some(Sfi::new(30)),
+    8, 2,
+    &EF_DIR_DATA,
+);
 
 static IMSI_DATA: [u8; 9] = [0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0];
 
-static EF_IMSI: EfDef = EfDef {
-    fid: Fid(0x6F07),
-    sfi: Some(Sfi(7)),
-    structure: EfStructure::Transparent,
-    data: &IMSI_DATA,
-};
+static EF_IMSI: EfDef = EfDef::transparent(
+    Fid::new(0x6F07),
+    Some(Sfi::new(7)),
+    &IMSI_DATA,
+);
 
-static EF_KC: EfDef = EfDef {
-    fid: Fid(0x6F20),
-    sfi: None,
-    structure: EfStructure::Transparent,
-    data: &[0xFF; 9],
-};
+static EF_KC: EfDef = EfDef::transparent(
+    Fid::new(0x6F20),
+    None,
+    &[0xFF; 9],
+);
 
 static DF_GSM: DfDef = DfDef {
-    fid: Fid(0x7F20),
+    fid: Fid::new(0x7F20),
     children: &[FileRef::Ef(&EF_IMSI), FileRef::Ef(&EF_KC)],
 };
 
 // USIM ADF.
-static EF_USIM_IMSI: EfDef = EfDef {
-    fid: Fid(0x6F07),
-    sfi: Some(Sfi(7)),
-    structure: EfStructure::Transparent,
-    data: &IMSI_DATA,
-};
+static EF_USIM_IMSI: EfDef = EfDef::transparent(
+    Fid::new(0x6F07),
+    Some(Sfi::new(7)),
+    &IMSI_DATA,
+);
 
-static EF_UST: EfDef = EfDef {
-    fid: Fid(0x6F38),
-    sfi: None,
-    structure: EfStructure::Transparent,
-    data: &[0xFF, 0xFF, 0xFF, 0xFF],
-};
+static EF_UST: EfDef = EfDef::transparent(
+    Fid::new(0x6F38),
+    None,
+    &[0xFF, 0xFF, 0xFF, 0xFF],
+);
 
 static ADF_USIM_ROOT: DfDef = DfDef {
-    fid: Fid(0xFF01),
+    fid: Fid::new(0xFF01),
     children: &[FileRef::Ef(&EF_USIM_IMSI), FileRef::Ef(&EF_UST)],
 };
 
@@ -95,7 +87,7 @@ static ADF_TABLE: [AdfSlot; 1] = [AdfSlot {
 }];
 
 static MF: DfDef = DfDef {
-    fid: Fid(0x3F00),
+    fid: Fid::new(0x3F00),
     children: &[
         FileRef::Ef(&EF_ICCID),
         FileRef::Ef(&EF_DIR),

@@ -28,15 +28,15 @@
 //! ```
 //! use simrs_usim::UsimApp;
 //! use simrs_iso7816::Command;
-//! use simrs_fs::{AdfSlot, DfDef, EfDef, EfStructure, Fid, FileRef};
+//! use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
 //! use simrs_milenage::{MilenageParams, OpVariant};
 //!
-//! static EF: EfDef = EfDef {
-//!     fid: Fid(0x2FE2), sfi: None,
-//!     structure: EfStructure::Transparent,
-//!     data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
-//! };
-//! static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[FileRef::Ef(&EF)] };
+//! static EF: EfDef = EfDef::transparent(
+//!     Fid::new(0x2FE2),
+//!     None,
+//!     &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
+//! );
+//! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[FileRef::Ef(&EF)] };
 //!
 //! let milenage = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
 //! let mut app = UsimApp::new(&MF, &[], milenage);
@@ -57,7 +57,7 @@ pub mod profile;
 
 use simrs_bertlv::Encoder;
 use simrs_fs::{
-    AdfSlot, DeactivationTracker, DfDef, EfDef, EfStructure, Fid, FsData, FsError,
+    AdfSlot, DeactivationTracker, DfDef, EfDef, Fid, FsData, FsError,
     SelectionCtx, SelectedFile, Sfi,
 };
 use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
@@ -69,6 +69,34 @@ use simrs_proactive::ProactiveState;
 // Constants
 // ---------------------------------------------------------------------------
 
+/// Filesystem data buffer capacity, selected by feature flag.
+///
+/// - `profile-full`: 8192 bytes (full TS 31.102 catalog + ISIM/HPSIM/TELECOM)
+/// - `profile-standard` (default): 4096 bytes (56 EFs: baseline USIM + DF_5GS)
+/// - `profile-minimal`: 1024 bytes (31 EFs: LTE attach minimum + DF_5GS)
+///
+/// Note: DF_5GS (17 EFs, ~482 bytes) is included in all tiers.
+#[cfg(feature = "profile-full")]
+const FS_CAP: usize = 8192;
+#[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
+const FS_CAP: usize = 4096;
+#[cfg(all(feature = "profile-minimal", not(feature = "profile-standard"), not(feature = "profile-full")))]
+const FS_CAP: usize = 1024;
+
+/// Maximum number of EFs in the filesystem, selected by feature flag.
+///
+/// - `profile-full`: 160 (full TS 31.102 + ISIM/HPSIM/TELECOM)
+/// - `profile-standard` (default): 80 (56 EFs + headroom for telecom/additive)
+/// - `profile-minimal`: 40 (31 EFs + headroom)
+///
+/// Note: DF_5GS (17 EFs) is included in all tiers.
+#[cfg(feature = "profile-full")]
+const FS_MAX_EFS: usize = 160;
+#[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
+const FS_MAX_EFS: usize = 80;
+#[cfg(all(feature = "profile-minimal", not(feature = "profile-standard"), not(feature = "profile-full")))]
+const FS_MAX_EFS: usize = 40;
+
 /// CLA byte for ETSI CAT (proactive) commands.
 const CLA_ETSI: u8 = 0x80;
 
@@ -77,10 +105,6 @@ const FCP_BUF_CAP: usize = 64;
 
 // ETSI TS 102 221 clause 11.1.1.4.1: File descriptor byte values.
 const FD_DF: u8 = 0x78;
-const FD_TRANSPARENT: u8 = 0x41;
-const FD_LINEAR_FIXED: u8 = 0x42;
-const FD_CYCLIC: u8 = 0x46;
-const FD_BER_TLV: u8 = 0x39;
 const DATA_CODING_BER_TLV: u8 = 0x21;
 
 // ETSI TS 102 221 clause 11.1.1.4.9: Life cycle status.
@@ -219,7 +243,7 @@ const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
 /// The default is [`MilenageParams`] (TS 35.206).
 pub struct UsimApp<A: AuthAlgorithm = MilenageParams> {
     fs: SelectionCtx,
-    data: FsData<512>,
+    data: FsData<FS_CAP, FS_MAX_EFS>,
     mf: &'static DfDef,
     adfs: &'static [AdfSlot],
     pin: PinManager<5>,
@@ -252,7 +276,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
     /// # Panics
     ///
     /// Panics if the static filesystem tree (MF + ADFs) does not fit in the
-    /// internal 512-byte `FsData` buffer or contains more than 32 EFs.
+    /// internal `FsData` buffer (size depends on the selected profile tier).
     ///
     /// # Example
     ///
@@ -261,7 +285,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
     /// use simrs_fs::{DfDef, Fid, AdfSlot};
     /// use simrs_milenage::{MilenageParams, OpVariant};
     ///
-    /// static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[] };
+    /// static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
     /// let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
     /// let app = UsimApp::new(&MF, &[], mil);
     /// ```
@@ -270,7 +294,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         adfs: &'static [AdfSlot],
         auth: A,
     ) -> Self {
-        let mut data = FsData::<512>::new();
+        let mut data = FsData::<FS_CAP, FS_MAX_EFS>::new();
         // Panic on init failure: the static filesystem tree must fit in CAP.
         if let Err(e) = data.init_with_adfs(mf, adfs) {
             panic!("FsData init failed: {}", e);
@@ -318,7 +342,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
     /// Snapshot buffer size in bytes.
     pub const SNAPSHOT_SIZE: usize =
         SelectionCtx::SNAPSHOT_SIZE
-        + FsData::<512>::SNAPSHOT_SIZE
+        + FsData::<FS_CAP, FS_MAX_EFS>::SNAPSHOT_SIZE
         + PinManager::<5>::SNAPSHOT_SIZE
         + A::SNAPSHOT_SIZE
         + ProactiveState::SNAPSHOT_SIZE
@@ -395,7 +419,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         if !self.data.restore_state(&buf[off..]) {
             return false;
         }
-        off += FsData::<512>::SNAPSHOT_SIZE;
+        off += FsData::<FS_CAP, FS_MAX_EFS>::SNAPSHOT_SIZE;
         if !self.pin.restore_state(&buf[off..]) {
             return false;
         }
@@ -564,7 +588,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
                     Ok(sel) => {
                         // Check deactivation warning for EFs.
                         if let SelectedFile::Ef(ef) = sel {
-                            if self.deactivation.is_deactivated(ef.fid) {
+                            if self.deactivation.is_deactivated(ef.fid()) {
                                 if no_data {
                                     // Return warning SW 62 83.
                                     return write_sw(buf, StatusWord::Other(0x62, 0x83));
@@ -679,7 +703,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         // SFI-based access: P1 bit 7 set means SFI in P1[4:0], offset in P2.
         let (ef, offset) = if cmd.p1() & 0x80 != 0 {
             let sfi_val = cmd.p1() & 0x1F;
-            let Some(ef) = self.fs.find_ef_by_sfi(Sfi(sfi_val)) else {
+            let Some(ef) = self.fs.find_ef_by_sfi(Sfi::from_raw(sfi_val)) else {
                 return write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND));
             };
             (ef, u16::from(cmd.p2()))
@@ -690,7 +714,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
         };
         // Check deactivation.
-        if self.deactivation.is_deactivated(ef.fid) {
+        if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         }
         let le = u16::from(cmd.le().unwrap_or(0));
@@ -751,7 +775,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Check deactivation.
-        if self.deactivation.is_deactivated(ef.fid) {
+        if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         }
 
@@ -775,7 +799,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         // SFI-based access: P1 bit 7 set means SFI in P1[4:0], offset in P2.
         let (ef, offset) = if cmd.p1() & 0x80 != 0 {
             let sfi_val = cmd.p1() & 0x1F;
-            let Some(ef) = self.fs.find_ef_by_sfi(Sfi(sfi_val)) else {
+            let Some(ef) = self.fs.find_ef_by_sfi(Sfi::from_raw(sfi_val)) else {
                 return write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND));
             };
             (ef, u16::from(cmd.p2()))
@@ -786,7 +810,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
         };
         // Check deactivation.
-        if self.deactivation.is_deactivated(ef.fid) {
+        if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         }
 
@@ -814,7 +838,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Check deactivation.
-        if self.deactivation.is_deactivated(ef.fid) {
+        if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         }
         match self.data.write_record(ef, rec_num, cmd.data()) {
@@ -1215,7 +1239,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Check deactivation.
-        if self.deactivation.is_deactivated(ef.fid) {
+        if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         }
         let pattern = cmd.data();
@@ -1267,7 +1291,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         let Some(ef) = self.fs.current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
-        self.deactivation.deactivate_file(ef.fid);
+        self.deactivation.deactivate_file(ef.fid());
         write_sw(buf, StatusWord::Success)
     }
 
@@ -1283,7 +1307,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Activate: remove from deactivated list. If not deactivated, that's OK.
-        let _ = self.deactivation.activate_file(ef.fid);
+        let _ = self.deactivation.activate_file(ef.fid());
         write_sw(buf, StatusWord::Success)
     }
 
@@ -1595,40 +1619,20 @@ fn write_fcp_ef(
     ef: &EfDef,
 ) -> Result<(), simrs_bertlv::BerError> {
     // File descriptor.
-    match ef.structure {
-        EfStructure::Transparent => {
-            enc.tag_length_value(fcp::FILE_DESCRIPTOR, &[FD_TRANSPARENT, DATA_CODING_BER_TLV])?;
-        }
-        EfStructure::LinearFixed { record_size, num_records } => {
-            let rec_be = u16::from(record_size).to_be_bytes();
-            enc.tag_length_value(
-                fcp::FILE_DESCRIPTOR,
-                &[FD_LINEAR_FIXED, DATA_CODING_BER_TLV, num_records, rec_be[0], rec_be[1]],
-            )?;
-        }
-        EfStructure::Cyclic { record_size, num_records } => {
-            let rec_be = u16::from(record_size).to_be_bytes();
-            enc.tag_length_value(
-                fcp::FILE_DESCRIPTOR,
-                &[FD_CYCLIC, DATA_CODING_BER_TLV, num_records, rec_be[0], rec_be[1]],
-            )?;
-        }
-        EfStructure::BerTlv => {
-            enc.tag_length_value(fcp::FILE_DESCRIPTOR, &[FD_BER_TLV, DATA_CODING_BER_TLV])?;
-        }
-    }
+    let (fd_data, fd_len) = ef.structure().fcp_descriptor_data();
+    enc.tag_length_value(fcp::FILE_DESCRIPTOR, &fd_data[..fd_len])?;
 
     // File ID.
-    let fid_be = ef.fid.to_be_bytes();
+    let fid_be = ef.fid().to_be_bytes();
     enc.tag_length_value(fcp::FILE_ID, &fid_be)?;
 
     // File size.
-    let size = ef.data.len() as u16;
+    let size = ef.data().len() as u16;
     let size_be = size.to_be_bytes();
     enc.tag_length_value(fcp::FILE_SIZE, &size_be)?;
 
     // Short File Identifier (if assigned).
-    if let Some(sfi) = ef.sfi {
+    if let Some(sfi) = ef.sfi() {
         // SFI is encoded as (sfi << 3) | SFI_INDICATOR per ETSI TS 102 221.
         enc.tag_length_value(fcp::SHORT_FILE_ID, &[(sfi.value() << 3) | SFI_INDICATOR])?;
     }
@@ -1665,62 +1669,53 @@ fn write_ber_len(
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
-    use simrs_fs::{AdfSlot, EfDef, EfStructure, Fid, FileRef, Sfi};
+    use simrs_fs::{AdfSlot, EfDef, Fid, FileRef, Sfi};
     use simrs_milenage::OpVariant;
     use simrs_proactive::ProactiveCommand;
 
     // -- Test filesystem --
 
-    static EF_ICCID: EfDef = EfDef {
-        fid: Fid(0x2FE2),
-        sfi: Some(Sfi(2)),
-        structure: EfStructure::Transparent,
-        data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
-    };
+    static EF_ICCID: EfDef = EfDef::transparent(
+        Fid::new(0x2FE2),
+        Some(Sfi::new(2)),
+        &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
+    );
 
     static EF_DIR_DATA: [u8; 16] = [
         0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
 
-    static EF_DIR: EfDef = EfDef {
-        fid: Fid(0x2F00),
-        sfi: Some(Sfi(30)),
-        structure: EfStructure::LinearFixed {
-            record_size: 8,
-            num_records: 2,
-        },
-        data: &EF_DIR_DATA,
-    };
+    static EF_DIR: EfDef = EfDef::linear_fixed(
+        Fid::new(0x2F00),
+        Some(Sfi::new(30)),
+        8, 2,
+        &EF_DIR_DATA,
+    );
 
-    static EF_IMSI: EfDef = EfDef {
-        fid: Fid(0x6F07),
-        sfi: Some(Sfi(7)),
-        structure: EfStructure::Transparent,
-        data: &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
-    };
+    static EF_IMSI: EfDef = EfDef::transparent(
+        Fid::new(0x6F07),
+        Some(Sfi::new(7)),
+        &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
+    );
 
-    static EF_UST: EfDef = EfDef {
-        fid: Fid(0x6F38),
-        sfi: None,
-        structure: EfStructure::Transparent,
-        data: &[0xFF, 0xFF, 0xFF, 0xFF],
-    };
+    static EF_UST: EfDef = EfDef::transparent(
+        Fid::new(0x6F38),
+        None,
+        &[0xFF, 0xFF, 0xFF, 0xFF],
+    );
 
     static EF_FDN_DATA: [u8; 20] = [
         0x41, 0x6C, 0x69, 0x63, 0x65, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         0x42, 0x6F, 0x62, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
 
-    static EF_FDN: EfDef = EfDef {
-        fid: Fid(0x6F3B),
-        sfi: None,
-        structure: EfStructure::LinearFixed {
-            record_size: 10,
-            num_records: 2,
-        },
-        data: &EF_FDN_DATA,
-    };
+    static EF_FDN: EfDef = EfDef::linear_fixed(
+        Fid::new(0x6F3B),
+        None,
+        10, 2,
+        &EF_FDN_DATA,
+    );
 
     static EF_ACC_DATA: [u8; 12] = [
         0x00, 0x00, 0x01, 0x00,
@@ -1728,18 +1723,15 @@ mod tests {
         0x00, 0x00, 0x00, 0x00,
     ];
 
-    static EF_ACC: EfDef = EfDef {
-        fid: Fid(0x6F78),
-        sfi: None,
-        structure: EfStructure::Cyclic {
-            record_size: 4,
-            num_records: 3,
-        },
-        data: &EF_ACC_DATA,
-    };
+    static EF_ACC: EfDef = EfDef::cyclic(
+        Fid::new(0x6F78),
+        None,
+        4, 3,
+        &EF_ACC_DATA,
+    );
 
     static ADF_USIM_ROOT: DfDef = DfDef {
-        fid: Fid(0xFF01),
+        fid: Fid::new(0xFF01),
         children: &[
             FileRef::Ef(&EF_IMSI),
             FileRef::Ef(&EF_UST),
@@ -1756,7 +1748,7 @@ mod tests {
     }];
 
     static MF: DfDef = DfDef {
-        fid: Fid(0x3F00),
+        fid: Fid::new(0x3F00),
         children: &[
             FileRef::Ef(&EF_ICCID),
             FileRef::Ef(&EF_DIR),
@@ -3079,10 +3071,21 @@ mod tests {
 
     #[test]
     fn snapshot_size_correct() {
-        // SelectionCtx(8) + FsData::<512>(512) + PinManager::<5>(111) + Milenage(117)
-        // + ProactiveState(373) + ResponseQueue::<64>(65) + terminal_cap(17)
-        // + DeactivationTracker(33) + channels(4*9=36) + last_aid_match(1) = 1273
-        assert_eq!(UsimApp::<MilenageParams>::SNAPSHOT_SIZE, 1273);
+        // Snapshot = SelectionCtx + FsData<FS_CAP, FS_MAX_EFS> + PinManager<5> + Milenage
+        //          + ProactiveState + ResponseQueue<64> + terminal_cap(17)
+        //          + DeactivationTracker + channels(4*9=36) + last_aid_match(1)
+        let expected =
+            simrs_fs::SelectionCtx::SNAPSHOT_SIZE
+            + simrs_fs::FsData::<{ super::FS_CAP }, { super::FS_MAX_EFS }>::SNAPSHOT_SIZE
+            + simrs_pin::PinManager::<5>::SNAPSHOT_SIZE
+            + <simrs_milenage::MilenageParams as simrs_milenage::AuthAlgorithm>::SNAPSHOT_SIZE
+            + simrs_proactive::ProactiveState::SNAPSHOT_SIZE
+            + simrs_iso7816::ResponseQueue::<64>::SNAPSHOT_SIZE
+            + 17 // terminal_capability (16) + len (1)
+            + simrs_fs::DeactivationTracker::SNAPSHOT_SIZE
+            + 4 * (simrs_fs::SelectionCtx::SNAPSHOT_SIZE + 1) // channels
+            + 1; // last_aid_match
+        assert_eq!(UsimApp::<MilenageParams>::SNAPSHOT_SIZE, expected);
     }
 
     #[test]
@@ -3202,9 +3205,15 @@ mod tests {
     #[test]
     fn snapshot_restore_oversized_rsp_queue_len_returns_false() {
         // rsp_queue_len is the last byte of the ResponseQueue section.
-        // Offset = SelectionCtx(8) + FsData(512) + PinManager(111) + Milenage(117)
-        //        + ProactiveState(373) + ResponseQueue data(64) = 1185.
-        const RSP_QUEUE_LEN_OFFSET: usize = 8 + 512 + 111 + 117 + 373 + 64;
+        // Offset = SelectionCtx + FsData + PinManager + Milenage
+        //        + ProactiveState + ResponseQueue data(64).
+        const RSP_QUEUE_LEN_OFFSET: usize =
+            simrs_fs::SelectionCtx::SNAPSHOT_SIZE
+            + simrs_fs::FsData::<{ super::FS_CAP }, { super::FS_MAX_EFS }>::SNAPSHOT_SIZE
+            + simrs_pin::PinManager::<5>::SNAPSHOT_SIZE
+            + <simrs_milenage::MilenageParams as simrs_milenage::AuthAlgorithm>::SNAPSHOT_SIZE
+            + simrs_proactive::ProactiveState::SNAPSHOT_SIZE
+            + 64; // ResponseQueue data bytes (not including len)
         let src = app();
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
@@ -4795,6 +4804,447 @@ mod tests {
         assert_ne!(&buf1[29..45], &buf2[29..45],
             "different RAND must produce different IK");
     }
+
+    // -----------------------------------------------------------------------
+    // APDU-level tests using the reference profile (Phase 7)
+    // -----------------------------------------------------------------------
+
+    /// Helper: create a UsimApp from the reference profile with PIN verified.
+    #[cfg(feature = "profile-full")]
+    fn ref_app() -> UsimApp {
+        use crate::profile;
+        let mil = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let mut a = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, mil);
+        let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+        a.pin_manager()
+            .add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
+            .unwrap();
+        let _ = a.pin_manager().verify(PinKey::PIN1, &pin_val);
+        a
+    }
+
+    /// SELECT EF.IMSI (6F07) by FID in ADF.USIM and verify FCP response.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_select_ef_imsi_by_fid() {
+        let mut app = ref_app();
+        // Select ADF.USIM by AID
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // Select EF.IMSI by FID
+        let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]);
+        assert_eq!(buf[0], 0x61, "SELECT EF.IMSI must return data-available SW");
+        let fcp_len = buf[1];
+        // GET RESPONSE
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x62, "FCP must start with tag 0x62");
+        let inner = &buf[2..fcp_len as usize];
+        let fid_val = find_tlv_tag(inner, 0x83).unwrap();
+        assert_eq!(fid_val, &[0x6F, 0x07], "FCP must contain FID 6F07");
+    }
+
+    /// READ BINARY on EF.IMSI returns default data from reference profile.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_binary_ef_imsi() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x09]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 9 + 2); // 9 data + 2 SW
+        assert_eq!(buf[0], 0x08, "IMSI first byte (length) must be 0x08");
+    }
+
+    /// SELECT and READ BINARY on a full-tier transparent EF (EF.DCK, 6F2C).
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_binary_ef_dck() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x2C]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x10]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 16 + 2); // EF.DCK is 16 bytes
+    }
+
+    /// READ RECORD on EF.FDN (6F3B, linear-fixed) in reference profile.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_record_ef_fdn() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        // EF.FDN in ref profile: 2 records x 30 bytes
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x1E]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 30 + 2);
+    }
+
+    /// READ RECORD on EF.ACM (6F39, cyclic) in reference profile.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_record_ef_acm_cyclic() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x39]);
+        // EF.ACM in ref profile: 3 records x 3 bytes
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x03]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 3 + 2);
+    }
+
+    /// UPDATE BINARY + re-read round-trip on EF.AD (6FAD).
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_update_binary_roundtrip_ef_ad() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0xAD]);
+        // Write [0x81, 0x00, 0x00, 0x03] (mode=test, MNC len=3)
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x04, 0x81, 0x00, 0x00, 0x03]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Read back
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x04]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(&buf[..4], &[0x81, 0x00, 0x00, 0x03]);
+    }
+
+    /// UPDATE RECORD + re-read round-trip on EF.SDN (6F49, linear-fixed).
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_update_record_roundtrip_ef_sdn() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x49]);
+        // EF.SDN: 2 records x 30 bytes. Write record 1.
+        let mut apdu = [0xA5u8; 5 + 30];
+        apdu[0] = 0x00; // CLA
+        apdu[1] = 0xDC; // INS: UPDATE RECORD
+        apdu[2] = 0x01; // P1: record 1
+        apdu[3] = 0x04; // P2: absolute
+        apdu[4] = 0x1E; // Lc: 30
+        // Payload is 0xA5 repeated
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Read back record 1
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x1E]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0xA5);
+        assert_eq!(buf[29], 0xA5);
+    }
+
+    /// SELECT by path through sub-DFs: MF > ADF.USIM > DF.GSM-ACCESS > EF.Kc.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_select_path_to_ef_kc_in_gsm_access() {
+        let mut app = ref_app();
+        // Select ADF.USIM by AID
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // Select DF.GSM-ACCESS (5F3B) by FID
+        let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x5F, 0x3B]);
+        assert_eq!(buf[0], 0x61, "SELECT DF.GSM-ACCESS must return data-available");
+        // Select EF.Kc (4F20) under DF.GSM-ACCESS
+        let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x4F, 0x20]);
+        assert_eq!(buf[0], 0x61, "SELECT EF.Kc must return data-available");
+        let fcp_len = buf[1];
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let inner = &buf[2..fcp_len as usize];
+        let fid_val = find_tlv_tag(inner, 0x83).unwrap();
+        assert_eq!(fid_val, &[0x4F, 0x20], "FCP must contain FID 4F20");
+        // Read EF.Kc data (9 bytes)
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x09]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 9 + 2);
+        // Last byte is CKSN=7 (no key)
+        assert_eq!(buf[8], 0x07, "EF.Kc CKSN must be 7 (no key)");
+    }
+
+    /// SELECT EF.KcGPRS (4F52) under DF.GSM-ACCESS and read.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_select_ef_kcgprs_in_gsm_access() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x5F, 0x3B]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x4F, 0x52]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x09]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[8], 0x07, "EF.KcGPRS CKSN must be 7 (no key)");
+    }
+
+    /// SELECT and read a DF_5GS EF: EF.5GS3GPPLOCI (4F01).
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_select_ef_5gs3gpploci() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // Select DF.5GS (5FC0)
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x5F, 0xC0]);
+        // Select EF.5GS3GPPLOCI (4F01)
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x4F, 0x01]);
+        // Read 20 bytes
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x14]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 20 + 2);
+    }
+
+    /// SELECT EF.ICCID from MF in reference profile.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_select_ef_iccid() {
+        let mut app = ref_app();
+        // MF is current by default
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 10 + 2);
+        // First nibble-pair should be 0x98 (BCD for '89')
+        assert_eq!(buf[0], 0x98, "EF.ICCID first byte must be 0x98");
+    }
+
+    /// SELECT EF.PL (2F05) under MF and read default data.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_ef_pl() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x05]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 10 + 2);
+    }
+
+    /// SELECT EF.ARR (2F06) under MF and read record.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_record_ef_arr() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x06]);
+        // EF.ARR: 1 record x 8 bytes
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x08]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 8 + 2);
+    }
+
+    /// FCP for a full-tier EF (EF.VGCS) shows correct file size.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_fcp_ef_vgcs_file_size() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // EF.VGCS (6FB1) -- 40 bytes transparent
+        let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0xB1]);
+        let fcp_len = buf[1];
+        let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let inner = &buf[2..fcp_len as usize];
+        let size_val = find_tlv_tag(inner, 0x80).unwrap();
+        assert_eq!(size_val, &[0x00, 0x28], "EF.VGCS file size must be 40 (0x28)");
+    }
+
+    // -----------------------------------------------------------------------
+    // Adversarial / defensive tests (Phase 7)
+    // -----------------------------------------------------------------------
+
+    /// SELECT non-existent FID returns 6A 82 (file not found).
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_select_nonexistent_fid() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0xDE, 0xAD]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x82), "non-existent FID must return 6A82");
+    }
+
+    /// READ BINARY past end of file returns appropriate error SW.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_binary_past_end() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // EF.HPPLMN (6F31) is 1 byte. Read 2 bytes at offset 0.
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x31]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x02]);
+        let (sw1, _sw2) = sw(&buf, len);
+        assert_ne!(sw1, 0x90, "READ BINARY past end must not succeed");
+    }
+
+    /// READ RECORD with record 0 is rejected (records are 1-based).
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_record_zero_rejected() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // EF.FDN (6F3B) linear-fixed
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x00, 0x04, 0x1E]);
+        let (sw1, _) = sw(&buf, len);
+        assert_ne!(sw1, 0x90, "READ RECORD with P1=0 must be rejected");
+    }
+
+    /// READ RECORD beyond last record returns 6A 83.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_record_beyond_last() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // EF.FDN: 2 records. Try record 3.
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x03, 0x04, 0x1E]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x83), "record beyond last must return 6A83");
+    }
+
+    /// UPDATE BINARY with data exceeding file size is rejected.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_update_binary_exceeds_file_size() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // EF.HPPLMN (6F31) is 1 byte. Try writing 2 bytes at offset 0.
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x31]);
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+        let (sw1, _) = sw(&buf, len);
+        assert_ne!(sw1, 0x90, "UPDATE BINARY exceeding file size must fail");
+    }
+
+    /// UPDATE RECORD with wrong record size is rejected.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_update_record_wrong_size() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // EF.ECC (6FB7) linear-fixed: 16-byte records. Try writing 8 bytes.
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0xB7]);
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xDC, 0x01, 0x04, 0x08,
+              0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+        assert_eq!(sw(&buf, len), (0x67, 0x00), "wrong record size must return 6700");
+    }
+
+    /// READ BINARY on a linear-fixed EF is rejected (incompatible structure).
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_binary_on_linear_fixed() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]); // EF.FDN
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x01]);
+        assert_eq!(sw(&buf, len), (0x69, 0x81),
+            "READ BINARY on linear-fixed EF must return 6981");
+    }
+
+    /// READ RECORD on a transparent EF is rejected.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_read_record_on_transparent() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]); // EF.IMSI
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x09]);
+        assert_eq!(sw(&buf, len), (0x69, 0x81),
+            "READ RECORD on transparent EF must return 6981");
+    }
+
+    /// ISIM ADF can be selected and EFs accessed.
+    #[cfg(all(feature = "profile-full", feature = "isim"))]
+    #[test]
+    fn ref_select_isim_adf_and_read_ef() {
+        let mut app = ref_app();
+        // Select ADF.ISIM by AID
+        let (buf, _) = send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x04]);
+        assert_eq!(buf[0], 0x61, "SELECT ADF.ISIM must return data-available");
+        // Select EF.IMPI (6F02)
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x02]);
+        // Read 64 bytes
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x40]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 64 + 2);
+    }
+
+    /// HPSIM ADF can be selected and EFs accessed.
+    #[cfg(all(feature = "profile-full", feature = "hpsim"))]
+    #[test]
+    fn ref_select_hpsim_adf_and_read_ef() {
+        let mut app = ref_app();
+        // Select ADF.HPSIM by AID
+        let (buf, _) = send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x0A]);
+        assert_eq!(buf[0], 0x61, "SELECT ADF.HPSIM must return data-available");
+        // Select EF.HPST (6F07)
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]);
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x02]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 2 + 2);
+    }
+
+    /// DF_TELECOM can be selected and EFs accessed.
+    #[cfg(all(feature = "profile-full", feature = "telecom"))]
+    #[test]
+    fn ref_select_df_telecom_and_read_ef() {
+        let mut app = ref_app();
+        // Select DF_TELECOM (7F10)
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x7F, 0x10]);
+        // Select EF.ADN (6F3A)
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3A]);
+        // Read first record (30 bytes)
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x1E]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 30 + 2);
+    }
+
+    /// Multiple full-tier EFs can be sequentially selected and read.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_sequential_select_multiple_efs() {
+        let mut app = ref_app();
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+
+        // Table of (FID_hi, FID_lo, expected_size) for transparent EFs
+        let efs: [(u8, u8, u8); 6] = [
+            (0x6F, 0x2C, 16),  // EF.DCK
+            (0x6F, 0x32, 24),  // EF.CNL
+            (0x6F, 0x37, 3),   // EF.ACMmax
+            (0x6F, 0x41, 5),   // EF.PUCT
+            (0x6F, 0x5B, 6),   // EF.START_HFN
+            (0x6F, 0x5C, 3),   // EF.THRESHOLD
+        ];
+
+        for (hi, lo, size) in &efs {
+            send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, *hi, *lo]);
+            let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, *size]);
+            assert_eq!(sw(&buf, len), (0x90, 0x00),
+                "READ BINARY on EF {hi:#04X}{lo:02X} must succeed");
+            assert_eq!(len, *size as usize + 2,
+                "EF {hi:#04X}{lo:02X} data length mismatch");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -4804,23 +5254,50 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     use super::*;
-    use simrs_fs::{EfDef, EfStructure, Fid, FileRef};
+    use simrs_fs::{EfDef, Fid, FileRef};
     use simrs_milenage::OpVariant;
     use proptest::prelude::*;
 
-    static PT_EF: EfDef = EfDef {
-        fid: Fid(0x2FE2),
-        sfi: None,
-        structure: EfStructure::Transparent,
-        data: &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
-    };
+    static PT_EF: EfDef = EfDef::transparent(
+        Fid::new(0x2FE2),
+        None,
+        &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
+    );
 
     static PT_MF: DfDef = DfDef {
-        fid: Fid(0x3F00),
+        fid: Fid::new(0x3F00),
         children: &[FileRef::Ef(&PT_EF)],
     };
 
+    // Linear-fixed EF for record-based proptest.
+    static PT_LF_DATA: [u8; 30] = [
+        0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA,
+        0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA,
+        0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA,
+    ];
+
+    static PT_LF_EF: EfDef = EfDef::linear_fixed(
+        Fid::new(0x6F3B),
+        None,
+        10, 3,
+        &PT_LF_DATA,
+    );
+
+    static PT_ADF: DfDef = DfDef {
+        fid: Fid::new(0xFF01),
+        children: &[FileRef::Ef(&PT_LF_EF)],
+    };
+
+    static PT_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
+
+    static PT_ADF_TABLE: [simrs_fs::AdfSlot; 1] = [simrs_fs::AdfSlot {
+        aid: &PT_AID,
+        root: &PT_ADF,
+    }];
+
     proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
         // Any valid READ BINARY offset+length within file returns 90 00.
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
@@ -4861,6 +5338,91 @@ mod proptests {
             let len2 = rsp2.len();
             prop_assert_eq!((buf[len2-2], buf[len2-1]), (0x90, 0x00));
             prop_assert_eq!(buf[0], 0x62); // FCP template
+        }
+
+        // For any valid record number, READ RECORD succeeds.
+        #[test]
+        fn read_record_in_bounds(rec in 1u8..=3u8) {
+            let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+            let mut app = UsimApp::new(&PT_MF, &PT_ADF_TABLE, mil);
+            // Select ADF.USIM
+            let sel_adf = [0x00, 0xA4, 0x04, 0x04, 0x07,
+                0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
+            let cmd = Command::parse(&sel_adf).unwrap();
+            let mut buf = [0u8; 256];
+            let _ = app.handle(&cmd, &mut buf);
+            // Select EF.FDN (linear-fixed, 3 records x 10 bytes)
+            let sel_ef = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B];
+            let cmd = Command::parse(&sel_ef).unwrap();
+            let _ = app.handle(&cmd, &mut buf);
+            // READ RECORD
+            let rr = [0x00, 0xB2, rec, 0x04, 0x0A];
+            let cmd = Command::parse(&rr).unwrap();
+            let rsp = app.handle(&cmd, &mut buf);
+            let len = rsp.len();
+            prop_assert_eq!((buf[len-2], buf[len-1]), (0x90, 0x00),
+                "READ RECORD {} must succeed", rec);
+            prop_assert_eq!(len, 10 + 2, "record data must be 10 bytes");
+        }
+
+        // Arbitrary data written via UPDATE BINARY reads back identically.
+        #[test]
+        #[allow(clippy::cast_possible_truncation)] // data.len() is 1..=8, fits in u8
+        fn update_binary_roundtrip(data in proptest::collection::vec(any::<u8>(), 1..=8)) {
+            let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+            let mut app = UsimApp::new(&PT_MF, &[], mil);
+            // Select the 8-byte transparent EF
+            let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
+            let cmd = Command::parse(&sel).unwrap();
+            let mut buf = [0u8; 256];
+            let _ = app.handle(&cmd, &mut buf);
+
+            // Build UPDATE BINARY APDU
+            let lc = data.len() as u8;
+            let mut apdu = [0u8; 5 + 8];
+            apdu[0] = 0x00; // CLA
+            apdu[1] = 0xD6; // INS: UPDATE BINARY
+            apdu[2] = 0x00; // P1: offset high
+            apdu[3] = 0x00; // P2: offset low
+            apdu[4] = lc;
+            apdu[5..5 + data.len()].copy_from_slice(&data);
+
+            let cmd = Command::parse(&apdu[..5 + data.len()]).unwrap();
+            let rsp = app.handle(&cmd, &mut buf);
+            let len = rsp.len();
+            prop_assert_eq!((buf[len-2], buf[len-1]), (0x90, 0x00),
+                "UPDATE BINARY must succeed");
+
+            // READ BINARY to verify
+            let rb = [0x00, 0xB0, 0x00, 0x00, lc];
+            let cmd = Command::parse(&rb).unwrap();
+            let rsp = app.handle(&cmd, &mut buf);
+            let len = rsp.len();
+            prop_assert_eq!((buf[len-2], buf[len-1]), (0x90, 0x00),
+                "READ BINARY after update must succeed");
+            prop_assert_eq!(&buf[..data.len()], &data[..],
+                "read-back data must match written data");
+        }
+
+        // Out-of-bounds READ BINARY always fails (offset+length > file size).
+        #[test]
+        fn read_binary_out_of_bounds_fails(offset in 0u16..256, length in 1u8..=255u8) {
+            prop_assume!(u32::from(offset) + u32::from(length) > 8); // beyond 8-byte EF
+            let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+            let mut app = UsimApp::new(&PT_MF, &[], mil);
+            let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
+            let cmd = Command::parse(&sel).unwrap();
+            let mut buf = [0u8; 256];
+            let _ = app.handle(&cmd, &mut buf);
+
+            let off_hi = (offset >> 8) as u8;
+            let off_lo = (offset & 0xFF) as u8;
+            let rb = [0x00, 0xB0, off_hi, off_lo, length];
+            let cmd = Command::parse(&rb).unwrap();
+            let rsp = app.handle(&cmd, &mut buf);
+            let len = rsp.len();
+            prop_assert_ne!((buf[len-2], buf[len-1]), (0x90, 0x00),
+                "out-of-bounds READ BINARY must not succeed");
         }
     }
 }

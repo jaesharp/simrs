@@ -363,20 +363,19 @@ impl ProxyLoop {
 
 // -- Minimal static filesystem for the shadow SIM --
 
-use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef};
+use simrs_fs::{DfDef, EfDef, Fid, FileRef};
 
 static SHADOW_ICCID_DATA: [u8; 10] =
     [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
-static SHADOW_EF_ICCID: EfDef = EfDef {
-    fid: Fid(0x2FE2),
-    sfi: None,
-    structure: EfStructure::Transparent,
-    data: &SHADOW_ICCID_DATA,
-};
+static SHADOW_EF_ICCID: EfDef = EfDef::transparent(
+    Fid::new(0x2FE2),
+    None,
+    &SHADOW_ICCID_DATA,
+);
 
 static SHADOW_MF: DfDef = DfDef {
-    fid: Fid(0x3F00),
+    fid: Fid::new(0x3F00),
     children: &[FileRef::Ef(&SHADOW_EF_ICCID)],
 };
 

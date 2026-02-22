@@ -32,7 +32,7 @@
 //! use simrs_milenage::MilenageParams;
 //! use simrs_fs::{DfDef, Fid};
 //!
-//! static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[] };
+//! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
 //! static ATR: [u8; 2] = [0x3B, 0x00];
 //!
 //! let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &MF);
@@ -61,6 +61,31 @@ use simrs_iso7816::{Command, StatusWord, write_sw};
 use simrs_milenage::{AuthAlgorithm, MilenageParams};
 #[cfg(feature = "usim")]
 use simrs_usim::UsimApp;
+
+// ---------------------------------------------------------------------------
+// State hash buffer upper bound
+// ---------------------------------------------------------------------------
+
+// Rust does not allow `Self::SNAPSHOT_SIZE` in array-length position for
+// generic types.  We compute a fixed upper bound from the non-generic
+// component sizes.  The `Sim::state_hash` method uses a `debug_assert_eq`
+// to verify the bound at runtime.
+#[cfg(all(feature = "gsm", feature = "usim"))]
+const STATE_HASH_BUF: usize = 1 + GsmApp::SNAPSHOT_SIZE + {
+    // UsimApp<A>::SNAPSHOT_SIZE depends on A::SNAPSHOT_SIZE.
+    // MilenageParams::SNAPSHOT_SIZE is the largest known auth algorithm.
+    // TuakParams would be similar.  Add headroom for future algorithms.
+    simrs_usim::UsimApp::<MilenageParams>::SNAPSHOT_SIZE + 256
+};
+
+#[cfg(all(feature = "gsm", not(feature = "usim")))]
+const STATE_HASH_BUF: usize = 1 + GsmApp::SNAPSHOT_SIZE + 256;
+
+#[cfg(all(not(feature = "gsm"), feature = "usim"))]
+const STATE_HASH_BUF: usize = 1 + simrs_usim::UsimApp::<MilenageParams>::SNAPSHOT_SIZE + 256;
+
+#[cfg(all(not(feature = "gsm"), not(feature = "usim")))]
+const STATE_HASH_BUF: usize = 256;
 
 // ---------------------------------------------------------------------------
 // CLA byte classification
@@ -371,10 +396,8 @@ impl<A: AuthAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
 
     /// Snapshot buffer size in bytes.
     ///
-    /// Varies by enabled features: CardState(1) + GsmApp(415) +
-    /// UsimApp::\<A\>::SNAPSHOT\_SIZE (1186 for MilenageParams).
-    ///
-    /// With both features and MilenageParams: 1602 bytes total.
+    /// Varies by enabled features and profile tiers:
+    /// CardState(1) + GsmApp::SNAPSHOT\_SIZE + UsimApp::\<A\>::SNAPSHOT\_SIZE.
     pub const SNAPSHOT_SIZE: usize = 1
         + { #[cfg(feature = "gsm")] { GsmApp::SNAPSHOT_SIZE } #[cfg(not(feature = "gsm"))] { 0 } }
         + { #[cfg(feature = "usim")] { UsimApp::<A>::SNAPSHOT_SIZE } #[cfg(not(feature = "usim"))] { 0 } };
@@ -443,10 +466,12 @@ impl<A: AuthAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
 
     /// Compute an FNV-1a hash of the serialized state for deduplication.
     pub fn state_hash(&self) -> u64 {
-        // SNAPSHOT_SIZE does not depend on RSP_CAP but the compiler cannot
-        // prove that for generic const parameters, so use a concrete upper
-        // bound and assert at runtime.
-        let mut buf = [0u8; 2048];
+        // Rust cannot use `Self::SNAPSHOT_SIZE` in array-length position for
+        // generic types, so we compute a fixed upper bound from the known
+        // component sizes.  The `debug_assert_eq` below will catch any
+        // mismatch at runtime in debug builds.
+        const HASH_BUF: usize = STATE_HASH_BUF;
+        let mut buf = [0u8; HASH_BUF];
         let n = self.save_state(&mut buf);
         debug_assert_eq!(n, Self::SNAPSHOT_SIZE, "save_state wrote unexpected size");
         fnv1a(&buf[..n])
@@ -527,7 +552,7 @@ fn fnv1a(data: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef};
+    use simrs_fs::{DfDef, EfDef, Fid, FileRef};
 
     #[cfg(feature = "usim")]
     use simrs_fs::AdfSlot;
@@ -542,15 +567,14 @@ mod tests {
     static ICCID_DATA: [u8; 10] =
         [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
-    static EF_ICCID: EfDef = EfDef {
-        fid: Fid(0x2FE2),
-        sfi: None,
-        structure: EfStructure::Transparent,
-        data: &ICCID_DATA,
-    };
+    static EF_ICCID: EfDef = EfDef::transparent(
+        Fid::new(0x2FE2),
+        None,
+        &ICCID_DATA,
+    );
 
     static MF: DfDef = DfDef {
-        fid: Fid(0x3F00),
+        fid: Fid::new(0x3F00),
         children: &[FileRef::Ef(&EF_ICCID)],
     };
 
@@ -562,16 +586,15 @@ mod tests {
     static IMSI_DATA: [u8; 9] = [0x08, 0x09, 0x10, 0x10, 0x00, 0x00, 0x00, 0x00, 0x01];
 
     #[cfg(feature = "usim")]
-    static EF_IMSI: EfDef = EfDef {
-        fid: Fid(0x6F07),
-        sfi: None,
-        structure: EfStructure::Transparent,
-        data: &IMSI_DATA,
-    };
+    static EF_IMSI: EfDef = EfDef::transparent(
+        Fid::new(0x6F07),
+        None,
+        &IMSI_DATA,
+    );
 
     #[cfg(feature = "usim")]
     static ADF_USIM_DF: DfDef = DfDef {
-        fid: Fid(0x7FFF),
+        fid: Fid::new(0x7FFF),
         children: &[FileRef::Ef(&EF_IMSI)],
     };
 
@@ -976,7 +999,7 @@ mod tests {
     #[test]
     fn snapshot_save_writes_exact_size() {
         let sim = make_sim();
-        let mut buf = [0u8; 2048];
+        let mut buf = [0u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE];
         let n = sim.save_state(&mut buf);
         assert_eq!(n, Sim::<MilenageParams, 256>::SNAPSHOT_SIZE);
     }
@@ -986,7 +1009,7 @@ mod tests {
         let mut sim = make_sim();
         let _ = sim.process(SimEvent::PowerOn);
 
-        let mut snap = [0u8; 2048];
+        let mut snap = [0u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE];
         let n = sim.save_state(&mut snap);
         assert_eq!(n, Sim::<MilenageParams, 256>::SNAPSHOT_SIZE);
 
@@ -1007,7 +1030,7 @@ mod tests {
     #[test]
     fn snapshot_restore_off_state() {
         let sim = make_sim(); // never powered on -> Off state
-        let mut snap = [0u8; 2048];
+        let mut snap = [0u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE];
         let n = sim.save_state(&mut snap);
         assert_eq!(n, Sim::<MilenageParams, 256>::SNAPSHOT_SIZE);
 
@@ -1050,7 +1073,7 @@ mod tests {
     #[test]
     fn snapshot_restore_invalid_card_state() {
         let sim = make_sim();
-        let mut snap = [0u8; 2048];
+        let mut snap = [0u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE];
         let n = sim.save_state(&mut snap);
         assert!(n > 0);
         // Corrupt the card state byte.

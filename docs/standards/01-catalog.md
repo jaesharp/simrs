@@ -12,18 +12,20 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 |------|-------|--------|--------|-------------|-------|
 | ISO/IEC 7816-3 | Electrical interface, transmission protocols | N/A | N/A | [iso7816](../../crates/simrs-iso7816/) | T=0, T=1 framing |
 | ISO/IEC 7816-4:2020 | Organization, security, commands | N/A | N/A | [iso7816](../../crates/simrs-iso7816/) | APDU structure, SW codes |
-| ETSI TS 102 221 | UICC-Terminal interface | V17.4.0 | V18.2.0 | [iso7816](../../crates/simrs-iso7816/), [fs](../../crates/simrs-fs/) | SELECT, READ, UPDATE, FCP, logical channels |
+| ETSI TS 102 221 | UICC-Terminal interface | V17.4.0 | V18.2.0 | [iso7816](../../crates/simrs-iso7816/), [fs](../../crates/simrs-fs/), [usim](../../crates/simrs-usim/) | SELECT, READ, UPDATE, FCP, logical channels; DF.TELECOM (12 EFs, feature: `telecom`) |
 | ETSI TS 101 220 | ETSI numbering system for telecoms | V17.1.0 | V18.0.0 | [bertlv](../../crates/simrs-bertlv/) | BER-TLV tag assignments, AIDs |
 | ETSI TS 102 230-1 | UICC test spec (terminal) | V17.2.0 | -- | -- | Conformance testing |
 | ETSI TS 102 230-2 | UICC test spec (UICC) | V17.1.0 | -- | -- | Conformance testing |
 | 3GPP TS 31.101 | UICC-terminal interface (3GPP ref) | V17.x | V18.x | -- | Normative reference to TS 102 221 |
+| 3GPP TS 23.038 | Alphabets and language-specific information | V17.0.0 | V18.0.0 | [proactive](../../crates/simrs-proactive/) | GSM 7-bit default alphabet, CBS data coding, text packing |
 
 ## USIM Application
 
 | Spec | Title | Rel-17 | Rel-18 | Rel-19 | simrs Crate |
 |------|-------|--------|--------|--------|-------------|
-| 3GPP TS 31.102 | USIM application | V17.16.0 | V18.9.0 | V19.4.0 | [usim](../../crates/simrs-usim/), [fs](../../crates/simrs-fs/) |
-| 3GPP TS 31.103 | ISIM application | V17.x | -- | -- | Future |
+| 3GPP TS 31.102 | USIM application | V17.16.0 | V18.9.0 | V19.4.0 | [usim](../../crates/simrs-usim/), [fs](../../crates/simrs-fs/). Full catalog: 90 ADF EFs + 17 DF_5GS + 2 DF.GSM-ACCESS. |
+| 3GPP TS 31.103 | ISIM application | V17.x | -- | -- | [usim](../../crates/simrs-usim/) (feature: `isim`). 10 EFs: IMPI, DOMAIN, IMPU, ARR, IST, P-CSCF, GBABP, GBANL, NAFKCA, AD. |
+| 3GPP TS 31.104 | HPSIM application | V17.x | -- | -- | [usim](../../crates/simrs-usim/) (feature: `hpsim`). 3 EFs: ARR, HPST, AD. |
 | 3GPP TS 31.111 | USAT (USIM Application Toolkit) | V17.14.0 | V18.11.0 | V19.3.0 | [proactive](../../crates/simrs-proactive/) |
 | 3GPP TS 31.121 | USIM test spec | V17.x | -- | V19.x | -- |
 | 3GPP TS 31.122 | USIM conformance | V17.3.0 | V18.3.0 | -- | -- |
@@ -40,6 +42,8 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 | 3GPP TS 35.231 | TUAK: Algorithm spec | V15.0.0 | [tuak](../../crates/simrs-tuak/) | Keccak-based alternative to Milenage |
 | 3GPP TS 35.232 | TUAK: Test data | V12.1.0 | [tuak](../../crates/simrs-tuak/) | Test vectors |
 | 3GPP TS 35.233 | TUAK: Design conformance | V12.1.0 | [tuak](../../crates/simrs-tuak/) | Verification data |
+| NIST FIPS 202 | SHA-3 Standard (Keccak permutation) | 2015 | [keccak](../../crates/simrs-keccak/) | Keccak-f[1600] used by TUAK |
+| GSM 03.20 / 3GPP TS 43.020 | Security related network functions (COMP128) | V16.0.0 | [comp128](../../crates/simrs-comp128/) | COMP128 v1/v2/v3 algorithms |
 
 ## Security Architecture
 
@@ -47,7 +51,7 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 |------|-------|--------|--------|-------------|-------|
 | 3GPP TS 33.102 | 3G Security architecture | V17.0.0 | -- | [milenage](../../crates/simrs-milenage/) | AKA procedure, SQN management, C3 conversion |
 | 3GPP TS 33.401 | EPS (4G) Security | V17.7.0 | V18.3.0 | [usim](../../crates/simrs-usim/) | EPS-AKA, KASME hierarchy |
-| 3GPP TS 33.501 | 5G Security | V17.5.0 | V18.9.0 | Future | 5G-AKA, EAP-AKA', SUCI, KAUSF hierarchy |
+| 3GPP TS 33.501 | 5G Security | V17.5.0 | V18.9.0 | [usim](../../crates/simrs-usim/) (DF_5GS) | USIM-side: SUCI_Calc_Info, 5GAUTHKEYS, 5G NAS security context EFs. ME-side 5G-AKA/EAP-AKA' key derivation: future |
 | 3GPP TS 33.220 | GBA (Generic Bootstrapping) | V17.x | -- | Future | HMAC-SHA-256 KDF framework |
 
 ## SIM Toolkit / OTA
@@ -79,10 +83,10 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 
 | Priority | Release | Rationale |
 |----------|---------|-----------|
-| P0 (must) | Rel-4/5 | GSM 11.11 baseline for `simrs-gsm` |
-| P0 (must) | Rel-8 | UMTS/EPS baseline: EF_EPSLOCI, EF_EPSNSC, EPS-AKA |
-| P1 (should) | Rel-15 | 5G SA baseline: DF_5GS, SUCI, 5G-AKA |
-| P2 (nice) | Rel-16 | URSP, CAG, trusted non-3GPP |
-| P3 (later) | Rel-17+ | Disaster roaming, eDRX, satellite access |
+| P0 (done) | Rel-4/5 | GSM 11.11 baseline for `simrs-gsm` (19 EFs) |
+| P0 (done) | Rel-8 | UMTS/EPS baseline: EF_EPSLOCI, EF_EPSNSC, EPS-AKA |
+| P0 (done) | Rel-15 | 5G SA baseline: DF_5GS (17 EFs), SUCI_Calc_Info, 5G-GUTI |
+| P0 (done) | Rel-16 | URSP, CAG, trusted non-3GPP (EFs in DF_5GS) |
+| P0 (done) | Rel-17 | Disaster roaming, eDRX, NSWO (EFs in DF_5GS) |
 
-This means the filesystem (EF catalog) should be Rel-15 complete with Rel-16 stubs, and the auth path should support both Milenage and (eventually) TUAK for 256-bit key support.
+The filesystem EF catalog is Rel-17 complete for DF_5GS (17 EFs through Rel-17). The auth path supports both Milenage and TUAK for 256-bit key support.

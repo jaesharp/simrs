@@ -37,6 +37,7 @@ graph LR
         S16["TS 35.233"]
         S17["TS 102 225"]
         S18["TS 102 226"]
+        S19["TS 31.104"]
     end
 
     subgraph crates ["simrs Crates"]
@@ -69,10 +70,12 @@ graph LR
     TUAK --> MIL
     S7 --> MIL
     S8 --> USIM
-    S9 -.->|"future: 5G-AKA"| USIM
+    S9 -->|"DF_5GS EFs"| USIM
     S10 --> USIM
     S10 --> FS
-    S11 -.->|"future: ISIM"| USIM
+    S11 -.->|"feature: isim"| USIM
+    S19 -.->|"feature: hpsim"| USIM
+    S2 -.->|"feature: telecom"| USIM
     S12 --> PRO
     S13 --> PRO
     S14 --> GSM
@@ -89,7 +92,7 @@ graph LR
     class ISO,BER,RIJ,C128,KEC foundation
     class MIL,TUAK,FS,PIN,PRO,OTA composition
     class GSM,USIM,SIM application
-    class S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14,S15,S16,S17,S18 std
+    class S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14,S15,S16,S17,S18,S19 std
 ```
 
 ## Generation Scope
@@ -101,7 +104,7 @@ graph LR
 | 3G/4G/5G | TUAK (f1-f5, Keccak) | `simrs-keccak`, `simrs-tuak`, `simrs-hle` | Implemented; HLE dispatches Milenage or TUAK |
 | 4G LTE (EPS) | EPS-AKA (Milenage + KASME KDF) | `simrs-usim` | USIM-side identical to 3G; ME-side KDF out of scope |
 | 5G NR NSA | EPS-AKA (via LTE anchor) | `simrs-usim` | No 5G-specific USIM changes needed |
-| 5G NR SA | 5G-AKA / EAP-AKA' | Future: `simrs-usim` + DF_5GS EFs | USIM-side identical; ME-side key derivation new |
+| 5G NR SA | 5G-AKA / EAP-AKA' | `simrs-usim` (DF_5GS: 17 EFs) | USIM-side: DF_5GS EFs implemented (SUCI, 5G-GUTI, KAMF, URSP, CAG); ME-side key derivation out of scope |
 
 ## Protocol Coverage (Tiers 5--6)
 

@@ -320,17 +320,16 @@ pub fn hle_state_hash() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_fs::{AdfSlot, EfDef, EfStructure, Fid, FileRef};
+    use simrs_fs::{AdfSlot, EfDef, Fid, FileRef};
 
-    static EF_ICCID: EfDef = EfDef {
-        fid: Fid(0x2FE2),
-        sfi: None,
-        structure: EfStructure::Transparent,
-        data: &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
-    };
+    static EF_ICCID: EfDef = EfDef::transparent(
+        Fid::new(0x2FE2),
+        None,
+        &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
+    );
 
     static MF: DfDef = DfDef {
-        fid: Fid(0x3F00),
+        fid: Fid::new(0x3F00),
         children: &[FileRef::Ef(&EF_ICCID)],
     };
 
@@ -593,7 +592,7 @@ mod tests {
     // -------------------------------------------------------------------
 
     static ADF_ROOT: DfDef = DfDef {
-        fid: Fid(0xFF01),
+        fid: Fid::new(0xFF01),
         children: &[],
     };
 

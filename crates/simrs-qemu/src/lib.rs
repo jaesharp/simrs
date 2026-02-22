@@ -391,7 +391,7 @@ fn encode_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef};
+    use simrs_fs::{DfDef, EfDef, Fid, FileRef};
     use simrs_milenage::MilenageParams;
     use simrs_sim::{Sim, SimEvent, SimResponse};
     use simrs_transport_shmem::{ShmemHeader, MAGIC, VERSION};
@@ -403,15 +403,14 @@ mod tests {
     static ICCID_DATA: [u8; 10] =
         [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
-    static EF_ICCID: EfDef = EfDef {
-        fid: Fid(0x2FE2),
-        sfi: None,
-        structure: EfStructure::Transparent,
-        data: &ICCID_DATA,
-    };
+    static EF_ICCID: EfDef = EfDef::transparent(
+        Fid::new(0x2FE2),
+        None,
+        &ICCID_DATA,
+    );
 
     static MF: DfDef = DfDef {
-        fid: Fid(0x3F00),
+        fid: Fid::new(0x3F00),
         children: &[FileRef::Ef(&EF_ICCID)],
     };
 
