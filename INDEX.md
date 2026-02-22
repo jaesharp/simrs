@@ -1,6 +1,6 @@
 # simrs Crate Index
 
-> 24 crates. Pure `no_std` (where marked). Zero external runtime dependencies.
+> 25 crates. Pure `no_std` (where marked). Zero external runtime dependencies.
 > Port of [swsim](https://github.com/nicktool/SIMurai) to Rust for bare-metal SIM/USIM simulation and Shannon baseband fuzzing.
 >
 > Colours follow the [Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
@@ -42,6 +42,7 @@ graph TB
         FS["simrs-fs<br/><i>MF/DF/ADF/EF tree</i>"]
         PIN["simrs-pin<br/><i>verify/unblock SM</i>"]
         PRO["simrs-proactive<br/><i>CAT command encode</i>"]
+        OTA["simrs-ota<br/><i>TS 102 225/226 OTA</i>"]
     end
 
     subgraph found_layer ["Foundation"]
@@ -87,6 +88,8 @@ graph TB
     TUAK --> KEC
     TUAK --> MIL
     MIL --> RIJ
+    OTA --> RIJ
+    OTA --> ISO
     FS --> ISO
     FS --> BER
     PIN --> ISO
@@ -110,7 +113,7 @@ graph TB
     classDef entry fill:#E69F00,stroke:#333,color:#000,stroke-width:3px
 
     class ISO,BER,RIJ,C128,KEC foundation
-    class MIL,TUAK,FS,PIN,PRO composition
+    class MIL,TUAK,FS,PIN,PRO,OTA composition
     class GSM,USIM application
     class SIM entry
     class TR,SHM,VIO,PERI,SHAN boundary
@@ -135,6 +138,7 @@ graph TB
 | [`simrs-fs`](crates/simrs-fs/) | Composition | yes | ICC filesystem model (MF/DF/ADF/EF), `const` trees | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-fs) |
 | [`simrs-pin`](crates/simrs-pin/) | Composition | yes | PIN/PUK state machine (verify, change, unblock) | [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-pin) |
 | [`simrs-proactive`](crates/simrs-proactive/) | Composition | yes | Proactive UICC / CAT command encoding | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-proactive) |
+| [`simrs-ota`](crates/simrs-ota/) | Composition | yes | OTA secured packets (TS 102 225/226) | [rijndael](crates/simrs-rijndael/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-ota) |
 | [`simrs-gsm`](crates/simrs-gsm/) | Application | yes | GSM 11.11 SIM app (SELECT, RUN GSM ALGO, STATUS) | [iso7816](crates/simrs-iso7816/), [comp128](crates/simrs-comp128/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/) | [API](docs/architecture.md#simrs-gsm) |
 | [`simrs-usim`](crates/simrs-usim/) | Application | yes | 3GPP USIM app (FCP, AUTH, TERMINAL PROFILE, FETCH) | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/), [milenage](crates/simrs-milenage/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [proactive](crates/simrs-proactive/) | [API](docs/architecture.md#simrs-usim) |
 | [`simrs-sim`](crates/simrs-sim/) | Application | yes | Top-level `Sim` state machine, event-driven entry point | [iso7816](crates/simrs-iso7816/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [gsm](crates/simrs-gsm/)^opt^, [usim](crates/simrs-usim/)^opt^ | [API](docs/architecture.md#simrs-sim) |
@@ -170,8 +174,9 @@ graph TB
 | 3GPP TS 35.231 | [tuak](crates/simrs-tuak/) | TUAK algorithm |
 | 3GPP TS 35.232 | [tuak](crates/simrs-tuak/) | TUAK test vectors |
 | 3GPP TS 35.233 | [tuak](crates/simrs-tuak/) | TUAK design conformance |
-| ETSI TS 102 225 | Future | Secured packet structure (OTA) |
-| ETSI TS 102 226 | Future | Remote APDU structure (OTA) |
+| 3GPP TS 23.038 | [proactive](crates/simrs-proactive/) | GSM 7-bit default alphabet |
+| ETSI TS 102 225 | [ota](crates/simrs-ota/) | Secured packet structure (OTA) |
+| ETSI TS 102 226 | [ota](crates/simrs-ota/) | Remote APDU structure (OTA) |
 
 ## Further Reading
 

@@ -35,6 +35,8 @@ graph LR
         S14["GSM 11.11"]
         S15["TS 35.232"]
         S16["TS 35.233"]
+        S17["TS 102 225"]
+        S18["TS 102 226"]
     end
 
     subgraph crates ["simrs Crates"]
@@ -48,6 +50,7 @@ graph LR
         FS["simrs-fs"]
         PIN["simrs-pin"]
         PRO["simrs-proactive"]
+        OTA["simrs-ota"]
         GSM["simrs-gsm"]
         USIM["simrs-usim"]
         SIM["simrs-sim"]
@@ -73,6 +76,10 @@ graph LR
     S12 --> PRO
     S13 --> PRO
     S14 --> GSM
+    S17 --> OTA
+    S18 --> OTA
+    OTA --> RIJ
+    OTA --> ISO
 
     classDef foundation fill:#0072B2,stroke:#333,color:#fff
     classDef composition fill:#008060,stroke:#333,color:#fff
@@ -80,9 +87,9 @@ graph LR
     classDef std fill:#F0F0F0,stroke:#666,color:#333
 
     class ISO,BER,RIJ,C128,KEC foundation
-    class MIL,TUAK,FS,PIN,PRO composition
+    class MIL,TUAK,FS,PIN,PRO,OTA composition
     class GSM,USIM,SIM application
-    class S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14,S15,S16 std
+    class S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11,S12,S13,S14,S15,S16,S17,S18 std
 ```
 
 ## Generation Scope
@@ -96,16 +103,27 @@ graph LR
 | 5G NR NSA | EPS-AKA (via LTE anchor) | `simrs-usim` | No 5G-specific USIM changes needed |
 | 5G NR SA | 5G-AKA / EAP-AKA' | Future: `simrs-usim` + DF_5GS EFs | USIM-side identical; ME-side key derivation new |
 
-## Protocol Coverage (Tier 5)
+## Protocol Coverage (Tiers 5--5.5)
 
 APDU-level protocol features implemented in `simrs-sim`, `simrs-usim`, and `simrs-gsm`:
 
 | Feature | Standard | Clause | Crate(s) |
 |---------|----------|--------|----------|
-| SELECT by path | ETSI TS 102 221 | 11.1.1 | `simrs-sim` |
-| SFI-based file access | ETSI TS 102 221 | 8.4.2 | `simrs-sim` |
+| SELECT by path | ETSI TS 102 221 | 11.1.1 | `simrs-usim` |
+| SFI-based file access | ETSI TS 102 221 | 8.4.2 | `simrs-usim` |
 | CLA byte routing (logical channel, secure messaging) | ETSI TS 102 221 | 10.1.1 | `simrs-sim` |
 | AUTHENTICATE GSM context | 3GPP TS 31.102 | 7.1.2 | `simrs-usim` |
-| READ/UPDATE RECORD modes (current, absolute, next, prev) | ETSI TS 102 221 | 11.3 | `simrs-sim` |
-| INCREASE with overflow detection | ETSI TS 102 221 | 11.3.5 | `simrs-sim` |
-| STATUS response variants (FCP, no data) | ETSI TS 102 221 | 11.1.2 | `simrs-sim` |
+| READ/UPDATE RECORD modes (current, absolute, next, prev) | ETSI TS 102 221 | 11.3 | `simrs-usim` |
+| INCREASE with overflow detection | ETSI TS 102 221 | 11.3.5 | `simrs-usim` |
+| STATUS response variants (FCP, no data) | ETSI TS 102 221 | 11.1.2 | `simrs-usim` |
+| SEARCH RECORD | ETSI TS 102 221 | 11.3.4 | `simrs-usim` |
+| TERMINAL CAPABILITY | ETSI TS 102 221 | 11.2.19 | `simrs-usim` |
+| ACTIVATE/DEACTIVATE FILE | ETSI TS 102 221 | 11.1.14/15 | `simrs-usim`, `simrs-fs` |
+| MANAGE CHANNEL (open/close) | ETSI TS 102 221 | 11.1.17 | `simrs-usim` |
+| SELECT by AID occurrence (first/last/next) | ETSI TS 102 221 | 11.1.1 | `simrs-usim` |
+| FCP security attributes (tag 0x8C) | ETSI TS 102 221 | 11.1.1.3 | `simrs-usim` |
+| OTA secured packets (SPI, KIc/KID, CBC-MAC) | ETSI TS 102 225 | 5 | `simrs-ota` |
+| Remote APDU structure | ETSI TS 102 226 | 5 | `simrs-ota` |
+| PIN1 access control enforcement | ETSI TS 102 221 | 9.5.1 | `simrs-usim`, `simrs-gsm` |
+| GSM 7-bit alphabet pack/unpack | 3GPP TS 23.038 | 6.2.1 | `simrs-proactive` |
+| Proactive session lifecycle | ETSI TS 102 223 | 6.4 | `simrs-usim` |
