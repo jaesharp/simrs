@@ -2,7 +2,7 @@
 
 TCP transport for swICC PC/SC server. Requires `std`.
 
-**Layer:** Boundary | **`no_std`:** no | **Status:** Stub
+**Layer:** Boundary | **`no_std`:** no | **Status:** Implemented
 
 Wire protocol: 4-byte big-endian length prefix + APDU payload.
 

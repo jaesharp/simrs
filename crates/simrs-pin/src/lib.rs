@@ -696,6 +696,39 @@ impl<const N: usize> PinManager<N> {
             .is_some_and(|i| self.slots[i].enabled)
     }
 
+    /// Check if access is granted for the given PIN key.
+    ///
+    /// Returns `true` if:
+    /// - The key is not registered (no PIN configured = always allowed)
+    /// - The key is disabled (PIN check bypassed)
+    /// - The key has been successfully verified in this session
+    ///
+    /// Returns `false` only when the key is registered, enabled, and not yet verified.
+    #[must_use]
+    pub const fn is_access_granted(&self, key: PinKey) -> bool {
+        let Some(idx) = self.find_index(key) else {
+            return true; // not registered => always allowed
+        };
+        let slot = &self.slots[idx];
+        !slot.enabled || slot.verified
+    }
+
+    /// Programmatically disable a PIN slot without requiring the current value.
+    ///
+    /// Returns `true` if the key was found and disabled.
+    /// Returns `false` if the key is not registered.
+    ///
+    /// This is primarily useful for test fixtures where the full APDU
+    /// disable flow is not needed.
+    pub const fn set_disabled(&mut self, key: PinKey) -> bool {
+        let Some(idx) = self.find_index(key) else {
+            return false;
+        };
+        self.slots[idx].enabled = false;
+        self.slots[idx].verified = false;
+        true
+    }
+
     /// Whether the PIN is blocked (retry counter = 0).
     ///
     /// Returns `false` for unknown keys.
@@ -1309,6 +1342,24 @@ mod tests {
         let mut buf = [0u8; PinManager::<1>::SNAPSHOT_SIZE];
         buf[0] = 2;
         assert!(!mgr.restore_state(&buf));
+    }
+
+    // -- ACCESS GRANTED tests --
+
+    #[test]
+    fn access_granted_unregistered_key() {
+        let mgr = PinManager::<5>::new();
+        // 0xFF is intentionally not registered -- should return true.
+        assert!(mgr.is_access_granted(PinKey(0xFF)));
+    }
+
+    #[test]
+    fn access_granted_disabled_pin() {
+        let mut mgr = setup();
+        // PIN1 starts enabled; disable it programmatically.
+        assert!(mgr.set_disabled(PIN1));
+        // Access granted without verify.
+        assert!(mgr.is_access_granted(PIN1));
     }
 }
 

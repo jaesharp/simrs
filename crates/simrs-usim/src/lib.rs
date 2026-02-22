@@ -2,8 +2,10 @@
 //!
 //! Handles interindustry (CLA=`0x00`) and ETSI-class (CLA=`0x80`) APDUs:
 //! SELECT (with FCP BER-TLV response), GET RESPONSE, READ BINARY,
-//! READ RECORD, STATUS, AUTHENTICATE (Milenage), VERIFY PIN, UNBLOCK PIN,
-//! TERMINAL PROFILE, FETCH, TERMINAL RESPONSE, and ENVELOPE.
+//! READ RECORD, UPDATE BINARY, UPDATE RECORD, INCREASE, STATUS,
+//! AUTHENTICATE (Milenage), VERIFY PIN, CHANGE REFERENCE DATA,
+//! DISABLE PIN, ENABLE PIN, UNBLOCK PIN, TERMINAL PROFILE, FETCH,
+//! TERMINAL RESPONSE, and ENVELOPE.
 //!
 //! Constructs FCP BER-TLV per ETSI TS 102 221 clause 11.1.1.3 using a
 //! dry-run/real-run pattern for buffer-size determination.
@@ -53,10 +55,10 @@
 
 use simrs_bertlv::Encoder;
 use simrs_fs::{
-    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsError, SelectionCtx, SelectedFile,
+    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsData, FsError, SelectionCtx, SelectedFile,
 };
-use simrs_iso7816::{ins, write_data_sw, write_sw, write_sw_raw, Command, ResponseQueue, StatusWord};
-use simrs_milenage::{MilenageError, MilenageParams};
+use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
+use simrs_milenage::{AuthAlgorithm, MilenageError, MilenageParams};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
 use simrs_proactive::ProactiveState;
 
@@ -73,6 +75,125 @@ const CLA_ETSI: u8 = 0x80;
 /// Maximum FCP size (conservative upper bound for our file tree).
 const FCP_BUF_CAP: usize = 64;
 
+// ETSI TS 102 221 clause 11.1.1.4.1: File descriptor byte values.
+const FD_DF: u8 = 0x78;
+const FD_TRANSPARENT: u8 = 0x41;
+const FD_LINEAR_FIXED: u8 = 0x42;
+const FD_CYCLIC: u8 = 0x46;
+const DATA_CODING_BER_TLV: u8 = 0x21;
+
+// ETSI TS 102 221 clause 11.1.1.4.9: Life cycle status.
+const LIFECYCLE_ACTIVATED: u8 = 0x05;
+
+// ETSI TS 102 221 clause 11.1.1.4.7: Security attribute compact format.
+const SECURITY_ALWAYS: u8 = 0x7F;
+
+// ETSI TS 102 221 clause 11.1.1.4.8: SFI encoding.
+const SFI_INDICATOR: u8 = 0x04;
+
+// PIN status template DO values.
+const PS_DO_TAG: u8 = 0x90;
+
+// 3GPP TS 31.102 clause 7.1.2: AUTHENTICATE protocol constants.
+const P2_UMTS_CONTEXT: u8 = 0x81;
+const AUTH_DATA_LEN: usize = 34;
+const AUTH_VECTOR_LEN_PREFIX: u8 = 0x10;
+const AUTH_SUCCESS_TAG: u8 = 0xDB;
+const AUTH_SYNC_FAILURE_TAG: u8 = 0xDC;
+const AUTS_LEN: u8 = 0x0E;
+const AUTH_RES_LEN: u8 = 0x08;
+const AUTH_CK_IK_LEN: u8 = 0x10;
+const AUTH_SUCCESS_INNER_LEN: u8 = 1 + AUTH_RES_LEN + 1 + AUTH_CK_IK_LEN + 1 + AUTH_CK_IK_LEN;
+
+// ---------------------------------------------------------------------------
+// AuthenticateResult
+// ---------------------------------------------------------------------------
+
+/// AUTHENTICATE command result per TS 31.102 clause 7.1.2.1.
+///
+/// Encodes the three possible outcomes of UMTS AUTHENTICATE:
+/// - Success: RES, CK, IK returned in tag 0xDB
+/// - Sync failure: AUTS returned in tag 0xDC for resynchronization
+/// - MAC failure: SW 98 62
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthenticateResult {
+    /// Successful authentication. Contains RES (8 bytes), CK (16 bytes),
+    /// IK (16 bytes). Encoded as tag 0xDB with nested TLV.
+    Success {
+        /// Authentication response (f2 output).
+        res: [u8; 8],
+        /// Ciphering key (f3 output).
+        ck: [u8; 16],
+        /// Integrity key (f4 output).
+        ik: [u8; 16],
+    },
+    /// SQN synchronization failure. Contains AUTS (14 bytes).
+    /// Encoded as tag 0xDC.
+    SyncFailure {
+        /// AUTS resynchronization token (14 bytes).
+        auts: [u8; 14],
+    },
+    /// MAC verification failure. Returns SW 98 62.
+    MacFailure,
+}
+
+impl AuthenticateResult {
+    /// Encode the result into a byte buffer for APDU response.
+    ///
+    /// For `Success`: writes tag 0xDB, inner length, then length-prefixed
+    /// RES, CK, IK. Total: 2 + (1+8) + (1+16) + (1+16) = 45 bytes.
+    ///
+    /// For `SyncFailure`: writes tag 0xDC, length 0x0E, then 14 AUTS bytes.
+    /// Total: 16 bytes.
+    ///
+    /// For `MacFailure`: writes nothing (SW only). Returns 0.
+    ///
+    /// Returns the number of bytes written.
+    pub fn encode(&self, buf: &mut [u8]) -> usize {
+        match self {
+            Self::Success { res, ck, ik } => {
+                // 0xDB <inner_len> <res_len> [RES] <ck_len> [CK] <ik_len> [IK]
+                let inner_len: u8 = AUTH_SUCCESS_INNER_LEN;
+                let mut pos: usize = 0;
+                buf[pos] = AUTH_SUCCESS_TAG;
+                pos += 1;
+                buf[pos] = inner_len;
+                pos += 1;
+                // RES
+                buf[pos] = AUTH_RES_LEN;
+                pos += 1;
+                buf[pos..pos + 8].copy_from_slice(res);
+                pos += 8;
+                // CK
+                buf[pos] = AUTH_CK_IK_LEN;
+                pos += 1;
+                buf[pos..pos + 16].copy_from_slice(ck);
+                pos += 16;
+                // IK
+                buf[pos] = AUTH_CK_IK_LEN;
+                pos += 1;
+                buf[pos..pos + 16].copy_from_slice(ik);
+                pos += 16;
+                pos
+            }
+            Self::SyncFailure { auts } => {
+                buf[0] = AUTH_SYNC_FAILURE_TAG;
+                buf[1] = AUTS_LEN;
+                buf[2..16].copy_from_slice(auts);
+                16
+            }
+            Self::MacFailure => 0,
+        }
+    }
+}
+
+// PIN data widths (ETSI TS 102 221).
+const PIN_DATA_LEN: usize = 8;
+/// PUK(8) + new PIN(8) for RESET RETRY COUNTER.
+const PUK_NEW_PIN_LEN: usize = PIN_DATA_LEN * 2;
+/// Old PIN(8) + new PIN(8) for CHANGE REFERENCE DATA.
+const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
+
 // ---------------------------------------------------------------------------
 // UsimApp
 // ---------------------------------------------------------------------------
@@ -80,19 +201,29 @@ const FCP_BUF_CAP: usize = 64;
 /// 3GPP USIM application.
 ///
 /// Handles interindustry (CLA=`0x00`) and ETSI-class (CLA=`0x80`) APDUs.
-/// Owns filesystem context, PIN manager, Milenage parameters, proactive
+/// Owns filesystem context, PIN manager, authentication algorithm, proactive
 /// state, and the response queue for GET RESPONSE.
-pub struct UsimApp {
+///
+/// The type parameter `A` selects the authentication algorithm.
+/// The default is [`MilenageParams`] (TS 35.206).
+pub struct UsimApp<A: AuthAlgorithm = MilenageParams> {
     fs: SelectionCtx,
+    data: FsData<512>,
+    mf: &'static DfDef,
     adfs: &'static [AdfSlot],
     pin: PinManager<5>,
-    milenage: MilenageParams,
+    auth: A,
     proactive: ProactiveState,
     rsp_queue: ResponseQueue<64>,
 }
 
-impl UsimApp {
+impl<A: AuthAlgorithm> UsimApp<A> {
     /// Create a new USIM application.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the static filesystem tree (MF + ADFs) does not fit in the
+    /// internal 512-byte `FsData` buffer or contains more than 32 EFs.
     ///
     /// # Example
     ///
@@ -105,16 +236,23 @@ impl UsimApp {
     /// let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
     /// let app = UsimApp::new(&MF, &[], mil);
     /// ```
-    pub const fn new(
+    pub fn new(
         mf: &'static DfDef,
         adfs: &'static [AdfSlot],
-        milenage: MilenageParams,
+        auth: A,
     ) -> Self {
+        let mut data = FsData::<512>::new();
+        // Panic on init failure: the static filesystem tree must fit in CAP.
+        if let Err(e) = data.init_with_adfs(mf, adfs) {
+            panic!("FsData init failed: {}", e);
+        }
         Self {
             fs: SelectionCtx::new(mf),
+            data,
+            mf,
             adfs,
             pin: PinManager::new(),
-            milenage,
+            auth,
             proactive: ProactiveState::new(),
             rsp_queue: ResponseQueue::new(),
         }
@@ -130,13 +268,24 @@ impl UsimApp {
         &mut self.proactive
     }
 
+    /// Advance all UICC-side proactive timers by `elapsed_secs`.
+    ///
+    /// Returns the number of timers that expired. The caller should
+    /// read expired timer IDs via
+    /// `proactive_state().take_expired_timer()` and generate Timer
+    /// Expiry envelopes as appropriate.
+    pub const fn tick(&mut self, elapsed_secs: u32) -> u8 {
+        self.proactive.tick(elapsed_secs)
+    }
+
     // -- snapshot --
 
-    /// Snapshot buffer size in bytes (560).
+    /// Snapshot buffer size in bytes.
     pub const SNAPSHOT_SIZE: usize =
         SelectionCtx::SNAPSHOT_SIZE
+        + FsData::<512>::SNAPSHOT_SIZE
         + PinManager::<5>::SNAPSHOT_SIZE
-        + MilenageParams::SNAPSHOT_SIZE
+        + A::SNAPSHOT_SIZE
         + ProactiveState::SNAPSHOT_SIZE
         + ResponseQueue::<64>::SNAPSHOT_SIZE;
 
@@ -151,8 +300,9 @@ impl UsimApp {
         }
         let mut off = 0;
         off += self.fs.save_state(&mut buf[off..]);
+        off += self.data.save_state(&mut buf[off..]);
         off += self.pin.save_state(&mut buf[off..]);
-        off += self.milenage.save_state(&mut buf[off..]);
+        off += self.auth.save_state(&mut buf[off..]);
         off += self.proactive.save_state(&mut buf[off..]);
         off += self.rsp_queue.save_state(&mut buf[off..]);
         let _ = off;
@@ -173,14 +323,23 @@ impl UsimApp {
             return false;
         }
         off += SelectionCtx::SNAPSHOT_SIZE;
+        // Re-init FsData entries from the static tree, then overwrite
+        // the buffer with the saved snapshot data.
+        if self.data.init_with_adfs(self.mf, self.adfs).is_err() {
+            return false;
+        }
+        if !self.data.restore_state(&buf[off..]) {
+            return false;
+        }
+        off += FsData::<512>::SNAPSHOT_SIZE;
         if !self.pin.restore_state(&buf[off..]) {
             return false;
         }
         off += PinManager::<5>::SNAPSHOT_SIZE;
-        if !self.milenage.restore_state(&buf[off..]) {
+        if !self.auth.restore_state(&buf[off..]) {
             return false;
         }
-        off += MilenageParams::SNAPSHOT_SIZE;
+        off += A::SNAPSHOT_SIZE;
         if !self.proactive.restore_state(&buf[off..]) {
             return false;
         }
@@ -226,15 +385,21 @@ impl UsimApp {
             (CLA_INTER, ins::GET_RESPONSE) => self.handle_get_response(cmd, buf),
             (CLA_INTER, ins::READ_BINARY) => self.handle_read_binary(cmd, buf),
             (CLA_INTER, ins::READ_RECORD) => self.handle_read_record(cmd, buf),
+            (CLA_INTER, ins::UPDATE_BINARY) => self.handle_update_binary(cmd, buf),
+            (CLA_INTER, ins::UPDATE_RECORD) => self.handle_update_record(cmd, buf),
+            (CLA_INTER, ins::INCREASE) => self.handle_increase(cmd, buf),
             (CLA_INTER, ins::STATUS) => self.handle_status(cmd, buf),
             (CLA_INTER, ins::AUTHENTICATE) => self.handle_authenticate(cmd, buf),
             (CLA_INTER, ins::VERIFY) => self.handle_verify(cmd, buf),
+            (CLA_INTER, ins::CHANGE_REF_DATA) => self.handle_change_ref_data(cmd, buf),
+            (CLA_INTER, ins::DISABLE_PIN) => self.handle_disable_pin(cmd, buf),
+            (CLA_INTER, ins::ENABLE_PIN) => self.handle_enable_pin(cmd, buf),
             (CLA_INTER, ins::RESET_RETRY_CTR) => self.handle_unblock(cmd, buf),
             // -- ETSI CAT commands (CLA=0x80) --
-            (CLA_ETSI, ins::TERMINAL_PROFILE) => self.handle_terminal_profile(buf),
+            (CLA_ETSI, ins::TERMINAL_PROFILE) => self.handle_terminal_profile(cmd, buf),
             (CLA_ETSI, ins::FETCH) => self.handle_fetch(cmd, buf),
             (CLA_ETSI, ins::TERMINAL_RESPONSE) => self.handle_terminal_response(cmd, buf),
-            (CLA_ETSI, ins::ENVELOPE) => self.handle_envelope(buf),
+            (CLA_ETSI, ins::ENVELOPE) => self.handle_envelope(cmd, buf),
             _ => write_sw(buf, StatusWord::InsNotSupported),
         };
 
@@ -266,7 +431,7 @@ impl UsimApp {
                 let fid = Fid::from_be_bytes([cmd.data()[0], cmd.data()[1]]);
                 match self.fs.select_by_fid(fid) {
                     Ok(sel) => self.queue_fcp(sel, None, buf),
-                    Err(FsError::FileNotFound) => write_sw_raw(buf, 0x6A, 0x82),
+                    Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
                     Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
                 }
             }
@@ -277,11 +442,11 @@ impl UsimApp {
                         let aid = cmd.data();
                         self.queue_fcp(sel, Some(aid), buf)
                     }
-                    Err(FsError::FileNotFound) => write_sw_raw(buf, 0x6A, 0x82),
+                    Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
                     Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
                 }
             }
-            _ => write_sw_raw(buf, 0x6A, 0x86),
+            _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         }
     }
 
@@ -295,7 +460,7 @@ impl UsimApp {
     ) -> &'buf [u8] {
         let fcp_len = build_fcp(sel, aid, self.rsp_queue.buf_mut());
         self.rsp_queue.set_len(fcp_len);
-        write_sw_raw(buf, 0x61, fcp_len as u8)
+        write_sw(buf, StatusWord::bytes_available(fcp_len as u8))
     }
 
     // -- GET RESPONSE --
@@ -306,9 +471,19 @@ impl UsimApp {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
         self.rsp_queue.get_response(cmd.le(), buf)
+    }
+
+    // -- PIN access gate --
+
+    /// Check whether PIN1 access is satisfied.
+    ///
+    /// Returns `true` if access is denied (caller should return
+    /// `SECURITY_NOT_SATISFIED`).
+    const fn pin1_denied(&self) -> bool {
+        !self.pin.is_access_granted(PinKey::PIN1)
     }
 
     // -- READ BINARY --
@@ -318,14 +493,18 @@ impl UsimApp {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
+        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
         let offset = u16::from_be_bytes([cmd.p1(), cmd.p2()]);
         let le = u16::from(cmd.le().unwrap_or(0));
 
-        match self.fs.read_binary(offset, le) {
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        };
+
+        match self.data.read_binary(ef, offset, le) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
-            Err(FsError::NoEfSelected) => write_sw_raw(buf, 0x69, 0x86),
-            Err(FsError::NotTransparent) => write_sw_raw(buf, 0x69, 0x81),
-            Err(FsError::OffsetOutOfRange) => write_sw_raw(buf, 0x6A, 0x82),
+            Err(FsError::NotTransparent) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(FsError::OffsetOutOfRange) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
     }
@@ -337,13 +516,76 @@ impl UsimApp {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
+        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
         let rec_num = cmd.p1();
 
-        match self.fs.read_record(rec_num) {
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        };
+
+        match self.data.read_record(ef, rec_num) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
-            Err(FsError::NoEfSelected) => write_sw_raw(buf, 0x69, 0x86),
-            Err(FsError::NotRecordBased) => write_sw_raw(buf, 0x69, 0x81),
-            Err(FsError::RecordOutOfRange) => write_sw_raw(buf, 0x6A, 0x83),
+            Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(FsError::RecordOutOfRange) => write_sw(buf, StatusWord::wrong_params(sw2::RECORD_NOT_FOUND)),
+            Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        }
+    }
+
+    // -- UPDATE BINARY --
+
+    fn handle_update_binary<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        };
+        let offset = u16::from_be_bytes([cmd.p1(), cmd.p2()]);
+        match self.data.write_binary(ef, offset, cmd.data()) {
+            Ok(()) => write_sw(buf, StatusWord::Success),
+            Err(FsError::NotTransparent) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(FsError::OffsetOutOfRange) => write_sw(buf, StatusWord::WrongLength),
+            Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        }
+    }
+
+    // -- UPDATE RECORD --
+
+    fn handle_update_record<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        };
+        let rec_num = cmd.p1();
+        match self.data.write_record(ef, rec_num, cmd.data()) {
+            Ok(()) => write_sw(buf, StatusWord::Success),
+            Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(FsError::RecordOutOfRange) => write_sw(buf, StatusWord::wrong_params(sw2::RECORD_NOT_FOUND)),
+            Err(FsError::DataTooLarge) => write_sw(buf, StatusWord::WrongLength),
+            Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        }
+    }
+
+    // -- INCREASE --
+
+    fn handle_increase<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        };
+        match self.data.increase(ef, cmd.data()) {
+            Ok(new_val) => write_data_sw(buf, new_val, StatusWord::Success),
+            Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
     }
@@ -352,17 +594,28 @@ impl UsimApp {
 
     fn handle_status<'buf>(
         &self,
-        _cmd: &Command<'_>,
+        cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        // Return FCP of current DF.
-        let mut fcp_buf = [0u8; FCP_BUF_CAP];
-        let fcp_len = build_fcp(
-            SelectedFile::Df(self.fs.current_df()),
-            None,
-            &mut fcp_buf,
-        );
-        write_data_sw(buf, &fcp_buf[..fcp_len], StatusWord::Success)
+        // Per ETSI TS 102 221 clause 11.1.2:
+        // P1: 0x00 = no indication (current DF).
+        // P2: 0x00 = FCP template, 0x0C = no data returned.
+        if cmd.p1() != 0x00 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+        match cmd.p2() {
+            0x00 => {
+                let mut fcp_buf = [0u8; FCP_BUF_CAP];
+                let fcp_len = build_fcp(
+                    SelectedFile::Df(self.fs.current_df()),
+                    None,
+                    &mut fcp_buf,
+                );
+                write_data_sw(buf, &fcp_buf[..fcp_len], StatusWord::Success)
+            }
+            0x0C => write_sw(buf, StatusWord::Success),
+            _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
+        }
     }
 
     // -- AUTHENTICATE (Milenage UMTS context) --
@@ -373,17 +626,19 @@ impl UsimApp {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
+        // Note: AUTHENTICATE does not require PIN1 verification per
+        // ETSI TS 102 221 -- it has its own security context.
         // P2=0x81: UMTS/EPS AKA security context.
-        if cmd.p2() != 0x81 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+        if cmd.p2() != P2_UMTS_CONTEXT {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
 
         let data = cmd.data();
         // Data: 0x10 [RAND:16] 0x10 [AUTN:16] = 34 bytes.
-        if data.len() != 34 {
+        if data.len() != AUTH_DATA_LEN {
             return write_sw(buf, StatusWord::WrongLength);
         }
-        if data[0] != 0x10 || data[17] != 0x10 {
+        if data[0] != AUTH_VECTOR_LEN_PREFIX || data[17] != AUTH_VECTOR_LEN_PREFIX {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
@@ -392,45 +647,25 @@ impl UsimApp {
         let mut autn = [0u8; 16];
         autn.copy_from_slice(&data[18..34]);
 
-        match self.milenage.authenticate(&rand, &autn) {
-            Ok(result) => {
-                // Build response: 0xDB <len> <RES_len> [RES] <CK_len> [CK] <IK_len> [IK]
-                // 0xDB + len + (1+8) + (1+16) + (1+16) = 2 + 9 + 17 + 17 = 45
-                let inner_len: u8 = 1 + 8 + 1 + 16 + 1 + 16; // = 43
-                let q = self.rsp_queue.buf_mut();
-                let mut pos: usize = 0;
-                q[pos] = 0xDB;
-                pos += 1;
-                q[pos] = inner_len;
-                pos += 1;
-                // RES
-                q[pos] = 0x08;
-                pos += 1;
-                q[pos..pos + 8].copy_from_slice(&result.res);
-                pos += 8;
-                // CK
-                q[pos] = 0x10;
-                pos += 1;
-                q[pos..pos + 16].copy_from_slice(&result.ck);
-                pos += 16;
-                // IK
-                q[pos] = 0x10;
-                pos += 1;
-                q[pos..pos + 16].copy_from_slice(&result.ik);
-                pos += 16;
-
-                self.rsp_queue.set_len(pos);
-                write_sw_raw(buf, 0x61, pos as u8)
-            }
-            Err(MilenageError::MacFailure) => write_sw_raw(buf, 0x98, 0x62),
+        let auth_result = match self.auth.authenticate(&rand, &autn) {
+            Ok(output) => AuthenticateResult::Success {
+                res: output.res,
+                ck: output.ck,
+                ik: output.ik,
+            },
+            Err(MilenageError::MacFailure) => AuthenticateResult::MacFailure,
             Err(MilenageError::SyncFailure { auts }) => {
-                let q = self.rsp_queue.buf_mut();
-                q[0] = 0xDC;
-                q[1] = 0x0E;
-                q[2..16].copy_from_slice(&auts);
-                self.rsp_queue.set_len(16);
-                write_sw_raw(buf, 0x61, 16)
+                AuthenticateResult::SyncFailure { auts }
             }
+        };
+
+        if auth_result == AuthenticateResult::MacFailure {
+            write_sw(buf, StatusWord::AuthenticationError)
+        } else {
+            let q = self.rsp_queue.buf_mut();
+            let n = auth_result.encode(q);
+            self.rsp_queue.set_len(n);
+            write_sw(buf, StatusWord::bytes_available(n as u8))
         }
     }
 
@@ -442,7 +677,7 @@ impl UsimApp {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if cmd.p1() != 0x00 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
         let key = PinKey(cmd.p2());
 
@@ -450,15 +685,15 @@ impl UsimApp {
         if cmd.data().is_empty() {
             return match self.pin.retries(key) {
                 Some(n) => write_sw(buf, StatusWord::pin_retries(n & 0x0F)),
-                None => write_sw(buf, StatusWord::wrong_params(0x88)),
+                None => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
             };
         }
 
-        if cmd.data().len() != 8 {
+        if cmd.data().len() != PIN_DATA_LEN {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
-        let mut pin_bytes = [0xFFu8; 8];
+        let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
         pin_bytes.copy_from_slice(cmd.data());
         let val = PinValue::new(pin_bytes);
 
@@ -467,9 +702,106 @@ impl UsimApp {
             PinResult::WrongPin { retries_remaining } => {
                 write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
             }
-            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(0x83)),
-            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(0x84)),
-            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(0x88)),
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+        }
+    }
+
+    // -- CHANGE REFERENCE DATA --
+
+    fn handle_change_ref_data<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if cmd.p1() != 0x00 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+        let key = PinKey(cmd.p2());
+
+        if cmd.data().len() != CHANGE_PIN_DATA_LEN {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        let mut old_bytes = [0xFFu8; PIN_DATA_LEN];
+        old_bytes.copy_from_slice(&cmd.data()[..PIN_DATA_LEN]);
+        let old_pin = PinValue::new(old_bytes);
+
+        let mut new_bytes = [0xFFu8; PIN_DATA_LEN];
+        new_bytes.copy_from_slice(&cmd.data()[PIN_DATA_LEN..CHANGE_PIN_DATA_LEN]);
+        let new_pin = PinValue::new(new_bytes);
+
+        match self.pin.change(key, &old_pin, &new_pin) {
+            PinResult::Success => write_sw(buf, StatusWord::Success),
+            PinResult::WrongPin { retries_remaining } => {
+                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
+            }
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+        }
+    }
+
+    // -- DISABLE PIN --
+
+    fn handle_disable_pin<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if cmd.p1() != 0x00 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+        let key = PinKey(cmd.p2());
+
+        if cmd.data().len() != PIN_DATA_LEN {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
+        pin_bytes.copy_from_slice(cmd.data());
+        let val = PinValue::new(pin_bytes);
+
+        match self.pin.disable(key, &val) {
+            PinResult::Success => write_sw(buf, StatusWord::Success),
+            PinResult::WrongPin { retries_remaining } => {
+                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
+            }
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+        }
+    }
+
+    // -- ENABLE PIN --
+
+    fn handle_enable_pin<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if cmd.p1() != 0x00 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+        let key = PinKey(cmd.p2());
+
+        if cmd.data().len() != PIN_DATA_LEN {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
+        pin_bytes.copy_from_slice(cmd.data());
+        let val = PinValue::new(pin_bytes);
+
+        match self.pin.enable(key, &val) {
+            PinResult::Success => write_sw(buf, StatusWord::Success),
+            PinResult::WrongPin { retries_remaining } => {
+                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
+            }
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
         }
     }
 
@@ -481,27 +813,27 @@ impl UsimApp {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if cmd.p1() != 0x00 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
         let key = PinKey(cmd.p2());
 
         if cmd.data().is_empty() {
             return match self.pin.puk_retries(key) {
                 Some(n) => write_sw(buf, StatusWord::pin_retries(n & 0x0F)),
-                None => write_sw(buf, StatusWord::wrong_params(0x88)),
+                None => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
             };
         }
 
-        if cmd.data().len() != 16 {
+        if cmd.data().len() != PUK_NEW_PIN_LEN {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
-        let mut puk_bytes = [0xFFu8; 8];
-        puk_bytes.copy_from_slice(&cmd.data()[..8]);
+        let mut puk_bytes = [0xFFu8; PIN_DATA_LEN];
+        puk_bytes.copy_from_slice(&cmd.data()[..PIN_DATA_LEN]);
         let puk = PinValue::new(puk_bytes);
 
-        let mut new_pin_bytes = [0xFFu8; 8];
-        new_pin_bytes.copy_from_slice(&cmd.data()[8..16]);
+        let mut new_pin_bytes = [0xFFu8; PIN_DATA_LEN];
+        new_pin_bytes.copy_from_slice(&cmd.data()[PIN_DATA_LEN..PUK_NEW_PIN_LEN]);
         let new_pin = PinValue::new(new_pin_bytes);
 
         match self.pin.unblock(key, &puk, &new_pin) {
@@ -509,17 +841,20 @@ impl UsimApp {
             PinResult::WrongPin { retries_remaining } => {
                 write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
             }
-            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(0x83)),
-            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(0x88)),
-            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(0x84)),
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
         }
     }
 
     // -- TERMINAL PROFILE --
 
-    #[allow(clippy::unused_self)]
-    fn handle_terminal_profile<'buf>(&self, buf: &'buf mut [u8]) -> &'buf [u8] {
-        // Accept and ignore the terminal profile data.
+    fn handle_terminal_profile<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        self.proactive.set_terminal_profile(cmd.data());
         write_sw(buf, StatusWord::Success)
     }
 
@@ -531,7 +866,8 @@ impl UsimApp {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if !self.proactive.has_pending() {
-            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
+            // Per TS 102 223: FETCH with no pending command is not allowed.
+            return write_sw(buf, StatusWord::CommandNotAllowed(0x00));
         }
 
         let le = cmd.le().unwrap_or(0) as usize;
@@ -543,8 +879,9 @@ impl UsimApp {
         }
 
         let written = self.proactive.fetch(&mut buf[..fetch_len]);
-        buf[written] = 0x90;
-        buf[written + 1] = 0x00;
+        let [sw1, sw2_byte] = StatusWord::Success.to_bytes();
+        buf[written] = sw1;
+        buf[written + 1] = sw2_byte;
         &buf[..written + 2]
     }
 
@@ -555,15 +892,18 @@ impl UsimApp {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        self.proactive.terminal_response(cmd.data());
+        let _ = self.proactive.terminal_response(cmd.data());
         write_sw(buf, StatusWord::Success)
     }
 
     // -- ENVELOPE --
 
-    #[allow(clippy::unused_self)]
-    fn handle_envelope<'buf>(&self, buf: &'buf mut [u8]) -> &'buf [u8] {
-        // Accept envelope data. Stub: no processing.
+    fn handle_envelope<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        self.proactive.process_envelope(cmd.data());
         write_sw(buf, StatusWord::Success)
     }
 }
@@ -575,7 +915,7 @@ impl UsimApp {
 /// Build an FCP template for the selected file.
 ///
 /// Returns the number of bytes written to `out`. The FCP is a BER-TLV
-/// structure with tag 0x62.
+/// structure with tag `fcp::TEMPLATE` (0x62).
 ///
 /// Uses the dry-run/real-run pattern: first pass counts bytes, second
 /// writes them.
@@ -587,10 +927,9 @@ fn build_fcp(
     // Dry run to compute inner content length.
     let inner_len = fcp_inner_len(sel, aid);
 
-    // Real run: write 0x62 + length + inner content.
+    // Real run: write FCP template tag + length + inner content.
     let mut enc = Encoder::new(out);
-    // Tag 0x62.
-    let _ = enc.raw(&[0x62]);
+    let _ = enc.raw(&[fcp::TEMPLATE]);
     // BER length of inner content.
     let _ = write_ber_len(&mut enc, inner_len);
     // Inner TLV objects.
@@ -598,7 +937,7 @@ fn build_fcp(
     enc.len()
 }
 
-/// Compute the byte length of the FCP inner content (without the 0x62 tag
+/// Compute the byte length of the FCP inner content (without the template tag
 /// and its length field).
 fn fcp_inner_len(sel: SelectedFile, aid: Option<&[u8]>) -> usize {
     let mut enc = Encoder::dry_run();
@@ -624,32 +963,31 @@ fn write_fcp_df(
     df: &DfDef,
     aid: Option<&[u8]>,
 ) -> Result<(), simrs_bertlv::BerError> {
-    // Tag 0x82: File descriptor.
-    // DF descriptor: byte 0 = 0x78 (DF), byte 1 = 0x21 (data coding = BER-TLV).
-    enc.tag_length_value(0x82, &[0x78, 0x21])?;
+    // File descriptor: byte 0 = FD_DF, byte 1 = DATA_CODING_BER_TLV.
+    enc.tag_length_value(fcp::FILE_DESCRIPTOR, &[FD_DF, DATA_CODING_BER_TLV])?;
 
-    // Tag 0x83: File ID.
+    // File ID.
     let fid_be = df.fid.to_be_bytes();
-    enc.tag_length_value(0x83, &fid_be)?;
+    enc.tag_length_value(fcp::FILE_ID, &fid_be)?;
 
-    // Tag 0x84: DF name (AID) -- only for ADF.
+    // DF name (AID) -- only for ADF.
     if let Some(aid_bytes) = aid {
-        enc.tag_length_value(0x84, aid_bytes)?;
+        enc.tag_length_value(fcp::DF_NAME, aid_bytes)?;
     }
 
-    // Tag 0xA5: Proprietary information (empty for now).
-    enc.tag_length_value(0xA5, &[])?;
+    // Proprietary information (empty for now).
+    enc.tag_length_value(fcp::PROPRIETARY_INFO, &[])?;
 
-    // Tag 0x8A: Life cycle status = 0x05 (activated).
-    enc.tag_length_value(0x8A, &[0x05])?;
+    // Life cycle status = activated.
+    enc.tag_length_value(fcp::LIFECYCLE_STATUS, &[LIFECYCLE_ACTIVATED])?;
 
-    // Tag 0x8C: Security attributes compact (always allowed = 0x7F + 7 zeros).
-    enc.tag_length_value(0x8C, &[0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])?;
+    // Security attributes compact (always allowed + 7 zeros).
+    enc.tag_length_value(fcp::SECURITY_ATTRS_COMPACT, &[SECURITY_ALWAYS, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])?;
 
-    // Tag 0xC6: PIN status template DO.
-    // Contains PS_DO (tag 0x90) with PIN reference.
-    let pin_status = [0x90, 0x01, 0x01]; // PS_DO: PIN1 reference
-    enc.tag_length_value(0xC6, &pin_status)?;
+    // PIN status template DO.
+    // Contains PS_DO (tag PS_DO_TAG) with PIN reference.
+    let pin_status = [PS_DO_TAG, 0x01, 0x01]; // PS_DO: PIN1 reference
+    enc.tag_length_value(fcp::PIN_STATUS_TEMPLATE, &pin_status)?;
 
     Ok(())
 }
@@ -660,50 +998,47 @@ fn write_fcp_ef(
     enc: &mut Encoder<'_>,
     ef: &EfDef,
 ) -> Result<(), simrs_bertlv::BerError> {
-    // Tag 0x82: File descriptor.
+    // File descriptor.
     match ef.structure {
         EfStructure::Transparent => {
-            // Transparent: byte 0 = 0x41 (working EF, transparent).
-            enc.tag_length_value(0x82, &[0x41, 0x21])?;
+            enc.tag_length_value(fcp::FILE_DESCRIPTOR, &[FD_TRANSPARENT, DATA_CODING_BER_TLV])?;
         }
         EfStructure::LinearFixed { record_size, num_records } => {
-            // Linear fixed: byte 0 = 0x42, + 3 extra bytes: data coding + record len(2).
             let rec_be = u16::from(record_size).to_be_bytes();
             enc.tag_length_value(
-                0x82,
-                &[0x42, 0x21, num_records, rec_be[0], rec_be[1]],
+                fcp::FILE_DESCRIPTOR,
+                &[FD_LINEAR_FIXED, DATA_CODING_BER_TLV, num_records, rec_be[0], rec_be[1]],
             )?;
         }
         EfStructure::Cyclic { record_size, num_records } => {
-            // Cyclic: byte 0 = 0x46 (cyclic), + 3 extra bytes.
             let rec_be = u16::from(record_size).to_be_bytes();
             enc.tag_length_value(
-                0x82,
-                &[0x46, 0x21, num_records, rec_be[0], rec_be[1]],
+                fcp::FILE_DESCRIPTOR,
+                &[FD_CYCLIC, DATA_CODING_BER_TLV, num_records, rec_be[0], rec_be[1]],
             )?;
         }
     }
 
-    // Tag 0x83: File ID.
+    // File ID.
     let fid_be = ef.fid.to_be_bytes();
-    enc.tag_length_value(0x83, &fid_be)?;
+    enc.tag_length_value(fcp::FILE_ID, &fid_be)?;
 
-    // Tag 0x80: File size.
+    // File size.
     let size = ef.data.len() as u16;
     let size_be = size.to_be_bytes();
-    enc.tag_length_value(0x80, &size_be)?;
+    enc.tag_length_value(fcp::FILE_SIZE, &size_be)?;
 
-    // Tag 0x88: Short File Identifier (if assigned).
+    // Short File Identifier (if assigned).
     if let Some(sfi) = ef.sfi {
-        // SFI is encoded as (sfi << 3) | 0x04 per ETSI TS 102 221.
-        enc.tag_length_value(0x88, &[(sfi.value() << 3) | 0x04])?;
+        // SFI is encoded as (sfi << 3) | SFI_INDICATOR per ETSI TS 102 221.
+        enc.tag_length_value(fcp::SHORT_FILE_ID, &[(sfi.value() << 3) | SFI_INDICATOR])?;
     }
 
-    // Tag 0x8A: Life cycle status = 0x05 (activated).
-    enc.tag_length_value(0x8A, &[0x05])?;
+    // Life cycle status = activated.
+    enc.tag_length_value(fcp::LIFECYCLE_STATUS, &[LIFECYCLE_ACTIVATED])?;
 
-    // Tag 0x8C: Security attributes compact.
-    enc.tag_length_value(0x8C, &[0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])?;
+    // Security attributes compact.
+    enc.tag_length_value(fcp::SECURITY_ATTRS_COMPACT, &[SECURITY_ALWAYS, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])?;
 
     Ok(())
 }
@@ -714,10 +1049,10 @@ fn write_ber_len(
     len: usize,
 ) -> Result<(), simrs_bertlv::BerError> {
     #[allow(clippy::cast_possible_truncation)]
-    if len <= 0x7F {
+    if len <= simrs_bertlv::BER_SHORT_FORM_MAX {
         enc.raw(&[len as u8])
     } else {
-        enc.raw(&[0x81, len as u8])
+        enc.raw(&[simrs_bertlv::BER_LONG_FORM_1, len as u8])
     }
 }
 
@@ -772,9 +1107,45 @@ mod tests {
         data: &[0xFF, 0xFF, 0xFF, 0xFF],
     };
 
+    static EF_FDN_DATA: [u8; 20] = [
+        0x41, 0x6C, 0x69, 0x63, 0x65, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x42, 0x6F, 0x62, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    ];
+
+    static EF_FDN: EfDef = EfDef {
+        fid: Fid(0x6F3B),
+        sfi: None,
+        structure: EfStructure::LinearFixed {
+            record_size: 10,
+            num_records: 2,
+        },
+        data: &EF_FDN_DATA,
+    };
+
+    static EF_ACC_DATA: [u8; 12] = [
+        0x00, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    ];
+
+    static EF_ACC: EfDef = EfDef {
+        fid: Fid(0x6F78),
+        sfi: None,
+        structure: EfStructure::Cyclic {
+            record_size: 4,
+            num_records: 3,
+        },
+        data: &EF_ACC_DATA,
+    };
+
     static ADF_USIM_ROOT: DfDef = DfDef {
         fid: Fid(0xFF01),
-        children: &[FileRef::Ef(&EF_IMSI), FileRef::Ef(&EF_UST)],
+        children: &[
+            FileRef::Ef(&EF_IMSI),
+            FileRef::Ef(&EF_UST),
+            FileRef::Ef(&EF_FDN),
+            FileRef::Ef(&EF_ACC),
+        ],
     };
 
     static USIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
@@ -803,6 +1174,21 @@ mod tests {
     ];
 
     fn app() -> UsimApp {
+        let mil = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let mut a = UsimApp::new(&MF, &ADF_TABLE, mil);
+        let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+        a.pin_manager()
+            .add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
+            .unwrap();
+        // Pre-verify PIN1 so existing tests can perform file operations
+        // without explicit PIN verification via APDU.
+        let _ = a.pin_manager().verify(PinKey::PIN1, &pin_val);
+        a
+    }
+
+    /// Create an app with PIN1 enabled (not disabled) for PIN-gate tests.
+    fn app_with_pin1_enabled() -> UsimApp {
         let mil = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
         let mut a = UsimApp::new(&MF, &ADF_TABLE, mil);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
@@ -1153,6 +1539,74 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x67, 0x00));
     }
 
+    // -- AuthenticateResult::encode --
+
+    #[test]
+    fn authenticate_result_encode_success() {
+        // Use ETSI TS 135 208 Test Set 1 to produce known RES/CK/IK values.
+        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let amf = [0xB9, 0xB9];
+
+        let ak = params.f5(&rand_val);
+        let mut autn = [0u8; 16];
+        for i in 0..6 {
+            autn[i] = sqn[i] ^ ak[i];
+        }
+        autn[6..8].copy_from_slice(&amf);
+        autn[8..16].copy_from_slice(&params.f1(&rand_val, &sqn, &amf));
+
+        let output = params.authenticate(&rand_val, &autn).unwrap();
+        let result = AuthenticateResult::Success {
+            res: output.res,
+            ck: output.ck,
+            ik: output.ik,
+        };
+
+        let mut buf = [0u8; 64];
+        let n = result.encode(&mut buf);
+
+        // Total length: 2 (tag+len) + 1+8 (RES) + 1+16 (CK) + 1+16 (IK) = 45.
+        assert_eq!(n, 45);
+        assert_eq!(buf[0], 0xDB); // AUTH_SUCCESS_TAG
+        assert_eq!(buf[1], 43);   // inner length = 1+8+1+16+1+16
+        assert_eq!(buf[2], 0x08); // RES length prefix
+        assert_eq!(&buf[3..11], &output.res);
+        assert_eq!(buf[11], 0x10); // CK length prefix
+        assert_eq!(&buf[12..28], &output.ck);
+        assert_eq!(buf[28], 0x10); // IK length prefix
+        assert_eq!(&buf[29..45], &output.ik);
+    }
+
+    #[test]
+    fn authenticate_result_encode_sync_failure() {
+        let auts: [u8; 14] = [
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD,
+            0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32,
+        ];
+        let result = AuthenticateResult::SyncFailure { auts };
+
+        let mut buf = [0u8; 64];
+        let n = result.encode(&mut buf);
+
+        assert_eq!(n, 16); // tag + len + 14 bytes AUTS
+        assert_eq!(buf[0], 0xDC); // AUTH_SYNC_FAILURE_TAG
+        assert_eq!(buf[1], 0x0E); // 14
+        assert_eq!(&buf[2..16], &auts);
+    }
+
+    #[test]
+    fn authenticate_result_encode_mac_failure() {
+        let result = AuthenticateResult::MacFailure;
+        let mut buf = [0u8; 64];
+        let n = result.encode(&mut buf);
+        assert_eq!(n, 0); // No data payload, SW only.
+    }
+
     // -- VERIFY PIN --
 
     #[test]
@@ -1219,6 +1673,263 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
 
+    // -- CHANGE REFERENCE DATA --
+
+    #[test]
+    fn change_ref_data_success() {
+        let mut app = app();
+        // Old PIN "1234" + new PIN "5678".
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x24, 0x00, 0x01, 0x10,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Verify with new PIN.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x20, 0x00, 0x01, 0x08,
+              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn change_ref_data_wrong_old_pin() {
+        let mut app = app();
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x24, 0x00, 0x01, 0x10,
+              0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x63, 0xC2));
+    }
+
+    #[test]
+    fn change_ref_data_blocked() {
+        let mut app = app();
+        let wrong = [0x00, 0x20, 0x00, 0x01, 0x08,
+                     0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x24, 0x00, 0x01, 0x10,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x69, 0x83));
+    }
+
+    #[test]
+    fn change_ref_data_not_found() {
+        let mut app = app();
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x24, 0x00, 0xFF, 0x10,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x6A, 0x88));
+    }
+
+    #[test]
+    fn change_ref_data_wrong_length() {
+        let mut app = app();
+        // Only 8 bytes instead of 16.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x24, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x67, 0x00));
+    }
+
+    // -- DISABLE PIN --
+
+    #[test]
+    fn disable_pin_success() {
+        let mut app = app();
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x26, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // VERIFY should now return "disabled" (69 84).
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x20, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x69, 0x84));
+    }
+
+    #[test]
+    fn disable_pin_wrong_pin() {
+        let mut app = app();
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x26, 0x00, 0x01, 0x08,
+              0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x63, 0xC2));
+    }
+
+    #[test]
+    fn disable_pin_blocked() {
+        let mut app = app();
+        let wrong = [0x00, 0x20, 0x00, 0x01, 0x08,
+                     0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x26, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x69, 0x83));
+    }
+
+    #[test]
+    fn disable_pin_not_found() {
+        let mut app = app();
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x26, 0x00, 0xFF, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x6A, 0x88));
+    }
+
+    #[test]
+    fn disable_pin_wrong_length() {
+        let mut app = app();
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x26, 0x00, 0x01, 0x04,
+              0x31, 0x32, 0x33, 0x34],
+        );
+        assert_eq!(sw(&buf, len), (0x67, 0x00));
+    }
+
+    #[test]
+    fn disable_pin_already_disabled() {
+        let mut app = app();
+        // Disable once.
+        send(
+            &mut app,
+            &[0x00, 0x26, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        // Second disable returns "already disabled" (69 84).
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x26, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x69, 0x84));
+    }
+
+    // -- ENABLE PIN --
+
+    #[test]
+    fn enable_pin_success() {
+        let mut app = app();
+        // Disable first.
+        send(
+            &mut app,
+            &[0x00, 0x26, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        // Enable.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x28, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // VERIFY should work again.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x20, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn enable_pin_wrong_pin() {
+        let mut app = app();
+        // Disable first.
+        send(
+            &mut app,
+            &[0x00, 0x26, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        // Enable with wrong PIN.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x28, 0x00, 0x01, 0x08,
+              0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x63, 0xC2));
+    }
+
+    #[test]
+    fn enable_pin_blocked() {
+        let mut app = app();
+        let wrong = [0x00, 0x20, 0x00, 0x01, 0x08,
+                     0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x28, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x69, 0x83));
+    }
+
+    #[test]
+    fn enable_pin_not_found() {
+        let mut app = app();
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x28, 0x00, 0xFF, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x6A, 0x88));
+    }
+
+    #[test]
+    fn enable_pin_wrong_length() {
+        let mut app = app();
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x28, 0x00, 0x01, 0x04,
+              0x31, 0x32, 0x33, 0x34],
+        );
+        assert_eq!(sw(&buf, len), (0x67, 0x00));
+    }
+
+    #[test]
+    fn enable_pin_already_enabled() {
+        let mut app = app();
+        // PIN is already enabled by default. Enable again is a no-op success.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x28, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+        );
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
     // -- TERMINAL PROFILE --
 
     #[test]
@@ -1262,8 +1973,8 @@ mod tests {
     fn fetch_with_no_pending() {
         let mut app = app();
         let (buf, len) = send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0x00]);
-        let (sw1, _) = sw(&buf, len);
-        assert_ne!(sw1, 0x90);
+        // TS 102 223: FETCH with no pending command -> Command Not Allowed (69 00).
+        assert_eq!(sw(&buf, len), (0x69, 0x00));
     }
 
     // -- TERMINAL RESPONSE --
@@ -1288,6 +1999,52 @@ mod tests {
             &[0x80, 0xC2, 0x00, 0x00, 0x02, 0xD0, 0x00],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn envelope_menu_selection_via_apdu() {
+        let mut app = app();
+        // Build a Menu Selection envelope: D3 03 90 01 02
+        // (tag D3, length 3, inner: tag 90, length 1, item_id = 2)
+        let apdu = [
+            0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
+            0x05,                     // Lc = 5 bytes of data
+            0xD3, 0x03,               // Menu Selection tag + length
+            0x90, 0x01, 0x02,         // Item Identifier: tag 90, len 1, value 2
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Verify the event was stored in proactive state.
+        let event = app.proactive_state().take_event();
+        assert_eq!(
+            event,
+            Some(simrs_proactive::EnvelopeEvent::MenuSelection { item_id: 0x02 })
+        );
+    }
+
+    #[test]
+    fn terminal_profile_via_apdu() {
+        let mut app = app();
+        // Send TERMINAL_PROFILE with 4 bytes of profile data.
+        let apdu = [
+            0x80, 0x10, 0x00, 0x00, // CLA INS P1 P2
+            0x04,                     // Lc = 4 bytes
+            0xFF, 0x0F, 0x00, 0x80,  // profile data
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Verify the profile was stored.
+        let ps = app.proactive_state();
+        assert!(ps.terminal_supports(0, 0));  // byte 0 bit 0 of 0xFF
+        assert!(ps.terminal_supports(0, 7));  // byte 0 bit 7 of 0xFF
+        assert!(ps.terminal_supports(1, 0));  // byte 1 bit 0 of 0x0F
+        assert!(ps.terminal_supports(1, 3));  // byte 1 bit 3 of 0x0F
+        assert!(!ps.terminal_supports(1, 4)); // byte 1 bit 4 of 0x0F
+        assert!(!ps.terminal_supports(2, 0)); // byte 2 = 0x00
+        assert!(ps.terminal_supports(3, 7));  // byte 3 bit 7 of 0x80
+        assert!(!ps.terminal_supports(4, 0)); // beyond profile
     }
 
     // -- Proactive SW override --
@@ -1334,6 +2091,179 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x6A, 0x82));
     }
 
+    // -- UPDATE BINARY --
+
+    #[test]
+    fn update_binary_and_readback() {
+        let mut app = app();
+        // SELECT EF.ICCID
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        // UPDATE BINARY: offset 0, 3 bytes [0xAA, 0xBB, 0xCC]
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x03, 0xAA, 0xBB, 0xCC]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // READ BINARY to verify
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(&buf[..3], &[0xAA, 0xBB, 0xCC]);
+        assert_eq!(buf[3], 0x80); // rest unchanged
+    }
+
+    #[test]
+    fn update_binary_with_offset() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        // UPDATE BINARY at offset 5: 2 bytes [0xDD, 0xEE]
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xD6, 0x00, 0x05, 0x02, 0xDD, 0xEE]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x04, 0x04]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(&buf[..4], &[0x00, 0xDD, 0xEE, 0x00]);
+    }
+
+    #[test]
+    fn update_binary_on_record_ef() {
+        let mut app = app();
+        // SELECT EF.DIR (linear-fixed)
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]);
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x01, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x69, 0x81)); // incompatible file structure
+    }
+
+    #[test]
+    fn update_binary_past_end() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        // EF.ICCID is 10 bytes. Write 3 at offset 9 exceeds.
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xD6, 0x00, 0x09, 0x03, 0xAA, 0xBB, 0xCC]);
+        assert_eq!(sw(&buf, len), (0x67, 0x00)); // wrong length
+    }
+
+    #[test]
+    fn update_binary_no_ef_selected() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x01, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x69, 0x86)); // no current EF
+    }
+
+    // -- UPDATE RECORD --
+
+    #[test]
+    fn update_record_and_readback() {
+        let mut app = app();
+        // SELECT ADF.USIM by AID, then EF.FDN
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        // UPDATE RECORD 2 (10 bytes): "NewName" + padding
+        let mut apdu = [0xFFu8; 5 + 10];
+        apdu[0] = 0x00; // CLA
+        apdu[1] = 0xDC; // INS: UPDATE RECORD
+        apdu[2] = 0x02; // P1: record 2
+        apdu[3] = 0x04; // P2: absolute
+        apdu[4] = 0x0A; // Lc: 10 bytes
+        apdu[5] = 0x4E; // 'N'
+        apdu[6] = 0x65; // 'e'
+        apdu[7] = 0x77; // 'w'
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // READ RECORD 2
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x02, 0x04, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x4E); // 'N'
+        assert_eq!(buf[1], 0x65); // 'e'
+        assert_eq!(buf[2], 0x77); // 'w'
+    }
+
+    #[test]
+    fn update_record_on_transparent() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xDC, 0x01, 0x04, 0x01, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x69, 0x81)); // incompatible file structure
+    }
+
+    #[test]
+    fn update_record_wrong_size() {
+        let mut app = app();
+        // SELECT ADF.USIM, then EF.FDN (record_size=10)
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        // Try writing 5 bytes (not 10)
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xDC, 0x01, 0x04, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05]);
+        assert_eq!(sw(&buf, len), (0x67, 0x00)); // wrong length
+    }
+
+    #[test]
+    fn update_record_out_of_range() {
+        let mut app = app();
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
+        // EF.FDN has 2 records. Try record 3.
+        let mut apdu = [0xFFu8; 5 + 10];
+        apdu[0] = 0x00;
+        apdu[1] = 0xDC;
+        apdu[2] = 0x03; // record 3
+        apdu[3] = 0x04;
+        apdu[4] = 0x0A; // 10 bytes
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x6A, 0x83)); // record not found
+    }
+
+    #[test]
+    fn update_record_no_ef_selected() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xDC, 0x01, 0x04, 0x01, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x69, 0x86)); // no current EF
+    }
+
+    // -- INCREASE --
+
+    #[test]
+    fn increase_on_cyclic_ef() {
+        let mut app = app();
+        // SELECT ADF.USIM, then EF.ACC (cyclic, FID 0x6F78)
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x78]);
+        // INCREASE by [0x00, 0x00, 0x00, 0x05]: record 1 = 0x000100 + 5 = 0x000105
+        let (buf, len) = send(&mut app,
+            &[0x00, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x05]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 4 + 2); // 4-byte record + 2-byte SW
+        assert_eq!(&buf[..4], &[0x00, 0x00, 0x01, 0x05]);
+    }
+
+    #[test]
+    fn increase_on_transparent_fails() {
+        let mut app = app();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app,
+            &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
+        assert_eq!(sw(&buf, len), (0x69, 0x81)); // incompatible file structure
+    }
+
+    #[test]
+    fn increase_no_ef_selected() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
+        assert_eq!(sw(&buf, len), (0x69, 0x86)); // no current EF
+    }
+
     // -- Unknown INS --
 
     #[test]
@@ -1347,8 +2277,9 @@ mod tests {
 
     #[test]
     fn snapshot_size_correct() {
-        // fs(8) + pin(111) + milenage(117) + proactive(259) + rsp_queue(64) + rsp_queue_len(1) = 560
-        assert_eq!(UsimApp::SNAPSHOT_SIZE, 560);
+        // SelectionCtx(8) + FsData::<512>(512) + PinManager::<5>(111) + Milenage(117)
+        // + ProactiveState(373) + ResponseQueue::<64>(65) = 1186
+        assert_eq!(UsimApp::<MilenageParams>::SNAPSHOT_SIZE, 1186);
     }
 
     #[test]
@@ -1363,23 +2294,28 @@ mod tests {
                          0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF]);
 
         // Save.
-        let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
+        let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let written = src.save_state(&mut snap);
-        assert_eq!(written, UsimApp::SNAPSHOT_SIZE);
+        assert_eq!(written, UsimApp::<MilenageParams>::SNAPSHOT_SIZE);
 
         // Restore into fresh app (same adfs).
         let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
+        // PIN retries = 2 (wrong VERIFY degraded it before snapshot).
+        let (buf, len) = send(&mut dst, &[0x00, 0x20, 0x00, 0x01, 0x00]);
+        assert_eq!(sw(&buf, len), (0x63, 0xC2));
+
+        // Re-verify PIN1 so we can read files (PIN gate enforced).
+        send(&mut dst,
+            &[0x00, 0x20, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+
         // Read EF.IMSI (fs state restored).
         let (buf, len) = send(&mut dst, &[0x00, 0xB0, 0x00, 0x00, 0x09]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(buf[0], 0x08);
-
-        // PIN retries = 2.
-        let (buf, len) = send(&mut dst, &[0x00, 0x20, 0x00, 0x01, 0x00]);
-        assert_eq!(sw(&buf, len), (0x63, 0xC2));
     }
 
     #[test]
@@ -1403,7 +2339,7 @@ mod tests {
         autn[8..16].copy_from_slice(&mac_a);
 
         // Save and restore.
-        let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
+        let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
         let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
@@ -1438,7 +2374,7 @@ mod tests {
         assert!(pending_before > 0);
 
         // Save and restore.
-        let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
+        let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
         let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
@@ -1463,7 +2399,7 @@ mod tests {
     #[test]
     fn snapshot_restore_oversized_rsp_queue_len_returns_false() {
         let src = app();
-        let mut snap = [0u8; UsimApp::SNAPSHOT_SIZE];
+        let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
         // rsp_queue_len is the last byte of the snapshot.
         *snap.last_mut().unwrap() = u8::MAX;
@@ -1516,9 +2452,9 @@ mod tests {
             }
             let len_byte = data[pos];
             pos += 1;
-            let (value_len, extra) = if len_byte <= 0x7F {
+            let (value_len, extra) = if usize::from(len_byte) <= simrs_bertlv::BER_SHORT_FORM_MAX {
                 (len_byte as usize, 0)
-            } else if len_byte == 0x81 && pos < data.len() {
+            } else if len_byte == simrs_bertlv::BER_LONG_FORM_1 && pos < data.len() {
                 (data[pos] as usize, 1)
             } else {
                 break;
@@ -1533,6 +2469,83 @@ mod tests {
             pos += value_len;
         }
         None
+    }
+
+    // -- PIN gate tests --
+
+    #[test]
+    fn read_binary_without_pin1_rejected() {
+        let mut app = app_with_pin1_enabled();
+        // Select EF.ICCID under MF.
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        // READ BINARY without PIN1 verification.
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x69, 0x82)); // security status not satisfied
+    }
+
+    #[test]
+    fn read_binary_with_pin1_succeeds() {
+        let mut app = app_with_pin1_enabled();
+        // Verify PIN1.
+        send(&mut app,
+            &[0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        // Select EF.ICCID.
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        // READ BINARY should now succeed.
+        let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn update_binary_without_pin1_rejected() {
+        let mut app = app_with_pin1_enabled();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
+        // UPDATE BINARY without PIN1.
+        let (buf, len) = send(&mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+        assert_eq!(sw(&buf, len), (0x69, 0x82));
+    }
+
+    #[test]
+    fn read_record_without_pin1_rejected() {
+        let mut app = app_with_pin1_enabled();
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
+        // READ RECORD without PIN1.
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x08]);
+        assert_eq!(sw(&buf, len), (0x69, 0x82));
+    }
+
+    #[test]
+    fn increase_without_pin1_rejected() {
+        let mut app = app_with_pin1_enabled();
+        // Select ADF USIM, then EF.ACC (cyclic).
+        send(&mut app,
+            &[0x00, 0xA4, 0x04, 0x04, 0x07,
+              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x78]);
+        // INCREASE without PIN1.
+        let (buf, len) = send(&mut app,
+            &[0x00, 0x32, 0x00, 0x00, 0x03, 0x00, 0x00, 0x01]);
+        assert_eq!(sw(&buf, len), (0x69, 0x82));
+    }
+
+    #[test]
+    fn authenticate_without_pin1_succeeds() {
+        // AUTHENTICATE has its own security context per ETSI TS 102 221
+        // and does not require PIN1 verification.
+        let mut app = app_with_pin1_enabled();
+        // Build AUTHENTICATE APDU (P2=0x81 UMTS context).
+        let mut apdu = [0u8; 4 + 1 + 34];
+        apdu[0] = 0x00; // CLA
+        apdu[1] = 0x88; // INS
+        apdu[2] = 0x00; // P1
+        apdu[3] = 0x81; // P2
+        apdu[4] = 0x22; // Lc = 34
+        apdu[5] = 0x10; // RAND len prefix
+        apdu[22] = 0x10; // AUTN len prefix
+        let (buf, len) = send(&mut app, &apdu);
+        // Should get MAC failure (98 62), not security error (69 82).
+        assert_eq!(sw(&buf, len), (0x98, 0x62));
     }
 }
 

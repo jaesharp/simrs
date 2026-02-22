@@ -2,7 +2,7 @@
 
 `VirtIO` virtqueue smart card transport.
 
-**Layer:** Boundary | **`no_std`:** yes | **Status:** Stub
+**Layer:** Boundary | **`no_std`:** yes | **Status:** Implemented
 
 Guest-side driver for Shannon baseband SIM interface via QEMU `VirtIO`.
 

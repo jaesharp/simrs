@@ -2,7 +2,7 @@
 
 BER-TLV encoding and decoding with dry-run mode.
 
-**Layer:** Foundation | **`no_std`:** yes | **Status:** Stub
+**Layer:** Foundation | **`no_std`:** yes | **Status:** Implemented
 
 ## Standards
 

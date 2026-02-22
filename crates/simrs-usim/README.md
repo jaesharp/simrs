@@ -2,7 +2,7 @@
 
 3GPP USIM application layer (FCP, AUTHENTICATE, TERMINAL PROFILE, FETCH).
 
-**Layer:** Application | **`no_std`:** yes | **Status:** Stub
+**Layer:** Application | **`no_std`:** yes | **Status:** Implemented
 
 ```mermaid
 graph TD

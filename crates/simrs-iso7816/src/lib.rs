@@ -127,6 +127,89 @@ pub mod ins {
 }
 
 // ---------------------------------------------------------------------------
+// FCP (File Control Parameters) tags
+// ---------------------------------------------------------------------------
+
+/// FCP (File Control Parameters) BER-TLV tag values.
+///
+/// Per ISO/IEC 7816-4:2020 Table 12 and ETSI TS 102 221 V16.4.0 clause 11.1.1.3.
+///
+/// ```
+/// use simrs_iso7816::fcp;
+///
+/// assert_eq!(fcp::TEMPLATE, 0x62);
+/// assert_eq!(fcp::FILE_ID, 0x83);
+/// assert_eq!(fcp::LIFECYCLE_STATUS, 0x8A);
+/// ```
+pub mod fcp {
+    /// FCP template tag. ISO 7816-4 Table 12.
+    pub const TEMPLATE: u8 = 0x62;
+    /// File descriptor. ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.1.
+    pub const FILE_DESCRIPTOR: u8 = 0x82;
+    /// File identifier. ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.4.
+    pub const FILE_ID: u8 = 0x83;
+    /// DF name (AID). ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.5.
+    pub const DF_NAME: u8 = 0x84;
+    /// Proprietary information. ISO 7816-4.
+    pub const PROPRIETARY_INFO: u8 = 0xA5;
+    /// Life cycle status integer. ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.9.
+    pub const LIFECYCLE_STATUS: u8 = 0x8A;
+    /// Security attributes (compact format). ETSI TS 102 221 clause 11.1.1.4.7.
+    pub const SECURITY_ATTRS_COMPACT: u8 = 0x8C;
+    /// PIN status template DO. ETSI TS 102 221 clause 11.1.1.4.11.
+    pub const PIN_STATUS_TEMPLATE: u8 = 0xC6;
+    /// File size (data bytes). ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.2.
+    pub const FILE_SIZE: u8 = 0x80;
+    /// Short File Identifier. ETSI TS 102 221 clause 11.1.1.4.8.
+    pub const SHORT_FILE_ID: u8 = 0x88;
+}
+
+// ---------------------------------------------------------------------------
+// SW2 semantic values
+// ---------------------------------------------------------------------------
+
+/// SW2 semantic values for parametric status words.
+///
+/// Named constants for the second byte of `StatusWord::WrongParams(sw2)`
+/// and `StatusWord::CommandNotAllowed(sw2)`.
+///
+/// Per ETSI TS 102 221 V16.4.0 clause 10.2.1 and ISO/IEC 7816-4:2020 clause 5.6.
+///
+/// ```
+/// use simrs_iso7816::{sw2, StatusWord};
+///
+/// let sw = StatusWord::wrong_params(sw2::FILE_NOT_FOUND);
+/// assert_eq!(sw.to_bytes(), [0x6A, 0x82]);
+///
+/// let sw = StatusWord::command_not_allowed(sw2::NO_CURRENT_EF);
+/// assert_eq!(sw.to_bytes(), [0x69, 0x86]);
+/// ```
+pub mod sw2 {
+    /// File or application not found. Used with `WrongParams` (6A 82).
+    pub const FILE_NOT_FOUND: u8 = 0x82;
+    /// Record not found. Used with `WrongParams` (6A 83).
+    pub const RECORD_NOT_FOUND: u8 = 0x83;
+    /// Incorrect parameters P1-P2. Used with `WrongParams` (6A 86).
+    pub const WRONG_P1_P2: u8 = 0x86;
+    /// No current EF. Used with `CommandNotAllowed` (69 86).
+    pub const NO_CURRENT_EF: u8 = 0x86;
+    /// Command incompatible with file structure. Used with `CommandNotAllowed` (69 81).
+    pub const INCOMPATIBLE_FILE_STRUCTURE: u8 = 0x81;
+    /// Authentication method blocked (PIN blocked). Used with `CommandNotAllowed` (69 83).
+    /// ISO/IEC 7816-4:2020 Table 6.
+    pub const AUTH_METHOD_BLOCKED: u8 = 0x83;
+    /// Referenced data not usable (PIN disabled). Used with `CommandNotAllowed` (69 84).
+    /// ISO/IEC 7816-4:2020 Table 6.
+    pub const REF_DATA_NOT_USABLE: u8 = 0x84;
+    /// Referenced data or reference data not found. Used with `WrongParams` (6A 88).
+    /// ISO/IEC 7816-4:2020 Table 6.
+    pub const REFERENCE_NOT_FOUND: u8 = 0x88;
+    /// Security status not satisfied. Used with `CommandNotAllowed` (69 82).
+    /// ISO/IEC 7816-4:2020 Table 6.
+    pub const SECURITY_NOT_SATISFIED: u8 = 0x82;
+}
+
+// ---------------------------------------------------------------------------
 // Status words
 // ---------------------------------------------------------------------------
 
@@ -700,8 +783,9 @@ impl<const CAP: usize> ResponseQueue<CAP> {
             return write_sw(out, StatusWord::NoPreciseDiagnosis);
         }
         out[..n].copy_from_slice(&self.buf[..n]);
-        out[n] = 0x90;
-        out[n + 1] = 0x00;
+        let [sw1, sw2] = StatusWord::Success.to_bytes();
+        out[n] = sw1;
+        out[n + 1] = sw2;
         self.len = 0;
         &out[..n + 2]
     }

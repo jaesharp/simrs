@@ -2,7 +2,7 @@
 
 Top-level SIM/USIM simulator -- event-driven state machine orchestrator.
 
-**Layer:** Application | **`no_std`:** yes | **Status:** Stub
+**Layer:** Application | **`no_std`:** yes | **Status:** Implemented
 
 ```mermaid
 graph LR

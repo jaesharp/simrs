@@ -2,7 +2,7 @@
 
 ICC filesystem model: MF, DF, ADF, EF nodes with `const` static trees.
 
-**Layer:** Composition | **`no_std`:** yes | **Status:** Stub
+**Layer:** Composition | **`no_std`:** yes | **Status:** Implemented
 
 ```mermaid
 graph LR

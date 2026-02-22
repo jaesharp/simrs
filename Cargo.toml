@@ -4,7 +4,9 @@ members = [
     "crates/simrs-bertlv",
     "crates/simrs-rijndael",
     "crates/simrs-comp128",
+    "crates/simrs-keccak",
     "crates/simrs-milenage",
+    "crates/simrs-tuak",
     "crates/simrs-fs",
     "crates/simrs-pin",
     "crates/simrs-proactive",
@@ -37,7 +39,9 @@ simrs-iso7816             = { path = "crates/simrs-iso7816",             default
 simrs-bertlv              = { path = "crates/simrs-bertlv",              default-features = false }
 simrs-rijndael            = { path = "crates/simrs-rijndael",            default-features = false }
 simrs-comp128             = { path = "crates/simrs-comp128",             default-features = false }
+simrs-keccak              = { path = "crates/simrs-keccak",              default-features = false }
 simrs-milenage            = { path = "crates/simrs-milenage",            default-features = false }
+simrs-tuak                = { path = "crates/simrs-tuak",                default-features = false }
 simrs-fs                  = { path = "crates/simrs-fs",                  default-features = false }
 simrs-pin                 = { path = "crates/simrs-pin",                 default-features = false }
 simrs-proactive           = { path = "crates/simrs-proactive",           default-features = false }

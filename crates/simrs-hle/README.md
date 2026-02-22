@@ -2,7 +2,7 @@
 
 HLE SIM peripheral for QEMU -- C-ABI `cdylib` for APDU injection.
 
-**Layer:** Meta | **`no_std`:** no (cdylib) | **Status:** Stub
+**Layer:** Meta | **`no_std`:** no (cdylib) | **Status:** Implemented
 
 ```mermaid
 graph TD

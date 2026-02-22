@@ -35,6 +35,7 @@
 //! while bridge.step().unwrap() { }
 //! ```
 
+use simrs_milenage::AuthAlgorithm;
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_transport_shmem::{ring_read, ring_write, ShmemHeader, HEADER_SIZE};
 
@@ -54,6 +55,7 @@ use simrs_transport_shmem::{ring_read, ring_write, ShmemHeader, HEADER_SIZE};
 ///
 /// assert_eq!(ShmemMsgType::Apdu as u8, 0x01);
 /// assert_eq!(ShmemMsgType::from_u8(0x02), Some(ShmemMsgType::PowerOn));
+/// assert_eq!(ShmemMsgType::from_u8(0x06), Some(ShmemMsgType::Tick));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -68,6 +70,8 @@ pub enum ShmemMsgType {
     WarmReset = 0x04,
     /// ATR response (rsp ring only).
     Atr = 0x05,
+    /// Timer tick (cmd ring only). Payload: 4 bytes LE elapsed seconds.
+    Tick = 0x06,
 }
 
 impl ShmemMsgType {
@@ -79,6 +83,7 @@ impl ShmemMsgType {
             0x03 => Some(Self::PowerOff),
             0x04 => Some(Self::WarmReset),
             0x05 => Some(Self::Atr),
+            0x06 => Some(Self::Tick),
             _ => None,
         }
     }
@@ -141,8 +146,8 @@ const FALLBACK_APDU_RSP: [u8; 3] = [ShmemMsgType::Apdu as u8, 0x6F, 0x00];
 ///
 /// Holds a [`Sim`] instance and processes commands from the shared-memory
 /// command ring one at a time via [`step`](Self::step).
-pub struct QemuBridge<'a, const RSP_CAP: usize = 256> {
-    sim: Sim<RSP_CAP>,
+pub struct QemuBridge<'a, A: AuthAlgorithm = simrs_milenage::MilenageParams, const RSP_CAP: usize = 256> {
+    sim: Sim<A, RSP_CAP>,
     shmem: &'a mut [u8],
     ring_size: u32,
     cmd_head: u32,
@@ -151,7 +156,7 @@ pub struct QemuBridge<'a, const RSP_CAP: usize = 256> {
     rsp_tail: u32,
 }
 
-impl<const RSP_CAP: usize> core::fmt::Debug for QemuBridge<'_, RSP_CAP> {
+impl<A: AuthAlgorithm, const RSP_CAP: usize> core::fmt::Debug for QemuBridge<'_, A, RSP_CAP> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("QemuBridge")
             .field("ring_size", &self.ring_size)
@@ -163,7 +168,7 @@ impl<const RSP_CAP: usize> core::fmt::Debug for QemuBridge<'_, RSP_CAP> {
     }
 }
 
-impl<'a, const RSP_CAP: usize> QemuBridge<'a, RSP_CAP> {
+impl<'a, A: AuthAlgorithm, const RSP_CAP: usize> QemuBridge<'a, A, RSP_CAP> {
     /// Create a new bridge from a [`Sim`] and a borrowed shmem region.
     ///
     /// Validates the shmem header and initializes local ring indices.
@@ -172,7 +177,7 @@ impl<'a, const RSP_CAP: usize> QemuBridge<'a, RSP_CAP> {
     ///
     /// Returns [`QemuBridgeError::InvalidHeader`] if the shmem header
     /// cannot be decoded or the region is too small.
-    pub fn new(sim: Sim<RSP_CAP>, shmem: &'a mut [u8]) -> Result<Self, QemuBridgeError> {
+    pub fn new(sim: Sim<A, RSP_CAP>, shmem: &'a mut [u8]) -> Result<Self, QemuBridgeError> {
         let hdr = ShmemHeader::decode(shmem).ok_or(QemuBridgeError::InvalidHeader)?;
 
         if shmem.len() < hdr.total_size() {
@@ -266,6 +271,18 @@ impl<'a, const RSP_CAP: usize> QemuBridge<'a, RSP_CAP> {
                     self.write_rsp_ring(&FALLBACK_APDU_RSP)?;
                 }
             }
+            ShmemMsgType::Tick => {
+                let elapsed = if payload_len >= 4 {
+                    u32::from_le_bytes([
+                        cmd_payload[0], cmd_payload[1],
+                        cmd_payload[2], cmd_payload[3],
+                    ])
+                } else {
+                    0
+                };
+                let _ = self.sim.process(SimEvent::Tick(elapsed));
+                // No response needed for Tick (timer state is internal).
+            }
             ShmemMsgType::Atr => {
                 // ATR in the cmd ring is unexpected.
                 return Err(QemuBridgeError::InvalidMessage);
@@ -286,7 +303,7 @@ impl<'a, const RSP_CAP: usize> QemuBridge<'a, RSP_CAP> {
     }
 
     /// Access the inner [`Sim`] for configuration.
-    pub const fn sim_mut(&mut self) -> &mut Sim<RSP_CAP> {
+    pub const fn sim_mut(&mut self) -> &mut Sim<A, RSP_CAP> {
         &mut self.sim
     }
 
@@ -375,6 +392,7 @@ fn encode_response(
 mod tests {
     use super::*;
     use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef};
+    use simrs_milenage::MilenageParams;
     use simrs_sim::Sim;
     use simrs_transport_shmem::{ShmemHeader, MAGIC, VERSION};
 
@@ -399,8 +417,8 @@ mod tests {
 
     static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
 
-    fn make_sim() -> Sim<256> {
-        Sim::<256>::new(&ATR, &MF)
+    fn make_sim() -> Sim<MilenageParams, 256> {
+        Sim::<MilenageParams, 256>::new(&ATR, &MF)
     }
 
     /// Create a shmem region with a valid header and empty rings.
@@ -466,12 +484,13 @@ mod tests {
         assert_eq!(ShmemMsgType::from_u8(0x03), Some(ShmemMsgType::PowerOff));
         assert_eq!(ShmemMsgType::from_u8(0x04), Some(ShmemMsgType::WarmReset));
         assert_eq!(ShmemMsgType::from_u8(0x05), Some(ShmemMsgType::Atr));
+        assert_eq!(ShmemMsgType::from_u8(0x06), Some(ShmemMsgType::Tick));
     }
 
     #[test]
     fn msg_type_from_u8_invalid() {
         assert_eq!(ShmemMsgType::from_u8(0x00), None);
-        assert_eq!(ShmemMsgType::from_u8(0x06), None);
+        assert_eq!(ShmemMsgType::from_u8(0x07), None);
         assert_eq!(ShmemMsgType::from_u8(0xFF), None);
     }
 
@@ -780,6 +799,32 @@ mod tests {
         assert_eq!(ShmemMsgType::PowerOff as u8, 0x03);
         assert_eq!(ShmemMsgType::WarmReset as u8, 0x04);
         assert_eq!(ShmemMsgType::Atr as u8, 0x05);
+        assert_eq!(ShmemMsgType::Tick as u8, 0x06);
+    }
+
+    // -- Tick --
+
+    #[test]
+    fn msg_type_tick_round_trip() {
+        assert_eq!(ShmemMsgType::from_u8(0x06), Some(ShmemMsgType::Tick));
+        assert_eq!(ShmemMsgType::Tick as u8, 0x06);
+    }
+
+    #[test]
+    fn step_tick_message() {
+        let mut shmem = make_shmem();
+        // Payload: 10 seconds as 4-byte LE.
+        let elapsed: u32 = 10;
+        push_cmd(&mut shmem, ShmemMsgType::Tick, &elapsed.to_le_bytes());
+
+        {
+            let sim = make_sim();
+            let mut bridge = QemuBridge::new(sim, &mut shmem).unwrap();
+            assert!(bridge.step().unwrap());
+        }
+
+        // No response should be in the rsp ring.
+        assert!(pop_rsp(&mut shmem).is_none());
     }
 
     // -- header constants --

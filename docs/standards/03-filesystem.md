@@ -124,6 +124,8 @@ Per TS 31.102 clause 4.4.11. Under DF_5GS (FID 5FC0, child of ADF_USIM).
 
 ### Rust: Filesystem Data Module
 
+**Status:** Module placeholder exists in `simrs-usim`. EF definitions not yet populated. The type signatures below use the implemented `simrs-fs` types (`DfDef`, `EfDef`, etc.) and show the target filesystem structure per TS 31.102 clause 4.4.11.
+
 ```rust
 /// DF_5GS directory definition for 5G SA USIM.
 /// Per TS 31.102 clause 4.4.11.

@@ -148,6 +148,12 @@ pub struct MilenageParams {
     ri: [u8; 5],
 }
 
+impl Default for MilenageParams {
+    fn default() -> Self {
+        Self::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]))
+    }
+}
+
 /// Successful authentication output.
 ///
 /// Per 3GPP TS 31.102 V17.5.0 clause 7.1.2.1, the successful AUTHENTICATE
@@ -325,6 +331,92 @@ fn rotl128(input: &[u8; 16], r: u8) -> [u8; 16] {
 /// Compute OPc from OP: `OPc = E_K[OP] XOR OP`.
 const fn compute_opc(aes: &Rijndael, op: &[u8; 16]) -> [u8; 16] {
     xor128(&aes.encrypt(op), op)
+}
+
+// ---------------------------------------------------------------------------
+// AuthAlgorithm trait
+// ---------------------------------------------------------------------------
+
+/// Authentication algorithm trait for UMTS/LTE/5G authentication.
+///
+/// Abstracts the f1-f5 function set per TS 35.205. Implementations include
+/// Milenage (TS 35.206) and TUAK (TS 35.231).
+pub trait AuthAlgorithm {
+    /// Snapshot buffer size for this algorithm's state.
+    const SNAPSHOT_SIZE: usize;
+
+    /// f1: Network authentication code MAC-A (8 bytes).
+    fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8];
+    /// f1*: Resynch authentication code MAC-S (8 bytes).
+    fn f1_star(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8];
+    /// f2: Authentication response RES (8 bytes).
+    fn f2(&self, rand: &[u8; 16]) -> [u8; 8];
+    /// f3: Ciphering key CK (16 bytes).
+    fn f3(&self, rand: &[u8; 16]) -> [u8; 16];
+    /// f4: Integrity key IK (16 bytes).
+    fn f4(&self, rand: &[u8; 16]) -> [u8; 16];
+    /// f5: Anonymity key AK (6 bytes).
+    fn f5(&self, rand: &[u8; 16]) -> [u8; 6];
+    /// f5*: Resynch anonymity key AK* (6 bytes).
+    fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6];
+
+    /// Full authentication: verify AUTN, compute RES/CK/IK/Kc.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MilenageError::MacFailure`] if MAC verification fails,
+    /// or [`MilenageError::SqnOutOfRange`] if the sequence number is stale.
+    fn authenticate(&self, rand: &[u8; 16], autn: &[u8; 16]) -> Result<AuthOutput, MilenageError>;
+
+    /// Serialize algorithm state.
+    fn save_state(&self, buf: &mut [u8]) -> usize;
+    /// Restore algorithm state.
+    fn restore_state(&mut self, buf: &[u8]) -> bool;
+}
+
+impl AuthAlgorithm for MilenageParams {
+    #[allow(clippy::use_self)] // Inherent const vs. trait const -- Self would be circular.
+    const SNAPSHOT_SIZE: usize = MilenageParams::SNAPSHOT_SIZE;
+
+    fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8] {
+        self.f1(rand, sqn, amf)
+    }
+
+    fn f1_star(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8] {
+        self.f1_star(rand, sqn, amf)
+    }
+
+    fn f2(&self, rand: &[u8; 16]) -> [u8; 8] {
+        self.f2(rand)
+    }
+
+    fn f3(&self, rand: &[u8; 16]) -> [u8; 16] {
+        self.f3(rand)
+    }
+
+    fn f4(&self, rand: &[u8; 16]) -> [u8; 16] {
+        self.f4(rand)
+    }
+
+    fn f5(&self, rand: &[u8; 16]) -> [u8; 6] {
+        self.f5(rand)
+    }
+
+    fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6] {
+        self.f5_star(rand)
+    }
+
+    fn authenticate(&self, rand: &[u8; 16], autn: &[u8; 16]) -> Result<AuthOutput, MilenageError> {
+        self.authenticate(rand, autn)
+    }
+
+    fn save_state(&self, buf: &mut [u8]) -> usize {
+        self.save_state(buf)
+    }
+
+    fn restore_state(&mut self, buf: &[u8]) -> bool {
+        self.restore_state(buf)
+    }
 }
 
 // ---------------------------------------------------------------------------

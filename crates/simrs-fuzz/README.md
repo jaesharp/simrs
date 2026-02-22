@@ -2,7 +2,7 @@
 
 APDU-aware snapshot fuzzer harness for Shannon baseband.
 
-**Layer:** Meta | **`no_std`:** no (binary) | **Status:** Stub
+**Layer:** Meta | **`no_std`:** no (binary) | **Status:** Implemented
 
 ```mermaid
 graph TD

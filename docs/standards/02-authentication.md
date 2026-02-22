@@ -55,9 +55,21 @@ graph LR
 | Release | Rel-99 (1999) | Rel-12 (2014) |
 | Deployment | Universal | Growing (5G/SUCI) |
 
-### Rust API: Algorithm Trait
+### Rust API: Algorithm Interface (TS 35.205 clause 3)
 
-The `simrs-milenage` crate exposes Milenage directly. For future TUAK support, the common interface is:
+The 3GPP f1-f5 function set defines a common interface for authentication algorithms. `MilenageParams` implements all seven functions with standard-conformant signatures:
+
+| Function | Standard | Signature | Status |
+|----------|----------|-----------|--------|
+| f1 | TS 35.205 clause 3.1 | `fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8]` | Implemented |
+| f1* | TS 35.205 clause 3.2 | `fn f1_star(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8]` | Implemented |
+| f2 | TS 35.205 clause 3.3 | `fn f2(&self, rand: &[u8; 16]) -> [u8; 8]` | Implemented |
+| f3 | TS 35.205 clause 3.4 | `fn f3(&self, rand: &[u8; 16]) -> [u8; 16]` | Implemented |
+| f4 | TS 35.205 clause 3.5 | `fn f4(&self, rand: &[u8; 16]) -> [u8; 16]` | Implemented |
+| f5 | TS 35.205 clause 3.6 | `fn f5(&self, rand: &[u8; 16]) -> [u8; 6]` | Implemented |
+| f5* | TS 35.205 clause 3.7 | `fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6]` | Implemented |
+
+**Trait extraction (planned):** The `AuthAlgorithm` trait below is the target abstraction for TUAK support. Currently `simrs-usim` calls `MilenageParams` directly; extracting this trait is a prerequisite for TUAK (TS 35.231) as a drop-in replacement.
 
 ```rust
 /// Authentication algorithm set producing the 3GPP f1-f5 outputs.
@@ -84,7 +96,7 @@ pub trait AuthAlgorithm {
 }
 ```
 
-**Impact on simrs:** `MilenageParams` implements `AuthAlgorithm`. Future `TuakParams` would too. `simrs-usim` takes `impl AuthAlgorithm` rather than `MilenageParams` directly -- this is the polymorphism the user requested.
+**Current state:** `MilenageParams` provides all f1-f5 functions with signatures conforming to TS 35.205. Future `TuakParams` support requires extracting this trait so `simrs-usim` can accept `impl AuthAlgorithm` rather than `MilenageParams` directly.
 
 ---
 
@@ -131,7 +143,17 @@ SW: 61 XX
 SW: 98 62  (no data)
 ```
 
-### Rust API
+### AUTHENTICATE Response Structure (TS 31.102 clause 7.1.2.1)
+
+| Outcome | Standard | Tag | Current Implementation |
+|---------|----------|-----|-----------------------|
+| Success | clause 7.1.2.1.1 | `0xDB` + RES + CK + IK | Raw BER-TLV via `ResponseQueue` |
+| Sync Failure | clause 7.1.2.1.2 | `0xDC` + AUTS(14B) | Raw BER-TLV via `ResponseQueue` |
+| MAC Failure | clause 7.1.2.1 | SW `98 62` | `StatusWord::AuthenticationError` |
+
+`MilenageParams::authenticate()` returns `Result<AuthOutput, MilenageError>` where `AuthOutput { res, ck, ik, kc }` and `MilenageError::SyncFailure { auts }` / `MilenageError::MacFailure`.
+
+**Typed response wrapper (planned):** The `AuthenticateResult` enum below captures these three outcomes as a first-class type. Currently the USIM handler builds the BER-TLV response inline from `AuthOutput`.
 
 ```rust
 /// Result of AUTHENTICATE command processing.

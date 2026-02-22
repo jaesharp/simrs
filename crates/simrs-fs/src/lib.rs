@@ -4,13 +4,15 @@
 //! file system per ETSI TS 102 221. Elementary files (EFs) come in three
 //! structures: transparent (binary), linear fixed (records), and cyclic.
 //! The [`SelectionCtx`] tracks the current MF, DF, ADF, and EF across
-//! SELECT operations.
+//! SELECT operations. The [`FsData`] store holds mutable copies of all EF
+//! data for read-write operations.
 //!
 //! # Filesystem Tree
 //!
 //! The tree is defined as nested `const`/`static` items -- no runtime
-//! allocation. EF content is `&'static [u8]`, supplied by the consuming
-//! crate (e.g. `simrs-gsm`, `simrs-usim`).
+//! allocation. EF content templates are `&'static [u8]`, supplied by the
+//! consuming crate (e.g. `simrs-gsm`, `simrs-usim`). At runtime, [`FsData`]
+//! copies these templates into a mutable buffer for read-write access.
 //!
 //! ```text
 //! MF (3F00)
@@ -351,6 +353,13 @@ pub enum FsError {
     RecordOutOfRange,
     /// Offset + length exceeds the file size.
     OffsetOutOfRange,
+    /// [`FsData`] buffer capacity exhausted during initialization.
+    StoreFull,
+    /// More than [`MAX_EFS`] elementary files in the filesystem tree.
+    TooManyFiles,
+    /// Write data does not fit: record size mismatch (UPDATE RECORD),
+    /// value exceeds record size (INCREASE), or data beyond EF boundary.
+    DataTooLarge,
 }
 
 impl core::fmt::Display for FsError {
@@ -362,7 +371,419 @@ impl core::fmt::Display for FsError {
             Self::NotRecordBased => f.write_str("not a record-based EF"),
             Self::RecordOutOfRange => f.write_str("record out of range"),
             Self::OffsetOutOfRange => f.write_str("offset out of range"),
+            Self::StoreFull => f.write_str("data store full"),
+            Self::TooManyFiles => f.write_str("too many files"),
+            Self::DataTooLarge => f.write_str("data too large"),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FsData -- mutable file content store
+// ---------------------------------------------------------------------------
+
+/// Maximum number of elementary files tracked by [`FsData`].
+pub const MAX_EFS: usize = 32;
+
+/// Internal entry mapping an EF definition to its data region in the buffer.
+#[derive(Clone, Copy)]
+struct FsEntry {
+    /// Reference to the static EF definition (used for identity-based lookup).
+    ef: Option<&'static EfDef>,
+    /// Byte offset into `FsData::buf` where this EF's data starts.
+    offset: u16,
+    /// Total length of this EF's data in bytes.
+    len: u16,
+}
+
+/// Mutable file content store for read-write SIM filesystem operations.
+///
+/// Holds runtime-mutable copies of all EF data from a static filesystem tree.
+/// The static [`EfDef::data`] slices serve as initial templates; [`FsData`]
+/// copies them into an owned buffer at initialization. All subsequent reads
+/// and writes go through this store.
+///
+/// `CAP` is the total buffer size in bytes (must be at least the sum of all
+/// EF data in the tree).
+///
+/// # Standards
+///
+/// - ETSI TS 102 221 clause 11.1.3 -- READ BINARY
+/// - ETSI TS 102 221 clause 11.1.4 -- UPDATE BINARY
+/// - ETSI TS 102 221 clause 11.1.5 -- READ RECORD
+/// - ETSI TS 102 221 clause 11.1.6 -- UPDATE RECORD
+///
+/// # Example
+///
+/// ```
+/// use simrs_fs::{FsData, DfDef, EfDef, EfStructure, Fid, FileRef};
+///
+/// static EF: EfDef = EfDef {
+///     fid: Fid(0x2FE2), sfi: None,
+///     structure: EfStructure::Transparent,
+///     data: &[0x01, 0x02, 0x03, 0x04],
+/// };
+/// static MF: DfDef = DfDef { fid: Fid::MF, children: &[FileRef::Ef(&EF)] };
+///
+/// let mut store = FsData::<16>::new();
+/// store.init(&MF).unwrap();
+///
+/// // Read original data.
+/// assert_eq!(store.read_binary(&EF, 0, 4).unwrap(), &[0x01, 0x02, 0x03, 0x04]);
+///
+/// // Write new data.
+/// store.write_binary(&EF, 1, &[0xAA, 0xBB]).unwrap();
+/// assert_eq!(store.read_binary(&EF, 0, 4).unwrap(), &[0x01, 0xAA, 0xBB, 0x04]);
+/// ```
+pub struct FsData<const CAP: usize> {
+    buf: [u8; CAP],
+    entries: [FsEntry; MAX_EFS],
+    count: u8,
+}
+
+impl<const CAP: usize> Default for FsData<CAP> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const CAP: usize> FsData<CAP> {
+    /// Create a new, empty data store.
+    ///
+    /// Call [`init`](Self::init) or [`init_with_adfs`](Self::init_with_adfs)
+    /// before use.
+    pub const fn new() -> Self {
+        const EMPTY: FsEntry = FsEntry {
+            ef: None,
+            offset: 0,
+            len: 0,
+        };
+        Self {
+            buf: [0u8; CAP],
+            entries: [EMPTY; MAX_EFS],
+            count: 0,
+        }
+    }
+
+    /// Initialize from a static filesystem tree.
+    ///
+    /// Walks the tree depth-first, copying each EF's template data into the
+    /// mutable buffer and recording its location in the index.
+    ///
+    /// # Errors
+    ///
+    /// - [`FsError::StoreFull`] if the total EF data exceeds `CAP`.
+    /// - [`FsError::TooManyFiles`] if the tree contains more than [`MAX_EFS`] EFs.
+    pub fn init(&mut self, root: &'static DfDef) -> Result<(), FsError> {
+        self.count = 0;
+        let mut offset: u16 = 0;
+        self.walk_tree(root, &mut offset)
+    }
+
+    /// Initialize from a static filesystem tree plus ADF table.
+    ///
+    /// Walks the MF tree first, then each ADF's root tree.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`init`](Self::init).
+    pub fn init_with_adfs(
+        &mut self,
+        root: &'static DfDef,
+        adfs: &'static [AdfSlot],
+    ) -> Result<(), FsError> {
+        self.count = 0;
+        let mut offset: u16 = 0;
+        self.walk_tree(root, &mut offset)?;
+        for slot in adfs {
+            self.walk_tree(slot.root, &mut offset)?;
+        }
+        Ok(())
+    }
+
+    /// Recursively walk a DF tree, copying EF data into the buffer.
+    #[allow(clippy::cast_possible_truncation)]
+    fn walk_tree(
+        &mut self,
+        df: &'static DfDef,
+        next_offset: &mut u16,
+    ) -> Result<(), FsError> {
+        for child in df.children {
+            match child {
+                FileRef::Ef(ef) => {
+                    if self.count as usize >= MAX_EFS {
+                        return Err(FsError::TooManyFiles);
+                    }
+                    let data_len = ef.data.len();
+                    let start = *next_offset as usize;
+                    let end = start + data_len;
+                    if end > CAP {
+                        return Err(FsError::StoreFull);
+                    }
+                    self.buf[start..end].copy_from_slice(ef.data);
+                    self.entries[self.count as usize] = FsEntry {
+                        ef: Some(ef),
+                        offset: *next_offset,
+                        len: data_len as u16,
+                    };
+                    self.count += 1;
+                    *next_offset += data_len as u16;
+                }
+                FileRef::Df(sub) => {
+                    self.walk_tree(sub, next_offset)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Look up an entry by EF identity (pointer equality).
+    ///
+    /// Returns `(offset_in_buf, data_len)` or `None` if the EF is not in
+    /// the store.
+    fn find_entry(&self, ef: &EfDef) -> Option<(u16, u16)> {
+        self.entries[..self.count as usize]
+            .iter()
+            .find(|e| matches!(e.ef, Some(stored) if core::ptr::eq(stored, ef)))
+            .map(|e| (e.offset, e.len))
+    }
+
+    /// Total number of bytes used in the buffer.
+    pub const fn used(&self) -> usize {
+        if self.count == 0 {
+            return 0;
+        }
+        let last = &self.entries[self.count as usize - 1];
+        last.offset as usize + last.len as usize
+    }
+
+    /// Number of EFs registered in the store.
+    pub const fn ef_count(&self) -> u8 {
+        self.count
+    }
+
+    // -- Read operations ---------------------------------------------------
+
+    /// Read binary data from a transparent EF.
+    ///
+    /// # Errors
+    ///
+    /// - [`FsError::NotTransparent`] if the EF is record-based.
+    /// - [`FsError::FileNotFound`] if the EF is not in the store.
+    /// - [`FsError::OffsetOutOfRange`] if `offset + len` exceeds the file.
+    pub fn read_binary(
+        &self,
+        ef: &EfDef,
+        offset: u16,
+        len: u16,
+    ) -> Result<&[u8], FsError> {
+        if !matches!(ef.structure, EfStructure::Transparent) {
+            return Err(FsError::NotTransparent);
+        }
+        let (entry_off, entry_len) = self.find_entry(ef).ok_or(FsError::FileNotFound)?;
+        let start = entry_off as usize + offset as usize;
+        let end = start + len as usize;
+        if end > entry_off as usize + entry_len as usize {
+            return Err(FsError::OffsetOutOfRange);
+        }
+        Ok(&self.buf[start..end])
+    }
+
+    /// Read a record from a linear-fixed or cyclic EF.
+    ///
+    /// Record numbers are **1-based** per ISO/IEC 7816-4.
+    ///
+    /// # Errors
+    ///
+    /// - [`FsError::NotRecordBased`] if the EF is transparent.
+    /// - [`FsError::FileNotFound`] if the EF is not in the store.
+    /// - [`FsError::RecordOutOfRange`] if `num` is 0 or exceeds `num_records`.
+    pub fn read_record(&self, ef: &EfDef, num: u8) -> Result<&[u8], FsError> {
+        let (record_size, num_records) = match ef.structure {
+            EfStructure::LinearFixed {
+                record_size,
+                num_records,
+            }
+            | EfStructure::Cyclic {
+                record_size,
+                num_records,
+            } => (record_size, num_records),
+            EfStructure::Transparent => return Err(FsError::NotRecordBased),
+        };
+        if num == 0 || num > num_records {
+            return Err(FsError::RecordOutOfRange);
+        }
+        let (entry_off, _entry_len) = self.find_entry(ef).ok_or(FsError::FileNotFound)?;
+        let idx = (num - 1) as usize;
+        let rs = record_size as usize;
+        let start = entry_off as usize + idx * rs;
+        let end = start + rs;
+        Ok(&self.buf[start..end])
+    }
+
+    // -- Write operations --------------------------------------------------
+
+    /// Write binary data to a transparent EF.
+    ///
+    /// Per ETSI TS 102 221 clause 11.1.4, the data replaces existing content
+    /// starting at `offset`.
+    ///
+    /// # Errors
+    ///
+    /// - [`FsError::NotTransparent`] if the EF is record-based.
+    /// - [`FsError::FileNotFound`] if the EF is not in the store.
+    /// - [`FsError::OffsetOutOfRange`] if `offset + data.len()` exceeds the file.
+    pub fn write_binary(
+        &mut self,
+        ef: &EfDef,
+        offset: u16,
+        data: &[u8],
+    ) -> Result<(), FsError> {
+        if !matches!(ef.structure, EfStructure::Transparent) {
+            return Err(FsError::NotTransparent);
+        }
+        let (entry_off, entry_len) =
+            self.find_entry(ef).ok_or(FsError::FileNotFound)?;
+        let start = entry_off as usize + offset as usize;
+        let end = start + data.len();
+        if end > entry_off as usize + entry_len as usize {
+            return Err(FsError::OffsetOutOfRange);
+        }
+        self.buf[start..end].copy_from_slice(data);
+        Ok(())
+    }
+
+    /// Write a full record to a linear-fixed or cyclic EF.
+    ///
+    /// Per ETSI TS 102 221 clause 11.1.6, the data must be exactly
+    /// `record_size` bytes and replaces the entire record.
+    ///
+    /// # Errors
+    ///
+    /// - [`FsError::NotRecordBased`] if the EF is transparent.
+    /// - [`FsError::FileNotFound`] if the EF is not in the store.
+    /// - [`FsError::RecordOutOfRange`] if `num` is 0 or exceeds `num_records`.
+    /// - [`FsError::DataTooLarge`] if `data.len()` does not match `record_size`.
+    pub fn write_record(
+        &mut self,
+        ef: &EfDef,
+        num: u8,
+        data: &[u8],
+    ) -> Result<(), FsError> {
+        let (record_size, num_records) = match ef.structure {
+            EfStructure::LinearFixed {
+                record_size,
+                num_records,
+            }
+            | EfStructure::Cyclic {
+                record_size,
+                num_records,
+            } => (record_size, num_records),
+            EfStructure::Transparent => return Err(FsError::NotRecordBased),
+        };
+        if num == 0 || num > num_records {
+            return Err(FsError::RecordOutOfRange);
+        }
+        if data.len() != record_size as usize {
+            return Err(FsError::DataTooLarge);
+        }
+        let (entry_off, _entry_len) =
+            self.find_entry(ef).ok_or(FsError::FileNotFound)?;
+        let idx = (num - 1) as usize;
+        let rs = record_size as usize;
+        let start = entry_off as usize + idx * rs;
+        let end = start + rs;
+        self.buf[start..end].copy_from_slice(data);
+        Ok(())
+    }
+
+    /// Increase a cyclic EF's most-recent record value by an addend.
+    ///
+    /// Per ETSI TS 102 221 clause 11.1.7, INCREASE reads record 1 (the most
+    /// recent in a cyclic EF), interprets it as a big-endian unsigned integer,
+    /// adds the supplied big-endian `value`, writes the result back to record 1,
+    /// and returns the updated record content.
+    ///
+    /// # Errors
+    ///
+    /// - [`FsError::NotRecordBased`] if the EF is not cyclic.
+    /// - [`FsError::FileNotFound`] if the EF is not in the store.
+    /// - [`FsError::DataTooLarge`] if `value.len()` exceeds the record size.
+    pub fn increase(
+        &mut self,
+        ef: &EfDef,
+        value: &[u8],
+    ) -> Result<&[u8], FsError> {
+        let record_size = match ef.structure {
+            EfStructure::Cyclic { record_size, .. } => record_size,
+            EfStructure::Transparent
+            | EfStructure::LinearFixed { .. } => return Err(FsError::NotRecordBased),
+        };
+        let rs = record_size as usize;
+        if value.len() > rs {
+            return Err(FsError::DataTooLarge);
+        }
+        let (entry_off, _entry_len) =
+            self.find_entry(ef).ok_or(FsError::FileNotFound)?;
+        let start = entry_off as usize; // record 1 starts at offset 0
+        let end = start + rs;
+
+        // Big-endian addition: add `value` (right-aligned) to the record.
+        let mut carry: u16 = 0;
+        let val_off = rs - value.len();
+        let mut i = rs;
+        while i > 0 {
+            i -= 1;
+            let rec_byte = u16::from(self.buf[start + i]);
+            let val_byte = if i >= val_off {
+                u16::from(value[i - val_off])
+            } else {
+                0
+            };
+            let sum = rec_byte + val_byte + carry;
+            #[allow(clippy::cast_possible_truncation)] // intentional: keep low byte
+            let lo = sum as u8;
+            self.buf[start + i] = lo;
+            carry = sum >> 8;
+        }
+
+        Ok(&self.buf[start..end])
+    }
+
+    // -- Snapshot -----------------------------------------------------------
+
+    /// Snapshot buffer size: the entire mutable data region.
+    ///
+    /// Only the data buffer is serialized. Entry metadata (EF pointers and
+    /// offsets) is reconstructed from the static tree during
+    /// [`init`](Self::init) / [`init_with_adfs`](Self::init_with_adfs).
+    pub const SNAPSHOT_SIZE: usize = CAP;
+
+    /// Serialize the mutable data into `buf`.
+    ///
+    /// Returns the number of bytes written, or 0 if `buf` is too small.
+    #[must_use]
+    pub fn save_state(&self, out: &mut [u8]) -> usize {
+        if out.len() < Self::SNAPSHOT_SIZE {
+            return 0;
+        }
+        out[..CAP].copy_from_slice(&self.buf);
+        CAP
+    }
+
+    /// Restore the mutable data from `buf`.
+    ///
+    /// The entry index must already be initialized via [`init`](Self::init)
+    /// or [`init_with_adfs`](Self::init_with_adfs) before calling this method.
+    ///
+    /// Returns `true` on success.
+    #[must_use]
+    pub fn restore_state(&mut self, data: &[u8]) -> bool {
+        if data.len() < Self::SNAPSHOT_SIZE {
+            return false;
+        }
+        self.buf.copy_from_slice(&data[..CAP]);
+        true
     }
 }
 
@@ -1252,6 +1673,457 @@ mod tests {
 
         let mut c2 = ctx();
         assert!(!c2.restore_state(&small, &[]));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FsData tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod fsdata_tests {
+    use super::*;
+
+    static EF_T: EfDef = EfDef {
+        fid: Fid(0x2FE2),
+        sfi: None,
+        structure: EfStructure::Transparent,
+        data: &[0x01, 0x02, 0x03, 0x04, 0x05],
+    };
+
+    static EF_LF: EfDef = EfDef {
+        fid: Fid(0x2F00),
+        sfi: None,
+        structure: EfStructure::LinearFixed {
+            record_size: 4,
+            num_records: 2,
+        },
+        data: &[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11],
+    };
+
+    static EF_CY: EfDef = EfDef {
+        fid: Fid(0x6F4A),
+        sfi: None,
+        structure: EfStructure::Cyclic {
+            record_size: 3,
+            num_records: 2,
+        },
+        data: &[0xA1, 0xA2, 0xA3, 0xB1, 0xB2, 0xB3],
+    };
+
+    static DF_SUB: DfDef = DfDef {
+        fid: Fid(0x7F20),
+        children: &[FileRef::Ef(&EF_LF), FileRef::Ef(&EF_CY)],
+    };
+
+    static MF: DfDef = DfDef {
+        fid: Fid(0x3F00),
+        children: &[FileRef::Ef(&EF_T), FileRef::Df(&DF_SUB)],
+    };
+
+    // Total EF data: 5 + 8 + 6 = 19 bytes.
+
+    fn store() -> FsData<64> {
+        let mut s = FsData::<64>::new();
+        s.init(&MF).unwrap();
+        s
+    }
+
+    // -- init --
+
+    #[test]
+    fn init_populates_entries() {
+        let s = store();
+        assert_eq!(s.ef_count(), 3);
+        assert_eq!(s.used(), 19);
+    }
+
+    #[test]
+    fn init_copies_template_data() {
+        let s = store();
+        assert_eq!(
+            s.read_binary(&EF_T, 0, 5).unwrap(),
+            &[0x01, 0x02, 0x03, 0x04, 0x05]
+        );
+    }
+
+    #[test]
+    fn init_too_small_cap() {
+        let mut s = FsData::<10>::new();
+        assert_eq!(s.init(&MF), Err(FsError::StoreFull));
+    }
+
+    #[test]
+    fn init_with_adfs() {
+        static ADF_EF: EfDef = EfDef {
+            fid: Fid(0x6F07),
+            sfi: None,
+            structure: EfStructure::Transparent,
+            data: &[0xDD, 0xEE],
+        };
+        static ADF_ROOT: DfDef = DfDef {
+            fid: Fid(0xFF01),
+            children: &[FileRef::Ef(&ADF_EF)],
+        };
+        static ADFS: [AdfSlot; 1] = [AdfSlot {
+            aid: &[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+            root: &ADF_ROOT,
+        }];
+
+        let mut s = FsData::<64>::new();
+        s.init_with_adfs(&MF, &ADFS).unwrap();
+        assert_eq!(s.ef_count(), 4); // 3 from MF + 1 from ADF
+        assert_eq!(s.read_binary(&ADF_EF, 0, 2).unwrap(), &[0xDD, 0xEE]);
+    }
+
+    // -- read_binary --
+
+    #[test]
+    fn read_binary_full() {
+        let s = store();
+        assert_eq!(
+            s.read_binary(&EF_T, 0, 5).unwrap(),
+            &[0x01, 0x02, 0x03, 0x04, 0x05]
+        );
+    }
+
+    #[test]
+    fn read_binary_partial() {
+        let s = store();
+        assert_eq!(
+            s.read_binary(&EF_T, 1, 3).unwrap(),
+            &[0x02, 0x03, 0x04]
+        );
+    }
+
+    #[test]
+    fn read_binary_past_end() {
+        let s = store();
+        assert_eq!(
+            s.read_binary(&EF_T, 3, 5),
+            Err(FsError::OffsetOutOfRange)
+        );
+    }
+
+    #[test]
+    fn read_binary_on_record_ef() {
+        let s = store();
+        assert_eq!(
+            s.read_binary(&EF_LF, 0, 4),
+            Err(FsError::NotTransparent)
+        );
+    }
+
+    #[test]
+    fn read_binary_unknown_ef() {
+        static UNKNOWN: EfDef = EfDef {
+            fid: Fid(0xAAAA),
+            sfi: None,
+            structure: EfStructure::Transparent,
+            data: &[],
+        };
+        let s = store();
+        assert_eq!(
+            s.read_binary(&UNKNOWN, 0, 0),
+            Err(FsError::FileNotFound)
+        );
+    }
+
+    // -- read_record --
+
+    #[test]
+    fn read_record_linear_fixed() {
+        let s = store();
+        assert_eq!(
+            s.read_record(&EF_LF, 1).unwrap(),
+            &[0x0A, 0x0B, 0x0C, 0x0D]
+        );
+        assert_eq!(
+            s.read_record(&EF_LF, 2).unwrap(),
+            &[0x0E, 0x0F, 0x10, 0x11]
+        );
+    }
+
+    #[test]
+    fn read_record_cyclic() {
+        let s = store();
+        assert_eq!(
+            s.read_record(&EF_CY, 1).unwrap(),
+            &[0xA1, 0xA2, 0xA3]
+        );
+        assert_eq!(
+            s.read_record(&EF_CY, 2).unwrap(),
+            &[0xB1, 0xB2, 0xB3]
+        );
+    }
+
+    #[test]
+    fn read_record_out_of_range() {
+        let s = store();
+        assert_eq!(s.read_record(&EF_LF, 0), Err(FsError::RecordOutOfRange));
+        assert_eq!(s.read_record(&EF_LF, 3), Err(FsError::RecordOutOfRange));
+    }
+
+    #[test]
+    fn read_record_on_transparent() {
+        let s = store();
+        assert_eq!(s.read_record(&EF_T, 1), Err(FsError::NotRecordBased));
+    }
+
+    // -- write_binary --
+
+    #[test]
+    fn write_binary_and_readback() {
+        let mut s = store();
+        s.write_binary(&EF_T, 1, &[0xAA, 0xBB]).unwrap();
+        assert_eq!(
+            s.read_binary(&EF_T, 0, 5).unwrap(),
+            &[0x01, 0xAA, 0xBB, 0x04, 0x05]
+        );
+    }
+
+    #[test]
+    fn write_binary_full_overwrite() {
+        let mut s = store();
+        s.write_binary(&EF_T, 0, &[0xF0, 0xF1, 0xF2, 0xF3, 0xF4])
+            .unwrap();
+        assert_eq!(
+            s.read_binary(&EF_T, 0, 5).unwrap(),
+            &[0xF0, 0xF1, 0xF2, 0xF3, 0xF4]
+        );
+    }
+
+    #[test]
+    fn write_binary_past_end() {
+        let mut s = store();
+        assert_eq!(
+            s.write_binary(&EF_T, 4, &[0xAA, 0xBB]),
+            Err(FsError::OffsetOutOfRange)
+        );
+    }
+
+    #[test]
+    fn write_binary_on_record_ef() {
+        let mut s = store();
+        assert_eq!(
+            s.write_binary(&EF_LF, 0, &[0x00]),
+            Err(FsError::NotTransparent)
+        );
+    }
+
+    #[test]
+    fn write_does_not_affect_other_efs() {
+        let mut s = store();
+        let rec1_before = s.read_record(&EF_LF, 1).unwrap().to_vec();
+        s.write_binary(&EF_T, 0, &[0xFF; 5]).unwrap();
+        let rec1_after = s.read_record(&EF_LF, 1).unwrap();
+        assert_eq!(rec1_before, rec1_after);
+    }
+
+    // -- write_record --
+
+    #[test]
+    fn write_record_and_readback() {
+        let mut s = store();
+        s.write_record(&EF_LF, 2, &[0xCC, 0xDD, 0xEE, 0xFF])
+            .unwrap();
+        assert_eq!(
+            s.read_record(&EF_LF, 2).unwrap(),
+            &[0xCC, 0xDD, 0xEE, 0xFF]
+        );
+        // Record 1 unchanged.
+        assert_eq!(
+            s.read_record(&EF_LF, 1).unwrap(),
+            &[0x0A, 0x0B, 0x0C, 0x0D]
+        );
+    }
+
+    #[test]
+    fn write_record_wrong_size() {
+        let mut s = store();
+        assert_eq!(
+            s.write_record(&EF_LF, 1, &[0x00, 0x01]),
+            Err(FsError::DataTooLarge)
+        );
+    }
+
+    #[test]
+    fn write_record_out_of_range() {
+        let mut s = store();
+        assert_eq!(
+            s.write_record(&EF_LF, 0, &[0x00; 4]),
+            Err(FsError::RecordOutOfRange)
+        );
+        assert_eq!(
+            s.write_record(&EF_LF, 3, &[0x00; 4]),
+            Err(FsError::RecordOutOfRange)
+        );
+    }
+
+    #[test]
+    fn write_record_on_transparent() {
+        let mut s = store();
+        assert_eq!(
+            s.write_record(&EF_T, 1, &[0x00]),
+            Err(FsError::NotRecordBased)
+        );
+    }
+
+    #[test]
+    fn write_record_cyclic() {
+        let mut s = store();
+        s.write_record(&EF_CY, 1, &[0xCC, 0xDD, 0xEE]).unwrap();
+        assert_eq!(
+            s.read_record(&EF_CY, 1).unwrap(),
+            &[0xCC, 0xDD, 0xEE]
+        );
+    }
+
+    // -- increase --
+
+    #[test]
+    fn increase_basic() {
+        let mut s = store();
+        // EF_CY record 1 = [0xA1, 0xA2, 0xA3]
+        let result = s.increase(&EF_CY, &[0x00, 0x00, 0x01]).unwrap();
+        assert_eq!(result, &[0xA1, 0xA2, 0xA4]);
+    }
+
+    #[test]
+    fn increase_with_carry() {
+        let mut s = store();
+        // EF_CY record 1 = [0xA1, 0xA2, 0xA3], add [0x00, 0x00, 0xFF]
+        let result = s.increase(&EF_CY, &[0x00, 0x00, 0xFF]).unwrap();
+        // 0xA3 + 0xFF = 0x1A2, carry 1 to next byte: 0xA2+1 = 0xA3
+        assert_eq!(result, &[0xA1, 0xA3, 0xA2]);
+    }
+
+    #[test]
+    fn increase_short_value() {
+        let mut s = store();
+        // Add single byte [0x05] to 3-byte record [0xA1, 0xA2, 0xA3]
+        let result = s.increase(&EF_CY, &[0x05]).unwrap();
+        assert_eq!(result, &[0xA1, 0xA2, 0xA8]);
+    }
+
+    #[test]
+    fn increase_on_transparent_fails() {
+        let mut s = store();
+        assert_eq!(
+            s.increase(&EF_T, &[0x01]),
+            Err(FsError::NotRecordBased)
+        );
+    }
+
+    #[test]
+    fn increase_on_linear_fixed_fails() {
+        let mut s = store();
+        assert_eq!(
+            s.increase(&EF_LF, &[0x01]),
+            Err(FsError::NotRecordBased)
+        );
+    }
+
+    #[test]
+    fn increase_value_too_large() {
+        let mut s = store();
+        // EF_CY has record_size=3, try adding 4 bytes
+        assert_eq!(
+            s.increase(&EF_CY, &[0x01, 0x02, 0x03, 0x04]),
+            Err(FsError::DataTooLarge)
+        );
+    }
+
+    #[test]
+    fn increase_readback_matches() {
+        let mut s = store();
+        let result = s.increase(&EF_CY, &[0x00, 0x01, 0x00]).unwrap().to_vec();
+        // Verify it persists via read_record
+        let rec = s.read_record(&EF_CY, 1).unwrap();
+        assert_eq!(result, rec);
+    }
+
+    // -- snapshot --
+
+    #[test]
+    fn snapshot_roundtrip_preserves_writes() {
+        let mut s = store();
+        s.write_binary(&EF_T, 0, &[0xAA, 0xBB, 0xCC, 0xDD, 0xEE])
+            .unwrap();
+        s.write_record(&EF_LF, 1, &[0x11, 0x22, 0x33, 0x44])
+            .unwrap();
+
+        // Save.
+        let mut snap = [0u8; 64];
+        let n = s.save_state(&mut snap);
+        assert_eq!(n, 64);
+
+        // Create fresh store, init, then restore.
+        let mut s2 = FsData::<64>::new();
+        s2.init(&MF).unwrap();
+        assert!(s2.restore_state(&snap));
+
+        // Verify writes survived.
+        assert_eq!(
+            s2.read_binary(&EF_T, 0, 5).unwrap(),
+            &[0xAA, 0xBB, 0xCC, 0xDD, 0xEE]
+        );
+        assert_eq!(
+            s2.read_record(&EF_LF, 1).unwrap(),
+            &[0x11, 0x22, 0x33, 0x44]
+        );
+    }
+
+    #[test]
+    fn snapshot_small_buffer() {
+        let s = store();
+        let mut small = [0u8; 4];
+        assert_eq!(s.save_state(&mut small), 0);
+
+        let mut s2 = store();
+        assert!(!s2.restore_state(&small));
+    }
+
+    // -- FID collision: same FID under different DFs --
+
+    #[test]
+    fn fid_collision_uses_pointer_identity() {
+        static EF_A: EfDef = EfDef {
+            fid: Fid(0x6F07),
+            sfi: None,
+            structure: EfStructure::Transparent,
+            data: &[0xAA, 0xBB],
+        };
+        static EF_B: EfDef = EfDef {
+            fid: Fid(0x6F07), // same FID, different static
+            sfi: None,
+            structure: EfStructure::Transparent,
+            data: &[0xCC, 0xDD],
+        };
+        static DF_A: DfDef = DfDef {
+            fid: Fid(0x7F20),
+            children: &[FileRef::Ef(&EF_A)],
+        };
+        static DF_B: DfDef = DfDef {
+            fid: Fid(0x7F21),
+            children: &[FileRef::Ef(&EF_B)],
+        };
+        static ROOT: DfDef = DfDef {
+            fid: Fid(0x3F00),
+            children: &[FileRef::Df(&DF_A), FileRef::Df(&DF_B)],
+        };
+
+        let mut s = FsData::<64>::new();
+        s.init(&ROOT).unwrap();
+
+        // Both EFs are tracked separately despite same FID.
+        assert_eq!(s.read_binary(&EF_A, 0, 2).unwrap(), &[0xAA, 0xBB]);
+        assert_eq!(s.read_binary(&EF_B, 0, 2).unwrap(), &[0xCC, 0xDD]);
+
+        // Writing to one doesn't affect the other.
+        s.write_binary(&EF_A, 0, &[0x11, 0x22]).unwrap();
+        assert_eq!(s.read_binary(&EF_A, 0, 2).unwrap(), &[0x11, 0x22]);
+        assert_eq!(s.read_binary(&EF_B, 0, 2).unwrap(), &[0xCC, 0xDD]);
     }
 }
 

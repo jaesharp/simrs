@@ -1,0 +1,19 @@
+[package]
+name        = "simrs-tuak"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "TUAK authentication algorithm (3GPP TS 35.231) -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-keccak   = { workspace = true }
+simrs-milenage = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

@@ -10,6 +10,7 @@ default = []
 
 [dependencies]
 simrs-sim             = { workspace = true, features = ["usim", "gsm"] }
+simrs-milenage        = { workspace = true }
 simrs-transport-shmem = { workspace = true }
 
 [dev-dependencies]

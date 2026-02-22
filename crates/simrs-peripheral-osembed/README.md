@@ -2,7 +2,7 @@
 
 Linux/Android OS-embedded SIM peripheral (ioctl interface). Requires `std`.
 
-**Layer:** Boundary | **`no_std`:** no | **Status:** Stub
+**Layer:** Boundary | **`no_std`:** no | **Status:** Implemented
 
 ## Dependencies
 

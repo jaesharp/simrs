@@ -16,6 +16,7 @@ default = []
 simrs-sim      = { workspace = true, features = ["usim", "gsm"] }
 simrs-fs       = { workspace = true }
 simrs-milenage = { workspace = true }
+simrs-tuak     = { workspace = true }
 simrs-gsm      = { workspace = true }
 simrs-usim     = { workspace = true }
 

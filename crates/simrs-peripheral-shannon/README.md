@@ -2,7 +2,7 @@
 
 Samsung Shannon baseband SIM controller (MMIO + `VirtIO` control device).
 
-**Layer:** Boundary | **`no_std`:** yes | **Status:** Stub
+**Layer:** Boundary | **`no_std`:** yes | **Status:** Implemented
 
 ```mermaid
 graph LR

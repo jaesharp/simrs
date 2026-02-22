@@ -1,8 +1,9 @@
 //! GSM 11.11 SIM application layer.
 //!
 //! Handles GSM-class (CLA=`0xA0`) APDUs: SELECT, GET RESPONSE, READ BINARY,
-//! READ RECORD, STATUS, RUN GSM ALGORITHM (COMP128 A3/A8), VERIFY PIN,
-//! and UNBLOCK PIN.
+//! READ RECORD, UPDATE BINARY, UPDATE RECORD, INCREASE, STATUS,
+//! RUN GSM ALGORITHM (COMP128 A3/A8), VERIFY PIN, CHANGE REFERENCE DATA,
+//! DISABLE PIN, ENABLE PIN, and UNBLOCK PIN.
 //!
 //! Constructs GSM 11.11 clause 9.2.1 SELECT responses:
 //! - MF/DF: 23 bytes
@@ -55,9 +56,9 @@
 
 use simrs_comp128::comp128;
 use simrs_fs::{
-    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsError, SelectionCtx, SelectedFile,
+    AdfSlot, DfDef, EfDef, EfStructure, Fid, FsData, FsError, SelectionCtx, SelectedFile,
 };
-use simrs_iso7816::{ins, Command, ResponseQueue, StatusWord, write_data_sw, write_sw, write_sw_raw};
+use simrs_iso7816::{ins, sw2, Command, ResponseQueue, StatusWord, write_data_sw, write_sw, write_sw_raw};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
 
 // ---------------------------------------------------------------------------
@@ -126,6 +127,45 @@ const SW_FILE_NOT_FOUND: [u8; 2] = [0x94, 0x04];
 const SW_FILE_INCONSISTENT: [u8; 2] = [0x94, 0x08];
 const SW_NO_EF_SELECTED: [u8; 2] = [0x94, 0x00];
 
+// GSM 11.11 clause 9.2.1 file type indicators.
+const FILE_TYPE_MF: u8 = 0x01;
+const FILE_TYPE_DF: u8 = 0x02;
+const FILE_TYPE_EF: u8 = 0x04;
+
+// GSM 11.11 proprietary SW1 (not in ISO 7816-4).
+const SW1_RESPONSE_AVAILABLE: u8 = 0x9F;
+
+// GSM 11.11 clause 9.2.1 SELECT response structure.
+const DF_GSM_DATA_LEN: u8 = 0x0A;
+const EF_EXTRA_DATA_LEN: u8 = 0x02;
+const FILE_STATUS_NOT_INVALIDATED: u8 = 0x01;
+const FILE_CHARS_CLOCK_STOP: u8 = 0x32;
+
+// GSM 11.11 clause 9.2.1 CHV status values.
+const NUM_CHV_LEVELS: u8 = 0x04;
+const CHV_INIT_3_RETRIES: u8 = 0x83;
+const UNBLOCK_CHV_INIT_10_RETRIES: u8 = 0x8A;
+
+// GSM 11.11 proprietary status word: offset/record out of range.
+const SW_OUT_OF_RANGE: [u8; 2] = [0x94, 0x02];
+
+// GSM 11.11 clause 10.3.3: EF structure type codes.
+const EF_STRUCTURE_TRANSPARENT: u8 = 0x00;
+const EF_STRUCTURE_LINEAR_FIXED: u8 = 0x01;
+const EF_STRUCTURE_CYCLIC: u8 = 0x03;
+
+// COMP128 result structure.
+const SRES_LEN: usize = 4;
+const KC_LEN: usize = 8;
+const COMP128_RESULT_LEN: usize = SRES_LEN + KC_LEN;
+
+// PIN data widths (ETSI TS 102 221).
+const PIN_DATA_LEN: usize = 8;
+/// PUK(8) + new PIN(8) for RESET RETRY COUNTER.
+const PUK_NEW_PIN_LEN: usize = PIN_DATA_LEN * 2;
+/// Old PIN(8) + new PIN(8) for CHANGE REFERENCE DATA.
+const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
+
 // ---------------------------------------------------------------------------
 // GsmApp
 // ---------------------------------------------------------------------------
@@ -136,6 +176,8 @@ const SW_NO_EF_SELECTED: [u8; 2] = [0x94, 0x00];
 /// COMP128 key, and the response queue for GET RESPONSE.
 pub struct GsmApp {
     fs: SelectionCtx,
+    data: FsData<256>,
+    mf: &'static DfDef,
     pin: PinManager<5>,
     ki: Ki,
     rsp_queue: ResponseQueue<23>,
@@ -143,6 +185,11 @@ pub struct GsmApp {
 
 impl GsmApp {
     /// Create a new GSM application rooted at the given MF.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the total EF data in `mf` exceeds 256 bytes or the tree
+    /// contains more than 32 elementary files.
     ///
     /// # Example
     ///
@@ -153,9 +200,13 @@ impl GsmApp {
     /// static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[] };
     /// let app = GsmApp::new(&MF, Ki([0u8; 16]));
     /// ```
-    pub const fn new(mf: &'static DfDef, ki: Ki) -> Self {
+    pub fn new(mf: &'static DfDef, ki: Ki) -> Self {
+        let mut data = FsData::new();
+        data.init(mf).expect("FsData::init failed: filesystem too large for buffer");
         Self {
             fs: SelectionCtx::new(mf),
+            data,
+            mf,
             pin: PinManager::new(),
             ki,
             rsp_queue: ResponseQueue::new(),
@@ -169,9 +220,9 @@ impl GsmApp {
 
     // -- snapshot --
 
-    /// Snapshot buffer size in bytes (159).
+    /// Snapshot buffer size in bytes.
     pub const SNAPSHOT_SIZE: usize =
-        SelectionCtx::SNAPSHOT_SIZE + PinManager::<5>::SNAPSHOT_SIZE + 16 + ResponseQueue::<23>::SNAPSHOT_SIZE;
+        SelectionCtx::SNAPSHOT_SIZE + FsData::<256>::SNAPSHOT_SIZE + PinManager::<5>::SNAPSHOT_SIZE + 16 + ResponseQueue::<23>::SNAPSHOT_SIZE;
 
     /// Serialize the GSM application state into `buf`.
     ///
@@ -183,6 +234,7 @@ impl GsmApp {
         }
         let mut off = 0;
         off += self.fs.save_state(&mut buf[off..]);
+        off += self.data.save_state(&mut buf[off..]);
         off += self.pin.save_state(&mut buf[off..]);
         buf[off..off + 16].copy_from_slice(&*self.ki);
         off += 16;
@@ -209,6 +261,15 @@ impl GsmApp {
             return false;
         }
         off += SelectionCtx::SNAPSHOT_SIZE;
+        // Rebuild FsData entry index from the static tree, then restore
+        // the mutable buffer contents from the snapshot.
+        if self.data.init(self.mf).is_err() {
+            return false;
+        }
+        if !self.data.restore_state(&buf[off..]) {
+            return false;
+        }
+        off += FsData::<256>::SNAPSHOT_SIZE;
         if !self.pin.restore_state(&buf[off..]) {
             return false;
         }
@@ -252,9 +313,15 @@ impl GsmApp {
             ins::GET_RESPONSE => self.handle_get_response(cmd, buf),
             ins::READ_BINARY => self.handle_read_binary(cmd, buf),
             ins::READ_RECORD => self.handle_read_record(cmd, buf),
+            ins::UPDATE_BINARY => self.handle_update_binary(cmd, buf),
+            ins::UPDATE_RECORD => self.handle_update_record(cmd, buf),
+            ins::INCREASE => self.handle_increase(cmd, buf),
             ins::STATUS => self.handle_status(cmd, buf),
             ins::AUTHENTICATE => self.handle_run_gsm_algo(cmd, buf),
             ins::VERIFY => self.handle_verify(cmd, buf),
+            ins::CHANGE_REF_DATA => self.handle_change_ref_data(cmd, buf),
+            ins::DISABLE_PIN => self.handle_disable_pin(cmd, buf),
+            ins::ENABLE_PIN => self.handle_enable_pin(cmd, buf),
             ins::RESET_RETRY_CTR => self.handle_unblock(cmd, buf),
             _ => write_sw(buf, StatusWord::InsNotSupported),
         }
@@ -269,7 +336,7 @@ impl GsmApp {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
         if cmd.data().len() != 2 {
             return write_sw(buf, StatusWord::WrongLength);
@@ -291,7 +358,7 @@ impl GsmApp {
                 };
                 self.rsp_queue.set_len(rsp_len);
                 // Return 9F XX (response data available).
-                write_sw_raw(buf, 0x9F, rsp_len as u8)
+                write_sw_raw(buf, SW1_RESPONSE_AVAILABLE, rsp_len as u8)
             }
             Err(FsError::FileNotFound) => write_sw_raw(buf, SW_FILE_NOT_FOUND[0], SW_FILE_NOT_FOUND[1]),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
@@ -306,9 +373,19 @@ impl GsmApp {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
         self.rsp_queue.get_response(cmd.le(), buf)
+    }
+
+    // -- PIN access gate --
+
+    /// Check whether PIN1 access is satisfied.
+    ///
+    /// Returns `true` if access is denied (caller should return
+    /// `SECURITY_NOT_SATISFIED`).
+    const fn pin1_denied(&self) -> bool {
+        !self.pin.is_access_granted(PinKey::PIN1)
     }
 
     // -- READ BINARY --
@@ -318,14 +395,17 @@ impl GsmApp {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
+        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]);
+        };
         let offset = u16::from_be_bytes([cmd.p1(), cmd.p2()]);
         let le = u16::from(cmd.le().unwrap_or(0));
 
-        match self.fs.read_binary(offset, le) {
+        match self.data.read_binary(ef, offset, le) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
-            Err(FsError::NoEfSelected) => write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]),
             Err(FsError::NotTransparent) => write_sw_raw(buf, SW_FILE_INCONSISTENT[0], SW_FILE_INCONSISTENT[1]),
-            Err(FsError::OffsetOutOfRange) => write_sw_raw(buf, 0x94, 0x02),
+            Err(FsError::OffsetOutOfRange) => write_sw_raw(buf, SW_OUT_OF_RANGE[0], SW_OUT_OF_RANGE[1]),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
     }
@@ -337,15 +417,74 @@ impl GsmApp {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]);
+        };
         let rec_num = cmd.p1();
         // P2 = 0x04 means "absolute/current" mode per GSM 11.11.
         // We accept any P2 and just use the record number.
 
-        match self.fs.read_record(rec_num) {
+        match self.data.read_record(ef, rec_num) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
-            Err(FsError::NoEfSelected) => write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]),
             Err(FsError::NotRecordBased) => write_sw_raw(buf, SW_FILE_INCONSISTENT[0], SW_FILE_INCONSISTENT[1]),
-            Err(FsError::RecordOutOfRange) => write_sw_raw(buf, 0x94, 0x02),
+            Err(FsError::RecordOutOfRange) => write_sw_raw(buf, SW_OUT_OF_RANGE[0], SW_OUT_OF_RANGE[1]),
+            Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        }
+    }
+
+    // -- UPDATE BINARY --
+
+    fn handle_update_binary<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]);
+        };
+        let offset = u16::from_be_bytes([cmd.p1(), cmd.p2()]);
+        match self.data.write_binary(ef, offset, cmd.data()) {
+            Ok(()) => write_sw(buf, StatusWord::Success),
+            Err(FsError::NotTransparent) => write_sw_raw(buf, SW_FILE_INCONSISTENT[0], SW_FILE_INCONSISTENT[1]),
+            Err(FsError::OffsetOutOfRange) => write_sw_raw(buf, SW_OUT_OF_RANGE[0], SW_OUT_OF_RANGE[1]),
+            Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        }
+    }
+
+    // -- UPDATE RECORD --
+
+    fn handle_update_record<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]);
+        };
+        let rec_num = cmd.p1();
+        match self.data.write_record(ef, rec_num, cmd.data()) {
+            Ok(()) => write_sw(buf, StatusWord::Success),
+            Err(FsError::NotRecordBased) => write_sw_raw(buf, SW_FILE_INCONSISTENT[0], SW_FILE_INCONSISTENT[1]),
+            Err(FsError::RecordOutOfRange) => write_sw_raw(buf, SW_OUT_OF_RANGE[0], SW_OUT_OF_RANGE[1]),
+            Err(FsError::DataTooLarge) => write_sw(buf, StatusWord::WrongLength),
+            Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        }
+    }
+
+    // -- INCREASE --
+
+    fn handle_increase<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        let Some(ef) = self.fs.current_ef() else {
+            return write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]);
+        };
+        match self.data.increase(ef, cmd.data()) {
+            Ok(new_val) => write_data_sw(buf, new_val, StatusWord::Success),
+            Err(FsError::NotRecordBased) => write_sw_raw(buf, SW_FILE_INCONSISTENT[0], SW_FILE_INCONSISTENT[1]),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
     }
@@ -358,7 +497,7 @@ impl GsmApp {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
         let mut rsp = [0u8; DF_RSP_LEN];
         build_df_response(self.fs.current_df(), &mut rsp);
@@ -369,13 +508,15 @@ impl GsmApp {
 
     // -- RUN GSM ALGORITHM (COMP128) --
 
+    #[allow(clippy::cast_possible_truncation)]
     fn handle_run_gsm_algo<'buf>(
         &mut self,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
+        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
         if cmd.data().len() != 16 {
             return write_sw(buf, StatusWord::WrongLength);
@@ -386,11 +527,11 @@ impl GsmApp {
         let result = comp128(&self.ki, &rand);
 
         // Queue 12-byte result: 4-byte SRES + 8-byte Kc.
-        self.rsp_queue.buf_mut()[..4].copy_from_slice(&result.sres);
-        self.rsp_queue.buf_mut()[4..12].copy_from_slice(&result.kc);
-        self.rsp_queue.set_len(12);
+        self.rsp_queue.buf_mut()[..SRES_LEN].copy_from_slice(&result.sres);
+        self.rsp_queue.buf_mut()[SRES_LEN..COMP128_RESULT_LEN].copy_from_slice(&result.kc);
+        self.rsp_queue.set_len(COMP128_RESULT_LEN);
 
-        write_sw_raw(buf, 0x9F, 0x0C)
+        write_sw_raw(buf, SW1_RESPONSE_AVAILABLE, COMP128_RESULT_LEN as u8)
     }
 
     // -- VERIFY PIN --
@@ -402,7 +543,7 @@ impl GsmApp {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if cmd.p1() != 0x00 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
         let key = PinKey(cmd.p2());
 
@@ -410,15 +551,15 @@ impl GsmApp {
         if cmd.data().is_empty() {
             return match self.pin.retries(key) {
                 Some(n) => write_sw(buf, StatusWord::pin_retries(n & 0x0F)),
-                None => write_sw(buf, StatusWord::wrong_params(0x88)),
+                None => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
             };
         }
 
-        if cmd.data().len() != 8 {
+        if cmd.data().len() != PIN_DATA_LEN {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
-        let mut pin_bytes = [0xFFu8; 8];
+        let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
         pin_bytes.copy_from_slice(cmd.data());
         let val = PinValue::new(pin_bytes);
 
@@ -427,9 +568,106 @@ impl GsmApp {
             PinResult::WrongPin { retries_remaining } => {
                 write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
             }
-            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(0x83)),
-            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(0x84)),
-            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(0x88)),
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+        }
+    }
+
+    // -- CHANGE REFERENCE DATA --
+
+    fn handle_change_ref_data<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if cmd.p1() != 0x00 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+        let key = PinKey(cmd.p2());
+
+        if cmd.data().len() != CHANGE_PIN_DATA_LEN {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        let mut old_bytes = [0xFFu8; PIN_DATA_LEN];
+        old_bytes.copy_from_slice(&cmd.data()[..PIN_DATA_LEN]);
+        let old_pin = PinValue::new(old_bytes);
+
+        let mut new_bytes = [0xFFu8; PIN_DATA_LEN];
+        new_bytes.copy_from_slice(&cmd.data()[PIN_DATA_LEN..CHANGE_PIN_DATA_LEN]);
+        let new_pin = PinValue::new(new_bytes);
+
+        match self.pin.change(key, &old_pin, &new_pin) {
+            PinResult::Success => write_sw(buf, StatusWord::Success),
+            PinResult::WrongPin { retries_remaining } => {
+                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
+            }
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+        }
+    }
+
+    // -- DISABLE PIN --
+
+    fn handle_disable_pin<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if cmd.p1() != 0x00 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+        let key = PinKey(cmd.p2());
+
+        if cmd.data().len() != PIN_DATA_LEN {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
+        pin_bytes.copy_from_slice(cmd.data());
+        let val = PinValue::new(pin_bytes);
+
+        match self.pin.disable(key, &val) {
+            PinResult::Success => write_sw(buf, StatusWord::Success),
+            PinResult::WrongPin { retries_remaining } => {
+                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
+            }
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+        }
+    }
+
+    // -- ENABLE PIN --
+
+    fn handle_enable_pin<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if cmd.p1() != 0x00 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+        let key = PinKey(cmd.p2());
+
+        if cmd.data().len() != PIN_DATA_LEN {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
+        pin_bytes.copy_from_slice(cmd.data());
+        let val = PinValue::new(pin_bytes);
+
+        match self.pin.enable(key, &val) {
+            PinResult::Success => write_sw(buf, StatusWord::Success),
+            PinResult::WrongPin { retries_remaining } => {
+                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
+            }
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
         }
     }
 
@@ -441,7 +679,7 @@ impl GsmApp {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if cmd.p1() != 0x00 {
-            return write_sw_raw(buf, 0x6A, 0x86);
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
         let key = PinKey(cmd.p2());
 
@@ -449,21 +687,21 @@ impl GsmApp {
         if cmd.data().is_empty() {
             return match self.pin.puk_retries(key) {
                 Some(n) => write_sw(buf, StatusWord::pin_retries(n & 0x0F)),
-                None => write_sw(buf, StatusWord::wrong_params(0x88)),
+                None => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
             };
         }
 
         // Data must be 16 bytes: 8 PUK + 8 new PIN.
-        if cmd.data().len() != 16 {
+        if cmd.data().len() != PUK_NEW_PIN_LEN {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
-        let mut puk_bytes = [0xFFu8; 8];
-        puk_bytes.copy_from_slice(&cmd.data()[..8]);
+        let mut puk_bytes = [0xFFu8; PIN_DATA_LEN];
+        puk_bytes.copy_from_slice(&cmd.data()[..PIN_DATA_LEN]);
         let puk = PinValue::new(puk_bytes);
 
-        let mut new_pin_bytes = [0xFFu8; 8];
-        new_pin_bytes.copy_from_slice(&cmd.data()[8..16]);
+        let mut new_pin_bytes = [0xFFu8; PIN_DATA_LEN];
+        new_pin_bytes.copy_from_slice(&cmd.data()[PIN_DATA_LEN..PUK_NEW_PIN_LEN]);
         let new_pin = PinValue::new(new_pin_bytes);
 
         match self.pin.unblock(key, &puk, &new_pin) {
@@ -471,9 +709,9 @@ impl GsmApp {
             PinResult::WrongPin { retries_remaining } => {
                 write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
             }
-            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(0x83)),
-            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(0x88)),
-            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(0x84)),
+            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
+            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
         }
     }
 }
@@ -497,14 +735,14 @@ fn build_df_response(df: &DfDef, out: &mut [u8; 23]) {
     out[5] = fid_be[1];
 
     // Byte 6: file type (0x01 = MF, 0x02 = DF).
-    out[6] = if df.fid == Fid::MF { 0x01 } else { 0x02 };
+    out[6] = if df.fid == Fid::MF { FILE_TYPE_MF } else { FILE_TYPE_DF };
 
     // Bytes 7-11: RFU.
     // Byte 12: GSM-specific data length (10 bytes follow).
-    out[12] = 0x0A;
+    out[12] = DF_GSM_DATA_LEN;
 
     // Byte 13: file characteristics.
-    out[13] = 0x32; // Clock stop allowed, 1.8V+3V
+    out[13] = FILE_CHARS_CLOCK_STOP; // Clock stop allowed, 1.8V+3V
 
     // Byte 14: number of child DFs.
     // Byte 15: number of child EFs.
@@ -520,14 +758,14 @@ fn build_df_response(df: &DfDef, out: &mut [u8; 23]) {
     out[15] = num_files;
 
     // Byte 16: number of CHVs/codes/levels.
-    out[16] = 0x04;
+    out[16] = NUM_CHV_LEVELS;
 
     // Byte 17: RFU.
     // Bytes 18-21: CHV1 status, UNBLOCK CHV1, CHV2, UNBLOCK CHV2.
-    out[18] = 0x83; // CHV1: initialized, 3 retries
-    out[19] = 0x8A; // UNBLOCK CHV1: initialized, 10 retries
-    out[20] = 0x83; // CHV2
-    out[21] = 0x8A; // UNBLOCK CHV2
+    out[18] = CHV_INIT_3_RETRIES; // CHV1: initialized, 3 retries
+    out[19] = UNBLOCK_CHV_INIT_10_RETRIES; // UNBLOCK CHV1: initialized, 10 retries
+    out[20] = CHV_INIT_3_RETRIES; // CHV2
+    out[21] = UNBLOCK_CHV_INIT_10_RETRIES; // UNBLOCK CHV2
     // Byte 22: RFU.
 }
 
@@ -549,7 +787,7 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
     out[5] = fid_be[1];
 
     // Byte 6: file type = 0x04 (EF).
-    out[6] = 0x04;
+    out[6] = FILE_TYPE_EF;
 
     // Byte 7: 0x01 for cyclic, 0x00 otherwise.
     out[7] = match ef.structure {
@@ -558,17 +796,17 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
     };
 
     // Bytes 8-10: access conditions (all zeros = always allowed).
-    // Byte 11: file status (0x01 = not invalidated).
-    out[11] = 0x01;
+    // Byte 11: file status (not invalidated).
+    out[11] = FILE_STATUS_NOT_INVALIDATED;
 
     // Byte 12: data extra length.
-    out[12] = 0x02;
+    out[12] = EF_EXTRA_DATA_LEN;
 
     // Byte 13: EF structure.
     out[13] = match ef.structure {
-        EfStructure::Transparent => 0x00,
-        EfStructure::LinearFixed { .. } => 0x01,
-        EfStructure::Cyclic { .. } => 0x03,
+        EfStructure::Transparent => EF_STRUCTURE_TRANSPARENT,
+        EfStructure::LinearFixed { .. } => EF_STRUCTURE_LINEAR_FIXED,
+        EfStructure::Cyclic { .. } => EF_STRUCTURE_CYCLIC,
     };
 
     // Byte 14: record length.
@@ -628,9 +866,25 @@ mod tests {
         data: &EF_ADN_DATA,
     };
 
+    static EF_CCP_DATA: [u8; 12] = [
+        0x00, 0x00, 0x01, 0x00,  // record 1: value = 0x000100
+        0x00, 0x00, 0x00, 0x00,  // record 2
+        0x00, 0x00, 0x00, 0x00,  // record 3
+    ];
+
+    static EF_CCP: EfDef = EfDef {
+        fid: Fid(0x6F14),
+        sfi: None,
+        structure: EfStructure::Cyclic {
+            record_size: 4,
+            num_records: 3,
+        },
+        data: &EF_CCP_DATA,
+    };
+
     static DF_TELECOM: DfDef = DfDef {
         fid: Fid(0x7F10),
-        children: &[FileRef::Ef(&EF_ADN)],
+        children: &[FileRef::Ef(&EF_ADN), FileRef::Ef(&EF_CCP)],
     };
 
     static EF_IMSI: EfDef = EfDef {
@@ -666,6 +920,20 @@ mod tests {
                          0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);
 
     fn app() -> GsmApp {
+        let mut a = GsmApp::new(&MF, KI);
+        let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+        a.pin_manager()
+            .add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
+            .unwrap();
+        // Pre-verify PIN1 so existing tests can perform file operations
+        // without explicit PIN verification via APDU.
+        let _ = a.pin_manager().verify(PinKey::PIN1, &pin_val);
+        a
+    }
+
+    /// Create an app with PIN1 enabled but not verified for PIN-gate tests.
+    fn app_with_pin1_enabled() -> GsmApp {
         let mut a = GsmApp::new(&MF, KI);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -992,6 +1260,367 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
 
+    // -- CHANGE REFERENCE DATA --
+
+    #[test]
+    fn change_ref_data_success() {
+        let mut app = app();
+        // Old PIN "1234" + new PIN "5678".
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x24, 0x00, 0x01, 0x10,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Verify with new PIN.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x20, 0x00, 0x01, 0x08, 0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn change_ref_data_wrong_old_pin() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x24, 0x00, 0x01, 0x10,
+              0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x63, 0xC2)); // 2 retries
+    }
+
+    #[test]
+    fn change_ref_data_blocked() {
+        let mut app = app();
+        let wrong = [0xA0, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x24, 0x00, 0x01, 0x10,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x69, 0x83));
+    }
+
+    #[test]
+    fn change_ref_data_not_found() {
+        let mut app = app();
+        // P2=0xFF is not a registered key.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x24, 0x00, 0xFF, 0x10,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x88));
+    }
+
+    #[test]
+    fn change_ref_data_wrong_length() {
+        let mut app = app();
+        // Only 8 bytes instead of 16.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x24, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x67, 0x00));
+    }
+
+    // -- DISABLE PIN --
+
+    #[test]
+    fn disable_pin_success() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // VERIFY should now return "disabled" (69 84).
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x69, 0x84));
+    }
+
+    #[test]
+    fn disable_pin_wrong_pin() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x26, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x63, 0xC2));
+    }
+
+    #[test]
+    fn disable_pin_blocked() {
+        let mut app = app();
+        let wrong = [0xA0, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x69, 0x83));
+    }
+
+    #[test]
+    fn disable_pin_not_found() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x26, 0x00, 0xFF, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x88));
+    }
+
+    #[test]
+    fn disable_pin_wrong_length() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x26, 0x00, 0x01, 0x04, 0x31, 0x32, 0x33, 0x34]);
+        assert_eq!(sw(&buf, len), (0x67, 0x00));
+    }
+
+    #[test]
+    fn disable_pin_already_disabled() {
+        let mut app = app();
+        // Disable once.
+        send(&mut app,
+            &[0xA0, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        // Second disable returns "already disabled" (69 84).
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x69, 0x84));
+    }
+
+    // -- ENABLE PIN --
+
+    #[test]
+    fn enable_pin_success() {
+        let mut app = app();
+        // Disable first.
+        send(&mut app,
+            &[0xA0, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        // Enable.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x28, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // VERIFY should work again.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn enable_pin_wrong_pin() {
+        let mut app = app();
+        // Disable first.
+        send(&mut app,
+            &[0xA0, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        // Enable with wrong PIN.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x28, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x63, 0xC2));
+    }
+
+    #[test]
+    fn enable_pin_blocked() {
+        let mut app = app();
+        let wrong = [0xA0, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        send(&mut app, &wrong);
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x28, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x69, 0x83));
+    }
+
+    #[test]
+    fn enable_pin_not_found() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x28, 0x00, 0xFF, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x6A, 0x88));
+    }
+
+    #[test]
+    fn enable_pin_wrong_length() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x28, 0x00, 0x01, 0x04, 0x31, 0x32, 0x33, 0x34]);
+        assert_eq!(sw(&buf, len), (0x67, 0x00));
+    }
+
+    #[test]
+    fn enable_pin_already_enabled() {
+        let mut app = app();
+        // PIN is already enabled by default. Enable again is a no-op success.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x28, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    // -- UPDATE BINARY --
+
+    #[test]
+    fn update_binary_and_readback() {
+        let mut app = app();
+        // SELECT EF.ICCID
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        // UPDATE BINARY: offset 0, 3 bytes [0xAA, 0xBB, 0xCC]
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x00, 0x03, 0xAA, 0xBB, 0xCC]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // READ BINARY to verify
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(&buf[..3], &[0xAA, 0xBB, 0xCC]);
+        // Rest unchanged
+        assert_eq!(buf[3], 0x80);
+    }
+
+    #[test]
+    fn update_binary_with_offset() {
+        let mut app = app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        // UPDATE BINARY at offset 5: 2 bytes [0xDD, 0xEE]
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x05, 0x02, 0xDD, 0xEE]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // READ BINARY offset 4, length 4
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x04, 0x04]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(&buf[..4], &[0x00, 0xDD, 0xEE, 0x00]);
+    }
+
+    #[test]
+    fn update_binary_on_record_ef() {
+        let mut app = app();
+        // SELECT EF.DIR (linear-fixed)
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0x00]);
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x00, 0x01, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x94, 0x08)); // file inconsistent
+    }
+
+    #[test]
+    fn update_binary_past_end() {
+        let mut app = app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        // EF.ICCID is 10 bytes. Write 3 bytes at offset 9 would exceed.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x09, 0x03, 0xAA, 0xBB, 0xCC]);
+        assert_eq!(sw(&buf, len), (0x94, 0x02)); // out of range
+    }
+
+    #[test]
+    fn update_binary_no_ef_selected() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x00, 0x01, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x94, 0x00)); // no EF
+    }
+
+    // -- UPDATE RECORD --
+
+    #[test]
+    fn update_record_and_readback() {
+        let mut app = app();
+        // SELECT DF.TELECOM, then EF.ADN
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x10]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x3A]);
+        // UPDATE RECORD 3 (14 bytes) with new data
+        let mut apdu = [0u8; 5 + 14];
+        apdu[0] = 0xA0; // CLA
+        apdu[1] = 0xDC; // INS: UPDATE RECORD
+        apdu[2] = 0x03; // P1: record 3
+        apdu[3] = 0x04; // P2: absolute
+        apdu[4] = 0x0E; // Lc: 14 bytes
+        // Fill record with "Charlie" + padding
+        apdu[5] = 0x43; // 'C'
+        apdu[6] = 0x68; // 'h'
+        apdu[7] = 0x61; // 'a'
+        apdu[8] = 0x72; // 'r'
+        apdu[9..19].fill(0xFF);
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // READ RECORD 3
+        let (buf, len) = send(&mut app, &[0xA0, 0xB2, 0x03, 0x04, 0x0E]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x43); // 'C'
+        assert_eq!(buf[1], 0x68); // 'h'
+    }
+
+    #[test]
+    fn update_record_on_transparent() {
+        let mut app = app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        // Try UPDATE RECORD on transparent EF
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xDC, 0x01, 0x04, 0x01, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x94, 0x08)); // file inconsistent
+    }
+
+    #[test]
+    fn update_record_wrong_size() {
+        let mut app = app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x10]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x3A]);
+        // EF.ADN has record_size=14, try writing 8 bytes
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xDC, 0x01, 0x04, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+        assert_eq!(sw(&buf, len), (0x67, 0x00)); // wrong length
+    }
+
+    #[test]
+    fn update_record_out_of_range() {
+        let mut app = app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x10]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x3A]);
+        // EF.ADN has 3 records. Try record 4.
+        let mut apdu = [0xFFu8; 5 + 14];
+        apdu[0] = 0xA0;
+        apdu[1] = 0xDC;
+        apdu[2] = 0x04; // record 4
+        apdu[3] = 0x04;
+        apdu[4] = 0x0E; // 14 bytes
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x94, 0x02)); // out of range
+    }
+
+    #[test]
+    fn update_record_no_ef_selected() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xDC, 0x01, 0x04, 0x01, 0xFF]);
+        assert_eq!(sw(&buf, len), (0x94, 0x00)); // no EF
+    }
+
+    // -- INCREASE --
+
+    #[test]
+    fn increase_on_cyclic_ef() {
+        let mut app = app();
+        // SELECT DF.TELECOM, then EF.CCP (cyclic, FID 0x6F14)
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x10]);
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x14]);
+        // INCREASE by [0x00, 0x00, 0x00, 0x05]: record 1 = 0x000100 + 5 = 0x000105
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x05]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // Response contains the new value (4 bytes) + SW
+        assert_eq!(len, 4 + 2);
+        assert_eq!(&buf[..4], &[0x00, 0x00, 0x01, 0x05]);
+    }
+
+    #[test]
+    fn increase_on_transparent_fails() {
+        let mut app = app();
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x32, 0x00, 0x00, 0x01, 0x01]);
+        assert_eq!(sw(&buf, len), (0x94, 0x08)); // file inconsistent
+    }
+
+    #[test]
+    fn increase_no_ef_selected() {
+        let mut app = app();
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0x32, 0x00, 0x00, 0x01, 0x01]);
+        assert_eq!(sw(&buf, len), (0x94, 0x00)); // no EF
+    }
+
     // -- Unknown INS --
 
     #[test]
@@ -1043,8 +1672,8 @@ mod tests {
 
     #[test]
     fn snapshot_size_correct() {
-        // fs(8) + pin(111) + ki(16) + rsp_queue(23) + rsp_queue_len(1) = 159
-        assert_eq!(GsmApp::SNAPSHOT_SIZE, 159);
+        // fs(8) + data(256) + pin(111) + ki(16) + rsp_queue(23) + rsp_queue_len(1) = 415
+        assert_eq!(GsmApp::SNAPSHOT_SIZE, 415);
     }
 
     #[test]
@@ -1067,14 +1696,19 @@ mod tests {
         let mut restored = GsmApp::new(&MF, Ki([0u8; 16]));
         assert!(restored.restore_state(&snap, &[]));
 
+        // Verify: PIN retries are 2 (degraded from 3).
+        let (buf, len) = send(&mut restored, &[0xA0, 0x20, 0x00, 0x01, 0x00]);
+        assert_eq!(sw(&buf, len), (0x63, 0xC2));
+
+        // Re-verify PIN1 so we can read files (PIN gate enforced).
+        send(&mut restored,
+            &[0xA0, 0x20, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+
         // Verify: read EF.IMSI works (fs state restored to DF.GSM + EF.IMSI).
         let (buf, len) = send(&mut restored, &[0xA0, 0xB0, 0x00, 0x00, 0x09]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(buf[0], 0x08); // IMSI first byte
-
-        // Verify: PIN retries are 2 (degraded from 3).
-        let (buf, len) = send(&mut restored, &[0xA0, 0x20, 0x00, 0x01, 0x00]);
-        assert_eq!(sw(&buf, len), (0x63, 0xC2));
     }
 
     #[test]
@@ -1125,6 +1759,57 @@ mod tests {
         *snap.last_mut().unwrap() = u8::MAX;
         let mut dst = app();
         assert!(!dst.restore_state(&snap, &[]));
+    }
+
+    // -- PIN gate tests --
+
+    #[test]
+    fn gsm_read_binary_without_pin1_rejected() {
+        let mut app = app_with_pin1_enabled();
+        // Select EF.ICCID.
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        // READ BINARY without PIN1 verification.
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x69, 0x82)); // security status not satisfied
+    }
+
+    #[test]
+    fn gsm_run_gsm_algo_without_pin1_rejected() {
+        let mut app = app_with_pin1_enabled();
+        // RUN GSM ALGORITHM without PIN1 verification.
+        let mut apdu = [0u8; 4 + 1 + 16];
+        apdu[0] = 0xA0;
+        apdu[1] = 0x88;
+        apdu[2] = 0x00;
+        apdu[3] = 0x00;
+        apdu[4] = 0x10;
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x69, 0x82));
+    }
+
+    #[test]
+    fn gsm_update_binary_without_pin1_rejected() {
+        let mut app = app_with_pin1_enabled();
+        // Select EF.ICCID.
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        // UPDATE BINARY without PIN1.
+        let (buf, len) = send(&mut app,
+            &[0xA0, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+        assert_eq!(sw(&buf, len), (0x69, 0x82));
+    }
+
+    #[test]
+    fn gsm_verify_then_read_succeeds() {
+        let mut app = app_with_pin1_enabled();
+        // Verify PIN1.
+        send(&mut app,
+            &[0xA0, 0x20, 0x00, 0x01, 0x08,
+              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        // Select EF.ICCID.
+        send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]);
+        // READ BINARY should now succeed.
+        let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x0A]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
 }
 

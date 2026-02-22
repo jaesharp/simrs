@@ -19,6 +19,7 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+use simrs_milenage::AuthAlgorithm;
 use simrs_sim::Sim;
 
 /// Deterministic state serialization trait for snapshot-based fuzzing.
@@ -41,7 +42,7 @@ pub trait Snapshot {
     fn restore(&mut self, buf: &[u8]) -> bool;
 }
 
-impl<const RSP_CAP: usize> Snapshot for Sim<RSP_CAP> {
+impl<A: AuthAlgorithm, const RSP_CAP: usize> Snapshot for Sim<A, RSP_CAP> {
     const SIZE: usize = Self::SNAPSHOT_SIZE;
 
     fn save(&self, buf: &mut [u8]) -> usize {
@@ -62,6 +63,7 @@ mod tests {
     use super::*;
     use simrs_sim::{SimEvent, SimResponse};
     use simrs_fs::{DfDef, Fid};
+    use simrs_milenage::MilenageParams;
 
     static MF: DfDef = DfDef {
         fid: Fid(0x3F00),
@@ -70,15 +72,15 @@ mod tests {
 
     static ATR: [u8; 2] = [0x3B, 0x00];
 
-    fn make_sim() -> Sim<256> {
-        Sim::<256>::new(&ATR, &MF)
+    fn make_sim() -> Sim<MilenageParams, 256> {
+        Sim::<MilenageParams, 256>::new(&ATR, &MF)
     }
 
     #[test]
     fn trait_size_matches_struct_const() {
         assert_eq!(
-            <Sim<256> as Snapshot>::SIZE,
-            Sim::<256>::SNAPSHOT_SIZE,
+            <Sim<MilenageParams, 256> as Snapshot>::SIZE,
+            Sim::<MilenageParams, 256>::SNAPSHOT_SIZE,
         );
     }
 
@@ -87,9 +89,9 @@ mod tests {
         let mut sim = make_sim();
         let _ = sim.process(SimEvent::PowerOn);
 
-        let mut buf = [0u8; 1024];
+        let mut buf = [0u8; 2048];
         let n = Snapshot::save(&sim, &mut buf);
-        assert_eq!(n, <Sim<256> as Snapshot>::SIZE);
+        assert_eq!(n, <Sim<MilenageParams, 256> as Snapshot>::SIZE);
 
         let mut restored = make_sim();
         assert!(Snapshot::restore(&mut restored, &buf[..n]));
@@ -120,7 +122,7 @@ mod tests {
     #[test]
     fn trait_restore_invalid_data_returns_false() {
         let mut sim = make_sim();
-        let mut buf = [0u8; 1024];
+        let mut buf = [0u8; 2048];
         let n = Snapshot::save(&sim, &mut buf);
         buf[0] = 0xFF; // invalid card state
         assert!(!Snapshot::restore(&mut sim, &buf[..n]));
@@ -129,17 +131,17 @@ mod tests {
     #[test]
     fn different_rsp_cap_sizes() {
         // Verify the trait works with a different RSP_CAP.
-        let sim_small = Sim::<64>::new(&ATR, &MF);
-        let sim_large = Sim::<512>::new(&ATR, &MF);
+        let sim_small = Sim::<MilenageParams, 64>::new(&ATR, &MF);
+        let sim_large = Sim::<MilenageParams, 512>::new(&ATR, &MF);
 
         // SNAPSHOT_SIZE should be identical (RSP_CAP is transient, not serialized).
         assert_eq!(
-            <Sim<64> as Snapshot>::SIZE,
-            <Sim<512> as Snapshot>::SIZE,
+            <Sim<MilenageParams, 64> as Snapshot>::SIZE,
+            <Sim<MilenageParams, 512> as Snapshot>::SIZE,
         );
 
-        let mut buf1 = [0u8; 1024];
-        let mut buf2 = [0u8; 1024];
+        let mut buf1 = [0u8; 2048];
+        let mut buf2 = [0u8; 2048];
         let n1 = Snapshot::save(&sim_small, &mut buf1);
         let n2 = Snapshot::save(&sim_large, &mut buf2);
         assert_eq!(n1, n2);

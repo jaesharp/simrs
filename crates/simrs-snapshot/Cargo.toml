@@ -9,7 +9,8 @@ description = "Deterministic SIM state serialization for snapshot fuzzing -- no_
 default = []
 
 [dependencies]
-simrs-sim = { workspace = true }
+simrs-sim      = { workspace = true }
+simrs-milenage = { workspace = true }
 
 [dev-dependencies]
 simrs-fs = { workspace = true }

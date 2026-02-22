@@ -2,7 +2,7 @@
 
 Proactive UICC / CAT command encoding.
 
-**Layer:** Composition | **`no_std`:** yes | **Status:** Stub
+**Layer:** Composition | **`no_std`:** yes | **Status:** Implemented
 
 ```mermaid
 sequenceDiagram

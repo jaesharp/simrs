@@ -52,6 +52,22 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+/// Maximum length value encodable in BER short form (single byte, bit 8 = 0).
+///
+/// Per ISO/IEC 8825-1 clause 8.1.3.4, values 0..=127 use short form;
+/// 128 and above require long form (`0x81` + 1 byte, or `0x82` + 2 bytes).
+pub const BER_SHORT_FORM_MAX: usize = 0x7F;
+
+/// BER long-form length prefix: 1 subsequent length byte follows.
+///
+/// Per ISO/IEC 8825-1 clause 8.1.3.5. Encodes lengths 128..=255.
+pub const BER_LONG_FORM_1: u8 = 0x81;
+
+/// BER long-form length prefix: 2 subsequent length bytes follow.
+///
+/// Per ISO/IEC 8825-1 clause 8.1.3.5. Encodes lengths 256..=65535.
+pub const BER_LONG_FORM_2: u8 = 0x82;
+
 /// BER-TLV error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BerError {
@@ -182,14 +198,14 @@ impl<'buf> Encoder<'buf> {
     /// Write BER-encoded length field.
     #[allow(clippy::cast_possible_truncation)] // guarded by if-branches
     fn write_ber_length(&mut self, len: usize) -> Result<(), BerError> {
-        if len <= 0x7F {
+        if len <= BER_SHORT_FORM_MAX {
             self.raw(&[len as u8])
         } else if len <= 0xFF {
-            self.raw(&[0x81, len as u8])
+            self.raw(&[BER_LONG_FORM_1, len as u8])
         } else {
             let hi = (len >> 8) as u8;
             let lo = len as u8;
-            self.raw(&[0x82, hi, lo])
+            self.raw(&[BER_LONG_FORM_2, hi, lo])
         }
     }
 }
@@ -277,10 +293,10 @@ impl<'a> Iterator for Decoder<'a> {
         let first = self.data[self.pos];
         self.pos += 1;
 
-        let len = if first <= 0x7F {
+        let len = if usize::from(first) <= BER_SHORT_FORM_MAX {
             // Short form.
             first as usize
-        } else if first == 0x81 {
+        } else if first == BER_LONG_FORM_1 {
             // Long form: 1 subsequent byte.
             if self.pos >= self.data.len() {
                 return Some(Err(BerError::Truncated));
@@ -288,7 +304,7 @@ impl<'a> Iterator for Decoder<'a> {
             let l = self.data[self.pos] as usize;
             self.pos += 1;
             l
-        } else if first == 0x82 {
+        } else if first == BER_LONG_FORM_2 {
             // Long form: 2 subsequent bytes.
             if self.pos + 1 >= self.data.len() {
                 return Some(Err(BerError::Truncated));
@@ -328,7 +344,7 @@ impl<'a> Iterator for Decoder<'a> {
 /// assert_eq!(length_of_length(256), 3);   // 0x82 + 2 bytes
 /// ```
 pub const fn length_of_length(len: usize) -> usize {
-    if len <= 0x7F { 1 } else if len <= 0xFF { 2 } else { 3 }
+    if len <= BER_SHORT_FORM_MAX { 1 } else if len <= 0xFF { 2 } else { 3 }
 }
 
 // ---------------------------------------------------------------------------

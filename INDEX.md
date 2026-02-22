@@ -158,8 +158,14 @@ graph TB
 | ETSI TS 135 206 V17.0.0 | [milenage](crates/simrs-milenage/) | Milenage algorithm |
 | ETSI TS 135 208 V17.0.0 | [milenage](crates/simrs-milenage/) | Milenage test vectors |
 | NIST FIPS 197 | [rijndael](crates/simrs-rijndael/) | AES-128 |
+| ISO/IEC 8825-1 | [bertlv](crates/simrs-bertlv/) | BER-TLV encoding rules |
+| 3GPP TS 51.011 V4.15.0 | [gsm](crates/simrs-gsm/) | GSM SIM-ME interface (successor to GSM 11.11) |
+| 3GPP TS 35.231 | Future | TUAK algorithm (Keccak-based) |
+| ETSI TS 102 225 | Future | Secured packet structure (OTA) |
+| ETSI TS 102 226 | Future | Remote APDU structure (OTA) |
 
 ## Further Reading
 
 - **[Architecture & API Reference](docs/architecture.md)** -- full public API surface, Mermaid sequence diagrams
 - **[Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md)** -- Okabe-Ito palette, semantic colour mapping, WCAG compliance
+- **[Standards Map](docs/standards/README.md)** -- 4G/5G/GSM standards mapped to crates, generation coverage

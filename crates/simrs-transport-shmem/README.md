@@ -2,7 +2,7 @@
 
 Shared-memory lock-free ring buffer transport.
 
-**Layer:** Boundary | **`no_std`:** yes | **Status:** Stub
+**Layer:** Boundary | **`no_std`:** yes | **Status:** Implemented
 
 Used by [simrs-qemu](../simrs-qemu/) for low-latency APDU exchange.
 

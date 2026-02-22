@@ -1,0 +1,17 @@
+[package]
+name        = "simrs-keccak"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Keccak-f[1600] permutation per NIST FIPS 202 -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true

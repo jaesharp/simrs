@@ -34,6 +34,7 @@
   - [`simrs-hle`](#simrs-hle)
   - [`simrs-fuzz`](#simrs-fuzz)
 - [Data Flows](#data-flows)
+- [Standards Reference](#standards-reference)
 
 ---
 
@@ -162,62 +163,136 @@ graph TD
 
 ### `simrs-iso7816`
 
-**Standards:** ISO/IEC 7816-4:2020, ETSI TS 102 221 §10.1.1, GSM 11.11 §9
+**Standards:** ISO/IEC 7816-4:2020 clause 5.3, ETSI TS 102 221 clause 10.2, GSM 11.11 clause 9
 
 **Deps:** none
 
 ```rust
+// --- CLA byte (ISO 7816-4 Table 2) ---
 pub enum ClassByte {
     Interindustry { sm: SecureMessaging, channel: LogicalChannel },
     Proprietary   { sm: u8, channel: u8 },  // 0xA0=GSM, 0x80=ETSI CAT
 }
+impl ClassByte {
+    pub const fn parse(cla: u8) -> Self;
+    pub const fn is_interindustry(&self) -> bool;
+    pub const fn is_proprietary(&self) -> bool;
+    pub const fn channel(&self) -> u8;
+    pub const fn raw(&self) -> u8;
+}
 
+// --- Status words (TS 102 221 clause 10.2.1, ISO 7816-4 Table 5) ---
 pub enum StatusWord {
     Success,                   // 90 00
-    BytesAvailable(u8),        // 61 XX
-    PinRetriesRemaining(u8),   // 63 CX
-    WrongLength,               // 67 00
-    ExactLength(u8),           // 6C XX
-    CommandNotAllowed(u8),     // 69 XX
-    WrongParameters(u8),       // 6A XX
-    ClassNotSupported,         // 6E 00
-    InstructionNotSupported,   // 6D 00
-    Unknown(u8, u8),
+    BytesAvailable(u8),        // 61 XX   (TS 102 221 clause 10.2.1.1)
+    PinRetries(u8),            // 63 CX   (TS 102 221 clause 10.2.1.5)
+    WarningUnchanged(u8),      // 63 XX   (ISO 7816-4 Table 5)
+    WrongLength,               // 67 00   (TS 102 221 clause 10.2.1.6)
+    ExactLength(u8),           // 6C XX   (ISO 7816-4 clause 5.6.3)
+    FunctionNotSupported(u8),  // 68 XX   (ISO 7816-4 Table 5)
+    CommandNotAllowed(u8),     // 69 XX   (TS 102 221 clause 10.2.1.2)
+    WrongParams(u8),           // 6A XX   (TS 102 221 clause 10.2.1.3)
+    WrongP1P2,                 // 6B 00   (ISO 7816-4 Table 5)
+    InsNotSupported,           // 6D 00   (TS 102 221 clause 10.2.1.4)
+    ClassNotSupported,         // 6E 00   (TS 102 221 clause 10.2.1.4)
+    NoPreciseDiagnosis,        // 6F 00   (ISO 7816-4 Table 5)
+    ProactivePending(u8),      // 91 XX   (TS 102 223 clause 6.1)
+    AuthenticationError,       // 98 62   (TS 31.102 clause 7.1.2.1)
+    Other(u8, u8),
 }
 impl StatusWord {
+    pub const fn bytes_available(len: u8) -> Self;
+    pub const fn pin_retries(n: u8) -> Self;
+    pub const fn wrong_params(sw2: u8) -> Self;
+    pub const fn command_not_allowed(sw2: u8) -> Self;
+    pub const fn exact_length(len: u8) -> Self;
+    pub const fn proactive_pending(len: u8) -> Self;
     pub const fn to_bytes(self) -> [u8; 2];
-    pub fn from_bytes(sw1: u8, sw2: u8) -> Self;
+    pub const fn from_bytes(sw1: u8, sw2: u8) -> Self;
+    pub const fn is_success(&self) -> bool;
 }
 
-pub struct CommandHeader { pub cla: ClassByte, pub ins: u8, pub p1: u8, pub p2: u8 }
-
-pub struct Command<'a> {
-    pub header: CommandHeader,
-    pub data:   &'a [u8],      // empty if Lc=0
-    pub le:     Option<u16>,
-}
+// --- Command APDU (ISO 7816-4 clause 5.3.2, short form) ---
+pub struct Command<'a> { /* fields private */ }
 impl<'a> Command<'a> {
-    pub fn parse(bytes: &'a [u8]) -> Result<Self, ApduError>;
+    pub const fn parse(bytes: &'a [u8]) -> Result<Self, ApduError>;
+    pub const fn cla(&self) -> ClassByte;
+    pub const fn cla_raw(&self) -> u8;
+    pub const fn ins(&self) -> u8;
+    pub const fn p1(&self) -> u8;
+    pub const fn p2(&self) -> u8;
+    pub const fn data(&self) -> &[u8];
+    pub const fn le(&self) -> Option<u8>;
+}
+pub enum ApduError { TooShort, DataTruncated }
+
+// --- Response helpers ---
+pub fn write_sw(buf: &mut [u8], sw: StatusWord) -> &[u8];
+pub fn write_sw_raw(buf: &mut [u8], sw1: u8, sw2: u8) -> &[u8];
+pub fn write_data_sw<'buf>(buf: &'buf mut [u8], data: &[u8], sw: StatusWord) -> &'buf [u8];
+pub fn write_data_sw_raw<'buf>(buf: &'buf mut [u8], data: &[u8], sw1: u8, sw2: u8) -> &'buf [u8];
+
+// --- ResponseQueue (shared GET RESPONSE mechanism, TS 102 221 clause 7.2.2) ---
+pub struct ResponseQueue<const CAP: usize> { /* internal */ }
+impl<const CAP: usize> ResponseQueue<CAP> {
+    pub const fn new() -> Self;
+    pub fn queue(&mut self, data: &[u8]);
+    pub fn get_response<'buf>(&mut self, le: Option<u8>, out: &'buf mut [u8]) -> &'buf [u8];
+    pub const fn is_empty(&self) -> bool;
+    pub const fn len(&self) -> usize;
+    pub const fn clear(&mut self);
+    pub const SNAPSHOT_SIZE: usize;
+    pub fn save_state(&self, buf: &mut [u8]) -> usize;
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool;
 }
 
-pub struct Response<'a> { pub data: &'a [u8], pub status: StatusWord }
+// --- FCP tag constants (TS 102 221 clause 11.1.1.3, Table 11.5) ---
+pub mod fcp {
+    pub const TEMPLATE: u8 = 0x62;              // FCP template
+    pub const FILE_SIZE: u8 = 0x80;             // File size (transparent)
+    pub const FILE_DESCRIPTOR: u8 = 0x82;       // File descriptor byte
+    pub const FILE_ID: u8 = 0x83;               // File identifier
+    pub const DF_NAME: u8 = 0x84;               // DF name (AID)
+    pub const SHORT_FILE_ID: u8 = 0x88;         // Short file identifier
+    pub const LIFECYCLE_STATUS: u8 = 0x8A;       // Life cycle status integer
+    pub const SECURITY_ATTRS_COMPACT: u8 = 0x8C; // Security attributes (compact)
+    pub const PROPRIETARY_INFO: u8 = 0xA5;       // Proprietary information
+    pub const PIN_STATUS_TEMPLATE: u8 = 0xC6;    // PIN status template DO
+}
 
+// --- SW2 semantic constants (TS 102 221 clause 10.2.1) ---
+pub mod sw2 {
+    pub const INCOMPATIBLE_FILE_STRUCTURE: u8 = 0x81;  // 69 81
+    pub const FILE_NOT_FOUND: u8 = 0x82;               // 6A 82
+    pub const RECORD_NOT_FOUND: u8 = 0x83;             // 6A 83
+    pub const AUTH_METHOD_BLOCKED: u8 = 0x83;           // 69 83
+    pub const REF_DATA_NOT_USABLE: u8 = 0x84;          // 69 84
+    pub const NO_CURRENT_EF: u8 = 0x86;                // 69 86
+    pub const WRONG_P1_P2: u8 = 0x86;                  // 6A 86
+    pub const REFERENCE_NOT_FOUND: u8 = 0x88;          // 6A 88
+}
+
+// --- INS constants (ISO 7816-4 Table 3 + TS 102 221 clause 11) ---
 pub mod ins {
-    pub const SELECT:           u8 = 0xA4;
-    pub const STATUS:           u8 = 0xF2;
-    pub const READ_BINARY:      u8 = 0xB0;
-    pub const UPDATE_BINARY:    u8 = 0xD6;
-    pub const READ_RECORD:      u8 = 0xB2;
-    pub const UPDATE_RECORD:    u8 = 0xDC;
-    pub const GET_RESPONSE:     u8 = 0xC0;
-    pub const VERIFY:           u8 = 0x20;
-    pub const CHANGE_REF_DATA:  u8 = 0x24;
-    pub const RESET_RETRY_CTR:  u8 = 0x2C;
-    pub const AUTHENTICATE:     u8 = 0x88;
-    pub const TERMINAL_PROFILE: u8 = 0x10;
-    pub const FETCH:            u8 = 0x12;
-    pub const TERMINAL_RESPONSE:u8 = 0x14;
-    pub const ENVELOPE:         u8 = 0xC2;
+    pub const TERMINAL_PROFILE: u8 = 0x10;   // TS 102 223
+    pub const FETCH: u8 = 0x12;              // TS 102 223
+    pub const TERMINAL_RESPONSE: u8 = 0x14;  // TS 102 223
+    pub const VERIFY: u8 = 0x20;
+    pub const CHANGE_REF_DATA: u8 = 0x24;
+    pub const DISABLE_PIN: u8 = 0x26;
+    pub const ENABLE_PIN: u8 = 0x28;
+    pub const RESET_RETRY_CTR: u8 = 0x2C;
+    pub const INCREASE: u8 = 0x32;
+    pub const MANAGE_CHANNEL: u8 = 0x70;
+    pub const AUTHENTICATE: u8 = 0x88;       // TS 31.102 clause 7.1.2
+    pub const SELECT: u8 = 0xA4;
+    pub const READ_BINARY: u8 = 0xB0;
+    pub const READ_RECORD: u8 = 0xB2;
+    pub const GET_RESPONSE: u8 = 0xC0;
+    pub const ENVELOPE: u8 = 0xC2;           // TS 102 223
+    pub const UPDATE_BINARY: u8 = 0xD6;
+    pub const UPDATE_RECORD: u8 = 0xDC;
+    pub const STATUS: u8 = 0xF2;
 }
 ```
 
@@ -225,31 +300,40 @@ pub mod ins {
 
 ### `simrs-bertlv`
 
-**Standards:** ETSI TS 101 220, ISO/IEC 8825-1, ETSI TS 102 221 §11.1
+**Standards:** ETSI TS 101 220 (TLV tag assignments), ISO/IEC 8825-1 clause 8.1 (BER length encoding), ETSI TS 102 221 clause 11.1
 
 **Deps:** none
 
-Supports a **dry-run mode** on `Encoder` — pass a sentinel buffer (`Encoder::dry_run()`) to count bytes without allocating, then call again with a real buffer. Used throughout [`simrs-usim`](#simrs-usim) for FCP construction.
+Supports a **dry-run mode** on `Encoder` -- pass `Encoder::dry_run()` to count bytes without writing, then call again with a real buffer. Used throughout [`simrs-usim`](#simrs-usim) for FCP construction.
+
+Tags are single-byte `u8` values, sufficient for all ETSI TS 101 220 tags used in SIM/USIM FCP and proactive commands. Multi-byte tag numbers (ISO 8825-1 tag byte `0x1F` prefix) are not yet supported.
 
 ```rust
-pub struct Tag { pub class: Class, pub constructed: bool, pub number: u32 }
-pub enum Class { Universal, Application, ContextSpecific, Private }
+/// BER length encoding thresholds (ISO/IEC 8825-1 clause 8.1.3).
+pub const BER_SHORT_FORM_MAX: usize = 0x7F;
+pub const BER_LONG_FORM_1: u8 = 0x81;  // 1-byte long form prefix
+pub const BER_LONG_FORM_2: u8 = 0x82;  // 2-byte long form prefix
 
-pub struct TlvObject<'a> { pub tag: Tag, pub value: &'a [u8] }
+pub struct TlvObject<'a> { pub tag: u8, pub value: &'a [u8] }
 
-pub struct Decoder<'a>;
-impl<'a> Iterator for Decoder<'a> {
-    type Item = Result<TlvObject<'a>, BerError>;
+pub struct Decoder<'a> { /* internal */ }
+impl<'a> Decoder<'a> {
+    pub const fn new(data: &'a [u8]) -> Self;
+    pub fn next(&mut self) -> Option<Result<TlvObject<'a>, BerError>>;
 }
 
-pub struct Encoder<'buf>;
+pub struct Encoder<'buf> { /* internal */ }
 impl<'buf> Encoder<'buf> {
-    pub fn new(buf: &'buf mut [u8]) -> Self;
-    pub fn dry_run() -> Self;
-    pub fn write_tlv(&mut self, tag: &Tag, value: &[u8]) -> Result<usize, BerError>;
-    pub fn write_constructed(&mut self, tag: &Tag, inner: &[u8]) -> Result<usize, BerError>;
-    pub fn bytes_written(&self) -> usize;
+    pub const fn new(buf: &'buf mut [u8]) -> Self;
+    pub const fn dry_run() -> Self;
+    pub fn tag_length_value(&mut self, tag: u8, value: &[u8]) -> Result<(), BerError>;
+    pub fn tag2_length_value(&mut self, tag_hi: u8, tag_lo: u8, value: &[u8]) -> Result<(), BerError>;
+    pub fn raw(&mut self, data: &[u8]) -> Result<(), BerError>;
+    pub const fn len(&self) -> usize;
+    pub const fn is_empty(&self) -> bool;
 }
+
+pub const fn length_of_length(len: usize) -> usize;
 
 pub enum BerError { BufferFull, InvalidTag, InvalidLength, Truncated }
 ```
@@ -333,15 +417,28 @@ pub enum ParamError    { DuplicateCiRi { first: usize, second: usize } }
 
 ### `simrs-fs`
 
-**Standards:** ETSI TS 102 221 §8, 3GPP TS 31.102 §4, GSM 11.11 §10
+**Standards:** ETSI TS 102 221 clause 8 (file structure), 3GPP TS 31.102 clause 4 (USIM files), GSM 11.11 clause 10
 
 **Deps:** [`simrs-iso7816`](#simrs-iso7816), [`simrs-bertlv`](#simrs-bertlv)
 
-The filesystem is defined as **`const` statics** — no runtime allocation. EF content lives in the consuming crates ([`simrs-gsm`](#simrs-gsm), [`simrs-usim`](#simrs-usim)); `simrs-fs` only defines the tree node types.
+The filesystem is defined as **`const` statics** -- no runtime allocation. EF content lives in the consuming crates ([`simrs-gsm`](#simrs-gsm), [`simrs-usim`](#simrs-usim)); `simrs-fs` only defines the tree node types.
 
 ```rust
-pub struct Fid(pub u16);       // newtype; see Fid::MF, Fid::CUR_ADF, Fid::NONE
-pub struct Sfi(pub u8);        // newtype for Short File Identifier
+// --- File identifiers (TS 102 221 clause 8.2) ---
+pub struct Fid(pub u16);
+impl Fid {
+    pub const MF: Self = Self(0x3F00);       // TS 102 221 clause 8.3.1
+    pub const CUR_ADF: Self = Self(0x7FFF);  // TS 102 221 clause 8.4.2
+    pub const NONE: Self = Self(0xFFFF);     // sentinel
+    pub const fn value(self) -> u16;
+    pub const fn to_be_bytes(self) -> [u8; 2];
+    pub const fn from_be_bytes(bytes: [u8; 2]) -> Self;
+}
+
+pub struct Sfi(pub u8);          // TS 102 221 clause 8.2.2
+impl Sfi {
+    pub const fn value(self) -> u8;
+}
 
 pub enum EfStructure {
     Transparent,
@@ -350,50 +447,71 @@ pub enum EfStructure {
 }
 
 pub struct EfDef {
-    pub fid:       Fid,
-    pub sfi:       Option<Sfi>,
-    pub structure: EfStructure,
-    pub data:      &'static [u8],
+    pub fid: Fid, pub sfi: Option<Sfi>,
+    pub structure: EfStructure, pub data: &'static [u8],
 }
-
-pub struct DfDef {
-    pub fid:      Fid,
-    pub children: &'static [FileRef],
-}
-
-pub enum FileRef {
-    Ef(&'static EfDef),
-    Df(&'static DfDef),
-}
-
+pub struct DfDef { pub fid: Fid, pub children: &'static [FileRef] }
+pub enum FileRef { Ef(&'static EfDef), Df(&'static DfDef) }
 pub struct AdfSlot { pub aid: &'static [u8], pub root: &'static DfDef }
 
-/// Virtual selection context — tracks cur_ef, cur_df, cur_adf
-pub struct SelectionCtx;
-impl SelectionCtx {
-    pub const fn new(mf: &'static DfDef) -> Self;
-    pub fn select_by_fid (&mut self, fid: Fid)        -> Result<SelectedFile, FsError>;
-    pub fn select_by_aid (&mut self, aid: &[u8],
-                          adfs: &'static [AdfSlot])    -> Result<SelectedFile, FsError>;
-    pub fn read_binary   (&self, offset: u16, len: u8) -> Result<&'static [u8], FsError>;
-    pub fn read_record   (&self, num: u8)              -> Result<&'static [u8], FsError>;
+// --- Selection state machine ---
+pub enum SelectedFile {
+    Df(&'static DfDef),
+    Ef(&'static EfDef),
+}
+impl SelectedFile {
+    pub const fn fid(&self) -> Fid;
 }
 
-pub struct SelectedFile { pub fid: Fid, pub structure: EfStructure }
-pub enum FsError { FileNotFound, NotEf, NotLinearFixed, RecordOutOfRange, OffsetOutOfRange }
+pub enum FsError {
+    FileNotFound, NoEfSelected, NotTransparent,
+    NotRecordBased, RecordOutOfRange, OffsetOutOfRange,
+}
+
+pub struct SelectionCtx { /* internal: cur_df, cur_ef, cur_adf */ }
+impl SelectionCtx {
+    pub const fn new(mf: &'static DfDef) -> Self;
+    pub fn select_by_fid(&mut self, fid: Fid) -> Result<SelectedFile, FsError>;
+    pub fn select_by_aid(&mut self, aid: &[u8], adfs: &'static [AdfSlot])
+        -> Result<SelectedFile, FsError>;
+    pub fn read_binary(&self, offset: u16, len: u16) -> Result<&'static [u8], FsError>;
+    pub fn read_record(&self, num: u8) -> Result<&'static [u8], FsError>;
+    pub const fn current_df(&self) -> &'static DfDef;
+    pub const fn current_ef(&self) -> Option<&'static EfDef>;
+    pub const fn current_adf(&self) -> Option<&'static DfDef>;
+    // Snapshot
+    pub const SNAPSHOT_SIZE: usize;
+    pub fn save_state(&self, buf: &mut [u8]) -> usize;
+    pub fn restore_state(&mut self, mf: &'static DfDef, buf: &[u8]) -> bool;
+}
 ```
 
 ---
 
 ### `simrs-pin`
 
-**Standards:** ETSI TS 102 221 §11.1.9, §11.1.12; 3GPP TS 31.102 §6.2
+**Standards:** ETSI TS 102 221 clause 9.3 (PIN reference), clause 11.1.9 (VERIFY), clause 11.1.12 (RESET RETRY COUNTER); 3GPP TS 31.102 clause 6.2
 
 **Deps:** [`simrs-iso7816`](#simrs-iso7816)
 
 ```rust
-pub struct PinKey(pub u8);         // 0x01=PIN1, 0x81=PIN2, 0x0A=ADM, …
-pub struct PinValue { pub bytes: [u8; 8], pub len: u8 }  // padded 0xFF
+// --- PIN key identifiers (TS 102 221 Table 9.3) ---
+pub struct PinKey(pub u8);
+impl PinKey {
+    pub const PIN1: Self = Self(0x01);
+    pub const PIN2: Self = Self(0x81);
+    pub const ADM1: Self = Self(0x0A);
+    pub const ADM2: Self = Self(0x0B);
+    pub const UNIVERSAL: Self = Self(0x11);
+    pub const fn value(self) -> u8;
+}
+impl Display for PinKey { /* "PIN1", "PIN2", "ADM1", "ADM2", "Universal PIN" */ }
+
+pub struct PinValue { pub bytes: [u8; 8], pub len: u8 }  // ASCII digits, 0xFF-padded
+impl PinValue {
+    pub const EMPTY: Self;
+    pub const fn new(bytes: [u8; 8]) -> Self;
+}
 
 pub enum PinResult {
     Success,
@@ -402,17 +520,28 @@ pub enum PinResult {
     Disabled,
     NotFound,
 }
+pub enum PinError { SlotsFull }
 
-pub struct PinManager<const N: usize = 5>;
+pub struct PinManager<const N: usize = 5> { /* internal */ }
 impl<const N: usize> PinManager<N> {
     pub const fn new() -> Self;
+    pub const fn add_pin(self, key: PinKey, pin: PinValue, puk: PinValue,
+                         max_retries: u8, max_puk_retries: u8) -> Result<Self, PinError>;
     pub fn verify  (&mut self, key: PinKey, val: &PinValue) -> PinResult;
-    pub fn change  (&mut self, key: PinKey, old: &PinValue, new: &PinValue) -> PinResult;
+    pub fn change  (&mut self, key: PinKey, old: &PinValue, new_pin: &PinValue) -> PinResult;
     pub fn disable (&mut self, key: PinKey, val: &PinValue) -> PinResult;
     pub fn enable  (&mut self, key: PinKey, val: &PinValue) -> PinResult;
-    pub fn unblock (&mut self, key: PinKey, puk: &PinValue, new: &PinValue) -> PinResult;
+    pub fn unblock (&mut self, key: PinKey, puk: &PinValue, new_pin: &PinValue) -> PinResult;
     pub fn retries     (&self, key: PinKey) -> Option<u8>;
+    pub fn puk_retries (&self, key: PinKey) -> Option<u8>;
     pub fn is_verified (&self, key: PinKey) -> bool;
+    pub fn is_enabled  (&self, key: PinKey) -> bool;
+    pub fn is_blocked  (&self, key: PinKey) -> bool;
+    pub const fn reset_verified(&mut self);
+    // Snapshot
+    pub const SNAPSHOT_SIZE: usize;
+    pub fn save_state(&self, buf: &mut [u8]) -> usize;
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool;
 }
 ```
 
@@ -422,60 +551,85 @@ impl<const N: usize> PinManager<N> {
 
 ### `simrs-proactive`
 
-**Standards:** ETSI TS 102 223 V17.2.0, 3GPP TS 31.111 V17.0.0
+**Standards:** ETSI TS 102 223 V17.2.0 (CAT), 3GPP TS 31.111 V17.0.0 (USAT), 3GPP TS 23.038 (data coding)
 
 **Deps:** [`simrs-iso7816`](#simrs-iso7816), [`simrs-bertlv`](#simrs-bertlv)
 
 ```rust
+// --- Device identities (TS 102 223 clause 8.7) ---
+pub const DEV_KEYPAD: u8 = 0x01;
+pub const DEV_DISPLAY: u8 = 0x02;
+pub const DEV_EARPIECE: u8 = 0x03;
+pub const DEV_UICC: u8 = 0x81;
+pub const DEV_TERMINAL: u8 = 0x82;
+pub const DEV_NETWORK: u8 = 0x83;
+
+pub enum TextCoding { Gsm7Bit, Gsm8Bit, Ucs2 }  // TS 23.038 DCS
+pub enum TimeUnit   { Minutes, Seconds, Tenths }   // TS 102 223 clause 8.26
+pub struct MenuItem<'a> { pub id: u8, pub label: &'a [u8] }
+
 pub enum ProactiveCommand<'a> {
-    DisplayText  { text: TextString<'a>, high_priority: bool, immediate_rsp: bool },
-    SetUpMenu    { title: TextString<'a>, items: &'a [MenuItem<'a>] },
+    DisplayText  { text: &'a [u8], coding: TextCoding, high_priority: bool },
+    SetUpMenu    { title: &'a [u8], items: &'a [MenuItem<'a>] },
     LaunchBrowser{ url: &'a [u8], browser_id: u8 },
-    PlayTone     { tone: u8, duration_tenths: u8 },
-    SendSms      { /* … */ },
+    PlayTone     { tone: u8, unit: TimeUnit, interval: u8 },
+    SendSms      { tpdu: &'a [u8], packing: bool },
 }
 
-pub struct TextString<'a> { pub coding: TextCoding, pub text: &'a [u8] }
-pub enum TextCoding { Gsm7Bit, Ucs2, Ascii }
-
 /// Encode into caller-supplied buffer. Returns bytes written.
-pub fn encode    (cmd: &ProactiveCommand<'_>, seq: u8, buf: &mut [u8]) -> Result<usize, ProactiveError>;
+pub fn encode(cmd: &ProactiveCommand<'_>, cmd_number: u8, buf: &mut [u8])
+    -> Result<usize, ProactiveError>;
 /// Dry-run: bytes required without writing.
-pub fn encoded_len(cmd: &ProactiveCommand<'_>) -> usize;
+pub fn encoded_len(cmd: &ProactiveCommand<'_>, cmd_number: u8) -> usize;
 
 pub enum ProactiveError { BufferTooSmall }
+
+// --- Proactive state machine (TS 102 223 clause 6.1) ---
+pub struct ProactiveState { /* internal: buf, len, seq */ }
+impl ProactiveState {
+    pub const fn new() -> Self;
+    pub fn queue_command(&mut self, cmd: &ProactiveCommand<'_>) -> Result<(), ProactiveError>;
+    pub const fn has_pending(&self) -> bool;
+    pub const fn pending_len(&self) -> usize;
+    pub fn fetch(&mut self, out: &mut [u8]) -> usize;
+    pub fn terminal_response(&mut self, data: &[u8]);
+    /// If pending and SW would be 9000, returns 91XX instead.
+    pub const fn override_status(&self, sw1: u8, sw2: u8) -> (u8, u8);
+    pub const fn sequence(&self) -> u8;
+    // Snapshot
+    pub fn save_state(&self, out: &mut [u8]) -> usize;
+    pub fn restore_state(&mut self, data: &[u8]) -> bool;
+}
 ```
 
-State (pending command, response buffer) lives in [`simrs-usim`](#simrs-usim)'s `UsimApp`.
+`ProactiveState` lives inside [`simrs-usim`](#simrs-usim)'s `UsimApp` as a field. The override mechanism rewrites `90 00` -> `91 XX` when a proactive command is pending (per TS 102 223 clause 6.1).
 
 ---
 
 ### `simrs-gsm`
 
-**Standards:** GSM 11.11 v4.21.1, 3GPP TS 51.011 V4.15.0
+**Standards:** GSM 11.11 v4.21.1 clause 9 (APDU commands), clause 11 (authentication), 3GPP TS 51.011 V4.15.0
 
 **Deps:** [`simrs-iso7816`](#simrs-iso7816), [`simrs-comp128`](#simrs-comp128), [`simrs-fs`](#simrs-fs), [`simrs-pin`](#simrs-pin)
 
-Handles CLA=`0xA0` APDUs: SELECT, GET RESPONSE, READ BINARY, STATUS, RUN GSM ALGORITHM, UPDATE BINARY.
+Handles CLA=`0xA0` APDUs: SELECT, GET RESPONSE, READ BINARY, STATUS, RUN GSM ALGORITHM, UPDATE BINARY, VERIFY CHV, CHANGE CHV, UNBLOCK CHV.
 
-Constructs GSM 11.11 §9.2.1 SELECT responses:
-- MF/DF: 23 bytes
-- EF: 15 bytes
+Constructs GSM 11.11 clause 9.2.1 SELECT responses: MF/DF (23 bytes), EF (15 bytes).
 
 ```rust
-pub struct GsmApp {
-    pub fs:  SelectionCtx,
-    pin: PinManager<5>,
-    ki:  Ki,                    // COMP128 key; newtype wrapping [u8; 16]
-    rsp_queue: ResponseQueue<23>,
-}
+pub struct Ki(pub [u8; 16]);  // GSM 11.11 clause 11: COMP128 subscriber key
 
+pub struct GsmApp { /* fields private: fs, pin, ki, rsp_queue */ }
 impl GsmApp {
     pub const fn new(mf: &'static DfDef, ki: Ki) -> Self;
+    pub const fn pin_manager(&mut self) -> &mut PinManager<5>;
     /// Returns bytes to send (data + SW appended).
     #[must_use]
-    pub fn handle<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8])
-        -> &'buf [u8];
+    pub fn handle<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8];
+    // Snapshot
+    pub const SNAPSHOT_SIZE: usize;
+    pub fn save_state(&self, buf: &mut [u8]) -> usize;
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool;
 }
 ```
 
@@ -483,35 +637,26 @@ impl GsmApp {
 
 ### `simrs-usim`
 
-**Standards:** ETSI TS 102 221 V16.4.0, 3GPP TS 31.101/31.102 V17
+**Standards:** ETSI TS 102 221 V16.4.0 (UICC interface), 3GPP TS 31.102 V17 (USIM application), TS 31.102 clause 7.1.2 (AUTHENTICATE)
 
 **Deps:** [`simrs-iso7816`](#simrs-iso7816), [`simrs-bertlv`](#simrs-bertlv), [`simrs-milenage`](#simrs-milenage), [`simrs-fs`](#simrs-fs), [`simrs-pin`](#simrs-pin), [`simrs-proactive`](#simrs-proactive)
 
-Handles interindustry + ETSI-class APDUs. Constructs FCP BER-TLV via dry-run/real-run pattern (see [`simrs-bertlv`](#simrs-bertlv)).
+Handles interindustry + ETSI-class APDUs: SELECT (FCP BER-TLV via dry-run/real-run), READ BINARY, READ RECORD, UPDATE BINARY, UPDATE RECORD, VERIFY, CHANGE REFERENCE DATA, DISABLE/ENABLE PIN, RESET RETRY COUNTER, GET RESPONSE, AUTHENTICATE (TS 31.102 clause 7.1.2), TERMINAL PROFILE, FETCH, TERMINAL RESPONSE, ENVELOPE, STATUS.
 
-Post-APDU hook: if proactive command pending and SW would be `90 00`, rewrites to `91 XX`.
+Post-APDU hook: if proactive command pending and SW would be `90 00`, rewrites to `91 XX` (TS 102 223 clause 6.1).
 
 ```rust
-pub struct UsimApp {
-    fs:        SelectionCtx,
-    pin:       PinManager<5>,
-    milenage:  MilenageParams,
-    proactive: ProactiveState,
-    rsp_queue: ResponseQueue<64>,
-}
-
-pub struct ProactiveState {
-    buf: [u8; 256],
-    len: usize,
-    seq: u8,
-}
-
+pub struct UsimApp { /* fields private: fs, adfs, pin, milenage, proactive, rsp_queue */ }
 impl UsimApp {
     pub const fn new(mf: &'static DfDef, adfs: &'static [AdfSlot],
                      milenage: MilenageParams) -> Self;
+    pub const fn pin_manager(&mut self) -> &mut PinManager<5>;
     #[must_use]
-    pub fn handle<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8])
-        -> &'buf [u8];
+    pub fn handle<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8];
+    // Snapshot
+    pub const SNAPSHOT_SIZE: usize;
+    pub fn save_state(&self, buf: &mut [u8]) -> usize;
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool;
 }
 ```
 
@@ -535,8 +680,8 @@ pub enum SimResponse<'a> {
     Ignored,                             // malformed < 4 bytes
 }
 
-pub struct Sim<const RSP_CAP: usize = 256>;
-impl<const RSP_CAP: usize> Sim<RSP_CAP> {
+pub struct Sim<A: AuthAlgorithm = MilenageParams, const RSP_CAP: usize = 256>;
+impl<A: AuthAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     pub const fn new(atr: &'static [u8], mf: &'static DfDef) -> Self;
     /// Pure: event in → response out. Never panics.
     pub fn process<'s>(&'s mut self, event: SimEvent<'_>) -> SimResponse<'s>;
@@ -629,7 +774,7 @@ pub trait Snapshot {
 }
 ```
 
-`SIZE` is a const associated -- callers stack-allocate `[u8; Sim::<256>::SNAPSHOT_SIZE]`.
+`SIZE` is a const associated -- callers stack-allocate `[u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE]`.
 
 ### `simrs-hle`
 
@@ -729,3 +874,14 @@ sequenceDiagram
         FZ->>FZ: dedup by state_hash; save interesting to corpus
     end
 ```
+
+---
+
+## Standards Reference
+
+- **[Standards Map](standards/README.md)** -- 4G/5G standards mapped to crates, generation coverage
+- **[Standards Catalog](standards/01-catalog.md)** -- all referenced 3GPP/ETSI/ISO specs with versions
+- **[Authentication & Key Management](standards/02-authentication.md)** -- EPS-AKA, 5G-AKA, Milenage, SUCI
+- **[Filesystem & Data Lifecycle](standards/03-filesystem.md)** -- EF catalog, APDU sequences
+- **[Proactive & SIM Toolkit](standards/04-proactive.md)** -- CAT/USAT commands, FETCH, OTA
+- **[Crate Impact Analysis](standards/05-crate-impact.md)** -- what each standard means for simrs

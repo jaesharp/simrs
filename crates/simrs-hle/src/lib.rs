@@ -1,15 +1,25 @@
 //! HLE (High-Level Emulation) SIM peripheral for QEMU.
 //!
-//! Provides a safe Rust API around a thread-local [`Sim`]
-//! instance. QEMU hooks firmware function calls (e.g. `sim_send_apdu`) and
+//! Provides a safe Rust API around a thread-local [`SimInstance`]
+//! enum that dispatches to either Milenage or TUAK authentication.
+//! QEMU hooks firmware function calls (e.g. `sim_send_apdu`) and
 //! forwards APDU buffers to simrs via these functions instead of emulating
 //! the physical SIM controller.
 //!
 //! # Thread-local design
 //!
-//! The SIM instance lives in a `thread_local! { RefCell<Option<Sim<256>>> }`.
+//! The SIM instance lives in a `thread_local! { RefCell<Option<SimInstance>> }`.
 //! This avoids global mutable state and is safe for single-threaded QEMU
 //! plugin use. Each thread gets its own independent SIM.
+//!
+//! # Authentication algorithms
+//!
+//! Two algorithms are supported:
+//! - **Milenage** (3GPP TS 35.206): initialized via [`hle_init`]
+//! - **TUAK** (3GPP TS 35.231): initialized via [`hle_init_tuak`]
+//!
+//! All other `hle_*` functions dispatch transparently to whichever
+//! algorithm was selected at init time.
 //!
 //! # C-ABI cdylib
 //!
@@ -27,35 +37,103 @@ use core::cell::RefCell;
 use simrs_fs::DfDef;
 use simrs_milenage::{MilenageParams, OpVariant};
 use simrs_sim::{Sim, SimEvent, SimResponse};
+use simrs_tuak::{TopVariant, TuakParams};
 
 /// Re-export [`simrs_gsm::Ki`] so callers of [`hle_init`] don't need a
 /// direct dependency on `simrs-gsm`.
 pub use simrs_gsm::Ki;
 
-thread_local! {
-    static SIM: RefCell<Option<Sim<256>>> = const { RefCell::new(None) };
+// ---------------------------------------------------------------------------
+// SimInstance enum -- runtime-selected authentication algorithm
+// ---------------------------------------------------------------------------
+
+/// Runtime-selected authentication algorithm.
+enum SimInstance {
+    /// Milenage (3GPP TS 35.206).
+    Milenage(Sim<MilenageParams, 256>),
+    /// TUAK (3GPP TS 35.231).
+    Tuak(Sim<TuakParams, 256>),
 }
 
-/// Initialize the thread-local SIM instance.
+thread_local! {
+    static SIM: RefCell<Option<SimInstance>> = const { RefCell::new(None) };
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch macro
+// ---------------------------------------------------------------------------
+
+/// Dispatch to the inner `Sim` regardless of auth algorithm.
+macro_rules! with_sim {
+    ($default:expr, |$sim:ident| $body:expr) => {
+        SIM.with(|cell| {
+            let mut borrow = cell.borrow_mut();
+            match borrow.as_mut() {
+                Some(SimInstance::Milenage($sim)) => { $body }
+                Some(SimInstance::Tuak($sim)) => { $body }
+                None => $default,
+            }
+        })
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Maximum snapshot size
+// ---------------------------------------------------------------------------
+
+/// Maximum snapshot size across all auth algorithms (includes 1-byte discriminant).
+pub const MAX_SNAPSHOT_SIZE: usize = 1 + {
+    let mil = Sim::<MilenageParams, 256>::SNAPSHOT_SIZE;
+    let tuak = Sim::<TuakParams, 256>::SNAPSHOT_SIZE;
+    if mil > tuak { mil } else { tuak }
+};
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/// Initialize the thread-local SIM instance with Milenage authentication.
 ///
-/// Creates a new `Sim<256>` with the given ATR and MF tree, configured
-/// with the provided Milenage parameters. Must be called before any
-/// other `hle_*` function.
+/// Creates a new `Sim<MilenageParams, 256>` with the given ATR and MF tree,
+/// configured with the provided Milenage parameters. Must be called before
+/// any other `hle_*` function.
 ///
-/// Calling this again replaces the previous instance.
+/// Calling this (or [`hle_init_tuak`]) again replaces the previous instance.
 pub fn hle_init(
     atr: &'static [u8],
     mf: &'static DfDef,
-    ki: simrs_gsm::Ki,
+    ki: Ki,
     k: [u8; 16],
     opc: [u8; 16],
 ) {
-    let mut sim = Sim::<256>::new(atr, mf);
-    let mil = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
-    *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], mil);
-    *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
     SIM.with(|cell| {
-        *cell.borrow_mut() = Some(sim);
+        let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
+        let mil = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
+        *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], mil);
+        *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
+        *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
+    });
+}
+
+/// Initialize the thread-local SIM instance with TUAK authentication.
+///
+/// `k` is the 128-bit subscriber key K.
+/// `topc` is the 256-bit `TOPc` (derived operator variant).
+///
+/// Calling this (or [`hle_init`]) again replaces the previous instance.
+pub fn hle_init_tuak(
+    atr: &'static [u8],
+    mf: &'static DfDef,
+    ki: Ki,
+    k: [u8; 16],
+    topc: [u8; 32],
+) {
+    SIM.with(|cell| {
+        let mut sim = Sim::<TuakParams, 256>::new(atr, mf);
+        let tuak = TuakParams::new(k, TopVariant::TopC(topc));
+        *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], tuak);
+        *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
+        *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
     });
 }
 
@@ -63,11 +141,7 @@ pub fn hle_init(
 ///
 /// Sends a `PowerOn` event. Returns the ATR length, or 0 if not initialized.
 pub fn hle_reset() -> usize {
-    SIM.with(|cell| {
-        let mut borrow = cell.borrow_mut();
-        let Some(sim) = borrow.as_mut() else {
-            return 0;
-        };
+    with_sim!(0, |sim| {
         match sim.process(SimEvent::PowerOn) {
             SimResponse::Atr(atr) => atr.len(),
             _ => 0,
@@ -83,9 +157,7 @@ pub fn hle_reset() -> usize {
 ///
 /// The caller must ensure `rsp` is large enough (256 bytes recommended).
 pub fn hle_apdu(cmd: &[u8], rsp: &mut [u8]) -> Option<(usize, u8, u8)> {
-    SIM.with(|cell| {
-        let mut borrow = cell.borrow_mut();
-        let sim = borrow.as_mut()?;
+    with_sim!(None, |sim| {
         match sim.process(SimEvent::Apdu(cmd)) {
             SimResponse::Apdu { data, sw1, sw2 } => {
                 let n = data.len().min(rsp.len());
@@ -99,44 +171,104 @@ pub fn hle_apdu(cmd: &[u8], rsp: &mut [u8]) -> Option<(usize, u8, u8)> {
 
 /// Save the SIM state into `buf`.
 ///
-/// Returns the number of bytes written, or 0 if not initialized or
-/// `buf` is too small.
+/// The first byte is a discriminant (0x00 = Milenage, 0x01 = TUAK),
+/// followed by the `Sim` snapshot data.
+///
+/// Returns the number of bytes written (including discriminant), or 0 if
+/// not initialized or `buf` is too small.
 pub fn hle_snapshot_save(buf: &mut [u8]) -> usize {
     SIM.with(|cell| {
-        let borrow = cell.borrow();
-        let Some(sim) = borrow.as_ref() else {
-            return 0;
-        };
-        sim.save_state(buf)
+        let mut borrow = cell.borrow_mut();
+        match borrow.as_mut() {
+            Some(SimInstance::Milenage(sim)) => {
+                if buf.len() < 1 + Sim::<MilenageParams, 256>::SNAPSHOT_SIZE {
+                    return 0;
+                }
+                buf[0] = 0x00; // Milenage discriminant
+                let n = sim.save_state(&mut buf[1..]);
+                if n == 0 { 0 } else { 1 + n }
+            }
+            Some(SimInstance::Tuak(sim)) => {
+                if buf.len() < 1 + Sim::<TuakParams, 256>::SNAPSHOT_SIZE {
+                    return 0;
+                }
+                buf[0] = 0x01; // TUAK discriminant
+                let n = sim.save_state(&mut buf[1..]);
+                if n == 0 { 0 } else { 1 + n }
+            }
+            None => 0,
+        }
     })
 }
 
 /// Restore the SIM state from `buf`.
 ///
-/// Returns `true` on success, `false` if not initialized or invalid data.
+/// The first byte must match the discriminant of the current instance
+/// (0x00 = Milenage, 0x01 = TUAK). Returns `true` on success, `false`
+/// if the buffer is empty, discriminant mismatches, or the SIM is not
+/// initialized.
 pub fn hle_snapshot_restore(buf: &[u8]) -> bool {
+    if buf.is_empty() {
+        return false;
+    }
     SIM.with(|cell| {
         let mut borrow = cell.borrow_mut();
-        let Some(sim) = borrow.as_mut() else {
-            return false;
-        };
-        sim.restore_state(buf)
+        match (buf[0], borrow.as_mut()) {
+            (0x00, Some(SimInstance::Milenage(sim))) => sim.restore_state(&buf[1..]),
+            (0x01, Some(SimInstance::Tuak(sim))) => sim.restore_state(&buf[1..]),
+            _ => false, // discriminant mismatch or not initialized
+        }
     })
 }
 
-/// Return the snapshot buffer size required.
+/// Return the maximum snapshot buffer size required (across all algorithms).
+///
+/// Includes the 1-byte discriminant.
 pub const fn hle_snapshot_size() -> usize {
-    Sim::<256>::SNAPSHOT_SIZE
+    MAX_SNAPSHOT_SIZE
+}
+
+/// Return the exact snapshot size for the currently initialized algorithm.
+///
+/// Returns 0 if not initialized.
+pub fn hle_snapshot_size_current() -> usize {
+    SIM.with(|cell| {
+        let borrow = cell.borrow();
+        match borrow.as_ref() {
+            Some(SimInstance::Milenage(_)) => 1 + Sim::<MilenageParams, 256>::SNAPSHOT_SIZE,
+            Some(SimInstance::Tuak(_)) => 1 + Sim::<TuakParams, 256>::SNAPSHOT_SIZE,
+            None => 0,
+        }
+    })
+}
+
+/// Advance UICC-side proactive timers by `elapsed_secs`.
+///
+/// Returns a bitmask of expired timer IDs (bit 0 = timer 1, ..., bit 7 = timer 8),
+/// or 0 if not initialized or no timers expired.
+pub fn hle_tick(elapsed_secs: u32) -> u8 {
+    with_sim!(0, |sim| {
+        let _ = sim.process(SimEvent::Tick(elapsed_secs));
+        let mut mask: u8 = 0;
+        loop {
+            let id = sim.usim_app_mut().proactive_state().take_expired_timer();
+            if id == 0 {
+                break;
+            }
+            // Timer IDs are 1..=8, map to bits 0..=7.
+            if id <= 8 {
+                mask |= 1 << (id - 1);
+            }
+        }
+        mask
+    })
 }
 
 /// Compute an FNV-1a deduplication hash of the current SIM state.
 ///
 /// Returns 0 if the SIM is not initialized.
 pub fn hle_state_hash() -> u64 {
-    SIM.with(|cell| {
-        let borrow = cell.borrow();
-        borrow.as_ref().map_or(0, simrs_sim::Sim::state_hash)
-    })
+    with_sim!(0, |sim| sim.state_hash())
 }
 
 // ---------------------------------------------------------------------------
@@ -163,12 +295,19 @@ mod tests {
     static ATR: [u8; 2] = [0x3B, 0x00];
 
     fn init() {
-        hle_init(&ATR, &MF, simrs_gsm::Ki([0x11; 16]), [0x22; 16], [0x33; 16]);
+        hle_init(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 16]);
     }
+
+    fn init_tuak() {
+        hle_init_tuak(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 32]);
+    }
+
+    // -------------------------------------------------------------------
+    // Existing Milenage tests (unchanged behavior)
+    // -------------------------------------------------------------------
 
     #[test]
     fn reset_before_init_returns_zero() {
-        // Each test gets its own thread_local, but to be safe:
         SIM.with(|cell| *cell.borrow_mut() = None);
         assert_eq!(hle_reset(), 0);
     }
@@ -215,7 +354,8 @@ mod tests {
 
         let mut snap = vec![0u8; hle_snapshot_size()];
         let n = hle_snapshot_save(&mut snap);
-        assert_eq!(n, hle_snapshot_size());
+        assert!(n > 0, "snapshot save must succeed");
+        assert_eq!(n, hle_snapshot_size_current());
 
         // Re-init (wipes state).
         init();
@@ -235,7 +375,7 @@ mod tests {
     #[test]
     fn snapshot_save_without_init_returns_zero() {
         SIM.with(|cell| *cell.borrow_mut() = None);
-        let mut buf = [0u8; 1024];
+        let mut buf = [0u8; 4096];
         assert_eq!(hle_snapshot_save(&mut buf), 0);
     }
 
@@ -256,5 +396,153 @@ mod tests {
         hle_apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00], &mut rsp);
         let h2 = hle_state_hash();
         assert_ne!(h1, h2, "hash should change after SELECT MF");
+    }
+
+    #[test]
+    fn hle_tick_without_init_returns_zero() {
+        SIM.with(|cell| *cell.borrow_mut() = None);
+        assert_eq!(hle_tick(10), 0);
+    }
+
+    #[test]
+    fn hle_tick_with_no_timers_returns_zero() {
+        init();
+        hle_reset();
+        assert_eq!(hle_tick(10), 0);
+    }
+
+    #[test]
+    fn hle_tick_expires_timer_returns_bitmask() {
+        init();
+        hle_reset();
+        // Start timer 1 with BCD [0x00, 0x00, 0x10] = 10 seconds.
+        with_sim!((), |sim| {
+            assert!(sim
+                .usim_app_mut()
+                .proactive_state()
+                .start_timer(1, [0x00, 0x00, 0x10]));
+        });
+        // Tick 11 seconds -- timer 1 should expire.
+        let mask = hle_tick(11);
+        assert_eq!(mask, 1, "bit 0 should be set for timer 1");
+    }
+
+    #[test]
+    fn hle_tick_multiple_timers_combined_mask() {
+        init();
+        hle_reset();
+        // Start timers 1 and 3 with BCD [0x00, 0x00, 0x05] = 5 seconds.
+        with_sim!((), |sim| {
+            let ps = sim.usim_app_mut().proactive_state();
+            assert!(ps.start_timer(1, [0x00, 0x00, 0x05]));
+            assert!(ps.start_timer(3, [0x00, 0x00, 0x05]));
+        });
+        // Tick 6 seconds -- both timers should expire.
+        let mask = hle_tick(6);
+        assert_eq!(mask, 0b0000_0101, "bits 0 and 2 should be set for timers 1 and 3");
+    }
+
+    // -------------------------------------------------------------------
+    // TUAK-specific tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn hle_init_tuak_basic() {
+        init_tuak();
+        let atr_len = hle_reset();
+        assert_eq!(atr_len, ATR.len(), "TUAK sim should reset with correct ATR length");
+    }
+
+    #[test]
+    fn hle_apdu_with_tuak() {
+        init_tuak();
+        hle_reset();
+        let mut rsp = [0u8; 256];
+        let result = hle_apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00], &mut rsp);
+        let (_, sw1, _) = result.expect("SELECT MF APDU should succeed with TUAK");
+        assert_eq!(sw1, 0x61);
+    }
+
+    #[test]
+    fn hle_snapshot_tuak_roundtrip() {
+        init_tuak();
+        hle_reset();
+        let mut rsp = [0u8; 256];
+        hle_apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00], &mut rsp);
+
+        let mut snap = vec![0u8; hle_snapshot_size()];
+        let n = hle_snapshot_save(&mut snap);
+        assert!(n > 0, "TUAK snapshot save must succeed");
+        assert_eq!(n, hle_snapshot_size_current());
+
+        // Re-init with TUAK (wipes state).
+        init_tuak();
+        assert!(hle_snapshot_restore(&snap[..n]));
+
+        // Card should be Ready after restore.
+        let result = hle_apdu(&[0xF0, 0xA4, 0x00, 0x00], &mut rsp);
+        let (_, sw1, sw2) = result.expect("should get APDU response after TUAK restore");
+        assert_eq!((sw1, sw2), (0x6E, 0x00));
+    }
+
+    #[test]
+    fn hle_tick_with_tuak() {
+        init_tuak();
+        hle_reset();
+        // No timers running -> should return 0.
+        assert_eq!(hle_tick(10), 0);
+    }
+
+    #[test]
+    fn hle_state_hash_tuak() {
+        init_tuak();
+        hle_reset();
+        let h = hle_state_hash();
+        assert_ne!(h, 0, "TUAK hash should be nonzero after init+reset");
+    }
+
+    #[test]
+    fn hle_reset_tuak() {
+        init_tuak();
+        // Reset twice should work.
+        let len1 = hle_reset();
+        let len2 = hle_reset();
+        assert_eq!(len1, ATR.len());
+        assert_eq!(len2, ATR.len());
+    }
+
+    #[test]
+    fn hle_snapshot_discriminant_milenage() {
+        init();
+        hle_reset();
+        let mut snap = vec![0u8; hle_snapshot_size()];
+        let n = hle_snapshot_save(&mut snap);
+        assert!(n > 0);
+        assert_eq!(snap[0], 0x00, "Milenage discriminant must be 0x00");
+    }
+
+    #[test]
+    fn hle_snapshot_discriminant_tuak() {
+        init_tuak();
+        hle_reset();
+        let mut snap = vec![0u8; hle_snapshot_size()];
+        let n = hle_snapshot_save(&mut snap);
+        assert!(n > 0);
+        assert_eq!(snap[0], 0x01, "TUAK discriminant must be 0x01");
+    }
+
+    #[test]
+    fn hle_snapshot_cross_algorithm_restore_fails() {
+        // Init with Milenage, save snapshot.
+        init();
+        hle_reset();
+        let mut snap = vec![0u8; hle_snapshot_size()];
+        let n = hle_snapshot_save(&mut snap);
+        assert!(n > 0);
+
+        // Switch to TUAK, try to restore Milenage snapshot -> must fail.
+        init_tuak();
+        assert!(!hle_snapshot_restore(&snap[..n]),
+            "restoring Milenage snapshot into TUAK instance must fail");
     }
 }

@@ -2,7 +2,7 @@
 
 Deterministic SIM state serialization for snapshot-based fuzzing.
 
-**Layer:** Meta | **`no_std`:** yes | **Status:** Stub
+**Layer:** Meta | **`no_std`:** yes | **Status:** Implemented
 
 ```mermaid
 graph LR

@@ -32,7 +32,7 @@ What 4G-LTE and 5G-NR support means for each simrs crate.
 
 **Status:** No changes needed for any generation. The USIM runs f1-f5 identically for 3G/4G/5G. The AMF separation bit (0 for 3G/4G, 1 for 5G) is passed through AUTN but doesn't change the USIM-side computation.
 
-**Future:** Add `AuthAlgorithm` trait to enable TUAK as a drop-in. The trait interface matches the 3GPP f1-f5 function signatures exactly. TUAK implementation (P2) would add a `simrs-tuak` crate depending on a new `simrs-keccak` crate.
+**Future:** Extract `AuthAlgorithm` trait from `MilenageParams` to enable TUAK (f1-f5 signatures already conform to TS 35.205 clause 3) as a drop-in. The trait interface matches the 3GPP f1-f5 function signatures exactly. TUAK implementation (P2) would add a `simrs-tuak` crate depending on a new `simrs-keccak` crate.
 
 ```rust
 // Future crate dependency for TUAK support:

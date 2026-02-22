@@ -2,7 +2,7 @@
 
 `SimPeripheral` trait -- hardware SIM slot abstraction.
 
-**Layer:** Boundary | **`no_std`:** yes | **Status:** Stub
+**Layer:** Boundary | **`no_std`:** yes | **Status:** Implemented
 
 ```mermaid
 graph TD

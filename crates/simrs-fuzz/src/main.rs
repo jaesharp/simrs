@@ -6,8 +6,7 @@
 //! Configurable via `SIMRS_FUZZ_ITERS` env var (default 100,000).
 
 use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef, Sfi};
-use simrs_hle::{hle_apdu, hle_init, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_state_hash, Ki};
-use simrs_sim::Sim;
+use simrs_hle::{hle_apdu, hle_init, hle_init_tuak, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_snapshot_size, hle_state_hash, hle_tick, Ki};
 use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
@@ -102,9 +101,15 @@ const KNOWN_INS: &[u8] = &[
     0xC0, // GET RESPONSE
     0xB0, // READ BINARY
     0xB2, // READ RECORD
+    0xD6, // UPDATE BINARY
+    0xDC, // UPDATE RECORD
+    0x32, // INCREASE
     0xF2, // STATUS
     0x88, // AUTHENTICATE / RUN GSM ALGO
     0x20, // VERIFY
+    0x24, // CHANGE REFERENCE DATA
+    0x26, // DISABLE PIN
+    0x28, // ENABLE PIN
     0x2C, // UNBLOCK / RESET RETRY CTR
     0x10, // TERMINAL PROFILE
     0x12, // FETCH
@@ -141,10 +146,11 @@ fn generate_apdu(rng: &mut Rng, buf: &mut [u8]) -> usize {
     if has_data {
         let lc = match ins {
             0xA4 => 2,                                   // SELECT FID
-            0x20 => 8,                                   // VERIFY PIN
-            0x2C => 16,                                  // UNBLOCK
+            0x20 | 0x26 | 0x28 => 8,                    // VERIFY / DISABLE / ENABLE
+            0x24 | 0x2C => 16,                           // CHANGE REF DATA / UNBLOCK
             0x88 if cla == 0xA0 => 16,                   // RUN GSM ALGO
             0x88 => 34,                                   // AUTHENTICATE
+            0xD6 | 0xDC | 0x32 => rng.range(14) + 1,    // write commands: 1..=14 bytes
             _ => rng.range(16).min(buf.len().saturating_sub(5)),
         };
         #[allow(clippy::cast_possible_truncation)]
@@ -235,15 +241,23 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100_000);
 
-    eprintln!("[simrs-fuzz] initializing SIM...");
-    hle_init(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 16]);
+    let use_tuak = std::env::var("SIMRS_FUZZ_AUTH")
+        .is_ok_and(|s| s.eq_ignore_ascii_case("tuak"));
+
+    if use_tuak {
+        eprintln!("[simrs-fuzz] initializing SIM (TUAK)...");
+        hle_init_tuak(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 32]);
+    } else {
+        eprintln!("[simrs-fuzz] initializing SIM (Milenage)...");
+        hle_init(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 16]);
+    }
     hle_reset();
 
     // Take initial snapshot.
-    let snap_size = Sim::<256>::SNAPSHOT_SIZE;
+    let snap_size = hle_snapshot_size();
     let mut snapshot = vec![0u8; snap_size];
     let n = hle_snapshot_save(&mut snapshot);
-    assert_eq!(n, snap_size, "initial snapshot failed");
+    assert!(n > 0, "initial snapshot failed");
 
     let mut rng = Rng::new(0xDEAD_BEEF_CAFE_BABE);
     let mut corpus = Corpus::new();
@@ -277,6 +291,11 @@ fn main() {
             // Hash the APDU for sequence tracking.
             combined_hash = combined_hash.wrapping_add(fnv1a(&apdu_buf[..apdu_len]));
         }
+
+        // Advance timers by a random interval to exercise timer expiry paths.
+        #[allow(clippy::cast_possible_truncation)]
+        let tick_secs = rng.range(60) as u32;
+        let _ = hle_tick(tick_secs);
 
         // Collect state hash after the sequence, combined with APDU path hash.
         let state_hash = hle_state_hash();
@@ -355,7 +374,7 @@ mod tests {
         hle_init(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 16]);
         hle_reset();
 
-        let snap_size = Sim::<256>::SNAPSHOT_SIZE;
+        let snap_size = hle_snapshot_size();
         let mut snapshot = vec![0u8; snap_size];
         let n = hle_snapshot_save(&mut snapshot);
         assert!(n > 0);
@@ -373,6 +392,16 @@ mod tests {
             &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2],
             // Unsupported CLA (changes nothing but tests path)
             &[0xF0, 0xA4, 0x00, 0x00],
+            // TERMINAL PROFILE (8 bytes of capability flags)
+            &[0x80, 0x10, 0x00, 0x00, 0x08, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            // ENVELOPE: Menu Selection (tag D3) with item ID 0x01
+            &[0x80, 0xC2, 0x00, 0x00, 0x09, 0xD3, 0x07, 0x82, 0x02, 0x01, 0x82, 0x90, 0x01, 0x01],
+            // Event Download envelope (D6): Location Status event
+            &[0x80, 0xC2, 0x00, 0x00, 0x07, 0xD6, 0x05, 0x99, 0x01, 0x03, 0x82, 0x02, 0x82, 0x81],
+            // FETCH (Le=0 to fetch any pending command)
+            &[0x80, 0x12, 0x00, 0x00, 0x00],
+            // TERMINAL RESPONSE (minimal: empty data)
+            &[0x80, 0x14, 0x00, 0x00],
         ];
 
         for seq in sequences {
@@ -391,6 +420,7 @@ mod tests {
             hle_snapshot_restore(&snapshot[..n]);
             let apdu_len = generate_apdu(&mut rng, &mut apdu_buf);
             let _ = hle_apdu(&apdu_buf[..apdu_len], &mut rsp_buf);
+            let _ = hle_tick(5); // exercise timer paths
             let h = hle_state_hash();
             if h != 0 {
                 corpus.is_new(h);

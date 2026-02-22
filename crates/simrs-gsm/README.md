@@ -2,7 +2,7 @@
 
 GSM 11.11 SIM application layer (CLA=A0 handlers).
 
-**Layer:** Application | **`no_std`:** yes | **Status:** Stub
+**Layer:** Application | **`no_std`:** yes | **Status:** Implemented
 
 ```mermaid
 graph TD

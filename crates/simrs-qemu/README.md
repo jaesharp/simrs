@@ -2,7 +2,7 @@
 
 QEMU virtual smart card bridge (shmem + chardev). Requires `std`.
 
-**Layer:** Boundary | **`no_std`:** no | **Status:** Stub
+**Layer:** Boundary | **`no_std`:** no | **Status:** Implemented
 
 ## Dependencies
 

@@ -29,12 +29,13 @@
 //!
 //! ```
 //! use simrs_sim::{Sim, SimEvent, SimResponse};
+//! use simrs_milenage::MilenageParams;
 //! use simrs_fs::{DfDef, Fid};
 //!
 //! static MF: DfDef = DfDef { fid: Fid(0x3F00), children: &[] };
 //! static ATR: [u8; 2] = [0x3B, 0x00];
 //!
-//! let mut sim = Sim::<256>::new(&ATR, &MF);
+//! let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &MF);
 //!
 //! // Power on returns ATR
 //! let rsp = sim.process(SimEvent::PowerOn);
@@ -57,6 +58,7 @@ use simrs_fs::DfDef;
 #[cfg(feature = "gsm")]
 use simrs_gsm::GsmApp;
 use simrs_iso7816::{Command, StatusWord, write_sw};
+use simrs_milenage::{AuthAlgorithm, MilenageParams};
 #[cfg(feature = "usim")]
 use simrs_usim::UsimApp;
 
@@ -86,6 +88,10 @@ const CLA_ETSI: u8 = 0x80;
 /// 1. `PowerOn` -- card activation, returns ATR
 /// 2. `Apdu` -- command exchange (repeats)
 /// 3. `Reset` -- warm reset, returns ATR, clears session state
+///
+/// The `Tick` variant is an extension for advancing UICC-side timers
+/// (per ETSI TS 102 223 clause 6.6.21). Since `no_std` has no clock,
+/// the caller supplies elapsed seconds.
 #[derive(Debug, Clone, Copy)]
 pub enum SimEvent<'a> {
     /// Card power-on (cold reset). Returns ATR.
@@ -94,6 +100,11 @@ pub enum SimEvent<'a> {
     Reset,
     /// APDU command (raw bytes, at least 4 for CLA INS P1 P2).
     Apdu(&'a [u8]),
+    /// Advance UICC-side proactive timers by `elapsed_secs`.
+    ///
+    /// Returns `Ignored` (timers are internal state). Check for expired
+    /// timers via `usim_app_mut().proactive_state().take_expired_timer()`.
+    Tick(u32),
 }
 
 /// A response produced by the SIM card.
@@ -149,19 +160,21 @@ enum CardState {
 ///
 /// Enable features `gsm` and/or `usim` to include the respective
 /// application layers. With no features, all APDUs return `6E 00`.
-pub struct Sim<const RSP_CAP: usize = 256> {
+pub struct Sim<A: AuthAlgorithm = MilenageParams, const RSP_CAP: usize = 256> {
     atr: &'static [u8],
     state: CardState,
     rsp_buf: [u8; RSP_CAP],
     #[cfg(feature = "gsm")]
     gsm: GsmApp,
     #[cfg(feature = "usim")]
-    usim: UsimApp,
+    usim: UsimApp<A>,
     #[cfg(not(any(feature = "gsm", feature = "usim")))]
     _mf: &'static DfDef,
+    #[cfg(not(feature = "usim"))]
+    _auth: core::marker::PhantomData<A>,
 }
 
-impl<const RSP_CAP: usize> Sim<RSP_CAP> {
+impl<A: AuthAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     // -- Constructors (one per feature combination) --
 
     /// Create a new SIM card (no application features enabled).
@@ -174,6 +187,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
             state: CardState::Off,
             rsp_buf: [0u8; RSP_CAP],
             _mf: mf,
+            _auth: core::marker::PhantomData,
         }
     }
 
@@ -185,60 +199,54 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
     ///
     /// Configure PINs via `sim.gsm_app_mut().pin_manager().add_pin(...)`.
     #[cfg(all(feature = "gsm", not(feature = "usim")))]
-    pub const fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
+    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
         Self {
             atr,
             state: CardState::Off,
             rsp_buf: [0u8; RSP_CAP],
             gsm: GsmApp::new(mf, simrs_gsm::Ki([0u8; 16])),
+            _auth: core::marker::PhantomData,
         }
     }
 
     /// Create a new SIM card with USIM application layer.
     ///
-    /// Milenage K/OPc are zero-initialized. Use [`usim_app_mut`](Self::usim_app_mut)
-    /// to replace the `UsimApp` with properly configured credentials
-    /// (e.g. `*sim.usim_app_mut() = UsimApp::new(mf, adfs, milenage)`).
+    /// Authentication parameters are zero-initialized. Use
+    /// [`usim_app_mut`](Self::usim_app_mut) to replace the `UsimApp` with
+    /// properly configured credentials
+    /// (e.g. `*sim.usim_app_mut() = UsimApp::new(mf, adfs, auth)`).
     ///
     /// Configure PINs via `sim.usim_app_mut().pin_manager().add_pin(...)`.
     #[cfg(all(feature = "usim", not(feature = "gsm")))]
-    pub const fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
+    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self
+    where
+        A: Default,
+    {
         Self {
             atr,
             state: CardState::Off,
             rsp_buf: [0u8; RSP_CAP],
-            usim: UsimApp::new(
-                mf,
-                &[],
-                simrs_milenage::MilenageParams::with_defaults(
-                    [0u8; 16],
-                    simrs_milenage::OpVariant::Opc([0u8; 16]),
-                ),
-            ),
+            usim: UsimApp::new(mf, &[], A::default()),
         }
     }
 
     /// Create a new SIM card with both GSM and USIM application layers.
     ///
-    /// Both Ki and Milenage K/OPc are zero-initialized.
+    /// Both Ki and authentication parameters are zero-initialized.
     /// Use [`gsm_app_mut`](Self::gsm_app_mut) and
     /// [`usim_app_mut`](Self::usim_app_mut) to replace the app layers with
     /// properly configured credentials before activating the card.
     #[cfg(all(feature = "gsm", feature = "usim"))]
-    pub const fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
+    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self
+    where
+        A: Default,
+    {
         Self {
             atr,
             state: CardState::Off,
             rsp_buf: [0u8; RSP_CAP],
             gsm: GsmApp::new(mf, simrs_gsm::Ki([0u8; 16])),
-            usim: UsimApp::new(
-                mf,
-                &[],
-                simrs_milenage::MilenageParams::with_defaults(
-                    [0u8; 16],
-                    simrs_milenage::OpVariant::Opc([0u8; 16]),
-                ),
-            ),
+            usim: UsimApp::new(mf, &[], A::default()),
         }
     }
 
@@ -260,11 +268,11 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
     ///
     /// Use this to replace the app with configured credentials:
     /// ```ignore
-    /// *sim.usim_app_mut() = UsimApp::new(mf, adfs, milenage);
+    /// *sim.usim_app_mut() = UsimApp::new(mf, adfs, auth);
     /// sim.usim_app_mut().pin_manager().add_pin(...);
     /// ```
     #[cfg(feature = "usim")]
-    pub const fn usim_app_mut(&mut self) -> &mut UsimApp {
+    pub const fn usim_app_mut(&mut self) -> &mut UsimApp<A> {
         &mut self.usim
     }
 
@@ -280,6 +288,9 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
     /// - `Apdu`: parses the command, routes by CLA byte, returns
     ///   [`SimResponse::Apdu`] or [`SimResponse::Ignored`] if malformed
     ///   or the card is not powered on.
+    /// - `Tick`: advances UICC-side proactive timers, returns
+    ///   [`SimResponse::Ignored`]. Check for expired timers via
+    ///   `usim_app_mut().proactive_state().take_expired_timer()`.
     pub fn process(&mut self, event: SimEvent<'_>) -> SimResponse<'_> {
         match event {
             SimEvent::PowerOn | SimEvent::Reset => {
@@ -292,6 +303,14 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
                     return SimResponse::Ignored;
                 }
                 self.handle_apdu(bytes)
+            }
+            #[allow(unused_variables)]
+            SimEvent::Tick(elapsed) => {
+                #[cfg(feature = "usim")]
+                {
+                    let _ = self.usim.tick(elapsed);
+                }
+                SimResponse::Ignored
             }
         }
     }
@@ -323,10 +342,13 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
 
     /// Snapshot buffer size in bytes.
     ///
-    /// Varies by enabled features: CardState(1) + GsmApp(159) + UsimApp(560).
+    /// Varies by enabled features: CardState(1) + GsmApp(415) +
+    /// UsimApp::\<A\>::SNAPSHOT\_SIZE (1186 for MilenageParams).
+    ///
+    /// With both features and MilenageParams: 1602 bytes total.
     pub const SNAPSHOT_SIZE: usize = 1
         + { #[cfg(feature = "gsm")] { GsmApp::SNAPSHOT_SIZE } #[cfg(not(feature = "gsm"))] { 0 } }
-        + { #[cfg(feature = "usim")] { UsimApp::SNAPSHOT_SIZE } #[cfg(not(feature = "usim"))] { 0 } };
+        + { #[cfg(feature = "usim")] { UsimApp::<A>::SNAPSHOT_SIZE } #[cfg(not(feature = "usim"))] { 0 } };
 
     /// Serialize the SIM state into `buf`.
     ///
@@ -384,7 +406,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
             if !self.usim.restore_state(&buf[off..]) {
                 return false;
             }
-            off += UsimApp::SNAPSHOT_SIZE;
+            off += UsimApp::<A>::SNAPSHOT_SIZE;
         }
         let _ = off;
         true
@@ -395,7 +417,7 @@ impl<const RSP_CAP: usize> Sim<RSP_CAP> {
         // SNAPSHOT_SIZE does not depend on RSP_CAP but the compiler cannot
         // prove that for generic const parameters, so use a concrete upper
         // bound and assert at runtime.
-        let mut buf = [0u8; 1024];
+        let mut buf = [0u8; 2048];
         let n = self.save_state(&mut buf);
         debug_assert_eq!(n, Self::SNAPSHOT_SIZE, "save_state wrote unexpected size");
         fnv1a(&buf[..n])
@@ -467,8 +489,9 @@ mod tests {
 
     #[cfg(feature = "usim")]
     use simrs_fs::AdfSlot;
+    use simrs_milenage::MilenageParams;
     #[cfg(feature = "usim")]
-    use simrs_milenage::{MilenageParams, OpVariant};
+    use simrs_milenage::OpVariant;
     #[cfg(any(feature = "gsm", feature = "usim"))]
     use simrs_pin::{PinKey, PinValue};
 
@@ -521,9 +544,9 @@ mod tests {
 
     // -- Test helper --
 
-    fn make_sim() -> Sim<256> {
+    fn make_sim() -> Sim<MilenageParams, 256> {
         #[allow(unused_mut)]
-        let mut sim = Sim::<256>::new(&ATR, &MF);
+        let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &MF);
 
         #[cfg(feature = "gsm")]
         {
@@ -911,9 +934,9 @@ mod tests {
     #[test]
     fn snapshot_save_writes_exact_size() {
         let sim = make_sim();
-        let mut buf = [0u8; 1024];
+        let mut buf = [0u8; 2048];
         let n = sim.save_state(&mut buf);
-        assert_eq!(n, Sim::<256>::SNAPSHOT_SIZE);
+        assert_eq!(n, Sim::<MilenageParams, 256>::SNAPSHOT_SIZE);
     }
 
     #[test]
@@ -921,9 +944,9 @@ mod tests {
         let mut sim = make_sim();
         let _ = sim.process(SimEvent::PowerOn);
 
-        let mut snap = [0u8; 1024];
+        let mut snap = [0u8; 2048];
         let n = sim.save_state(&mut snap);
-        assert_eq!(n, Sim::<256>::SNAPSHOT_SIZE);
+        assert_eq!(n, Sim::<MilenageParams, 256>::SNAPSHOT_SIZE);
 
         // Restore into a fresh sim.
         let mut restored = make_sim();
@@ -942,9 +965,9 @@ mod tests {
     #[test]
     fn snapshot_restore_off_state() {
         let sim = make_sim(); // never powered on -> Off state
-        let mut snap = [0u8; 1024];
+        let mut snap = [0u8; 2048];
         let n = sim.save_state(&mut snap);
-        assert_eq!(n, Sim::<256>::SNAPSHOT_SIZE);
+        assert_eq!(n, Sim::<MilenageParams, 256>::SNAPSHOT_SIZE);
 
         let mut restored = make_sim();
         let _ = restored.process(SimEvent::PowerOn); // make it Ready
@@ -985,13 +1008,55 @@ mod tests {
     #[test]
     fn snapshot_restore_invalid_card_state() {
         let sim = make_sim();
-        let mut snap = [0u8; 1024];
+        let mut snap = [0u8; 2048];
         let n = sim.save_state(&mut snap);
         assert!(n > 0);
         // Corrupt the card state byte.
         snap[0] = 0xFF;
         let mut sim2 = make_sim();
         assert!(!sim2.restore_state(&snap[..n]));
+    }
+
+    // -----------------------------------------------------------------------
+    // Tick
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn tick_before_power_on_returns_ignored() {
+        let mut sim = make_sim();
+        let rsp = sim.process(SimEvent::Tick(10));
+        assert!(matches!(rsp, SimResponse::Ignored));
+    }
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn tick_advances_proactive_timers() {
+        let mut sim = make_sim();
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // Start a 10-second timer on slot 1 via proactive state.
+        let bcd_10s = [0x00, 0x00, 0x10]; // BCD: 00h 00m 10s
+        assert!(sim
+            .usim_app_mut()
+            .proactive_state()
+            .start_timer(1, bcd_10s));
+
+        // Tick 5 seconds -- timer should still be active.
+        let rsp = sim.process(SimEvent::Tick(5));
+        assert!(matches!(rsp, SimResponse::Ignored));
+        assert!(sim
+            .usim_app_mut()
+            .proactive_state()
+            .get_timer_value(1)
+            .is_some());
+
+        // Tick 6 more seconds -- timer should expire (5+6 > 10).
+        let _ = sim.process(SimEvent::Tick(6));
+        let expired_id = sim
+            .usim_app_mut()
+            .proactive_state()
+            .take_expired_timer();
+        assert_eq!(expired_id, 1, "timer 1 should have expired");
     }
 
     // -----------------------------------------------------------------------

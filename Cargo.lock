@@ -402,7 +402,6 @@ version = "0.1.0"
 dependencies = [
  "simrs-fs",
  "simrs-hle",
- "simrs-sim",
 ]
 
 [[package]]
@@ -424,6 +423,7 @@ dependencies = [
  "simrs-gsm",
  "simrs-milenage",
  "simrs-sim",
+ "simrs-tuak",
  "simrs-usim",
 ]
 
@@ -433,6 +433,10 @@ version = "0.1.0"
 dependencies = [
  "proptest",
 ]
+
+[[package]]
+name = "simrs-keccak"
+version = "0.1.0"
 
 [[package]]
 name = "simrs-milenage"
@@ -515,6 +519,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-fs",
+ "simrs-milenage",
  "simrs-sim",
 ]
 
@@ -536,6 +541,14 @@ dependencies = [
 [[package]]
 name = "simrs-transport-virtio"
 version = "0.1.0"
+
+[[package]]
+name = "simrs-tuak"
+version = "0.1.0"
+dependencies = [
+ "simrs-keccak",
+ "simrs-milenage",
+]
 
 [[package]]
 name = "simrs-usim"

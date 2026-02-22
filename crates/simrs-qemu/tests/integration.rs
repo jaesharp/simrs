@@ -127,8 +127,8 @@ static PUK_VAL: [u8; 8] = [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38];
 // Sim-level helpers
 // ---------------------------------------------------------------------------
 
-fn make_sim() -> Sim<256> {
-    let mut sim = Sim::<256>::new(&ATR, &MF);
+fn make_sim() -> Sim<MilenageParams, 256> {
+    let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &MF);
 
     let gsm = sim.gsm_app_mut();
     *gsm = GsmApp::new(&MF, KI);
@@ -137,6 +137,7 @@ fn make_sim() -> Sim<256> {
     gsm.pin_manager()
         .add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true)
         .unwrap();
+    let _ = gsm.pin_manager().verify(PinKey::PIN1, &pin);
 
     let mil = MilenageParams::with_defaults(USIM_K, OpVariant::Opc(USIM_OPC));
     let usim = sim.usim_app_mut();
@@ -146,12 +147,13 @@ fn make_sim() -> Sim<256> {
     usim.pin_manager()
         .add_pin(PinKey::PIN1, &pin2, 3, &puk2, 10, true)
         .unwrap();
+    let _ = usim.pin_manager().verify(PinKey::PIN1, &pin2);
 
     sim
 }
 
 /// Send an APDU and return (sw1, sw2, data).
-fn send(sim: &mut Sim<256>, apdu: &[u8]) -> (u8, u8, Vec<u8>) {
+fn send(sim: &mut Sim<MilenageParams, 256>, apdu: &[u8]) -> (u8, u8, Vec<u8>) {
     match sim.process(SimEvent::Apdu(apdu)) {
         SimResponse::Apdu { data, sw1, sw2 } => (sw1, sw2, data.to_vec()),
         SimResponse::Ignored => panic!("APDU was ignored"),
