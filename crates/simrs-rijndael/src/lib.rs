@@ -1,7 +1,18 @@
-//! AES-128 (Rijndael) block cipher -- encryption only.
+//! AES-128 (Rijndael) block cipher -- encryption and decryption.
 //!
-//! Self-contained implementation with no heap allocation. Used exclusively as the
-//! underlying primitive for Milenage UMTS authentication.
+//! Self-contained implementation with no heap allocation. Used as the
+//! underlying primitive for Milenage UMTS authentication and OTA secured
+//! packet decoding.
+//!
+//! # Constant-time implementation
+//!
+//! All operations on secret data (S-box substitution, GF(2^8) multiplication)
+//! use constant-time primitives to prevent cache-timing side-channel attacks:
+//! - S-box / inverse S-box lookups use `ct_select`, which reads all 256
+//!   table entries and masks the result, making the memory access pattern
+//!   independent of the secret index byte.
+//! - `xtime` (multiplication by {02} in GF(2^8)) uses `ct_xtime`, a
+//!   branchless arithmetic computation with no table lookup.
 //!
 //! # Standards
 //! - NIST FIPS 197 -- Advanced Encryption Standard (AES)
@@ -30,6 +41,7 @@
 //!
 //! let rij = Rijndael::new(&key);
 //! assert_eq!(rij.encrypt(&input), expected);
+//! assert_eq!(rij.decrypt(&expected), input);
 //! ```
 #![no_std]
 #![deny(unsafe_code)]
@@ -61,26 +73,58 @@ const SBOX: [u8; 256] = [
     0x16,
 ];
 
-/// Multiplication by x (i.e., {02}) in GF(2^8) with irreducible polynomial
-/// x^8 + x^4 + x^3 + x + 1 (0x11B).
-/// NIST FIPS 197 clause 4.2.1.
-const XTIME: [u8; 256] = {
+/// AES inverse S-box substitution table.
+/// NIST FIPS 197 clause 5.3.2, Figure 14.
+/// Computed as the functional inverse of SBOX: for all i, `INV_SBOX[SBOX[i]] = i`.
+#[allow(clippy::cast_possible_truncation)]
+const INV_SBOX: [u8; 256] = {
     let mut table = [0u8; 256];
     let mut i = 0u16;
     while i < 256 {
-        #[allow(clippy::cast_possible_truncation)]
-        let b = i as u8;
-        // xtime(b) = b << 1 if high bit clear, else (b << 1) ^ 0x1B
-        table[i as usize] = (b << 1) ^ (if b & 0x80 != 0 { 0x1B } else { 0 });
+        table[SBOX[i as usize] as usize] = i as u8;
         i += 1;
     }
     table
 };
 
+/// Constant-time table lookup: selects `table[index]` by reading ALL 256
+/// entries and masking, so the memory access pattern is independent of `index`.
+///
+/// Prevents cache-timing side-channel attacks on S-box substitution.
+#[inline]
+#[allow(clippy::cast_possible_truncation)]
+const fn ct_select(table: &[u8; 256], index: u8) -> u8 {
+    let mut result = 0u8;
+    let mut i = 0u32;
+    while i < 256 {
+        let d = (i as u8) ^ index;
+        // d == 0 when i == index.
+        // (d | d.wrapping_neg()) >> 7 is 1 if d != 0, 0 if d == 0.
+        // Subtracting 1 gives 0xFF if d == 0 (match), 0x00 otherwise.
+        let mask = ((d | d.wrapping_neg()) >> 7).wrapping_sub(1);
+        result |= table[i as usize] & mask;
+        i += 1;
+    }
+    result
+}
+
+/// Branchless xtime: multiplication by {02} in GF(2^8) with irreducible
+/// polynomial x^8 + x^4 + x^3 + x + 1 (0x11B).
+///
+/// Equivalent to `XTIME[b]` but computed without table lookup, avoiding
+/// data-dependent memory access. Used for constant-time `MixColumns` and
+/// `InvMixColumns`.
+#[inline]
+const fn ct_xtime(b: u8) -> u8 {
+    // mask = 0xFF if high bit set, 0x00 otherwise (branchless)
+    let mask = ((b >> 7) & 1).wrapping_neg();
+    (b << 1) ^ (mask & 0x1B)
+}
+
 /// AES-128 (Rijndael) block cipher state.
 ///
 /// Holds the 11 expanded round keys derived from a 16-byte key.
-/// Supports encryption only (decryption is not needed for Milenage).
+/// Supports both encryption and decryption.
 ///
 /// # Standards
 /// - NIST FIPS 197 clause 5 -- Algorithm specification
@@ -122,10 +166,10 @@ impl Rijndael {
             let p = r - 1;
 
             // First column: RotWord + SubWord + Rcon
-            rk[r][0][0] = SBOX[rk[p][1][3] as usize] ^ rk[p][0][0] ^ round_const;
-            rk[r][1][0] = SBOX[rk[p][2][3] as usize] ^ rk[p][1][0];
-            rk[r][2][0] = SBOX[rk[p][3][3] as usize] ^ rk[p][2][0];
-            rk[r][3][0] = SBOX[rk[p][0][3] as usize] ^ rk[p][3][0];
+            rk[r][0][0] = ct_select(&SBOX, rk[p][1][3]) ^ rk[p][0][0] ^ round_const;
+            rk[r][1][0] = ct_select(&SBOX, rk[p][2][3]) ^ rk[p][1][0];
+            rk[r][2][0] = ct_select(&SBOX, rk[p][3][3]) ^ rk[p][2][0];
+            rk[r][3][0] = ct_select(&SBOX, rk[p][0][3]) ^ rk[p][3][0];
 
             // Remaining columns: XOR with previous
             let mut j = 0;
@@ -136,7 +180,7 @@ impl Rijndael {
                 j += 1;
             }
 
-            round_const = XTIME[round_const as usize];
+            round_const = ct_xtime(round_const);
             round += 1;
         }
 
@@ -194,6 +238,58 @@ impl Rijndael {
         output
     }
 
+    /// Decrypt a single 128-bit block.
+    ///
+    /// Performs the AES-128 inverse cipher (NIST FIPS 197 clause 5.3):
+    /// `AddRoundKey(10)`, then for rounds 9..=1: `InvShiftRows` +
+    /// `InvSubBytes` + `AddRoundKey` + `InvMixColumns`, then final
+    /// `InvShiftRows` + `InvSubBytes` + `AddRoundKey(0)`.
+    ///
+    /// # Example
+    /// ```
+    /// use simrs_rijndael::Rijndael;
+    /// let rij = Rijndael::new(&[0u8; 16]);
+    /// let pt = [0x42u8; 16];
+    /// assert_eq!(rij.decrypt(&rij.encrypt(&pt)), pt);
+    /// ```
+    pub const fn decrypt(&self, input: &[u8; 16]) -> [u8; 16] {
+        let mut state = [[0u8; 4]; 4];
+
+        // Load input into state array (column-major).
+        let mut i = 0;
+        while i < 16 {
+            state[i & 3][i >> 2] = input[i];
+            i += 1;
+        }
+
+        // Initial round key addition with round 10 key.
+        Self::key_add(&mut state, &self.round_keys[10]);
+
+        // Rounds 9..=1: InvShiftRows + InvSubBytes + AddRoundKey + InvMixColumns
+        let mut round = 9;
+        while round >= 1 {
+            Self::inv_shift_rows(&mut state);
+            Self::inv_sub_bytes(&mut state);
+            Self::key_add(&mut state, &self.round_keys[round]);
+            Self::inv_mix_columns(&mut state);
+            round -= 1;
+        }
+
+        // Final round: InvShiftRows + InvSubBytes + AddRoundKey(0)
+        Self::inv_shift_rows(&mut state);
+        Self::inv_sub_bytes(&mut state);
+        Self::key_add(&mut state, &self.round_keys[0]);
+
+        // Extract output from state array.
+        let mut output = [0u8; 16];
+        i = 0;
+        while i < 16 {
+            output[i] = state[i & 3][i >> 2];
+            i += 1;
+        }
+        output
+    }
+
     /// `AddRoundKey`: XOR state with round key.
     /// NIST FIPS 197 clause 5.1.4.
     #[inline]
@@ -209,7 +305,7 @@ impl Rijndael {
         }
     }
 
-    /// `SubBytes`: apply S-box to every byte of state.
+    /// `SubBytes`: apply S-box to every byte of state (constant-time).
     /// NIST FIPS 197 clause 5.1.1.
     #[inline]
     const fn byte_sub(state: &mut [[u8; 4]; 4]) {
@@ -217,7 +313,7 @@ impl Rijndael {
         while i < 4 {
             let mut j = 0;
             while j < 4 {
-                state[i][j] = SBOX[state[i][j] as usize];
+                state[i][j] = ct_select(&SBOX, state[i][j]);
                 j += 1;
             }
             i += 1;
@@ -264,10 +360,125 @@ impl Rijndael {
             let s3 = state[3][col];
             let t = s0 ^ s1 ^ s2 ^ s3;
 
-            state[0][col] ^= t ^ XTIME[(s0 ^ s1) as usize];
-            state[1][col] ^= t ^ XTIME[(s1 ^ s2) as usize];
-            state[2][col] ^= t ^ XTIME[(s2 ^ s3) as usize];
-            state[3][col] ^= t ^ XTIME[(s3 ^ s0) as usize];
+            state[0][col] ^= t ^ ct_xtime(s0 ^ s1);
+            state[1][col] ^= t ^ ct_xtime(s1 ^ s2);
+            state[2][col] ^= t ^ ct_xtime(s2 ^ s3);
+            state[3][col] ^= t ^ ct_xtime(s3 ^ s0);
+
+            col += 1;
+        }
+    }
+
+    /// `InvSubBytes`: apply inverse S-box to every byte of state (constant-time).
+    /// NIST FIPS 197 clause 5.3.2.
+    #[inline]
+    const fn inv_sub_bytes(state: &mut [[u8; 4]; 4]) {
+        let mut i = 0;
+        while i < 4 {
+            let mut j = 0;
+            while j < 4 {
+                state[i][j] = ct_select(&INV_SBOX, state[i][j]);
+                j += 1;
+            }
+            i += 1;
+        }
+    }
+
+    /// `InvShiftRows`: cyclically right-shift rows by 0, 1, 2, 3 positions.
+    /// NIST FIPS 197 clause 5.3.1.
+    #[inline]
+    const fn inv_shift_rows(state: &mut [[u8; 4]; 4]) {
+        // Row 0: no shift
+        // Row 1: right rotate by 1
+        let t = state[1][3];
+        state[1][3] = state[1][2];
+        state[1][2] = state[1][1];
+        state[1][1] = state[1][0];
+        state[1][0] = t;
+
+        // Row 2: right rotate by 2 (swap pairs)
+        let t0 = state[2][0];
+        let t1 = state[2][1];
+        state[2][0] = state[2][2];
+        state[2][1] = state[2][3];
+        state[2][2] = t0;
+        state[2][3] = t1;
+
+        // Row 3: right rotate by 3 (= left rotate by 1)
+        let t = state[3][0];
+        state[3][0] = state[3][1];
+        state[3][1] = state[3][2];
+        state[3][2] = state[3][3];
+        state[3][3] = t;
+    }
+
+    /// Multiply by {09} in GF(2^8) (constant-time).
+    /// 9 = 8 + 1, so `mul_by_9(b) = xtime(xtime(xtime(b))) ^ b`.
+    #[inline]
+    const fn mul_by_9(b: u8) -> u8 {
+        let x2 = ct_xtime(b);
+        let x4 = ct_xtime(x2);
+        let x8 = ct_xtime(x4);
+        x8 ^ b
+    }
+
+    /// Multiply by {0B} in GF(2^8) (constant-time).
+    /// 11 = 8 + 2 + 1, so `mul_by_11(b) = xtime(xtime(xtime(b))) ^ xtime(b) ^ b`.
+    #[inline]
+    const fn mul_by_11(b: u8) -> u8 {
+        let x2 = ct_xtime(b);
+        let x4 = ct_xtime(x2);
+        let x8 = ct_xtime(x4);
+        x8 ^ x2 ^ b
+    }
+
+    /// Multiply by {0D} in GF(2^8) (constant-time).
+    /// 13 = 8 + 4 + 1, so `mul_by_13(b) = xtime(xtime(xtime(b))) ^ xtime(xtime(b)) ^ b`.
+    #[inline]
+    const fn mul_by_13(b: u8) -> u8 {
+        let x2 = ct_xtime(b);
+        let x4 = ct_xtime(x2);
+        let x8 = ct_xtime(x4);
+        x8 ^ x4 ^ b
+    }
+
+    /// Multiply by {0E} in GF(2^8) (constant-time).
+    /// 14 = 8 + 4 + 2, so `mul_by_14(b) = xtime(xtime(xtime(b))) ^ xtime(xtime(b)) ^ xtime(b)`.
+    #[inline]
+    const fn mul_by_14(b: u8) -> u8 {
+        let x2 = ct_xtime(b);
+        let x4 = ct_xtime(x2);
+        let x8 = ct_xtime(x4);
+        x8 ^ x4 ^ x2
+    }
+
+    /// `InvMixColumns`: multiply each column by the inverse MDS matrix in GF(2^8).
+    /// NIST FIPS 197 clause 5.3.3.
+    ///
+    /// The inverse MDS matrix is:
+    /// ```text
+    /// [0E 0B 0D 09]
+    /// [09 0E 0B 0D]
+    /// [0D 09 0E 0B]
+    /// [0B 0D 09 0E]
+    /// ```
+    #[inline]
+    const fn inv_mix_columns(state: &mut [[u8; 4]; 4]) {
+        let mut col = 0;
+        while col < 4 {
+            let s0 = state[0][col];
+            let s1 = state[1][col];
+            let s2 = state[2][col];
+            let s3 = state[3][col];
+
+            state[0][col] =
+                Self::mul_by_14(s0) ^ Self::mul_by_11(s1) ^ Self::mul_by_13(s2) ^ Self::mul_by_9(s3);
+            state[1][col] =
+                Self::mul_by_9(s0) ^ Self::mul_by_14(s1) ^ Self::mul_by_11(s2) ^ Self::mul_by_13(s3);
+            state[2][col] =
+                Self::mul_by_13(s0) ^ Self::mul_by_9(s1) ^ Self::mul_by_14(s2) ^ Self::mul_by_11(s3);
+            state[3][col] =
+                Self::mul_by_11(s0) ^ Self::mul_by_13(s1) ^ Self::mul_by_9(s2) ^ Self::mul_by_14(s3);
 
             col += 1;
         }
@@ -377,14 +588,171 @@ mod tests {
         assert_ne!(ct, [0u8; 16]);
     }
 
-    /// Verify XTIME table matches the xtime function definition.
+    /// Verify `ct_xtime` matches the GF(2^8) xtime formula for all 256 inputs.
+    /// xtime(b) = (b << 1) XOR 0x1B if high bit set, per FIPS 197 clause 4.2.1.
     #[test]
     #[allow(clippy::cast_possible_truncation)]
-    fn xtime_table_correctness() {
+    fn ct_xtime_all_values() {
         for i in 0u16..256 {
             let b = i as u8;
             let expected = (b << 1) ^ (if b & 0x80 != 0 { 0x1B } else { 0 });
-            assert_eq!(XTIME[i as usize], expected, "xtime mismatch at {i}");
+            assert_eq!(ct_xtime(b), expected, "ct_xtime({b:#04X}) mismatch");
         }
+    }
+
+    /// Verify `ct_select` returns the correct table element for all indices.
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn ct_select_correctness() {
+        // Verify against SBOX for all 256 indices
+        for i in 0u16..256 {
+            let b = i as u8;
+            assert_eq!(
+                ct_select(&SBOX, b), SBOX[b as usize],
+                "ct_select(SBOX, {b:#04X}) mismatch"
+            );
+        }
+        // Verify against INV_SBOX for all 256 indices
+        for i in 0u16..256 {
+            let b = i as u8;
+            assert_eq!(
+                ct_select(&INV_SBOX, b), INV_SBOX[b as usize],
+                "ct_select(INV_SBOX, {b:#04X}) mismatch"
+            );
+        }
+    }
+
+    /// Verify `INV_SBOX` is the functional inverse of SBOX.
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn inv_sbox_is_inverse_of_sbox() {
+        for i in 0u16..256 {
+            let b = i as u8;
+            assert_eq!(
+                INV_SBOX[SBOX[b as usize] as usize], b,
+                "INV_SBOX[SBOX[{b:#04X}]] != {b:#04X}"
+            );
+            assert_eq!(
+                SBOX[INV_SBOX[b as usize] as usize], b,
+                "SBOX[INV_SBOX[{b:#04X}]] != {b:#04X}"
+            );
+        }
+    }
+
+    /// NIST FIPS 197 Appendix B decryption: decrypt the known ciphertext
+    /// and verify it matches the original plaintext.
+    #[test]
+    fn fips197_appendix_b_decrypt() {
+        let key = [
+            0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
+            0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C,
+        ];
+        let plaintext = [
+            0x32, 0x43, 0xF6, 0xA8, 0x88, 0x5A, 0x30, 0x8D,
+            0x31, 0x31, 0x98, 0xA2, 0xE0, 0x37, 0x07, 0x34,
+        ];
+        let ciphertext = [
+            0x39, 0x25, 0x84, 0x1D, 0x02, 0xDC, 0x09, 0xFB,
+            0xDC, 0x11, 0x85, 0x97, 0x19, 0x6A, 0x0B, 0x32,
+        ];
+
+        let rij = Rijndael::new(&key);
+        assert_eq!(rij.decrypt(&ciphertext), plaintext);
+    }
+
+    /// NIST SP 800-38A Section F.1.2: AES-128 ECB decryption test vector.
+    /// Uses the same key/plaintext/ciphertext as the encryption test.
+    #[test]
+    fn nist_sp800_38a_ecb_block1_decrypt() {
+        let key = [
+            0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
+            0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C,
+        ];
+        let plaintext = [
+            0x6B, 0xC1, 0xBE, 0xE2, 0x2E, 0x40, 0x9F, 0x96,
+            0xE9, 0x3D, 0x7E, 0x11, 0x73, 0x93, 0x17, 0x2A,
+        ];
+        let ciphertext = [
+            0x3A, 0xD7, 0x7B, 0xB4, 0x0D, 0x7A, 0x36, 0x60,
+            0xA8, 0x9E, 0xCA, 0xF3, 0x24, 0x66, 0xEF, 0x97,
+        ];
+
+        let rij = Rijndael::new(&key);
+        assert_eq!(rij.decrypt(&ciphertext), plaintext);
+    }
+
+    /// Round-trip: encrypt then decrypt recovers original plaintext.
+    /// Uses three non-trivial key/plaintext pairs with no identity or zero elements.
+    #[test]
+    fn round_trip_encrypt_decrypt() {
+        // Pair 1: FIPS 197 Appendix B key with arbitrary plaintext
+        let key1 = [
+            0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
+            0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C,
+        ];
+        let pt1 = [
+            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+        ];
+        let r1 = Rijndael::new(&key1);
+        assert_eq!(r1.decrypt(&r1.encrypt(&pt1)), pt1);
+
+        // Pair 2: different key and plaintext with irrational-like byte patterns
+        let key2 = [
+            0x31, 0x41, 0x59, 0x26, 0x53, 0x58, 0x97, 0x93,
+            0x23, 0x84, 0x62, 0x64, 0x33, 0x83, 0x27, 0x95,
+        ];
+        let pt2 = [
+            0x27, 0x18, 0x28, 0x18, 0x28, 0x45, 0x90, 0x45,
+            0x23, 0x53, 0x60, 0x28, 0x74, 0x71, 0x35, 0x26,
+        ];
+        let r2 = Rijndael::new(&key2);
+        assert_eq!(r2.decrypt(&r2.encrypt(&pt2)), pt2);
+
+        // Pair 3: all-high-bit pattern
+        let key3 = [
+            0xA5, 0x5A, 0xC3, 0x3C, 0x96, 0x69, 0xF0, 0x0F,
+            0x71, 0x8E, 0xD4, 0x2B, 0xE3, 0x1C, 0xB7, 0x48,
+        ];
+        let pt3 = [
+            0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88,
+            0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00,
+        ];
+        let r3 = Rijndael::new(&key3);
+        assert_eq!(r3.decrypt(&r3.encrypt(&pt3)), pt3);
+    }
+
+    /// Anti-theater: decrypt(ciphertext) must not equal ciphertext for
+    /// non-trivial inputs. This guards against an identity/no-op implementation.
+    #[test]
+    fn decrypt_is_not_identity() {
+        let key = [
+            0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
+            0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C,
+        ];
+        let ciphertext = [
+            0x39, 0x25, 0x84, 0x1D, 0x02, 0xDC, 0x09, 0xFB,
+            0xDC, 0x11, 0x85, 0x97, 0x19, 0x6A, 0x0B, 0x32,
+        ];
+
+        let rij = Rijndael::new(&key);
+        let decrypted = rij.decrypt(&ciphertext);
+        assert_ne!(
+            decrypted, ciphertext,
+            "decrypt must not be the identity function"
+        );
+    }
+
+    /// Zero key decryption: AES-128(key=0, ct) round-trip.
+    /// Verifies decrypt inverts encrypt even for the zero key.
+    #[test]
+    fn zero_key_round_trip() {
+        let rij = Rijndael::new(&[0u8; 16]);
+        let ct = [
+            0x66, 0xE9, 0x4B, 0xD4, 0xEF, 0x8A, 0x2C, 0x3B,
+            0x88, 0x4C, 0xFA, 0x59, 0xCA, 0x34, 0x2B, 0x2E,
+        ];
+        // This is AES-128(0...0, 0...0) from the zero_key_zero_input_not_zero test.
+        assert_eq!(rij.decrypt(&ct), [0u8; 16]);
     }
 }

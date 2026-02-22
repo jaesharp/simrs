@@ -804,7 +804,7 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
 
     // Byte 13: EF structure.
     out[13] = match ef.structure {
-        EfStructure::Transparent => EF_STRUCTURE_TRANSPARENT,
+        EfStructure::Transparent | EfStructure::BerTlv => EF_STRUCTURE_TRANSPARENT,
         EfStructure::LinearFixed { .. } => EF_STRUCTURE_LINEAR_FIXED,
         EfStructure::Cyclic { .. } => EF_STRUCTURE_CYCLIC,
     };
@@ -813,7 +813,7 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
     out[14] = match ef.structure {
         EfStructure::LinearFixed { record_size, .. }
         | EfStructure::Cyclic { record_size, .. } => record_size,
-        EfStructure::Transparent => 0x00,
+        EfStructure::Transparent | EfStructure::BerTlv => 0x00,
     };
 }
 

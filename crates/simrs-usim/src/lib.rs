@@ -80,6 +80,7 @@ const FD_DF: u8 = 0x78;
 const FD_TRANSPARENT: u8 = 0x41;
 const FD_LINEAR_FIXED: u8 = 0x42;
 const FD_CYCLIC: u8 = 0x46;
+const FD_BER_TLV: u8 = 0x39;
 const DATA_CODING_BER_TLV: u8 = 0x21;
 
 // ETSI TS 102 221 clause 11.1.1.4.9: Life cycle status.
@@ -1467,13 +1468,38 @@ impl<A: AuthAlgorithm> UsimApp<A> {
 
     // -- ENVELOPE --
 
+    /// Envelope tag: SMS-PP Data Download (ETSI TS 102 223 clause 7.1).
+    const ENV_TAG_SMS_PP_DOWNLOAD: u8 = 0xD1;
+    /// Envelope tag: Call Control by USIM (ETSI TS 102 223 clause 7.3).
+    const ENV_TAG_CALL_CONTROL: u8 = 0xD4;
+
     fn handle_envelope<'buf>(
         &mut self,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        self.proactive.process_envelope(cmd.data());
-        write_sw(buf, StatusWord::Success)
+        let data = cmd.data();
+
+        // Determine envelope type from the outer BER-TLV tag byte.
+        let tag = data.first().copied().unwrap_or(0x00);
+
+        match tag {
+            Self::ENV_TAG_SMS_PP_DOWNLOAD => {
+                // SMS-PP Data Download: accept and pass to proactive state.
+                self.proactive.process_envelope(data);
+                write_sw(buf, StatusWord::Success)
+            }
+            Self::ENV_TAG_CALL_CONTROL => {
+                // Call Control by USIM: allowed without modification.
+                write_sw(buf, StatusWord::Success)
+            }
+            _ => {
+                // Menu Selection (D3), Event Download (D6), and all other
+                // tags: pass to proactive state for processing.
+                self.proactive.process_envelope(data);
+                write_sw(buf, StatusWord::Success)
+            }
+        }
     }
 }
 
@@ -1586,6 +1612,9 @@ fn write_fcp_ef(
                 fcp::FILE_DESCRIPTOR,
                 &[FD_CYCLIC, DATA_CODING_BER_TLV, num_records, rec_be[0], rec_be[1]],
             )?;
+        }
+        EfStructure::BerTlv => {
+            enc.tag_length_value(fcp::FILE_DESCRIPTOR, &[FD_BER_TLV, DATA_CODING_BER_TLV])?;
         }
     }
 
@@ -2703,6 +2732,49 @@ mod tests {
             event,
             Some(simrs_proactive::EnvelopeEvent::MenuSelection { item_id: 0x02 })
         );
+    }
+
+    #[test]
+    fn envelope_sms_pp_download_accepted() {
+        let mut app = app();
+        // SMS-PP Data Download envelope: tag D1, length 4, then some inner TLVs.
+        let apdu = [
+            0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
+            0x06,                     // Lc = 6 bytes of data
+            0xD1, 0x04,               // SMS-PP Download tag + length
+            0x82, 0x02, 0x83, 0x81,  // Device Identities: network -> UICC
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn envelope_call_control_allowed() {
+        let mut app = app();
+        // Call Control envelope: tag D4, length 4, then some inner TLVs.
+        let apdu = [
+            0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
+            0x06,                     // Lc = 6 bytes of data
+            0xD4, 0x04,               // Call Control tag + length
+            0x82, 0x02, 0x83, 0x81,  // Device Identities
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        // Call Control: allowed without modification returns 90 00.
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn envelope_unknown_tag_accepted() {
+        let mut app = app();
+        // Unknown envelope tag (0xE0) -- should be accepted silently.
+        let apdu = [
+            0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
+            0x04,                     // Lc = 4 bytes of data
+            0xE0, 0x02,               // Unknown tag + length
+            0x01, 0x02,               // Arbitrary data
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
 
     #[test]

@@ -189,6 +189,12 @@ pub enum EfStructure {
         /// Total number of records.
         num_records: u8,
     },
+    /// BER-TLV structured EF per ETSI TS 102 221 clause 8.3.
+    ///
+    /// Data is accessed by tag rather than byte offset or record number.
+    /// For basic filesystem operations (read/write binary), this behaves
+    /// like a transparent EF over the raw data buffer.
+    BerTlv,
 }
 
 /// Definition of an Elementary File (EF).
@@ -590,7 +596,7 @@ impl<const CAP: usize> FsData<CAP> {
         offset: u16,
         len: u16,
     ) -> Result<&[u8], FsError> {
-        if !matches!(ef.structure, EfStructure::Transparent) {
+        if !matches!(ef.structure, EfStructure::Transparent | EfStructure::BerTlv) {
             return Err(FsError::NotTransparent);
         }
         let (entry_off, entry_len) = self.find_entry(ef).ok_or(FsError::FileNotFound)?;
@@ -621,7 +627,7 @@ impl<const CAP: usize> FsData<CAP> {
                 record_size,
                 num_records,
             } => (record_size, num_records),
-            EfStructure::Transparent => return Err(FsError::NotRecordBased),
+            EfStructure::Transparent | EfStructure::BerTlv => return Err(FsError::NotRecordBased),
         };
         if num == 0 || num > num_records {
             return Err(FsError::RecordOutOfRange);
@@ -652,7 +658,7 @@ impl<const CAP: usize> FsData<CAP> {
         offset: u16,
         data: &[u8],
     ) -> Result<(), FsError> {
-        if !matches!(ef.structure, EfStructure::Transparent) {
+        if !matches!(ef.structure, EfStructure::Transparent | EfStructure::BerTlv) {
             return Err(FsError::NotTransparent);
         }
         let (entry_off, entry_len) =
@@ -692,7 +698,7 @@ impl<const CAP: usize> FsData<CAP> {
                 record_size,
                 num_records,
             } => (record_size, num_records),
-            EfStructure::Transparent => return Err(FsError::NotRecordBased),
+            EfStructure::Transparent | EfStructure::BerTlv => return Err(FsError::NotRecordBased),
         };
         if num == 0 || num > num_records {
             return Err(FsError::RecordOutOfRange);
@@ -730,6 +736,7 @@ impl<const CAP: usize> FsData<CAP> {
         let record_size = match ef.structure {
             EfStructure::Cyclic { record_size, .. } => record_size,
             EfStructure::Transparent
+            | EfStructure::BerTlv
             | EfStructure::LinearFixed { .. } => return Err(FsError::NotRecordBased),
         };
         let rs = record_size as usize;
@@ -789,7 +796,7 @@ impl<const CAP: usize> FsData<CAP> {
         let (record_size, num_records) = match ef.structure {
             EfStructure::LinearFixed { record_size, num_records }
             | EfStructure::Cyclic { record_size, num_records } => (record_size, num_records),
-            EfStructure::Transparent => return Err(FsError::NotRecordBased),
+            EfStructure::Transparent | EfStructure::BerTlv => return Err(FsError::NotRecordBased),
         };
         let (entry_off, _entry_len) = self.find_entry(ef).ok_or(FsError::FileNotFound)?;
         let rs = record_size as usize;
@@ -1032,7 +1039,7 @@ impl SelectionCtx {
     #[allow(clippy::cast_possible_truncation)]
     pub fn read_binary(&self, offset: u16, len: u16) -> Result<&'static [u8], FsError> {
         let ef = self.cur_ef.ok_or(FsError::NoEfSelected)?;
-        if !matches!(ef.structure, EfStructure::Transparent) {
+        if !matches!(ef.structure, EfStructure::Transparent | EfStructure::BerTlv) {
             return Err(FsError::NotTransparent);
         }
         let start = offset as usize;
@@ -1063,7 +1070,7 @@ impl SelectionCtx {
                 record_size,
                 num_records,
             } => (record_size, num_records),
-            EfStructure::Transparent => return Err(FsError::NotRecordBased),
+            EfStructure::Transparent | EfStructure::BerTlv => return Err(FsError::NotRecordBased),
         };
         if num == 0 || num > num_records {
             return Err(FsError::RecordOutOfRange);
@@ -2489,6 +2496,72 @@ mod fsdata_tests {
         s.write_binary(&EF_A, 0, &[0x11, 0x22]).unwrap();
         assert_eq!(s.read_binary(&EF_A, 0, 2).unwrap(), &[0x11, 0x22]);
         assert_eq!(s.read_binary(&EF_B, 0, 2).unwrap(), &[0xCC, 0xDD]);
+    }
+
+    // -- BER-TLV EF structure --
+
+    #[test]
+    fn ber_tlv_ef_can_be_created() {
+        static EF_BT: EfDef = EfDef {
+            fid: Fid(0x6F42),
+            sfi: None,
+            structure: EfStructure::BerTlv,
+            data: &[0xC0, 0x03, 0x01, 0x02, 0x03],
+        };
+        assert!(matches!(EF_BT.structure, EfStructure::BerTlv));
+        assert_eq!(EF_BT.fid, Fid(0x6F42));
+    }
+
+    #[test]
+    fn ber_tlv_ef_supports_binary_read_write() {
+        static EF_BT: EfDef = EfDef {
+            fid: Fid(0x6F42),
+            sfi: None,
+            structure: EfStructure::BerTlv,
+            data: &[0xC0, 0x03, 0x01, 0x02, 0x03],
+        };
+        static BT_MF: DfDef = DfDef {
+            fid: Fid(0x3F00),
+            children: &[FileRef::Ef(&EF_BT)],
+        };
+
+        let mut s = FsData::<64>::new();
+        s.init(&BT_MF).unwrap();
+
+        // BER-TLV EFs support binary read (like transparent).
+        let data = s.read_binary(&EF_BT, 0, 5).unwrap();
+        assert_eq!(data, &[0xC0, 0x03, 0x01, 0x02, 0x03]);
+
+        // Binary write also works.
+        s.write_binary(&EF_BT, 0, &[0xD1, 0x02, 0xAA, 0xBB, 0xCC]).unwrap();
+        assert_eq!(
+            s.read_binary(&EF_BT, 0, 5).unwrap(),
+            &[0xD1, 0x02, 0xAA, 0xBB, 0xCC]
+        );
+    }
+
+    #[test]
+    fn ber_tlv_ef_rejects_record_operations() {
+        static EF_BT: EfDef = EfDef {
+            fid: Fid(0x6F42),
+            sfi: None,
+            structure: EfStructure::BerTlv,
+            data: &[0xC0, 0x03, 0x01, 0x02, 0x03],
+        };
+        static BT_MF: DfDef = DfDef {
+            fid: Fid(0x3F00),
+            children: &[FileRef::Ef(&EF_BT)],
+        };
+
+        let mut s = FsData::<64>::new();
+        s.init(&BT_MF).unwrap();
+
+        assert_eq!(s.read_record(&EF_BT, 1), Err(FsError::NotRecordBased));
+        assert_eq!(
+            s.write_record(&EF_BT, 1, &[0x00, 0x00, 0x00, 0x00, 0x00]),
+            Err(FsError::NotRecordBased)
+        );
+        assert_eq!(s.increase(&EF_BT, &[0x01]), Err(FsError::NotRecordBased));
     }
 }
 
