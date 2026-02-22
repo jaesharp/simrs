@@ -1,6 +1,6 @@
 # simrs Crate Index
 
-> 25 crates. Pure `no_std` (where marked). Zero external runtime dependencies.
+> 28 crates. Pure `no_std` (where marked). Zero external runtime dependencies.
 > Port of [swsim](https://github.com/nicktool/SIMurai) to Rust for bare-metal SIM/USIM simulation and Shannon baseband fuzzing.
 >
 > Colours follow the [Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
@@ -9,10 +9,12 @@
 
 ```mermaid
 graph TB
-    subgraph meta_layer ["Meta / Fuzzing"]
+    subgraph meta_layer ["Meta / Fuzzing / Tools"]
         FUZZ["simrs-fuzz<br/><i>APDU mutator + fuzz loop</i>"]
         HLE["simrs-hle<br/><i>C-ABI cdylib for QEMU</i>"]
         SNAP["simrs-snapshot<br/><i>Snapshot trait</i>"]
+        INTER["simrs-interposer<br/><i>shadow SIM proxy</i>"]
+        AUTH["simrs-auth-cli<br/><i>Milenage auth CLI</i>"]
     end
 
     subgraph boundary_layer ["Boundary / External Interface"]
@@ -51,15 +53,21 @@ graph TB
         RIJ["simrs-rijndael<br/><i>AES-128</i>"]
         C128["simrs-comp128<br/><i>A3/A8 GSM</i>"]
         KEC["simrs-keccak<br/><i>Keccak-f[1600] permutation</i>"]
+        PCAP["simrs-pcap<br/><i>PCAP + GSMTAP encode</i>"]
     end
 
-    %% Meta -> Application
+    %% Meta -> Application / Composition
     FUZZ ==> HLE
     FUZZ --> SNAP
+    FUZZ --> PCAP
     HLE ==> SIM
     HLE ==> TUAK
     HLE --> SNAP
     SNAP --> SIM
+    INTER --> SIM
+    INTER --> TCP
+    INTER --> PCAP
+    AUTH --> MIL
 
     %% Boundary -> Application
     QEMU --> SIM
@@ -112,14 +120,14 @@ graph TB
     classDef meta_std fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
     classDef entry fill:#E69F00,stroke:#333,color:#000,stroke-width:3px
 
-    class ISO,BER,RIJ,C128,KEC foundation
+    class ISO,BER,RIJ,C128,KEC,PCAP foundation
     class MIL,TUAK,FS,PIN,PRO,OTA composition
     class GSM,USIM application
     class SIM entry
     class TR,SHM,VIO,PERI,SHAN boundary
     class TCP,OSEM,QEMU boundary_std
     class SNAP meta
-    class HLE,FUZZ meta_std
+    class HLE,FUZZ,INTER,AUTH meta_std
 ```
 
 **Legend:** Solid border = `no_std`. Dashed border = requires `std`. Thick border = primary entry point. Heavy arrows (`==>`) = hot path. Dotted arrows (`-.->`) = feature-gated.
@@ -133,6 +141,7 @@ graph TB
 | [`simrs-rijndael`](crates/simrs-rijndael/) | Foundation | yes | AES-128 block cipher (encrypt only, `const fn` key sched) | -- | [API](docs/architecture.md#simrs-rijndael) |
 | [`simrs-comp128`](crates/simrs-comp128/) | Foundation | yes | `COMP128v1` GSM A3/A8 authentication | -- | [API](docs/architecture.md#simrs-comp128) |
 | [`simrs-keccak`](crates/simrs-keccak/) | Foundation | yes | Keccak-f[1600] permutation for TUAK | -- | [API](docs/architecture.md#simrs-keccak) |
+| [`simrs-pcap`](crates/simrs-pcap/) | Foundation | yes | PCAP file + GSMTAP SIM frame encoding | -- | [API](docs/architecture.md#simrs-pcap) |
 | [`simrs-milenage`](crates/simrs-milenage/) | Composition | yes | Milenage f1--f5 UMTS authentication | [rijndael](crates/simrs-rijndael/) | [API](docs/architecture.md#simrs-milenage) |
 | [`simrs-tuak`](crates/simrs-tuak/) | Composition | yes | TUAK f1--f5 3GPP auth (Keccak-based) | [keccak](crates/simrs-keccak/), [milenage](crates/simrs-milenage/) | [API](docs/architecture.md#simrs-tuak) |
 | [`simrs-fs`](crates/simrs-fs/) | Composition | yes | ICC filesystem model (MF/DF/ADF/EF), `const` trees | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-fs) |
@@ -152,7 +161,9 @@ graph TB
 | [`simrs-qemu`](crates/simrs-qemu/) | Boundary | **no** | QEMU virtual smart card bridge (shmem + chardev) | [sim](crates/simrs-sim/), [shmem](crates/simrs-transport-shmem/) | [API](docs/architecture.md#simrs-qemu) |
 | [`simrs-snapshot`](crates/simrs-snapshot/) | Meta | yes | Deterministic state serialization (`Snapshot` trait) | [sim](crates/simrs-sim/) | [API](docs/architecture.md#simrs-snapshot) |
 | [`simrs-hle`](crates/simrs-hle/) | Meta | **no** | HLE SIM peripheral, C-ABI `cdylib` for QEMU | [sim](crates/simrs-sim/), [snapshot](crates/simrs-snapshot/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-hle) |
-| [`simrs-fuzz`](crates/simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](crates/simrs-hle/), [snapshot](crates/simrs-snapshot/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-fuzz) |
+| [`simrs-fuzz`](crates/simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](crates/simrs-hle/), [snapshot](crates/simrs-snapshot/), [iso7816](crates/simrs-iso7816/), [pcap](crates/simrs-pcap/) | [API](docs/architecture.md#simrs-fuzz) |
+| [`simrs-interposer`](crates/simrs-interposer/) | Meta | **no** | Shadow SIM proxy, APDU interposer with PCAP capture | [sim](crates/simrs-sim/), [transport-tcp](crates/simrs-transport-tcp/), [pcap](crates/simrs-pcap/) | [API](docs/architecture.md#simrs-interposer) |
+| [`simrs-auth-cli`](crates/simrs-auth-cli/) | Meta | **no** | Milenage auth vector CLI for LTE/UMTS test tools | [milenage](crates/simrs-milenage/) | -- |
 
 ^opt^ = optional feature gate
 
@@ -177,9 +188,12 @@ graph TB
 | 3GPP TS 23.038 | [proactive](crates/simrs-proactive/) | GSM 7-bit default alphabet |
 | ETSI TS 102 225 | [ota](crates/simrs-ota/) | Secured packet structure (OTA) |
 | ETSI TS 102 226 | [ota](crates/simrs-ota/) | Remote APDU structure (OTA) |
+| libpcap file format | [pcap](crates/simrs-pcap/) | Classic pcap global/record headers |
+| GSMTAP (Osmocom) | [pcap](crates/simrs-pcap/) | GSMTAP SIM frame headers (LINKTYPE 2342) |
 
 ## Further Reading
 
 - **[Architecture & API Reference](docs/architecture.md)** -- full public API surface, Mermaid sequence diagrams
 - **[Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md)** -- Okabe-Ito palette, semantic colour mapping, WCAG compliance
 - **[Standards Map](docs/standards/README.md)** -- 4G/5G/GSM standards mapped to crates, generation coverage
+- **[Wireshark Lua Dissector](tools/simrs-apdu.lua)** -- DLT_USER0 APDU dissector for PCAP captures; GSMTAP captures use Wireshark's built-in `gsmtap` dissector

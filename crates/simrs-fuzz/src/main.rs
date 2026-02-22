@@ -4,10 +4,14 @@
 //! Runs entirely in-process via simrs-hle (no QEMU required).
 //!
 //! Configurable via `SIMRS_FUZZ_ITERS` env var (default 100,000).
+//! Set `SIMRS_FUZZ_PCAP=path` to write interesting APDU sequences to a PCAP file.
 
 use simrs_fs::{DfDef, EfDef, EfStructure, Fid, FileRef, Sfi};
 use simrs_hle::{hle_apdu, hle_init, hle_init_tuak, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_snapshot_size, hle_state_hash, hle_tick, Ki};
+use simrs_pcap::{Direction, LinkType, PcapEncoder};
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::Write;
 
 // ---------------------------------------------------------------------------
 // Test filesystem
@@ -232,6 +236,41 @@ impl Corpus {
 }
 
 // ---------------------------------------------------------------------------
+// PCAP writer
+// ---------------------------------------------------------------------------
+
+/// Optional PCAP file writer for recording interesting APDU sequences.
+struct PcapWriter {
+    file: std::io::BufWriter<File>,
+    encoder: PcapEncoder,
+    ts_sec: u32,
+}
+
+impl PcapWriter {
+    fn create(path: &str) -> std::io::Result<Self> {
+        let mut file = std::io::BufWriter::new(File::create(path)?);
+        let encoder = PcapEncoder::new(LinkType::GsmTap);
+        let mut hdr = [0u8; 64];
+        let n = encoder.global_header(&mut hdr);
+        file.write_all(&hdr[..n])?;
+        Ok(Self { file, encoder, ts_sec: 0 })
+    }
+
+    fn record_apdu(&mut self, direction: Direction, apdu: &[u8]) -> std::io::Result<()> {
+        let mut buf = [0u8; 512];
+        let n = self.encoder.encode_apdu(&mut buf, self.ts_sec, 0, direction, apdu);
+        if n > 0 {
+            self.file.write_all(&buf[..n])?;
+        }
+        Ok(())
+    }
+
+    const fn advance_time(&mut self) {
+        self.ts_sec += 1;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -243,6 +282,14 @@ fn main() {
 
     let use_tuak = std::env::var("SIMRS_FUZZ_AUTH")
         .is_ok_and(|s| s.eq_ignore_ascii_case("tuak"));
+
+    let pcap_path = std::env::var("SIMRS_FUZZ_PCAP").ok();
+    let mut pcap = pcap_path.as_deref().map(|p| {
+        PcapWriter::create(p).unwrap_or_else(|e| {
+            eprintln!("[simrs-fuzz] failed to create PCAP file: {e}");
+            std::process::exit(1);
+        })
+    });
 
     if use_tuak {
         eprintln!("[simrs-fuzz] initializing SIM (TUAK)...");
@@ -277,6 +324,9 @@ fn main() {
         // Generate/mutate an APDU sequence.
         let seq_len = 1 + rng.range(seq_len_max);
         let mut combined_hash: u64 = 0;
+        let mut last_apdu_len: usize = 0;
+        let mut last_rsp_full = [0u8; 263]; // data + sw1 + sw2
+        let mut last_rsp_full_len: usize = 0;
 
         for _ in 0..seq_len {
             let apdu_len = if rng.next().is_multiple_of(2) {
@@ -286,7 +336,18 @@ fn main() {
                 mutate_apdu(&mut rng, &mut apdu_buf, base_len)
             };
 
-            let _ = hle_apdu(&apdu_buf[..apdu_len], &mut rsp_buf);
+            let rsp_result = hle_apdu(&apdu_buf[..apdu_len], &mut rsp_buf);
+
+            // Track the last command and response for PCAP recording.
+            last_apdu_len = apdu_len;
+            if let Some((data_len, sw1, sw2)) = rsp_result {
+                last_rsp_full[..data_len].copy_from_slice(&rsp_buf[..data_len]);
+                last_rsp_full[data_len] = sw1;
+                last_rsp_full[data_len + 1] = sw2;
+                last_rsp_full_len = data_len + 2;
+            } else {
+                last_rsp_full_len = 0;
+            }
 
             // Hash the APDU for sequence tracking.
             combined_hash = combined_hash.wrapping_add(fnv1a(&apdu_buf[..apdu_len]));
@@ -299,9 +360,19 @@ fn main() {
 
         // Collect state hash after the sequence, combined with APDU path hash.
         let state_hash = hle_state_hash();
-        if state_hash != 0 {
-            corpus.is_new(state_hash.wrapping_add(combined_hash));
+        if state_hash != 0 && corpus.is_new(state_hash.wrapping_add(combined_hash)) {
+            if let Some(ref mut pcap) = pcap {
+                let _ = pcap.record_apdu(Direction::Command, &apdu_buf[..last_apdu_len]);
+                if last_rsp_full_len > 0 {
+                    let _ = pcap.record_apdu(Direction::Response, &last_rsp_full[..last_rsp_full_len]);
+                }
+                pcap.advance_time();
+            }
         }
+    }
+
+    if let Some(ref mut pcap) = pcap {
+        let _ = pcap.file.flush();
     }
 
     eprintln!(
@@ -309,6 +380,9 @@ fn main() {
         corpus.seen.len(),
         corpus.interesting,
     );
+    if pcap_path.is_some() {
+        eprintln!("[simrs-fuzz] PCAP written to {}", pcap_path.as_deref().unwrap());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -428,5 +502,26 @@ mod tests {
         }
         // Known sequences guarantee at least 2 distinct states (base + selected file).
         assert!(corpus.interesting >= 2, "expected diverse states, got {}", corpus.interesting);
+    }
+
+    #[test]
+    fn smoke_test_pcap_output() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("simrs_fuzz_test.pcap");
+        let path_str = path.to_str().unwrap();
+
+        let mut pcap = PcapWriter::create(path_str).unwrap();
+        let apdu = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+        pcap.record_apdu(Direction::Command, &apdu).unwrap();
+        pcap.record_apdu(Direction::Response, &[0x90, 0x00]).unwrap();
+        pcap.file.flush().unwrap();
+
+        // Verify file starts with PCAP magic (little-endian).
+        let data = std::fs::read(&path).unwrap();
+        assert!(data.len() > 24, "PCAP file too small");
+        assert_eq!(&data[..4], &[0xd4, 0xc3, 0xb2, 0xa1]);
+
+        // Clean up.
+        let _ = std::fs::remove_file(&path);
     }
 }

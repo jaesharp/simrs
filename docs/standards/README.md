@@ -103,7 +103,7 @@ graph LR
 | 5G NR NSA | EPS-AKA (via LTE anchor) | `simrs-usim` | No 5G-specific USIM changes needed |
 | 5G NR SA | 5G-AKA / EAP-AKA' | Future: `simrs-usim` + DF_5GS EFs | USIM-side identical; ME-side key derivation new |
 
-## Protocol Coverage (Tiers 5--5.5)
+## Protocol Coverage (Tiers 5--6)
 
 APDU-level protocol features implemented in `simrs-sim`, `simrs-usim`, and `simrs-gsm`:
 
@@ -127,3 +127,6 @@ APDU-level protocol features implemented in `simrs-sim`, `simrs-usim`, and `simr
 | PIN1 access control enforcement | ETSI TS 102 221 | 9.5.1 | `simrs-usim`, `simrs-gsm` |
 | GSM 7-bit alphabet pack/unpack | 3GPP TS 23.038 | 6.2.1 | `simrs-proactive` |
 | Proactive session lifecycle | ETSI TS 102 223 | 6.4 | `simrs-usim` |
+| PCAP APDU capture (GSMTAP + DLT_USER0) | libpcap / GSMTAP | -- | `simrs-pcap` |
+| Shadow SIM / APDU interposer | -- | -- | `simrs-interposer` |
+| Milenage auth vector CLI | ETSI TS 135 206 | 4 | `simrs-auth-cli` |

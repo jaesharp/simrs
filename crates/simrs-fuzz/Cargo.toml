@@ -15,6 +15,7 @@ default = []
 [dependencies]
 simrs-hle      = { workspace = true }
 simrs-fs       = { workspace = true }
+simrs-pcap     = { workspace = true }
 
 [dev-dependencies]
 
