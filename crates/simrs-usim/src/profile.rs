@@ -2120,10 +2120,7 @@ const _: () = simrs_fs::assert_fids_unique(&[
 ]);
 
 // -- profile-standard children (no profile-full): minimal + standard EFs --
-#[cfg(all(
-    any(feature = "profile-standard", not(feature = "profile-minimal")),
-    not(feature = "profile-full"),
-))]
+#[cfg(all(feature = "profile-standard", not(feature = "profile-full")))]
 static ADF_USIM_CHILDREN: [FileRef; 36] = [
     // -- minimal --
     FileRef::Ef(&EF_IMSI),
@@ -2166,10 +2163,7 @@ static ADF_USIM_CHILDREN: [FileRef; 36] = [
     FileRef::Df(&DF_5GS),
 ];
 
-#[cfg(all(
-    any(feature = "profile-standard", not(feature = "profile-minimal")),
-    not(feature = "profile-full"),
-))]
+#[cfg(all(feature = "profile-standard", not(feature = "profile-full")))]
 const _: () = simrs_fs::assert_fids_unique(&[
     // -- minimal --
     0x6F07, // EF_IMSI
@@ -2213,11 +2207,8 @@ const _: () = simrs_fs::assert_fids_unique(&[
 ]);
 
 // -- profile-minimal children (no standard/full): minimal EFs only --------
-#[cfg(all(
-    feature = "profile-minimal",
-    not(feature = "profile-standard"),
-    not(feature = "profile-full"),
-))]
+// Also the fallback when no profile feature is enabled (default-features = false).
+#[cfg(not(any(feature = "profile-standard", feature = "profile-full")))]
 static ADF_USIM_CHILDREN: [FileRef; 11] = [
     FileRef::Ef(&EF_IMSI),
     FileRef::Ef(&EF_AD),
@@ -2232,11 +2223,7 @@ static ADF_USIM_CHILDREN: [FileRef; 11] = [
     FileRef::Df(&DF_5GS),
 ];
 
-#[cfg(all(
-    feature = "profile-minimal",
-    not(feature = "profile-standard"),
-    not(feature = "profile-full"),
-))]
+#[cfg(not(any(feature = "profile-standard", feature = "profile-full")))]
 const _: () = simrs_fs::assert_fids_unique(&[
     0x6F07, // EF_IMSI
     0x6FAD, // EF_AD

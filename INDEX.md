@@ -1,6 +1,6 @@
 # simrs Crate Index
 
-> 28 crates, 1393 tests, zero clippy/doc warnings. Pure `no_std` (where marked). Zero external runtime dependencies.
+> 29 crates, 1371 tests, zero clippy/doc warnings. Pure `no_std` (where marked). Zero external runtime dependencies.
 > Port of [swsim](https://github.com/nicktool/SIMurai) to Rust for bare-metal SIM/USIM simulation and Shannon baseband fuzzing.
 >
 > Colours follow the [Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
@@ -15,6 +15,7 @@ graph TB
         SNAP["simrs-snapshot<br/><i>Snapshot trait</i>"]
         INTER["simrs-interposer<br/><i>shadow SIM proxy</i>"]
         AUTH["simrs-auth-cli<br/><i>Milenage auth CLI</i>"]
+        PROF["simrs-profile<br/><i>TCA DER parser</i>"]
     end
 
     subgraph boundary_layer ["Boundary / External Interface"]
@@ -68,6 +69,12 @@ graph TB
     INTER --> TCP
     INTER --> PCAP
     AUTH --> MIL
+    HLE --> PROF
+    PROF --> FS
+    PROF --> PIN
+    PROF --> MIL
+    PROF --> TUAK
+    PROF --> GSM
 
     %% Boundary -> Application
     QEMU --> SIM
@@ -127,7 +134,7 @@ graph TB
     class TR,SHM,VIO,PERI,SHAN boundary
     class TCP,OSEM,QEMU boundary_std
     class SNAP meta
-    class HLE,FUZZ,INTER,AUTH meta_std
+    class HLE,FUZZ,INTER,AUTH,PROF meta_std
 ```
 
 **Legend:** Solid border = `no_std`. Dashed border = requires `std`. Thick border = primary entry point. Heavy arrows (`==>`) = hot path. Dotted arrows (`-.->`) = feature-gated.
@@ -164,6 +171,7 @@ graph TB
 | [`simrs-fuzz`](crates/simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](crates/simrs-hle/), [fs](crates/simrs-fs/), [pcap](crates/simrs-pcap/) | [API](docs/architecture.md#simrs-fuzz) |
 | [`simrs-interposer`](crates/simrs-interposer/) | Meta | **no** | Shadow SIM proxy, APDU interposer with PCAP capture | [sim](crates/simrs-sim/), [transport-tcp](crates/simrs-transport-tcp/), [pcap](crates/simrs-pcap/) | [API](docs/architecture.md#simrs-interposer) |
 | [`simrs-auth-cli`](crates/simrs-auth-cli/) | Meta | **no** | Milenage auth vector CLI for LTE/UMTS test tools | [milenage](crates/simrs-milenage/) | -- |
+| [`simrs-profile`](crates/simrs-profile/) | Meta | **no** | TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem) | [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [milenage](crates/simrs-milenage/), [tuak](crates/simrs-tuak/), [gsm](crates/simrs-gsm/), `der` | [API](docs/architecture.md#simrs-profile) |
 
 ^opt^ = optional feature gate
 
@@ -192,6 +200,9 @@ graph TB
 | ETSI TS 102 226 | [ota](crates/simrs-ota/) | Remote APDU structure (OTA) |
 | libpcap file format | [pcap](crates/simrs-pcap/) | Classic pcap global/record headers |
 | GSMTAP (Osmocom) | [pcap](crates/simrs-pcap/) | GSMTAP SIM frame headers (LINKTYPE 2342) |
+| TCA eUICC Profile Package v3.3.1 | [profile](crates/simrs-profile/) | Profile Element parsing, DER-to-filesystem |
+| GSMA SGP.22 v2.6 | [profile](crates/simrs-profile/) | UPP format reference |
+| GSMA TS.48 v1.0 | [profile](crates/simrs-profile/) | Generic test profile fixtures |
 
 ## Further Reading
 

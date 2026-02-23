@@ -31,6 +31,7 @@ members = [
     "crates/simrs-interposer",
     "crates/simrs-auth-cli",
     "crates/simrs-consttime-validation",
+    "crates/simrs-profile",
 ]
 resolver = "2"
 
@@ -72,11 +73,13 @@ simrs-ota                 = { path = "crates/simrs-ota",                 default
 simrs-pcap                = { path = "crates/simrs-pcap",                default-features = false }
 simrs-interposer          = { path = "crates/simrs-interposer" }
 simrs-consttime-validation = { path = "crates/simrs-consttime-validation" }
+simrs-profile              = { path = "crates/simrs-profile" }
 
 # simrs-auth-cli is intentionally absent above -- binary crate, no library target.
 
 # External dependencies
 clap       = { version = "4", features = ["derive"] }
+der        = { version = "0.8", features = ["alloc", "derive", "oid"] }
 getrandom  = "0.2"
 
 # External test/dev dependencies -- tests run on host (std always available)

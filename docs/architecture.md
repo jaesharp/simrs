@@ -43,10 +43,12 @@
 - [Layer 8 — CLI Tools](#layer-8--cli-tools)
   - [`simrs-auth-cli`](#simrs-auth-cli)
   - [`simrs-consttime-validation`](#simrs-consttime-validation)
+- [Layer 9 — Profile Tooling](#layer-9--profile-tooling)
+  - [`simrs-profile`](#simrs-profile)
 - [Data Flows](#data-flows)
 - [Standards Reference](#standards-reference)
 
-**31 crates** | **1337 tests** | zero clippy/doc warnings
+**32 crates** | **1371 tests** | zero clippy/doc warnings
 
 ---
 
@@ -114,6 +116,7 @@ graph TD
     %% CLI (Mauve, std)
     AUTH[simrs-auth-cli]
     CTV[simrs-consttime-validation]
+    PROF[simrs-profile]
 
     CT  --> CTM
     MIL --> RIJ
@@ -169,6 +172,12 @@ graph TD
     FUZZ    --> SNAP
     FUZZ    --> ISO
     AUTH    --> MIL
+    PROF    --> FS
+    PROF    --> PIN
+    PROF    --> MIL
+    PROF    --> TUAK
+    PROF    --> GSM
+    HLE     --> PROF
 
     %% Per DIAGRAM_STYLE_GUIDE.md
     classDef foundation fill:#0072B2,stroke:#333,color:#fff
@@ -187,7 +196,7 @@ graph TD
     class TR,TR_SHM,TR_VIO,PERI,SHAN boundary
     class TR_TCP,OSEM,QEMU,INTERP boundary_std
     class SNAP meta
-    class HLE,FUZZ,AUTH,CTV meta_std
+    class HLE,FUZZ,AUTH,CTV,PROF meta_std
 ```
 
 **Legend:** Solid border = `no_std`. Dashed = requires `std`. Thick = entry point. `==>` = hot path. `-.->` = feature-gated.
@@ -997,6 +1006,42 @@ Binary crate (`simrs-auth`). Milenage authentication vector CLI for LTE/UMTS tes
 **Deps:** `getrandom`
 
 DudeCT timing verification utilities. Used as a dev-dependency by `simrs-consttime`, `simrs-tuak`, and `simrs-ota` to validate constant-time properties of cryptographic implementations.
+
+---
+
+## Layer 9 — Profile Tooling
+
+### `simrs-profile`
+
+**Standards:** TCA eUICC Profile Package v3.3.1, GSMA SGP.22 v2.6 (UPP format), ETSI TS 102 221 (FCP descriptor)
+
+**Deps:** [`simrs-fs`](#simrs-fs), [`simrs-pin`](#simrs-pin), [`simrs-milenage`](#simrs-milenage), [`simrs-tuak`](#simrs-tuak), [`simrs-gsm`](#simrs-gsm), `der` (RustCrypto)
+
+Library crate (requires `std`). Parses DER-encoded TCA eUICC Profile Packages into simrs filesystem trees. This is the bridge between the eSIM provisioning ecosystem and simrs simulation.
+
+Uses `Box::leak` to convert heap-allocated parse results into the `&'static` references required by `FsData::init_with_adfs()`.
+
+```rust
+pub fn load_profile(der_bytes: &[u8]) -> Result<ProfileConfig, ProfileError>;
+
+pub struct ProfileConfig {
+    pub iccid: Vec<u8>,
+    pub mf: &'static DfDef,
+    pub adf_table: &'static [AdfSlot],
+    pub auth: AuthConfig,
+    pub pins: Vec<PinConfig>,
+    pub puks: Vec<PukConfig>,
+    pub atr: &'static [u8],
+}
+
+pub enum AuthConfig {
+    Milenage { k: [u8; 16], opc: [u8; 16] },
+    Tuak { k: [u8; 16], topc: [u8; 32] },
+    None,
+}
+```
+
+PE types parsed: Header (0), PINCodes (2), PUKCodes (3), AKAParameter (4), End (10), MF (16), USIM (19). Unknown PEs are silently skipped for forward compatibility with newer TCA spec versions.
 
 ---
 

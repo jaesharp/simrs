@@ -33,6 +33,7 @@ What 4G-LTE and 5G-NR support means for each simrs crate.
 | [simrs-consttime-macros](../../crates/simrs-consttime-macros/) | None | None | None | -- |
 | [simrs-consttime-validation](../../crates/simrs-consttime-validation/) | None | None | None | -- |
 | [simrs-transport-tcp](../../crates/simrs-transport-tcp/) | No change | No change | No change | -- |
+| [simrs-profile](../../crates/simrs-profile/) | Synthesizes all other crates | Synthesizes all other crates | Synthesizes all other crates | Done |
 
 ---
 

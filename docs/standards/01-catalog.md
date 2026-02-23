@@ -66,6 +66,15 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 | ETSI TS 102 241 | UICC API for Java Card | V17.5.0 | -- | N/A |
 | GlobalPlatform v2.3.1 | Card spec (applet lifecycle) | -- | -- | N/A |
 
+## eSIM / Profile Provisioning
+
+| Spec | Title | Version | simrs Crate | Notes |
+|------|-------|---------|-------------|-------|
+| TCA eUICC Profile Package | Interoperability Technical Specification | v3.3.1 | [profile](../../crates/simrs-profile/) | DER ASN.1 profile format, PE parsing |
+| GSMA SGP.22 | RSP Technical Specification (consumer eSIM) | v2.6 | [profile](../../crates/simrs-profile/) | UPP format reference |
+| GSMA SGP.32 | IoT RSP Technical Specification | v1.2 | -- | IoT eSIM architecture (reference only) |
+| GSMA TS.48 | Generic Test Profile | v1.0 | [profile](../../crates/simrs-profile/) | Test profile fixtures |
+
 ## GSM Legacy
 
 | Spec | Title | Version | simrs Crate |

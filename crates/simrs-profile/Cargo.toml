@@ -1,0 +1,16 @@
+[package]
+name        = "simrs-profile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem)"
+
+[dependencies]
+simrs-fs       = { workspace = true }
+der            = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

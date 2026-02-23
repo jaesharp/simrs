@@ -19,6 +19,7 @@ simrs-milenage = { workspace = true }
 simrs-tuak     = { workspace = true }
 simrs-gsm      = { workspace = true }
 simrs-usim     = { workspace = true }
+simrs-profile  = { workspace = true }
 
 [dev-dependencies]
 

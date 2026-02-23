@@ -36,6 +36,7 @@
 use core::cell::RefCell;
 use simrs_fs::{AdfSlot, DfDef};
 use simrs_milenage::{MilenageParams, OpVariant};
+use simrs_profile::{AuthConfig, ProfileConfig};
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_tuak::{TopVariant, TuakParams};
 
@@ -177,6 +178,50 @@ pub fn hle_init_tuak_with_adf(
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
     });
+}
+
+/// Initialize the thread-local SIM from a parsed [`ProfileConfig`].
+///
+/// Dispatches to [`hle_init_with_adf`] or [`hle_init_tuak_with_adf`]
+/// based on the authentication algorithm in the profile. The `Ki` for
+/// the GSM app layer is derived from the first 16 bytes of the auth key.
+///
+/// If the profile has `AuthConfig::None`, a zeroed Milenage configuration
+/// is used as a fallback.
+pub fn hle_init_from_profile(config: &ProfileConfig) {
+    match &config.auth {
+        AuthConfig::Milenage { k, opc } => {
+            hle_init_with_adf(
+                config.atr,
+                config.mf,
+                Ki(*k),
+                *k,
+                *opc,
+                config.adf_table,
+            );
+        }
+        AuthConfig::Tuak { k, topc } => {
+            hle_init_tuak_with_adf(
+                config.atr,
+                config.mf,
+                Ki(*k),
+                *k,
+                *topc,
+                config.adf_table,
+            );
+        }
+        AuthConfig::None => {
+            // No auth parameters -- use zeroed Milenage as fallback.
+            hle_init_with_adf(
+                config.atr,
+                config.mf,
+                Ki([0u8; 16]),
+                [0u8; 16],
+                [0u8; 16],
+                config.adf_table,
+            );
+        }
+    }
 }
 
 /// Reset the SIM to power-on state.
