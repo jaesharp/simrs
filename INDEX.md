@@ -1,6 +1,6 @@
 # simrs Crate Index
 
-> 29 crates, 1371 tests, zero clippy/doc warnings. Pure `no_std` (where marked). Zero external runtime dependencies.
+> 32 crates, 1371 tests, zero clippy/doc warnings. Pure `no_std` (where marked). Zero external runtime dependencies.
 > Port of [swsim](https://github.com/nicktool/SIMurai) to Rust for bare-metal SIM/USIM simulation and Shannon baseband fuzzing.
 >
 > Colours follow the [Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).

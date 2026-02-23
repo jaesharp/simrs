@@ -236,6 +236,22 @@ impl MutableTree {
         Ok(MutableChild::Df(MutableDf { fid, children }))
     }
 
+    /// Split a tagged file list into root DF (tag `[2]`) and child files
+    /// (tags `[3]`+), build a `MutableChild::Df`.
+    fn split_and_build_sub_df(
+        files: &[(u8, File)],
+    ) -> Result<MutableChild, ProfileError> {
+        let root_file = files.iter()
+            .find(|(tag, _)| *tag == 2)
+            .map(|(_, f)| f)
+            .ok_or(ProfileError::MissingRequiredFile(2))?;
+        let child_files: Vec<_> = files.iter()
+            .filter(|(tag, _)| *tag > 2)
+            .cloned()
+            .collect();
+        Self::build_sub_df(root_file, &child_files)
+    }
+
     /// Apply PE-TELECOM: create DF.TELECOM under MF.
     ///
     /// # Errors
@@ -245,17 +261,7 @@ impl MutableTree {
         &mut self,
         pe: &crate::pe::telecom::PeTelecom,
     ) -> Result<(), ProfileError> {
-        // Tag [2] is the DF.TELECOM root; remaining tags are child EFs.
-        let root_file = pe.files.iter()
-            .find(|(tag, _)| *tag == 2)
-            .map(|(_, f)| f)
-            .ok_or(ProfileError::MissingRequiredFile(2))?;
-        let child_files: Vec<_> = pe.files.iter()
-            .filter(|(tag, _)| *tag > 2)
-            .cloned()
-            .collect();
-
-        let sub_df = Self::build_sub_df(root_file, &child_files)?;
+        let sub_df = Self::split_and_build_sub_df(&pe.files)?;
         self.mf_children()?.push(sub_df);
         Ok(())
     }
@@ -286,21 +292,16 @@ impl MutableTree {
         &mut self,
         pe: &crate::pe::isim::PeIsim,
     ) -> Result<(), ProfileError> {
-        let mut children = Vec::new();
-
-        // Tag [2] is the ADF.ISIM directory. Tags [3]+ are EFs.
         let adf_file = pe.files.iter()
             .find(|(tag, _)| *tag == 2)
             .map(|(_, f)| f)
             .ok_or(ProfileError::MissingRequiredFile(2))?;
 
-        for (tag, file) in &pe.files {
-            if *tag > 2 {
-                if let Some(ef) = Self::file_to_ef(file)? {
-                    children.push(MutableChild::Ef(ef));
-                }
-            }
-        }
+        let child_files: Vec<_> = pe.files.iter()
+            .filter(|(tag, _)| *tag > 2)
+            .cloned()
+            .collect();
+        let children = Self::files_to_ef_children(&child_files)?;
 
         // Extract AID from ADF FCP.
         let aid = adf_file
@@ -342,6 +343,16 @@ impl MutableTree {
         Ok(())
     }
 
+    /// Apply a sub-DF PE under ADF.USIM. Silently skips if ADF.USIM
+    /// doesn't exist yet (PE ordering edge case).
+    fn apply_usim_sub_df(&mut self, files: &[(u8, File)]) -> Result<(), ProfileError> {
+        let sub_df = Self::split_and_build_sub_df(files)?;
+        if let Some(children) = self.adf_children(&USIM_AID_PREFIX) {
+            children.push(sub_df);
+        }
+        Ok(())
+    }
+
     /// Apply PE-GSM-ACCESS: create DF.GSM-ACCESS as sub-DF under ADF.USIM.
     ///
     /// # Errors
@@ -351,20 +362,7 @@ impl MutableTree {
         &mut self,
         pe: &crate::pe::gsm_access::PeGsmAccess,
     ) -> Result<(), ProfileError> {
-        let root_file = pe.files.iter()
-            .find(|(tag, _)| *tag == 2)
-            .map(|(_, f)| f)
-            .ok_or(ProfileError::MissingRequiredFile(2))?;
-        let child_files: Vec<_> = pe.files.iter()
-            .filter(|(tag, _)| *tag > 2)
-            .cloned()
-            .collect();
-
-        let sub_df = Self::build_sub_df(root_file, &child_files)?;
-        if let Some(children) = self.adf_children(&USIM_AID_PREFIX) {
-            children.push(sub_df);
-        }
-        Ok(())
+        self.apply_usim_sub_df(&pe.files)
     }
 
     /// Apply PE-DF-5GS: create DF.5GS as sub-DF under ADF.USIM.
@@ -376,20 +374,7 @@ impl MutableTree {
         &mut self,
         pe: &crate::pe::df_5gs::PeDf5gs,
     ) -> Result<(), ProfileError> {
-        let root_file = pe.files.iter()
-            .find(|(tag, _)| *tag == 2)
-            .map(|(_, f)| f)
-            .ok_or(ProfileError::MissingRequiredFile(2))?;
-        let child_files: Vec<_> = pe.files.iter()
-            .filter(|(tag, _)| *tag > 2)
-            .cloned()
-            .collect();
-
-        let sub_df = Self::build_sub_df(root_file, &child_files)?;
-        if let Some(children) = self.adf_children(&USIM_AID_PREFIX) {
-            children.push(sub_df);
-        }
-        Ok(())
+        self.apply_usim_sub_df(&pe.files)
     }
 
     /// Apply PE-DF-SAIP: create DF.SAIP as sub-DF under ADF.USIM.
@@ -401,20 +386,7 @@ impl MutableTree {
         &mut self,
         pe: &crate::pe::df_saip::PeDfSaip,
     ) -> Result<(), ProfileError> {
-        let root_file = pe.files.iter()
-            .find(|(tag, _)| *tag == 2)
-            .map(|(_, f)| f)
-            .ok_or(ProfileError::MissingRequiredFile(2))?;
-        let child_files: Vec<_> = pe.files.iter()
-            .filter(|(tag, _)| *tag > 2)
-            .cloned()
-            .collect();
-
-        let sub_df = Self::build_sub_df(root_file, &child_files)?;
-        if let Some(children) = self.adf_children(&USIM_AID_PREFIX) {
-            children.push(sub_df);
-        }
-        Ok(())
+        self.apply_usim_sub_df(&pe.files)
     }
 
     /// Apply PE-GFM: navigate tree by path and create/modify files.

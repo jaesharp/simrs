@@ -79,7 +79,6 @@ simrs-profile              = { path = "crates/simrs-profile" }
 
 # External dependencies
 clap       = { version = "4", features = ["derive"] }
-der        = { version = "0.8", features = ["alloc", "derive", "oid"] }
 getrandom  = "0.2"
 
 # External test/dev dependencies -- tests run on host (std always available)

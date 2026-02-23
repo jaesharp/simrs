@@ -5,8 +5,6 @@ use simrs_fs::Fid;
 /// Errors from profile parsing and conversion.
 #[derive(Debug)]
 pub enum ProfileError {
-    /// DER decoding error.
-    Der(der::Error),
     /// Profile header missing or not the first element.
     MissingHeader,
     /// PE-MF element missing (required).
@@ -57,22 +55,13 @@ pub enum ProfileError {
     InvalidTag(u8),
     /// File descriptor too short.
     FileDescriptorTooShort,
-    /// File size missing for transparent/BER-TLV EF.
-    MissingFileSize,
     /// A required file field is absent from a structurally complete PE.
     MissingRequiredFile(u8),
-}
-
-impl From<der::Error> for ProfileError {
-    fn from(e: der::Error) -> Self {
-        Self::Der(e)
-    }
 }
 
 impl core::fmt::Display for ProfileError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Der(e) => write!(f, "DER decode error: {e}"),
             Self::MissingHeader => write!(f, "profile header missing"),
             Self::MissingMf => write!(f, "PE-MF element missing"),
             Self::MissingAkaParameter => write!(f, "PE-AKAParameter missing"),
@@ -115,9 +104,6 @@ impl core::fmt::Display for ProfileError {
             Self::Truncated => write!(f, "truncated DER data"),
             Self::InvalidTag(t) => write!(f, "invalid tag: 0x{t:02X}"),
             Self::FileDescriptorTooShort => write!(f, "file descriptor too short"),
-            Self::MissingFileSize => {
-                write!(f, "file size missing for transparent/BER-TLV EF")
-            }
             Self::MissingRequiredFile(tag) => {
                 write!(f, "required file at tag [{tag}] is absent from PE")
             }
@@ -125,11 +111,4 @@ impl core::fmt::Display for ProfileError {
     }
 }
 
-impl std::error::Error for ProfileError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Der(e) => Some(e),
-            _ => None,
-        }
-    }
-}
+impl std::error::Error for ProfileError {}

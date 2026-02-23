@@ -7,7 +7,6 @@ description = "TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem)"
 
 [dependencies]
 simrs-fs       = { workspace = true }
-der            = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
