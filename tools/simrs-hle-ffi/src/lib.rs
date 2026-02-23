@@ -1,0 +1,267 @@
+//! C-ABI wrapper for simrs-hle.
+//!
+//! Provides `extern "C"` functions that can be loaded via `ctypes.CDLL` from
+//! Python (FirmWire's SimrsPeripheral) or any C/C++ host.
+//!
+//! This crate lives outside the simrs workspace because the workspace enforces
+//! `unsafe_code = "forbid"`, and C-ABI exports require raw pointer dereference.
+//!
+//! # Thread safety
+//!
+//! simrs-hle uses thread-local storage internally. Each OS thread gets its own
+//! independent SIM instance. The caller must ensure that all calls for a given
+//! SIM session happen on the same thread (which is the natural case for QEMU's
+//! single-threaded vCPU loop).
+
+use simrs_gsm::Ki;
+use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
+
+/// ATR matching the swsim/SIMurai reference card.
+///
+/// This 4-byte ATR is intentionally incomplete per ISO/IEC 7816-3 encoding
+/// rules (T0=0x9F would declare TA1+TD1 present and 15 historical bytes).
+/// However, the Shannon firmware's USIM driver treats the ATR as opaque
+/// bytes delivered via the peripheral's IRQ-driven byte-pump and does NOT
+/// parse the T0/TA1/historical structure itself. The driver transitions
+/// from WAIT_FOR_ATR to PPS once the peripheral stops raising RXTIDE
+/// interrupts (see USIMPeripheral.write_atr_byte). Therefore this compact
+/// ATR works reliably in practice and matches the SIMurai swsim reference.
+static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
+
+// ---------------------------------------------------------------------------
+// Initialization
+// ---------------------------------------------------------------------------
+
+/// Initialize the SIM with Milenage authentication.
+///
+/// `ki`, `k`, `opc` must each point to exactly 16 bytes.
+/// Uses the standard USIM profile filesystem and reference ATR.
+///
+/// # Safety
+///
+/// All three pointers must be valid, aligned, and point to at least 16 bytes.
+#[no_mangle]
+pub unsafe extern "C" fn simrs_init(
+    ki: *const u8,
+    k: *const u8,
+    opc: *const u8,
+) {
+    let ki_arr: [u8; 16] = core::slice::from_raw_parts(ki, 16).try_into().unwrap();
+    let k_arr: [u8; 16] = core::slice::from_raw_parts(k, 16).try_into().unwrap();
+    let opc_arr: [u8; 16] = core::slice::from_raw_parts(opc, 16).try_into().unwrap();
+
+    simrs_hle::hle_init_with_adf(
+        &ATR,
+        &REFERENCE_MF,
+        Ki(ki_arr),
+        k_arr,
+        opc_arr,
+        &ADF_TABLE,
+    );
+}
+
+/// Initialize the SIM with default test credentials.
+///
+/// Uses all-zero Ki, K=[0x00..], OPc=[0x00..] for testing.
+/// Equivalent to `simrs_init` with zero keys.
+#[no_mangle]
+pub extern "C" fn simrs_init_default() {
+    simrs_hle::hle_init_with_adf(
+        &ATR,
+        &REFERENCE_MF,
+        Ki([0u8; 16]),
+        [0u8; 16],
+        [0u8; 16],
+        &ADF_TABLE,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Reset
+// ---------------------------------------------------------------------------
+
+/// Power-on reset. Writes ATR bytes to `atr_buf` and returns ATR length.
+///
+/// Returns 0 if SIM is not initialized or `atr_buf_len` is too small.
+///
+/// # Safety
+///
+/// `atr_buf` must point to at least `atr_buf_len` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn simrs_reset(
+    atr_buf: *mut u8,
+    atr_buf_len: u32,
+) -> u32 {
+    let atr_len = simrs_hle::hle_reset();
+    if atr_len == 0 {
+        return 0;
+    }
+    // ATR is the static slice we passed at init time.
+    if (atr_buf_len as usize) < ATR.len() {
+        return 0;
+    }
+    core::ptr::copy_nonoverlapping(ATR.as_ptr(), atr_buf, ATR.len());
+    ATR.len() as u32
+}
+
+// ---------------------------------------------------------------------------
+// APDU processing
+// ---------------------------------------------------------------------------
+
+/// Process one APDU command.
+///
+/// Writes response data followed by SW1 and SW2 into `rsp_buf`.
+/// Returns total response length (data_len + 2 for SW1/SW2), or 0 on error.
+///
+/// # Safety
+///
+/// - `cmd` must point to at least `cmd_len` readable bytes.
+/// - `rsp_buf` must point to at least `rsp_buf_len` writable bytes.
+///   Recommended minimum: 258 bytes (256 data + 2 status).
+#[no_mangle]
+pub unsafe extern "C" fn simrs_apdu(
+    cmd: *const u8,
+    cmd_len: u32,
+    rsp_buf: *mut u8,
+    rsp_buf_len: u32,
+) -> u32 {
+    let cmd_slice = core::slice::from_raw_parts(cmd, cmd_len as usize);
+
+    // HLE returns data in rsp, plus separate SW1/SW2.
+    // We need space for data + 2 status bytes.
+    let rsp_slice = core::slice::from_raw_parts_mut(rsp_buf, rsp_buf_len as usize);
+
+    // Use a temporary buffer for hle_apdu since it returns data without SW.
+    let mut tmp = [0u8; 256];
+    match simrs_hle::hle_apdu(cmd_slice, &mut tmp) {
+        Some((data_len, sw1, sw2)) => {
+            let total = data_len + 2;
+            if total > rsp_buf_len as usize {
+                return 0;
+            }
+            rsp_slice[..data_len].copy_from_slice(&tmp[..data_len]);
+            rsp_slice[data_len] = sw1;
+            rsp_slice[data_len + 1] = sw2;
+            total as u32
+        }
+        None => 0,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot
+// ---------------------------------------------------------------------------
+
+/// Save SIM state to `buf`. Returns bytes written, or 0 on error.
+///
+/// # Safety
+///
+/// `buf` must point to at least `buf_len` writable bytes.
+/// Use `simrs_snapshot_size()` to determine required buffer size.
+#[no_mangle]
+pub unsafe extern "C" fn simrs_snapshot_save(
+    buf: *mut u8,
+    buf_len: u32,
+) -> u32 {
+    let slice = core::slice::from_raw_parts_mut(buf, buf_len as usize);
+    simrs_hle::hle_snapshot_save(slice) as u32
+}
+
+/// Restore SIM state from `buf`. Returns 1 on success, 0 on failure.
+///
+/// The SIM must already be initialized (via `simrs_init` or `simrs_init_default`)
+/// with the same algorithm that was used when the snapshot was saved.
+///
+/// # Safety
+///
+/// `buf` must point to at least `buf_len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn simrs_snapshot_restore(
+    buf: *const u8,
+    buf_len: u32,
+) -> u32 {
+    let slice = core::slice::from_raw_parts(buf, buf_len as usize);
+    if simrs_hle::hle_snapshot_restore(slice) { 1 } else { 0 }
+}
+
+/// Maximum snapshot buffer size required (constant).
+#[no_mangle]
+pub extern "C" fn simrs_snapshot_size() -> u32 {
+    simrs_hle::hle_snapshot_size() as u32
+}
+
+// ---------------------------------------------------------------------------
+// State hash
+// ---------------------------------------------------------------------------
+
+/// FNV-1a hash of current SIM state. Returns 0 if not initialized.
+#[no_mangle]
+pub extern "C" fn simrs_state_hash() -> u64 {
+    simrs_hle::hle_state_hash()
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_default_and_reset() {
+        simrs_init_default();
+        let mut atr_buf = [0u8; 32];
+        let atr_len = unsafe { simrs_reset(atr_buf.as_mut_ptr(), atr_buf.len() as u32) };
+        assert_eq!(atr_len, ATR.len() as u32);
+        assert_eq!(&atr_buf[..atr_len as usize], &ATR);
+    }
+
+    #[test]
+    fn apdu_select_mf() {
+        simrs_init_default();
+        let mut atr = [0u8; 32];
+        unsafe { simrs_reset(atr.as_mut_ptr(), 32) };
+
+        // SELECT MF (3F00)
+        let cmd = [0x00u8, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+        let mut rsp = [0u8; 258];
+        let rsp_len = unsafe {
+            simrs_apdu(cmd.as_ptr(), cmd.len() as u32, rsp.as_mut_ptr(), 258)
+        };
+        assert!(rsp_len >= 2, "should get at least SW1 SW2");
+        // SW1 should be 0x61 (data available via GET RESPONSE)
+        assert_eq!(rsp[(rsp_len - 2) as usize], 0x61);
+    }
+
+    #[test]
+    fn snapshot_roundtrip() {
+        simrs_init_default();
+        let mut atr = [0u8; 32];
+        unsafe { simrs_reset(atr.as_mut_ptr(), 32) };
+
+        // Do some work
+        let cmd = [0x00u8, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+        let mut rsp = [0u8; 258];
+        unsafe { simrs_apdu(cmd.as_ptr(), cmd.len() as u32, rsp.as_mut_ptr(), 258) };
+
+        let hash_before = simrs_state_hash();
+
+        // Save snapshot
+        let snap_size = simrs_snapshot_size();
+        let mut snap = vec![0u8; snap_size as usize];
+        let saved = unsafe { simrs_snapshot_save(snap.as_mut_ptr(), snap_size) };
+        assert!(saved > 0);
+
+        // Re-init (wipes state)
+        simrs_init_default();
+        unsafe { simrs_reset(atr.as_mut_ptr(), 32) };
+
+        // Restore
+        let ok = unsafe { simrs_snapshot_restore(snap.as_ptr(), saved) };
+        assert_eq!(ok, 1);
+
+        let hash_after = simrs_state_hash();
+        assert_eq!(hash_before, hash_after);
+    }
+}

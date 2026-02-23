@@ -1,0 +1,24 @@
+[package]
+name        = "simrs-hle-ffi"
+version     = "0.1.0"
+edition     = "2021"
+license     = "MIT"
+description = "C-ABI cdylib wrapper for simrs-hle -- loads as shared library via ctypes"
+publish     = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+simrs-hle  = { path = "../../crates/simrs-hle" }
+simrs-usim = { path = "../../crates/simrs-usim", features = ["profile-standard"] }
+simrs-gsm  = { path = "../../crates/simrs-gsm" }
+
+# Empty workspace table: prevents cargo from treating this as part of the
+# parent simrs workspace (which enforces `unsafe_code = "forbid"`).
+[workspace]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
