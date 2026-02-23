@@ -16,6 +16,7 @@ graph TB
         INTER["simrs-interposer<br/><i>shadow SIM proxy</i>"]
         AUTH["simrs-auth-cli<br/><i>Milenage auth CLI</i>"]
         PROF["simrs-profile<br/><i>TCA DER parser</i>"]
+        CTV["simrs-consttime-validation<br/><i>DudeCT timing</i>"]
     end
 
     subgraph boundary_layer ["Boundary / External Interface"]
@@ -55,6 +56,8 @@ graph TB
         C128["simrs-comp128<br/><i>A3/A8 GSM</i>"]
         KEC["simrs-keccak<br/><i>Keccak-f[1600] permutation</i>"]
         PCAP["simrs-pcap<br/><i>PCAP + GSMTAP encode</i>"]
+        CT["simrs-consttime<br/><i>CT primitives</i>"]
+        CTM["simrs-consttime-macros<br/><i>#[derive(CtEq)]</i>"]
     end
 
     %% Meta -> Application / Composition
@@ -71,10 +74,6 @@ graph TB
     AUTH --> MIL
     HLE --> PROF
     PROF --> FS
-    PROF --> PIN
-    PROF --> MIL
-    PROF --> TUAK
-    PROF --> GSM
 
     %% Boundary -> Application
     QEMU --> SIM
@@ -100,6 +99,12 @@ graph TB
     USIM --> PRO
 
     %% Composition -> Foundation
+    CT --> CTM
+    RIJ --> CT
+    C128 --> CT
+    MIL --> CT
+    TUAK --> CT
+    CTV --> CT
     TUAK --> KEC
     TUAK --> MIL
     MIL --> RIJ
@@ -127,14 +132,14 @@ graph TB
     classDef meta_std fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
     classDef entry fill:#E69F00,stroke:#333,color:#000,stroke-width:3px
 
-    class ISO,BER,RIJ,C128,KEC,PCAP foundation
+    class ISO,BER,RIJ,C128,KEC,PCAP,CT,CTM foundation
     class MIL,TUAK,FS,PIN,PRO,OTA composition
     class GSM,USIM application
     class SIM entry
     class TR,SHM,VIO,PERI,SHAN boundary
     class TCP,OSEM,QEMU boundary_std
     class SNAP meta
-    class HLE,FUZZ,INTER,AUTH,PROF meta_std
+    class HLE,FUZZ,INTER,AUTH,PROF,CTV meta_std
 ```
 
 **Legend:** Solid border = `no_std`. Dashed border = requires `std`. Thick border = primary entry point. Heavy arrows (`==>`) = hot path. Dotted arrows (`-.->`) = feature-gated.
@@ -149,6 +154,8 @@ graph TB
 | [`simrs-comp128`](crates/simrs-comp128/) | Foundation | yes | `COMP128v1` GSM A3/A8 authentication | -- | [API](docs/architecture.md#simrs-comp128) |
 | [`simrs-keccak`](crates/simrs-keccak/) | Foundation | yes | Keccak-f[1600] permutation for TUAK | -- | [API](docs/architecture.md#simrs-keccak) |
 | [`simrs-pcap`](crates/simrs-pcap/) | Foundation | yes | PCAP file + GSMTAP SIM frame encoding | -- | [API](docs/architecture.md#simrs-pcap) |
+| [`simrs-consttime-macros`](crates/simrs-consttime-macros/) | Foundation | yes | `#[derive(CtEq)]` proc macro for constant-time equality | -- | [API](docs/architecture.md#simrs-consttime-macros) |
+| [`simrs-consttime`](crates/simrs-consttime/) | Foundation | yes | Constant-time primitives (table lookup, comparison, GF(2^8)) | [consttime-macros](crates/simrs-consttime-macros/) | [API](docs/architecture.md#simrs-consttime) |
 | [`simrs-milenage`](crates/simrs-milenage/) | Composition | yes | Milenage f1--f5 UMTS authentication | [rijndael](crates/simrs-rijndael/) | [API](docs/architecture.md#simrs-milenage) |
 | [`simrs-tuak`](crates/simrs-tuak/) | Composition | yes | TUAK f1--f5 3GPP auth (Keccak-based) | [keccak](crates/simrs-keccak/), [milenage](crates/simrs-milenage/) | [API](docs/architecture.md#simrs-tuak) |
 | [`simrs-fs`](crates/simrs-fs/) | Composition | yes | ICC filesystem model (MF/DF/ADF/EF), `const` trees. Type system: `Fid`/`Sfi` validated newtypes, `EfDef` typed constructors (`transparent`/`linear_fixed`/`cyclic`/`ber_tlv`) with compile-time data length checks, `assert_fids_unique` compile-time FID uniqueness, `EfStructure` method dispatch (10 methods), `FsData<CAP, MAX_EFS>` dual const generics. | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-fs) |
@@ -171,7 +178,8 @@ graph TB
 | [`simrs-fuzz`](crates/simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](crates/simrs-hle/), [fs](crates/simrs-fs/), [pcap](crates/simrs-pcap/) | [API](docs/architecture.md#simrs-fuzz) |
 | [`simrs-interposer`](crates/simrs-interposer/) | Meta | **no** | Shadow SIM proxy, APDU interposer with PCAP capture | [sim](crates/simrs-sim/), [transport-tcp](crates/simrs-transport-tcp/), [pcap](crates/simrs-pcap/) | [API](docs/architecture.md#simrs-interposer) |
 | [`simrs-auth-cli`](crates/simrs-auth-cli/) | Meta | **no** | Milenage auth vector CLI for LTE/UMTS test tools | [milenage](crates/simrs-milenage/) | -- |
-| [`simrs-profile`](crates/simrs-profile/) | Meta | **no** | TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem) | [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [milenage](crates/simrs-milenage/), [tuak](crates/simrs-tuak/), [gsm](crates/simrs-gsm/), `der` | [API](docs/architecture.md#simrs-profile) |
+| [`simrs-consttime-validation`](crates/simrs-consttime-validation/) | Meta | **no** | DudeCT timing verification for constant-time code | [consttime](crates/simrs-consttime/) | [API](docs/architecture.md#simrs-consttime-validation) |
+| [`simrs-profile`](crates/simrs-profile/) | Meta | **no** | TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem) | [fs](crates/simrs-fs/) | [API](docs/architecture.md#simrs-profile) |
 
 ^opt^ = optional feature gate
 

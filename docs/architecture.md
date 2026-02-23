@@ -173,10 +173,6 @@ graph TD
     FUZZ    --> ISO
     AUTH    --> MIL
     PROF    --> FS
-    PROF    --> PIN
-    PROF    --> MIL
-    PROF    --> TUAK
-    PROF    --> GSM
     HLE     --> PROF
 
     %% Per DIAGRAM_STYLE_GUIDE.md
@@ -1015,7 +1011,7 @@ DudeCT timing verification utilities. Used as a dev-dependency by `simrs-constti
 
 **Standards:** TCA eUICC Profile Package v3.3.1, GSMA SGP.22 v2.6 (UPP format), ETSI TS 102 221 (FCP descriptor)
 
-**Deps:** [`simrs-fs`](#simrs-fs), [`simrs-pin`](#simrs-pin), [`simrs-milenage`](#simrs-milenage), [`simrs-tuak`](#simrs-tuak), [`simrs-gsm`](#simrs-gsm), `der` (RustCrypto)
+**Deps:** [`simrs-fs`](#simrs-fs)
 
 Library crate (requires `std`). Parses DER-encoded TCA eUICC Profile Packages into simrs filesystem trees. This is the bridge between the eSIM provisioning ecosystem and simrs simulation.
 
@@ -1041,7 +1037,7 @@ pub enum AuthConfig {
 }
 ```
 
-PE types parsed: Header (0), PINCodes (2), PUKCodes (3), AKAParameter (4), End (10), MF (16), USIM (19). Unknown PEs are silently skipped for forward compatibility with newer TCA spec versions.
+PE types parsed: Header (0), GFM (1), PINCodes (2), PUKCodes (3), AKAParameter (4), End (10), MF (16), Telecom (18), USIM (19), OPT-USIM (20), ISIM (21), OPT-ISIM (22), GSM-ACCESS (24), DF-5GS (28), DF-SAIP (29). Unknown PEs are silently skipped for forward compatibility with newer TCA spec versions.
 
 ---
 
