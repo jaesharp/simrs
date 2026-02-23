@@ -77,7 +77,7 @@ use simrs_proactive::ProactiveState;
 ///
 /// Note: DF_5GS (17 EFs, ~482 bytes) is included in all tiers.
 #[cfg(feature = "profile-full")]
-const FS_CAP: usize = 8192;
+const FS_CAP: usize = 16384;
 #[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
 const FS_CAP: usize = 4096;
 #[cfg(all(feature = "profile-minimal", not(feature = "profile-standard"), not(feature = "profile-full")))]
@@ -91,7 +91,7 @@ const FS_CAP: usize = 1024;
 ///
 /// Note: DF_5GS (17 EFs) is included in all tiers.
 #[cfg(feature = "profile-full")]
-const FS_MAX_EFS: usize = 160;
+const FS_MAX_EFS: usize = 255;
 #[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
 const FS_MAX_EFS: usize = 80;
 #[cfg(all(feature = "profile-minimal", not(feature = "profile-standard"), not(feature = "profile-full")))]

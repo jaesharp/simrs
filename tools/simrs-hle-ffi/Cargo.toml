@@ -10,9 +10,10 @@ publish     = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-simrs-hle  = { path = "../../crates/simrs-hle" }
-simrs-usim = { path = "../../crates/simrs-usim", features = ["profile-standard"] }
-simrs-gsm  = { path = "../../crates/simrs-gsm" }
+simrs-hle     = { path = "../../crates/simrs-hle" }
+simrs-usim    = { path = "../../crates/simrs-usim", features = ["profile-full"] }
+simrs-gsm     = { path = "../../crates/simrs-gsm", features = ["profile-full"] }
+simrs-profile = { path = "../../crates/simrs-profile" }
 
 # Empty workspace table: prevents cargo from treating this as part of the
 # parent simrs workspace (which enforces `unsafe_code = "forbid"`).

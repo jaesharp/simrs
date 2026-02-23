@@ -148,8 +148,20 @@ pub fn load_profile(der_bytes: &[u8]) -> Result<ProfileConfig, ProfileError> {
             ProfileElement::OptIsim(pe_opt_isim) => {
                 tree.apply_opt_isim(pe_opt_isim)?;
             }
+            ProfileElement::Cd(pe_cd) => {
+                tree.apply_cd(pe_cd)?;
+            }
+            ProfileElement::Phonebook(pe_phonebook) => {
+                tree.apply_phonebook(pe_phonebook)?;
+            }
             ProfileElement::GsmAccess(pe_gsm_access) => {
                 tree.apply_gsm_access(pe_gsm_access)?;
+            }
+            ProfileElement::Csim(pe_csim) => {
+                tree.apply_csim(pe_csim)?;
+            }
+            ProfileElement::OptCsim(pe_opt_csim) => {
+                tree.apply_opt_csim(pe_opt_csim)?;
             }
             ProfileElement::Df5gs(pe_df_5gs) => {
                 tree.apply_df_5gs(pe_df_5gs)?;
@@ -158,7 +170,12 @@ pub fn load_profile(der_bytes: &[u8]) -> Result<ProfileConfig, ProfileError> {
                 tree.apply_df_saip(pe_df_saip)?;
             }
             ProfileElement::End => break,
-            ProfileElement::Unknown(_) => {}
+            // Non-template PEs (CDMA, SecurityDomain, RFM) and
+            // unknown/unsupported types have no filesystem impact.
+            ProfileElement::CdmaParameter(_)
+            | ProfileElement::SecurityDomain(_)
+            | ProfileElement::Rfm(_)
+            | ProfileElement::Unknown(_) => {}
         }
     }
 

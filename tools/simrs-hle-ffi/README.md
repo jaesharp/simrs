@@ -21,6 +21,7 @@ Output: `target/release/libsimrs_hle_ffi.so` (Linux) or `.dylib` (macOS).
 |--------|-----------|-------------|
 | `simrs_init` | `(ki: *const u8, k: *const u8, opc: *const u8)` | Init with Milenage auth (each ptr = 16 bytes) |
 | `simrs_init_default` | `()` | Init with all-zero test credentials |
+| `simrs_init_profile` | `(der: *const u8, der_len: u32) -> u32` | Init from TCA DER profile (1=ok, 0=fail) |
 | `simrs_reset` | `(atr_buf: *mut u8, atr_buf_len: u32) -> u32` | Power-on reset, returns ATR length |
 | `simrs_apdu` | `(cmd: *const u8, cmd_len: u32, rsp_buf: *mut u8, rsp_buf_len: u32) -> u32` | Process one APDU, returns response length |
 | `simrs_snapshot_save` | `(buf: *mut u8, buf_len: u32) -> u32` | Save SIM state |

@@ -18,6 +18,9 @@ const USIM_AID_PREFIX: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
 /// ISIM AID prefix (A0000000871004).
 const ISIM_AID_PREFIX: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x04];
 
+/// CSIM AID prefix (A0000003431002).
+const CSIM_AID_PREFIX: [u8; 7] = [0xA0, 0x00, 0x00, 0x03, 0x43, 0x10, 0x02];
+
 /// A mutable filesystem tree under construction.
 ///
 /// Profile Elements are applied to this tree incrementally. Once all
@@ -387,6 +390,92 @@ impl MutableTree {
         pe: &crate::pe::df_saip::PeDfSaip,
     ) -> Result<(), ProfileError> {
         self.apply_usim_sub_df(&pe.files)
+    }
+
+    /// Apply PE-CD: create DF.CD as sub-DF under MF.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProfileError`] if any file conversion fails.
+    pub fn apply_cd(
+        &mut self,
+        pe: &crate::pe::cd::PeCd,
+    ) -> Result<(), ProfileError> {
+        let sub_df = Self::split_and_build_sub_df(&pe.files)?;
+        self.mf_children()?.push(sub_df);
+        Ok(())
+    }
+
+    /// Apply PE-PHONEBOOK: create DF.PHONEBOOK as sub-DF under ADF.USIM.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProfileError`] if any file conversion fails.
+    pub fn apply_phonebook(
+        &mut self,
+        pe: &crate::pe::phonebook::PePhonebook,
+    ) -> Result<(), ProfileError> {
+        self.apply_usim_sub_df(&pe.files)
+    }
+
+    /// Apply PE-CSIM: create ADF.CSIM as a new ADF.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProfileError`] if any file conversion fails.
+    pub fn apply_csim(
+        &mut self,
+        pe: &crate::pe::csim::PeCsim,
+    ) -> Result<(), ProfileError> {
+        let adf_file = pe.files.iter()
+            .find(|(tag, _)| *tag == 2)
+            .map(|(_, f)| f)
+            .ok_or(ProfileError::MissingRequiredFile(2))?;
+
+        let child_files: Vec<_> = pe.files.iter()
+            .filter(|(tag, _)| *tag > 2)
+            .cloned()
+            .collect();
+        let children = Self::files_to_ef_children(&child_files)?;
+
+        // Extract AID from ADF FCP.
+        let aid = adf_file
+            .fcp
+            .as_ref()
+            .and_then(|fcp| fcp.df_name.clone())
+            .unwrap_or_else(|| CSIM_AID_PREFIX.to_vec());
+
+        let adf_fid = adf_file
+            .fcp
+            .as_ref()
+            .and_then(|fcp| fcp.parse_fid().ok())
+            .unwrap_or(Fid::from_raw(0xFF03));
+
+        self.adfs.push((
+            aid,
+            MutableDf {
+                fid: adf_fid,
+                children,
+            },
+        ));
+
+        Ok(())
+    }
+
+    /// Apply PE-OPT-CSIM: add optional EFs to existing ADF.CSIM.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProfileError`] if any file conversion fails.
+    pub fn apply_opt_csim(
+        &mut self,
+        pe: &crate::pe::opt_csim::PeOptCsim,
+    ) -> Result<(), ProfileError> {
+        let new_children = Self::files_to_ef_children(&pe.files)?;
+        if let Some(children) = self.adf_children(&CSIM_AID_PREFIX) {
+            children.extend(new_children);
+        }
+        Ok(())
     }
 
     /// Apply PE-GFM: navigate tree by path and create/modify files.

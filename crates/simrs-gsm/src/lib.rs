@@ -66,19 +66,23 @@ use simrs_fs::{
 // ---------------------------------------------------------------------------
 
 /// Filesystem data buffer capacity in bytes.
-#[cfg(all(feature = "profile-minimal", not(feature = "profile-standard")))]
-const FS_CAP: usize = 256;
-
+#[cfg(feature = "profile-full")]
+const FS_CAP: usize = 8192;
 /// Filesystem data buffer capacity in bytes.
-#[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
+#[cfg(all(not(feature = "profile-full"), all(feature = "profile-minimal", not(feature = "profile-standard"))))]
+const FS_CAP: usize = 256;
+/// Filesystem data buffer capacity in bytes.
+#[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
 const FS_CAP: usize = 1024;
 
 /// Maximum number of EF entries in the filesystem.
-#[cfg(all(feature = "profile-minimal", not(feature = "profile-standard")))]
-const FS_MAX_EFS: usize = 16;
-
+#[cfg(feature = "profile-full")]
+const FS_MAX_EFS: usize = 160;
 /// Maximum number of EF entries in the filesystem.
-#[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
+#[cfg(all(not(feature = "profile-full"), all(feature = "profile-minimal", not(feature = "profile-standard"))))]
+const FS_MAX_EFS: usize = 16;
+/// Maximum number of EF entries in the filesystem.
+#[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
 const FS_MAX_EFS: usize = 32;
 use simrs_iso7816::{ins, sw2, Command, ResponseQueue, StatusWord, write_data_sw, write_sw, write_sw_raw};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};

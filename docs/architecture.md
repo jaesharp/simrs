@@ -1037,7 +1037,7 @@ pub enum AuthConfig {
 }
 ```
 
-PE types parsed: Header (0), GFM (1), PINCodes (2), PUKCodes (3), AKAParameter (4), End (10), MF (16), Telecom (18), USIM (19), OPT-USIM (20), ISIM (21), OPT-ISIM (22), GSM-ACCESS (24), DF-5GS (28), DF-SAIP (29). Unknown PEs are silently skipped for forward compatibility with newer TCA spec versions.
+PE types parsed: Header (0), GFM (1), PINCodes (2), PUKCodes (3), AKAParameter (4), CDMAParameter (5), SecurityDomain (6), RFM (7), End (10), MF (16), CD (17), Telecom (18), USIM (19), OPT-USIM (20), ISIM (21), OPT-ISIM (22), PHONEBOOK (23), GSM-ACCESS (24), CSIM (25), OPT-CSIM (26), DF-5GS (28), DF-SAIP (29). Unknown PEs are silently skipped for forward compatibility with newer TCA spec versions.
 
 ---
 

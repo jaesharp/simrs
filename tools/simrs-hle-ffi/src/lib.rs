@@ -13,6 +13,8 @@
 //! SIM session happen on the same thread (which is the natural case for QEMU's
 //! single-threaded vCPU loop).
 
+use std::cell::Cell;
+
 use simrs_gsm::Ki;
 use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
 
@@ -27,6 +29,18 @@ use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
 /// interrupts (see USIMPeripheral.write_atr_byte). Therefore this compact
 /// ATR works reliably in practice and matches the SIMurai swsim reference.
 static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
+
+// Thread-local ATR pointer/length. Defaults to the module-level `ATR` static
+// but is overridden when a profile with its own ATR is loaded via
+// `simrs_init_profile`.
+//
+// Both the default `ATR` static and the `ProfileConfig.atr` field are
+// `&'static [u8]`, so the raw pointer remains valid for the thread's lifetime.
+thread_local! {
+    static CURRENT_ATR: Cell<(*const u8, usize)> = const {
+        Cell::new((ATR.as_ptr(), ATR.len()))
+    };
+}
 
 // ---------------------------------------------------------------------------
 // Initialization
@@ -50,6 +64,7 @@ pub unsafe extern "C" fn simrs_init(
     let k_arr: [u8; 16] = core::slice::from_raw_parts(k, 16).try_into().unwrap();
     let opc_arr: [u8; 16] = core::slice::from_raw_parts(opc, 16).try_into().unwrap();
 
+    CURRENT_ATR.set((ATR.as_ptr(), ATR.len()));
     simrs_hle::hle_init_with_adf(
         &ATR,
         &REFERENCE_MF,
@@ -66,6 +81,7 @@ pub unsafe extern "C" fn simrs_init(
 /// Equivalent to `simrs_init` with zero keys.
 #[no_mangle]
 pub extern "C" fn simrs_init_default() {
+    CURRENT_ATR.set((ATR.as_ptr(), ATR.len()));
     simrs_hle::hle_init_with_adf(
         &ATR,
         &REFERENCE_MF,
@@ -74,6 +90,32 @@ pub extern "C" fn simrs_init_default() {
         [0u8; 16],
         &ADF_TABLE,
     );
+}
+
+/// Initialize the SIM from a TCA eUICC Profile Package (DER-encoded).
+///
+/// Parses the profile, extracts auth parameters, builds the filesystem tree,
+/// and configures the HLE SIM accordingly. The profile's own ATR is stored
+/// for use by subsequent `simrs_reset` calls.
+///
+/// Returns 1 on success, 0 on failure (malformed DER, missing PEs, etc.).
+///
+/// # Safety
+///
+/// `der_ptr` must point to at least `der_len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn simrs_init_profile(
+    der_ptr: *const u8,
+    der_len: u32,
+) -> u32 {
+    let der_bytes = core::slice::from_raw_parts(der_ptr, der_len as usize);
+    let config = match simrs_profile::load_profile(der_bytes) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    CURRENT_ATR.set((config.atr.as_ptr(), config.atr.len()));
+    simrs_hle::hle_init_from_profile(&config);
+    1
 }
 
 // ---------------------------------------------------------------------------
@@ -96,12 +138,13 @@ pub unsafe extern "C" fn simrs_reset(
     if atr_len == 0 {
         return 0;
     }
-    // ATR is the static slice we passed at init time.
-    if (atr_buf_len as usize) < ATR.len() {
+    // Read ATR pointer and length from the thread-local set at init time.
+    let (atr_ptr, atr_sz) = CURRENT_ATR.get();
+    if (atr_buf_len as usize) < atr_sz {
         return 0;
     }
-    core::ptr::copy_nonoverlapping(ATR.as_ptr(), atr_buf, ATR.len());
-    ATR.len() as u32
+    core::ptr::copy_nonoverlapping(atr_ptr, atr_buf, atr_sz);
+    atr_sz as u32
 }
 
 // ---------------------------------------------------------------------------
@@ -263,5 +306,35 @@ mod tests {
 
         let hash_after = simrs_state_hash();
         assert_eq!(hash_before, hash_after);
+    }
+
+    #[test]
+    fn init_profile_returns_profile_atr() {
+        let der = include_bytes!(
+            "../../../crates/simrs-profile/tests/fixtures/profiles/TS48v1_A.der"
+        );
+        let ok = unsafe { simrs_init_profile(der.as_ptr(), der.len() as u32) };
+        assert_eq!(ok, 1, "simrs_init_profile should succeed");
+
+        let mut atr_buf = [0u8; 64];
+        let atr_len = unsafe { simrs_reset(atr_buf.as_mut_ptr(), atr_buf.len() as u32) };
+
+        // Profile ATR is 18 bytes (simrs_profile::DEFAULT_ATR), not the
+        // 4-byte module-level ATR used by simrs_init / simrs_init_default.
+        assert_eq!(atr_len, 18);
+        assert_ne!(
+            &atr_buf[..atr_len as usize],
+            &ATR[..],
+            "profile ATR must differ from the default 4-byte ATR"
+        );
+        // First byte is always 0x3B (direct convention).
+        assert_eq!(atr_buf[0], 0x3B);
+    }
+
+    #[test]
+    fn init_profile_bad_der_returns_zero() {
+        let garbage = [0xFFu8; 8];
+        let ok = unsafe { simrs_init_profile(garbage.as_ptr(), garbage.len() as u32) };
+        assert_eq!(ok, 0, "invalid DER should return failure");
     }
 }
