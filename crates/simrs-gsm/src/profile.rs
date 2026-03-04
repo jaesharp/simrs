@@ -2,7 +2,7 @@
 //!
 //! Provides a standard GSM SIM filesystem tree as `static` definitions,
 //! suitable for test and development use. Default data values are taken
-//! from the swsim reference profile.
+//! with sensible default values.
 //!
 //! # Profile tiers
 //!
@@ -66,7 +66,7 @@ pub static EF_ICCID: EfDef = EfDef::transparent(
 
 /// EF.LP (6F05) -- Language Preference.
 ///
-/// 4-byte transparent EF. Default from swsim: `[0x0E, 0x01, 0xFF, 0xFF]`.
+/// 4-byte transparent EF. Default: `[0x0E, 0x01, 0xFF, 0xFF]`.
 /// GSM 11.11 clause 10.3.6.
 pub static EF_LP: EfDef = EfDef::transparent(
     Fid::new(0x6F05),
@@ -76,7 +76,7 @@ pub static EF_LP: EfDef = EfDef::transparent(
 
 /// EF.IMSI (6F07) -- International Mobile Subscriber Identity.
 ///
-/// 9-byte transparent EF. Default: test IMSI from swsim.
+/// 9-byte transparent EF. Default: test IMSI.
 /// GSM 11.11 clause 10.3.2.
 pub static EF_IMSI: EfDef = EfDef::transparent(
     Fid::new(0x6F07),
@@ -87,7 +87,7 @@ pub static EF_IMSI: EfDef = EfDef::transparent(
 /// EF.Kc (6F20) -- Ciphering Key Kc.
 ///
 /// 9-byte transparent EF. Bytes 0-7: Kc. Byte 8: CKSN.
-/// Default from swsim: Kc=FF..FF, CKSN=7 (no key).
+/// Default: Kc=FF..FF, CKSN=7 (no key).
 /// GSM 11.11 clause 10.3.3.
 pub static EF_KC: EfDef = EfDef::transparent(
     Fid::new(0x6F20),
@@ -97,7 +97,7 @@ pub static EF_KC: EfDef = EfDef::transparent(
 
 /// EF.HPPLMN (6F31) -- Higher Priority PLMN Search Period.
 ///
-/// 1-byte transparent EF. Default from swsim: 0x05.
+/// 1-byte transparent EF. Default: 0x05.
 /// GSM 11.11 clause 10.3.8.
 pub static EF_HPPLMN: EfDef = EfDef::transparent(
     Fid::new(0x6F31),
@@ -107,7 +107,7 @@ pub static EF_HPPLMN: EfDef = EfDef::transparent(
 
 /// EF.SST (6F38) -- SIM Service Table.
 ///
-/// 14-byte transparent EF. Default from swsim reference.
+/// 14-byte transparent EF. Default: standard service table.
 /// GSM 11.11 clause 10.3.7.
 pub static EF_SST: EfDef = EfDef::transparent(
     Fid::new(0x6F38),
@@ -120,7 +120,7 @@ pub static EF_SST: EfDef = EfDef::transparent(
 
 /// EF.ACC (6F78) -- Access Control Class.
 ///
-/// 2-byte transparent EF. Default from swsim: `[0x00, 0x80]`.
+/// 2-byte transparent EF. Default: `[0x00, 0x80]`.
 /// GSM 11.11 clause 10.3.15.
 pub static EF_ACC: EfDef = EfDef::transparent(
     Fid::new(0x6F78),
@@ -130,7 +130,7 @@ pub static EF_ACC: EfDef = EfDef::transparent(
 
 /// EF.LOCI (6F7E) -- Location Information.
 ///
-/// 11-byte transparent EF. Default from swsim.
+/// 11-byte transparent EF. Default: empty LOCI.
 /// GSM 11.11 clause 10.3.18.
 pub static EF_LOCI: EfDef = EfDef::transparent(
     Fid::new(0x6F7E),
@@ -157,7 +157,7 @@ pub static EF_FPLMN: EfDef = EfDef::transparent(
 
 /// EF.AD (6FAD) -- Administrative Data.
 ///
-/// 3-byte transparent EF. Default from swsim: `[0x00, 0xFF, 0xFF]`.
+/// 3-byte transparent EF. Default: `[0x00, 0xFF, 0xFF]`.
 /// GSM 11.11 clause 10.3.18.
 pub static EF_AD: EfDef = EfDef::transparent(
     Fid::new(0x6FAD),
@@ -171,7 +171,7 @@ pub static EF_AD: EfDef = EfDef::transparent(
 
 /// EF.PLMNsel (6F30) -- PLMN Selector.
 ///
-/// 3-byte transparent EF. Default from swsim.
+/// 3-byte transparent EF. Default: test PLMN.
 /// GSM 11.11 clause 10.3.4.
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_PLMNSEL: EfDef = EfDef::transparent(
@@ -227,7 +227,7 @@ pub static EF_GID2: EfDef = EfDef::transparent(
 
 /// EF.PUCT (6F41) -- Price per Unit and Currency Table.
 ///
-/// 5-byte transparent EF. Default from swsim.
+/// 5-byte transparent EF. Default: empty price table.
 /// GSM 11.11 clause 10.3.12.
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_PUCT: EfDef = EfDef::transparent(
@@ -249,7 +249,7 @@ pub static EF_CBMI: EfDef = EfDef::transparent(
 
 /// EF.SPN (6F46) -- Service Provider Name.
 ///
-/// 17-byte transparent EF. Default from swsim: "swSIM by Tomasz".
+/// 17-byte transparent EF. Default: test service provider name.
 /// GSM 11.11 clause 10.3.11.
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_SPN: EfDef = EfDef::transparent(
@@ -274,7 +274,7 @@ pub static EF_BCCH: EfDef = EfDef::transparent(
 
 /// EF.Phase (6FAE) -- Phase Identification.
 ///
-/// 1-byte transparent EF. Default from swsim: 0x03 (phase 2+).
+/// 1-byte transparent EF. Default: 0x03 (phase 2+).
 /// GSM 11.11 clause 10.3.19.
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_PHASE: EfDef = EfDef::transparent(

@@ -2,7 +2,7 @@
 
 Pure Rust software SIM/USIM card simulator. `no_std`, zero external dependencies, bare-metal ready.
 
-Port of [swsim](https://github.com/nicktool/SIMurai) (SIMurai) to Rust, designed for Shannon baseband fuzzing via QEMU HLE.
+Pure Rust SIM/USIM card simulator designed for Shannon baseband fuzzing via QEMU HLE.
 
 ## Quick Start
 

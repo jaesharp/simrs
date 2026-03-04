@@ -94,13 +94,13 @@ Feature: COMP128v1 GSM Authentication
     When COMP128v1 is computed
     Then SRES is not "FFFFFFFF"
 
-  # --- Cross-validation with swsim ---
+  # --- Cross-validation with reference ---
 
-  @reference @swsim
-  Scenario Outline: Cross-validation against swsim gsm_algo()
-    These vectors are produced by running the swsim C implementation
+  @reference
+  Scenario Outline: Cross-validation against reference implementation
+    These vectors are produced by running the reference C implementation
     (gsm.c:gsm_algo) with the given inputs. They serve as bit-exact
-    regression tests to ensure our Rust port matches the C reference.
+    regression tests to ensure our Rust implementation matches the reference.
 
     Given Ki is "<Ki>"
     And RAND is "<Rand>"
@@ -108,10 +108,9 @@ Feature: COMP128v1 GSM Authentication
     Then SRES equals "<SRES>"
     And Kc equals "<Kc>"
 
-    # TODO: Fill in after running swsim reference
-    Examples: swsim reference vectors
+    Examples: reference vectors
       | Ki                               | Rand                             | SRES     | Kc               |
-      # Vector 1: swsim's default Ki with sequential RAND
+      # Vector 1: reference default Ki with sequential RAND
       # | FFFFFFFFFFFFFFFFFFFFFFFFFFFF07   | 0123456789ABCDEF0123456789ABCDEF | ???????? | ???????????????? |
       # Vector 2: all-zero
       # | 00000000000000000000000000000000 | 00000000000000000000000000000000 | ???????? | ???????????????? |

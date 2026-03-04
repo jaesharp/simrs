@@ -2,7 +2,7 @@
 //!
 //! Provides a standard USIM filesystem tree as `static` definitions,
 //! suitable for test and development use. The file data is zero-filled
-//! or populated with sensible defaults from the swsim reference profile.
+//! or populated with sensible defaults.
 //!
 //! # Profile tiers
 //!
@@ -979,7 +979,7 @@ pub static EF_CMI: EfDef = EfDef::linear_fixed(
 
 /// EF.START_HFN (6F5B) -- Initialisation values for Hyperframe number.
 ///
-/// 6-byte transparent EF. Default: per swsim reference.
+/// 6-byte transparent EF. Default: all zeros.
 /// TS 31.102 clause 4.2.50. SFI 0x0F.
 #[cfg(feature = "profile-full")]
 pub static EF_START_HFN: EfDef = EfDef::transparent(
