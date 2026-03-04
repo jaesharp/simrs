@@ -223,7 +223,7 @@ graph LR
 For Shannon fuzzing, the key mechanisms are:
 - **TERMINAL PROFILE** acceptance (Shannon sends this on boot)
 - **FETCH/TERMINAL RESPONSE** cycle (core mechanism)
-- **SET UP MENU** (default app from swsim)
+- **SET UP MENU** (common default app)
 - **DISPLAY TEXT** (most common proactive command)
 
 Additional commands are additive -- they can be implemented incrementally without architectural changes, since the BER-TLV encoding is generic (handled by `simrs-bertlv`) and only the TLV payload changes per command type.

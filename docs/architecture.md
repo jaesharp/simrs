@@ -464,31 +464,34 @@ PCAP + GSMTAP SIM frame encoder. Zero dependencies, `no_std`. Used by [`simrs-in
 **Deps:** [`simrs-rijndael`](#simrs-rijndael)
 
 ```rust
-pub enum OpVariant { Op([u8; 16]), Opc([u8; 16]) }
+pub enum OperatorVariant { Op([u8; 16]), Opc([u8; 16]) }
 
 pub struct MilenageParams;
 impl MilenageParams {
-    pub fn with_defaults(k: [u8; 16], op: OpVariant) -> Self;
-    pub fn new(k: [u8; 16], op: OpVariant,
+    pub fn with_defaults(k: [u8; 16], op: OperatorVariant) -> Self;
+    pub fn new(k: [u8; 16], op: OperatorVariant,
                ci: [[u8; 16]; 5], ri: [u8; 5]) -> Result<Self, ParamError>;
 
     // Full authentication
-    pub fn authenticate(&self, rand: &[u8; 16], autn: &[u8; 16])
-        -> Result<AuthOutput, MilenageError>;
+    pub fn authenticate(&mut self, challenge: &[u8; 16], auth_token: &[u8; 16])
+        -> Result<AuthenticationOutput, AuthenticationError>;
 
     // Individual functions for test vector validation (ETSI TS 135 208)
-    pub fn f1 (&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8];
-    pub fn f1s(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8];
-    pub fn f2 (&self, rand: &[u8; 16]) -> [u8; 8];
-    pub fn f3 (&self, rand: &[u8; 16]) -> [u8; 16];
-    pub fn f4 (&self, rand: &[u8; 16]) -> [u8; 16];
-    pub fn f5 (&self, rand: &[u8; 16]) -> [u8; 6];
-    pub fn f5s(&self, rand: &[u8; 16]) -> [u8; 6];
+    pub fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
+    pub fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
+    pub fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8];
+    pub fn compute_cipher_key(&self, challenge: &[u8; 16]) -> [u8; 16];
+    pub fn compute_integrity_key(&self, challenge: &[u8; 16]) -> [u8; 16];
+    pub fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
+    pub fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
 }
 
-pub struct AuthOutput { pub res: [u8; 8], pub ck: [u8; 16], pub ik: [u8; 16], pub kc: [u8; 8] }
-pub enum MilenageError { MacFailure, SyncFailure { auts: [u8; 14] } }
-pub enum ParamError    { DuplicateCiRi { first: usize, second: usize } }
+pub struct AuthenticationOutput {
+    pub response: [u8; 8], pub cipher_key: [u8; 16],
+    pub integrity_key: [u8; 16], pub gsm_cipher_key: [u8; 8],
+}
+pub enum AuthenticationError { MacFailure, SyncFailure { resync_token: [u8; 14] } }
+pub enum ParamError           { DuplicateCiRi { first: usize, second: usize } }
 ```
 
 ---
@@ -499,7 +502,7 @@ pub enum ParamError    { DuplicateCiRi { first: usize, second: usize } }
 
 **Deps:** [`simrs-keccak`](#simrs-keccak), [`simrs-consttime`](#simrs-consttime), [`simrs-milenage`](#simrs-milenage)
 
-TUAK authentication algorithm -- a Keccak-based alternative to Milenage. Reuses the `AuthOutput` / `MilenageError` types from `simrs-milenage` for API compatibility.
+TUAK authentication algorithm -- a Keccak-based alternative to Milenage. Reuses the `AuthenticationOutput` / `AuthenticationError` types from `simrs-milenage` for API compatibility.
 
 ---
 
@@ -862,8 +865,8 @@ pub enum SimResponse<'a> {
     Ignored,                             // malformed < 4 bytes
 }
 
-pub struct Sim<A: AuthAlgorithm = MilenageParams, const RSP_CAP: usize = 256>;
-impl<A: AuthAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
+pub struct Sim<A: AuthenticationAlgorithm = MilenageParams, const RSP_CAP: usize = 256>;
+impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     pub const fn new(atr: &'static [u8], mf: &'static DfDef) -> Self;
     /// Pure: event in → response out. Never panics.
     pub fn process<'s>(&'s mut self, event: SimEvent<'_>) -> SimResponse<'s>;
@@ -1081,10 +1084,10 @@ sequenceDiagram
     alt MAC ok
         M->>R: f2 → RES, f3 → CK, f4 → IK
         M->>M: C3 conversion → Kc
-        M-->>U: AuthOutput { res, ck, ik, kc }
+        M-->>U: AuthenticationOutput { response, cipher_key, integrity_key, gsm_cipher_key }
         U-->>FW: DB + RES + CK + IK + Kc  (SW 90 00)
     else MAC fail
-        M-->>U: MilenageError::MacFailure
+        M-->>U: AuthenticationError::MacFailure
         U-->>FW: 98 62 (auth error)
     end
 ```

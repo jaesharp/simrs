@@ -43,12 +43,12 @@ What 4G-LTE and 5G-NR support means for each simrs crate.
 
 **Status:** No changes needed for any generation. The USIM runs f1-f5 identically for 3G/4G/5G. The AMF separation bit (0 for 3G/4G, 1 for 5G) is passed through AUTN but doesn't change the USIM-side computation.
 
-**Done:** The `AuthAlgorithm` trait is defined in `simrs-milenage` and implemented by both `MilenageParams` and `TuakParams`. `simrs-usim` and `simrs-sim` are generic over `A: AuthAlgorithm`. `simrs-hle` selects the algorithm at runtime.
+**Done:** The `AuthenticationAlgorithm` trait is defined in `simrs-milenage` and implemented by both `MilenageParams` and `TuakParams`. `simrs-usim` and `simrs-sim` are generic over `A: AuthenticationAlgorithm`. `simrs-hle` selects the algorithm at runtime.
 
 ```
 Crate dependency for TUAK support (implemented):
   simrs-tuak -> simrs-keccak (Keccak-f[1600] permutation)
-  simrs-tuak -> simrs-milenage (AuthAlgorithm trait, AuthOutput, MilenageError)
+  simrs-tuak -> simrs-milenage (AuthenticationAlgorithm trait, AuthenticationOutput, AuthenticationError)
 ```
 
 ### `simrs-fs`
@@ -98,7 +98,7 @@ Note: many proactive commands are already implemented (DISPLAY TEXT, GET INPUT, 
 | Phase | Crates | 4G/5G Content | Status |
 |-------|--------|---------------|--------|
 | 1 | rijndael, comp128, iso7816, bertlv | None (generation-agnostic) | Done |
-| 2 | milenage, fs, pin | AuthAlgorithm trait; DF_5GS directory structure | Done |
+| 2 | milenage, fs, pin | AuthenticationAlgorithm trait; DF_5GS directory structure | Done |
 | 3 | proactive, gsm, usim | EPS EFs, DF_5GS EFs, AUTHENTICATE (all gens) | Done |
 | 4 | sim, transport, peripheral | No generation-specific changes | Done |
 | 5 | snapshot, hle, fuzz | EPS + 5G state in snapshots | Done |

@@ -41,7 +41,7 @@ graph LR
     class XOR foundation
 ```
 
-**Tradeoff: Milenage vs TUAK.** Milenage (TS 35.206) uses AES-128 and is universally deployed. TUAK (TS 35.231) uses Keccak-f[1600] (SHA-3 basis) and supports 256-bit keys, offering cryptographic diversity and better post-quantum margins. Both are implemented: Milenage in `simrs-milenage`, TUAK in `simrs-tuak` (backed by `simrs-keccak`). Both implement the `AuthAlgorithm` trait, so `simrs-hle` dispatches to either at runtime.
+**Tradeoff: Milenage vs TUAK.** Milenage (TS 35.206) uses AES-128 and is universally deployed. TUAK (TS 35.231) uses Keccak-f[1600] (SHA-3 basis) and supports 256-bit keys, offering cryptographic diversity and better post-quantum margins. Both are implemented: Milenage in `simrs-milenage`, TUAK in `simrs-tuak` (backed by `simrs-keccak`). Both implement the `AuthenticationAlgorithm` trait, so `simrs-hle` dispatches to either at runtime.
 
 | Aspect | Milenage (TS 35.206) | TUAK (TS 35.231) |
 |--------|---------------------|------------------|
@@ -57,17 +57,17 @@ graph LR
 
 The 3GPP f1-f5 function set defines a common interface for authentication algorithms. `MilenageParams` implements all seven functions with standard-conformant signatures:
 
-| Function | Standard | Signature | Status |
-|----------|----------|-----------|--------|
-| f1 | TS 35.205 clause 3.1 | `fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8]` | Implemented |
-| f1* | TS 35.205 clause 3.2 | `fn f1_star(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8]` | Implemented |
-| f2 | TS 35.205 clause 3.3 | `fn f2(&self, rand: &[u8; 16]) -> [u8; 8]` | Implemented |
-| f3 | TS 35.205 clause 3.4 | `fn f3(&self, rand: &[u8; 16]) -> [u8; 16]` | Implemented |
-| f4 | TS 35.205 clause 3.5 | `fn f4(&self, rand: &[u8; 16]) -> [u8; 16]` | Implemented |
-| f5 | TS 35.205 clause 3.6 | `fn f5(&self, rand: &[u8; 16]) -> [u8; 6]` | Implemented |
-| f5* | TS 35.205 clause 3.7 | `fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6]` | Implemented |
+| Function | Standard | Method | Status |
+|----------|----------|--------|--------|
+| f1 | TS 35.205 clause 3.1 | `compute_auth_mac(challenge, sequence_number, management_field) -> [u8; 8]` | Implemented |
+| f1* | TS 35.205 clause 3.2 | `compute_resync_mac(challenge, sequence_number, management_field) -> [u8; 8]` | Implemented |
+| f2 | TS 35.205 clause 3.3 | `compute_response(challenge) -> [u8; 8]` | Implemented |
+| f3 | TS 35.205 clause 3.4 | `compute_cipher_key(challenge) -> [u8; 16]` | Implemented |
+| f4 | TS 35.205 clause 3.5 | `compute_integrity_key(challenge) -> [u8; 16]` | Implemented |
+| f5 | TS 35.205 clause 3.6 | `compute_anonymity_key(challenge) -> [u8; 6]` | Implemented |
+| f5* | TS 35.205 clause 3.7 | `compute_resync_anonymity_key(challenge) -> [u8; 6]` | Implemented |
 
-**`AuthAlgorithm` trait:** The `AuthAlgorithm` trait (defined in `simrs-milenage`) abstracts the 3GPP f1-f5 function set. Both `MilenageParams` and `TuakParams` implement it, and `simrs-usim` is generic over `A: AuthAlgorithm`. `simrs-hle` dispatches to either algorithm at runtime via a `SimInstance` enum.
+**`AuthenticationAlgorithm` trait:** The `AuthenticationAlgorithm` trait (defined in `simrs-milenage`) abstracts the 3GPP f1-f5 function set. Both `MilenageParams` and `TuakParams` implement it, and `simrs-usim` is generic over `A: AuthenticationAlgorithm`. `simrs-hle` dispatches to either algorithm at runtime via a `SimInstance` enum.
 
 ```rust
 /// Authentication algorithm set producing the 3GPP f1-f5 outputs.
@@ -79,25 +79,25 @@ The 3GPP f1-f5 function set defines a common interface for authentication algori
 ///
 /// Implemented by `MilenageParams` (simrs-milenage) and
 /// `TuakParams` (simrs-tuak).
-pub trait AuthAlgorithm {
-    /// f1: Network auth code MAC-A (8 bytes typically)
-    fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8];
-    /// f1*: Resynch auth code MAC-S
-    fn f1_star(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8];
-    /// f2: User response RES (4-16 bytes; returns 8 for Milenage)
-    fn f2(&self, rand: &[u8; 16]) -> [u8; 8];
-    /// f3: Cipher key CK (16 bytes)
-    fn f3(&self, rand: &[u8; 16]) -> [u8; 16];
-    /// f4: Integrity key IK (16 bytes)
-    fn f4(&self, rand: &[u8; 16]) -> [u8; 16];
-    /// f5: Anonymity key AK (6 bytes)
-    fn f5(&self, rand: &[u8; 16]) -> [u8; 6];
-    /// f5*: Resynch anonymity key
-    fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6];
+pub trait AuthenticationAlgorithm {
+    /// f1: Network authentication MAC (MAC-A, 8 bytes)
+    fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
+    /// f1*: Resynchronisation MAC (MAC-S)
+    fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
+    /// f2: Authentication response (RES, 4-16 bytes; returns 8 for Milenage)
+    fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8];
+    /// f3: Cipher key (CK, 16 bytes)
+    fn compute_cipher_key(&self, challenge: &[u8; 16]) -> [u8; 16];
+    /// f4: Integrity key (IK, 16 bytes)
+    fn compute_integrity_key(&self, challenge: &[u8; 16]) -> [u8; 16];
+    /// f5: Anonymity key (AK, 6 bytes)
+    fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
+    /// f5*: Resynchronisation anonymity key
+    fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
 }
 ```
 
-**Current state:** Both `MilenageParams` and `TuakParams` implement `AuthAlgorithm`. `simrs-usim` and `simrs-sim` are generic over `A: AuthAlgorithm`, and `simrs-hle` selects the algorithm at initialization time.
+**Current state:** Both `MilenageParams` and `TuakParams` implement `AuthenticationAlgorithm`. `simrs-usim` and `simrs-sim` are generic over `A: AuthenticationAlgorithm`, and `simrs-hle` selects the algorithm at initialization time.
 
 ---
 
@@ -152,24 +152,24 @@ SW: 98 62  (no data)
 | Sync Failure | clause 7.1.2.1.2 | `0xDC` + AUTS(14B) | Raw BER-TLV via `ResponseQueue` |
 | MAC Failure | clause 7.1.2.1 | SW `98 62` | `StatusWord::AuthenticationError` |
 
-`MilenageParams::authenticate()` returns `Result<AuthOutput, MilenageError>` where `AuthOutput { res, ck, ik, kc }` and `MilenageError::SyncFailure { auts }` / `MilenageError::MacFailure`.
+`AuthenticationAlgorithm::authenticate()` (default trait method) returns `Result<AuthenticationOutput, AuthenticationError>` where `AuthenticationOutput { response, cipher_key, integrity_key, gsm_cipher_key }` and `AuthenticationError::SyncFailure { resync_token }` / `AuthenticationError::MacFailure`. Both `MilenageParams` and `TuakParams` use the shared default implementation.
 
-**Typed response wrapper (implemented):** The `AuthenticateResult` enum in `simrs-usim` captures these three outcomes as a first-class type with an `encode()` method that produces the BER-TLV response.
+**Typed response wrapper (implemented):** The `AuthenticationResult` enum in `simrs-usim` captures these three outcomes as a first-class type with an `encode()` method that produces the BER-TLV response.
 
 ```rust
 /// Result of AUTHENTICATE command processing.
 /// Per TS 31.102 clause 7.1.2.
-pub enum AuthenticateResult {
+pub enum AuthenticationResult {
     /// Tag 0xDB: successful authentication
     Success {
-        res: [u8; 8],   // f2 output
-        ck:  [u8; 16],  // f3 output
-        ik:  [u8; 16],  // f4 output
-        kc:  [u8; 8],   // C3 conversion: CK||IK -> Kc
+        response: [u8; 8],       // f2 output (RES)
+        cipher_key:  [u8; 16],   // f3 output (CK)
+        integrity_key:  [u8; 16],// f4 output (IK)
+        gsm_cipher_key:  [u8; 8],// C3 conversion: CK||IK -> Kc
     },
     /// Tag 0xDC: sequence number out of range
     SyncFailure {
-        auts: [u8; 14], // SQN_MS ^ AK* || MAC-S
+        resync_token: [u8; 14],  // AUTS: SQN_MS ^ AK* || MAC-S
     },
     /// SW 98 62: MAC-A verification failed
     MacFailure,
@@ -406,7 +406,7 @@ pub struct SuciScheme {
 
 Per TS 33.102 Annex C. The USIM maintains a sequence counter to prevent replay attacks.
 
-**Tradeoff: How complex should SQN management be?** swsim doesn't implement SQN verification at all. For fuzzing purposes, we want to accept any SQN (to maximize code path coverage in the firmware under test). For production simulation, we'd need the full Annex C scheme with configurable window size. **Decision:** Accept all SQN values by default, with an optional strict mode behind a feature flag.
+**Tradeoff: How complex should SQN management be?** For fuzzing purposes, we want to accept any SQN (to maximize code path coverage in the firmware under test). For production simulation, we'd need the full Annex C scheme with configurable window size. **Decision:** Accept all SQN values by default, with an optional strict mode behind a feature flag.
 
 ```rust
 /// SQN verification policy.
@@ -472,7 +472,7 @@ Kc = CK[0] ^ CK[8]  || CK[1] ^ CK[9]  || CK[2] ^ CK[10] || CK[3] ^ CK[11]
 (i.e., XOR the two halves of CK to get 8 bytes)
 ```
 
-This is already used in swsim's `milenage()` function and is implemented in `simrs-milenage`.
+This is implemented in `simrs-milenage`.
 
 ---
 

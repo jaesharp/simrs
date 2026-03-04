@@ -16,13 +16,13 @@ built on Keccak-f[1600].
 ## Dependencies
 
 - `simrs-keccak` -- Keccak-f[1600] permutation
-- `simrs-milenage` -- `AuthAlgorithm` trait, `AuthOutput`, `MilenageError`
+- `simrs-milenage` -- `AuthenticationAlgorithm` trait, `AuthenticationOutput`, `AuthenticationError`
 
 ## API
 
 - `TuakParams` -- TUAK algorithm parameters (K, TOPc)
-- `TopVariant` -- raw TOP or pre-computed TOPc
-- `AuthAlgorithm` trait implementation for integration with `simrs-usim`
+- `OperatorVariant` -- raw TOP or pre-computed TOPc
+- `AuthenticationAlgorithm` trait implementation for integration with `simrs-usim`
 
 ## Tests
 

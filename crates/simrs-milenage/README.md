@@ -41,10 +41,10 @@ graph LR
 
 - `MilenageParams::with_defaults(k, op) -> Self`
 - `MilenageParams::new(k, op, ci, ri) -> Result<Self, ParamError>`
-- `.f1() -> [u8; 8]` (MAC-A), `.f1_star()` (MAC-S)
-- `.f2() -> [u8; 8]` (RES), `.f3() -> [u8; 16]` (CK), `.f4() -> [u8; 16]` (IK)
-- `.f5() -> [u8; 6]` (AK), `.f5_star()` (AK\*)
-- `.authenticate(rand, autn) -> Result<AuthOutput, MilenageError>`
+- `.compute_auth_mac() -> [u8; 8]` (MAC-A), `.compute_resync_mac()` (MAC-S)
+- `.compute_response() -> [u8; 8]` (RES), `.compute_cipher_key() -> [u8; 16]` (CK), `.compute_integrity_key() -> [u8; 16]` (IK)
+- `.compute_anonymity_key() -> [u8; 6]` (AK), `.compute_resync_anonymity_key()` (AK\*)
+- `.authenticate(challenge, auth_token) -> Result<AuthenticationOutput, AuthenticationError>`
 
 ## Specs
 
