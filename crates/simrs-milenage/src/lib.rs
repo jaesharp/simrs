@@ -326,7 +326,7 @@ impl<'a> SnapReader<'a> {
 
 /// Convert a 6-byte big-endian SQN to a u64.
 #[allow(clippy::trivially_copy_pass_by_ref)] // consistent with other Milenage helpers taking &[u8; N]
-pub const fn u48_from_be(b: &[u8; 6]) -> u64 {
+pub(crate) const fn u48_from_be(b: &[u8; 6]) -> u64 {
     (b[0] as u64) << 40
         | (b[1] as u64) << 32
         | (b[2] as u64) << 24
@@ -337,7 +337,7 @@ pub const fn u48_from_be(b: &[u8; 6]) -> u64 {
 
 /// Convert a u64 (lower 48 bits) to a 6-byte big-endian SQN.
 #[allow(clippy::cast_possible_truncation)] // intentional: extracting individual bytes from u64
-pub const fn u48_to_be(val: u64) -> [u8; 6] {
+pub(crate) const fn u48_to_be(val: u64) -> [u8; 6] {
     let v = val & 0x0000_FFFF_FFFF_FFFF;
     [
         (v >> 40) as u8,

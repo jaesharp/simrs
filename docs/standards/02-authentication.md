@@ -55,7 +55,7 @@ graph LR
 
 ### Rust API: Algorithm Interface (TS 35.205 clause 3)
 
-The 3GPP f1-f5 function set defines a common interface for authentication algorithms. `MilenageParams` implements all seven functions with standard-conformant signatures:
+The 3GPP f1-f5 function set defines a common interface for authentication algorithms, exposed through the `AuthenticationAlgorithm` trait with standard-conformant signatures:
 
 | Function | Standard | Method | Status |
 |----------|----------|--------|--------|

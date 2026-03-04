@@ -472,10 +472,6 @@ impl MilenageParams {
     pub fn new(k: [u8; 16], op: OperatorVariant,
                ci: [[u8; 16]; 5], ri: [u8; 5]) -> Result<Self, ParamError>;
 
-    // Full authentication
-    pub fn authenticate(&mut self, challenge: &[u8; 16], auth_token: &[u8; 16])
-        -> Result<AuthenticationOutput, AuthenticationError>;
-
     // Individual functions for test vector validation (ETSI TS 135 208)
     pub fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
     pub fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
@@ -485,6 +481,11 @@ impl MilenageParams {
     pub fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
     pub fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
 }
+
+// Full authentication protocol lives on the trait (default method),
+// shared by both MilenageParams and TuakParams:
+//   AuthenticationAlgorithm::authenticate(&mut self, challenge, auth_token)
+//       -> Result<AuthenticationOutput, AuthenticationError>
 
 pub struct AuthenticationOutput {
     pub response: [u8; 8], pub cipher_key: [u8; 16],
@@ -500,7 +501,7 @@ pub enum ParamError           { DuplicateCiRi { first: usize, second: usize } }
 
 **Standards:** 3GPP TS 35.231 (TUAK algorithm)
 
-**Deps:** [`simrs-keccak`](#simrs-keccak), [`simrs-consttime`](#simrs-consttime), [`simrs-milenage`](#simrs-milenage)
+**Deps:** [`simrs-keccak`](#simrs-keccak), [`simrs-milenage`](#simrs-milenage)
 
 TUAK authentication algorithm -- a Keccak-based alternative to Milenage. Reuses the `AuthenticationOutput` / `AuthenticationError` types from `simrs-milenage` for API compatibility.
 

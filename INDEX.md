@@ -1,6 +1,6 @@
 # simrs Crate Index
 
-> 32 crates, 1371 tests, zero clippy/doc warnings. Pure `no_std` (where marked). Zero external runtime dependencies.
+> 33 crates, 1371 tests, zero clippy/doc warnings. Pure `no_std` (where marked). Zero external runtime dependencies.
 > Pure Rust SIM/USIM card simulator for bare-metal simulation and Shannon baseband fuzzing.
 >
 > Colours follow the [Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
@@ -179,8 +179,13 @@ graph TB
 | [`simrs-auth-cli`](crates/simrs-auth-cli/) | Meta | **no** | Milenage auth vector CLI for LTE/UMTS test tools | [milenage](crates/simrs-milenage/) | -- |
 | [`simrs-consttime-validation`](crates/simrs-consttime-validation/) | Meta | **no** | DudeCT timing verification for constant-time code | [consttime](crates/simrs-consttime/) | [API](docs/architecture.md#simrs-consttime-validation) |
 | [`simrs-profile`](crates/simrs-profile/) | Meta | **no** | TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem) | [fs](crates/simrs-fs/) | [API](docs/architecture.md#simrs-profile) |
+| [`simrs-ref`](crates/simrs-ref/) | Meta | **no** | Reference test vectors from 3GPP/ETSI specifications | [milenage](crates/simrs-milenage/), [tuak](crates/simrs-tuak/), [comp128](crates/simrs-comp128/) | -- |
 
 ^opt^ = optional feature gate
+
+**External test harnesses** (not workspace members, distributed separately):
+- [`simrs-spec-tests`](tools/simrs-spec-tests/) -- Cucumber BDD functional test harness (236 scenarios across 12 feature files)
+- [`simrs-security-tests`](tools/simrs-security-tests/) -- Cucumber BDD security regression harness (148 scenarios across 7 feature files)
 
 ## Standards Coverage
 
