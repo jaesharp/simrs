@@ -44,7 +44,24 @@ graph LR
 - `.compute_auth_mac() -> [u8; 8]` (MAC-A), `.compute_resync_mac()` (MAC-S)
 - `.compute_response() -> [u8; 8]` (RES), `.compute_cipher_key() -> [u8; 16]` (CK), `.compute_integrity_key() -> [u8; 16]` (IK)
 - `.compute_anonymity_key() -> [u8; 6]` (AK), `.compute_resync_anonymity_key()` (AK\*)
-- `.authenticate(challenge, auth_token) -> Result<AuthenticationOutput, AuthenticationError>`
+- `.authenticate(challenge, auth_token) -> Result<AuthenticationOutput, AuthenticationError>` (via `AuthenticationAlgorithm` trait default method, shared with TUAK)
+
+### Renamed API
+
+3GPP abbreviations have been expanded to full names for readability. The old names
+remain available as `#[deprecated]` aliases with compiler guidance:
+
+| Old | New | Reason |
+|-----|-----|--------|
+| `f1` / `f1_star` | `compute_auth_mac` / `compute_resync_mac` | MAC-A / MAC-S computation |
+| `f2` | `compute_response` | RES computation |
+| `f3` / `f4` | `compute_cipher_key` / `compute_integrity_key` | CK / IK computation |
+| `f5` / `f5_star` | `compute_anonymity_key` / `compute_resync_anonymity_key` | AK / AK\* computation |
+| `OpVariant` | `OperatorVariant` | OP is the 3GPP Operator Parameter |
+| `AuthOutput` | `AuthenticationOutput` | Clarity |
+| `MilenageError` | `AuthenticationError` | Algorithm-independent usage |
+| `AuthAlgorithm` | `AuthenticationAlgorithm` | Full name |
+| `.res()` / `.ck()` / `.ik()` / `.kc()` | direct field access: `response` / `cipher_key` / `integrity_key` / `gsm_cipher_key` | 3GPP abbreviation expansion |
 
 ## Specs
 

@@ -79,6 +79,14 @@ TERMINAL RESPONSE, ENVELOPE.
 | [simrs-pin](../simrs-pin/) | PIN verification state |
 | [simrs-proactive](../simrs-proactive/) | Proactive command encoding |
 
+### Renamed API
+
+| Old | New |
+|-----|-----|
+| `AuthenticateResult` | `AuthenticationResult` |
+
+The old name remains as a `#[deprecated]` alias.
+
 ## Specs
 
 - [Architecture](../../docs/architecture.md#simrs-usim)

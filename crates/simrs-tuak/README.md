@@ -23,6 +23,19 @@ built on Keccak-f[1600].
 - `TuakParams` -- TUAK algorithm parameters (K, TOPc)
 - `OperatorVariant` -- raw TOP or pre-computed TOPc
 - `AuthenticationAlgorithm` trait implementation for integration with `simrs-usim`
+- `.authenticate(...)` -- via `AuthenticationAlgorithm` trait default method (shared with Milenage)
+- `.compute_response_and_keys(...)` -- batched single-Keccak override (f2/f3/f4 in one call)
+
+### Renamed API
+
+| Old | New | Reason |
+|-----|-----|--------|
+| `TopVariant` | `OperatorVariant` | TOP is the 3GPP TUAK Operator Parameter |
+| `f1` / `f1_star` | `compute_auth_mac` / `compute_resync_mac` | MAC-A / MAC-S computation |
+| `f2` / `f3` / `f4` | `compute_response` / `compute_cipher_key` / `compute_integrity_key` | RES / CK / IK computation |
+| `f5` / `f5_star` | `compute_anonymity_key` / `compute_resync_anonymity_key` | AK / AK\* computation |
+
+Old names remain as `#[deprecated]` aliases with compiler guidance.
 
 ## Tests
 
