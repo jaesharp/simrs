@@ -35,7 +35,7 @@
 //! while bridge.step().unwrap() { }
 //! ```
 
-use simrs_milenage::AuthAlgorithm;
+use simrs_milenage::AuthenticationAlgorithm;
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_transport_shmem::{ring_read, ring_write, ShmemHeader, HEADER_SIZE};
 
@@ -146,7 +146,7 @@ const FALLBACK_APDU_RSP: [u8; 3] = [ShmemMsgType::Apdu as u8, 0x6F, 0x00];
 ///
 /// Holds a [`Sim`] instance and processes commands from the shared-memory
 /// command ring one at a time via [`step`](Self::step).
-pub struct QemuBridge<'a, A: AuthAlgorithm = simrs_milenage::MilenageParams, const RSP_CAP: usize = 256> {
+pub struct QemuBridge<'a, A: AuthenticationAlgorithm = simrs_milenage::MilenageParams, const RSP_CAP: usize = 256> {
     sim: Sim<A, RSP_CAP>,
     shmem: &'a mut [u8],
     ring_size: u32,
@@ -156,7 +156,7 @@ pub struct QemuBridge<'a, A: AuthAlgorithm = simrs_milenage::MilenageParams, con
     rsp_tail: u32,
 }
 
-impl<A: AuthAlgorithm, const RSP_CAP: usize> core::fmt::Debug for QemuBridge<'_, A, RSP_CAP> {
+impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> core::fmt::Debug for QemuBridge<'_, A, RSP_CAP> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("QemuBridge")
             .field("ring_size", &self.ring_size)
@@ -168,7 +168,7 @@ impl<A: AuthAlgorithm, const RSP_CAP: usize> core::fmt::Debug for QemuBridge<'_,
     }
 }
 
-impl<'a, A: AuthAlgorithm, const RSP_CAP: usize> QemuBridge<'a, A, RSP_CAP> {
+impl<'a, A: AuthenticationAlgorithm, const RSP_CAP: usize> QemuBridge<'a, A, RSP_CAP> {
     /// Create a new bridge from a [`Sim`] and a borrowed shmem region.
     ///
     /// Validates the shmem header and initializes local ring indices.

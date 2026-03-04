@@ -1,8 +1,12 @@
 //! Shadow SIM: wraps a `Sim<MilenageParams>` for shadow comparison.
+//!
+//! Also provides `SimTerminal` which implements the `Transport` trait
+//! for use in Diff mode with N-way comparison.
 
 use simrs_fs::DfDef;
-use simrs_milenage::{MilenageParams, OpVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant};
 use simrs_sim::{Sim, SimEvent, SimResponse};
+use simrs_transport::{Transport, TransportError};
 
 use crate::mode::AuthConfig;
 
@@ -10,6 +14,95 @@ use crate::mode::AuthConfig;
 pub struct ShadowSim {
     sim: Sim<MilenageParams, 256>,
     rsp_buf: [u8; 261],
+}
+
+/// A SIM instance wrapped as a Transport for use in Diff mode.
+///
+/// This allows comparing two simrs instances directly without
+/// going through TCP. The APDUs are sent to both and responses compared.
+pub struct SimTerminal {
+    sim: Sim<MilenageParams, 256>,
+    rsp_buf: [u8; 261],
+}
+
+impl SimTerminal {
+    /// Create a new SimTerminal with the given auth config and filesystem.
+    pub fn new(config: &AuthConfig, atr: &'static [u8], mf: &'static DfDef) -> Self {
+        let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
+
+        // Configure GSM app with Ki.
+        {
+            use simrs_gsm::GsmApp;
+            let gsm = sim.gsm_app_mut();
+            *gsm = GsmApp::new(mf, simrs_gsm::Ki(config.ki));
+        }
+
+        // Configure USIM app with K/OPc.
+        {
+            use simrs_usim::UsimApp;
+            let mil = MilenageParams::with_defaults(config.k, OperatorVariant::Opc(config.opc));
+            let usim = sim.usim_app_mut();
+            *usim = UsimApp::new(mf, &[], mil);
+        }
+
+        Self {
+            sim,
+            rsp_buf: [0u8; 261],
+        }
+    }
+
+    /// Process a power-on event. Returns ATR bytes.
+    pub fn power_on(&mut self) -> &[u8] {
+        match self.sim.process(SimEvent::PowerOn) {
+            SimResponse::Atr(atr) => atr,
+            _ => &[],
+        }
+    }
+
+    /// Process an APDU. Returns `(response_data, sw1, sw2)` or `None` if ignored.
+    pub fn process_apdu(&mut self, cmd: &[u8]) -> Option<(&[u8], u8, u8)> {
+        match self.sim.process(SimEvent::Apdu(cmd)) {
+            SimResponse::Apdu { data, sw1, sw2 } => {
+                self.rsp_buf[..data.len()].copy_from_slice(data);
+                Some((&self.rsp_buf[..data.len()], sw1, sw2))
+            }
+            SimResponse::Ignored | SimResponse::Atr(_) => None,
+        }
+    }
+}
+
+impl Transport for SimTerminal {
+    type Error = TransportError;
+
+    fn exchange(&mut self, cmd: &[u8], rsp: &mut [u8]) -> Result<usize, Self::Error> {
+        // Ensure powered on
+        self.power_on();
+
+        match self.sim.process(SimEvent::Apdu(cmd)) {
+            SimResponse::Apdu { data, sw1, sw2 } => {
+                let len = data.len() + 2;
+                if len > rsp.len() {
+                    return Err(TransportError::BufferTooSmall);
+                }
+                rsp[..data.len()].copy_from_slice(data);
+                rsp[data.len()] = sw1;
+                rsp[data.len() + 1] = sw2;
+                Ok(len)
+            }
+            SimResponse::Ignored => {
+                // Return 6F00 (technical problem)
+                rsp[0] = 0x6F;
+                rsp[1] = 0x00;
+                Ok(2)
+            }
+            SimResponse::Atr(_) => {
+                // Return 6F00 if not powered on
+                rsp[0] = 0x6F;
+                rsp[1] = 0x00;
+                Ok(2)
+            }
+        }
+    }
 }
 
 impl ShadowSim {
@@ -34,7 +127,7 @@ impl ShadowSim {
         // Configure USIM app with K/OPc.
         {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(config.k, OpVariant::Opc(config.opc));
+            let mil = MilenageParams::with_defaults(config.k, OperatorVariant::Opc(config.opc));
             let usim = sim.usim_app_mut();
             *usim = UsimApp::new(mf, &[], mil);
         }
@@ -159,5 +252,73 @@ mod tests {
         // After reset, should still accept APDUs
         let result = shadow.process_apdu(&select_mf);
         assert!(result.is_some());
+    }
+
+    // === SimTerminal tests ===
+
+    #[test]
+    fn simterminal_transport_exchange() {
+        let config = test_auth_config();
+        let mut terminal = SimTerminal::new(&config, &TEST_ATR, &TEST_MF);
+
+        let mut rsp_buf = [0u8; 261];
+        let select_mf = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+
+        let n = terminal.exchange(&select_mf, &mut rsp_buf).unwrap();
+        assert!(n >= 2, "Should return at least SW1/SW2");
+    }
+
+    #[test]
+    fn simterminal_same_config_same_response() {
+        let config = test_auth_config();
+        let mut term1 = SimTerminal::new(&config, &TEST_ATR, &TEST_MF);
+        let mut term2 = SimTerminal::new(&config, &TEST_ATR, &TEST_MF);
+
+        let mut rsp1 = [0u8; 261];
+        let mut rsp2 = [0u8; 261];
+        let select_mf = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+
+        let n1 = term1.exchange(&select_mf, &mut rsp1).unwrap();
+        let n2 = term2.exchange(&select_mf, &mut rsp2).unwrap();
+
+        // Responses should be identical with same config
+        assert_eq!(n1, n2);
+        assert_eq!(&rsp1[..n1], &rsp2[..n2]);
+    }
+
+    #[test]
+    fn simterminal_different_ki_different_response() {
+        let mut config1 = test_auth_config();
+        let mut config2 = test_auth_config();
+
+        // Different Ki
+        config1.ki = [0x11u8; 16];
+        config2.ki = [0x22u8; 16];
+
+        let mut term1 = SimTerminal::new(&config1, &TEST_ATR, &TEST_MF);
+        let mut term2 = SimTerminal::new(&config2, &TEST_ATR, &TEST_MF);
+
+        let mut rsp1 = [0u8; 261];
+        let mut rsp2 = [0u8; 261];
+
+        // Run GSM ALGORITHM command which uses Ki
+        // This returns 9F 0C (12 bytes available) - need GET RESPONSE
+        let run_gsm_algo = [0xA0, 0x88, 0x00, 0x00, 0x10,
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+            0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F];
+
+        let _n1 = term1.exchange(&run_gsm_algo, &mut rsp1).unwrap();
+        let _n2 = term2.exchange(&run_gsm_algo, &mut rsp2).unwrap();
+
+        // GET RESPONSE to fetch the 12-byte SRES + Kc
+        let get_resp = [0xA0, 0xC0, 0x00, 0x00, 0x0C];
+
+        let n1 = term1.exchange(&get_resp, &mut rsp1).unwrap();
+        let n2 = term2.exchange(&get_resp, &mut rsp2).unwrap();
+
+        // With different Ki, responses should differ
+        // (at least the SRES/Kc parts will be different)
+        assert!(n1 >= 12, "Should return SRES(4) + Kc(8), got {n1}");
+        assert!(n2 >= 12, "Should return SRES(4) + Kc(8), got {n2}");
     }
 }

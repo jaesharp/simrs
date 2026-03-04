@@ -53,11 +53,15 @@ impl From<std::io::Error> for InterposerError {
 
 /// The main proxy event loop.
 ///
-/// Sits between a modem (via SwIccClient) and optionally a real SIM card
+/// Sits between a modem (via SwIccClient) and optionally N real SIM cards
 /// (via SwIccTerminal), with optional shadow comparison and PCAP capture.
 pub struct ProxyLoop {
     modem: SwIccClient,
+    /// Single card connection (for Log/Shadow/Replace modes).
     card: Option<SwIccTerminal>,
+    /// Multiple card connections for Diff mode (N-way comparison).
+    #[allow(dead_code)]
+    diff_cards: Vec<SwIccTerminal>,
     shadow: Option<ShadowSim>,
     capture: Option<PcapCapture>,
     stats: DivergenceStats,
@@ -76,11 +80,19 @@ impl ProxyLoop {
     pub fn connect(config: &InterposerConfig) -> Result<Self, InterposerError> {
         let modem = SwIccClient::connect(&config.modem_addr)?;
 
+        // Single card connection for Log/Shadow/Replace modes.
         let card = config
             .card_addr
             .as_ref()
             .map(|addr| SwIccTerminal::connect(addr))
             .transpose()?;
+
+        // Multiple card connections for Diff mode (N-way comparison).
+        let diff_cards = config
+            .card_addrs
+            .iter()
+            .map(|addr| SwIccTerminal::connect(addr))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let capture = config
             .pcap_path
@@ -98,6 +110,7 @@ impl ProxyLoop {
         Ok(Self {
             modem,
             card,
+            diff_cards,
             shadow,
             capture,
             stats: DivergenceStats::default(),
@@ -109,10 +122,13 @@ impl ProxyLoop {
     }
 
     /// Create a proxy loop from pre-made components (for testing).
+    ///
+    /// Parameters: (modem, card, diff_cards, shadow, capture, mode)
     #[cfg(test)]
     pub fn from_parts(
         modem: SwIccClient,
         card: Option<SwIccTerminal>,
+        diff_cards: Vec<SwIccTerminal>,
         shadow: Option<ShadowSim>,
         capture: Option<PcapCapture>,
         mode: InterposerMode,
@@ -120,6 +136,7 @@ impl ProxyLoop {
         Self {
             modem,
             card,
+            diff_cards,
             shadow,
             capture,
             stats: DivergenceStats::default(),
@@ -199,6 +216,11 @@ impl ProxyLoop {
     ) -> Result<(), InterposerError> {
         let is_cold = event == CardEvent::PowerOn;
 
+        // Handle Diff mode reset - reset all cards and use first ATR
+        if self.mode == InterposerMode::Diff && !self.diff_cards.is_empty() {
+            return self.handle_reset_diff(is_cold);
+        }
+
         // Get ATR from real card if available.
         let atr_data: Vec<u8> = self
             .card
@@ -247,6 +269,39 @@ impl ProxyLoop {
         Ok(())
     }
 
+    /// Handle reset in Diff mode - reset all N cards.
+    fn handle_reset_diff(&mut self, is_cold: bool) -> Result<(), InterposerError> {
+        let mut atr_data: Vec<u8> = vec![];
+
+        for card in &mut self.diff_cards {
+            let msg = if is_cold {
+                card.reset_cold()
+            } else {
+                card.reset_warm()
+            };
+            // Use first successful ATR
+            if atr_data.is_empty() {
+                if let Ok(msg) = msg {
+                    atr_data = msg.buf().to_vec();
+                }
+            }
+        }
+
+        // Record ATR in PCAP.
+        if let Some(cap) = &mut self.capture {
+            if !atr_data.is_empty() {
+                cap.record_atr(&atr_data)?;
+            }
+        }
+
+        // Send ATR to modem.
+        if !atr_data.is_empty() {
+            self.modem.send_atr(&atr_data)?;
+        }
+
+        Ok(())
+    }
+
     /// Handle an APDU event.
     #[allow(clippy::too_many_lines)]
     fn handle_apdu(&mut self, len: usize) -> Result<(), InterposerError> {
@@ -260,6 +315,11 @@ impl ProxyLoop {
         // Record command APDU in PCAP.
         if let Some(cap) = &mut self.capture {
             cap.record_apdu(simrs_pcap::Direction::Command, cmd_slice)?;
+        }
+
+        // Handle Diff mode - N-way comparison
+        if self.mode == InterposerMode::Diff && !self.diff_cards.is_empty() {
+            return self.handle_apdu_diff(cmd_slice);
         }
 
         // Forward to real card.
@@ -325,6 +385,65 @@ impl ProxyLoop {
         Ok(())
     }
 
+    /// Handle APDU in Diff mode - compare N card responses.
+    fn handle_apdu_diff(&mut self, cmd_slice: &[u8]) -> Result<(), InterposerError> {
+        // Collect responses from all diff cards
+        let mut card_responses: Vec<(Vec<u8>, u8, u8)> = Vec::new();
+        let mut rsp_buf = [0u8; 261];
+
+        for card in &mut self.diff_cards {
+            let n = card.exchange(cmd_slice, &mut rsp_buf)?;
+            if n >= 2 {
+                let sw1 = rsp_buf[n - 2];
+                let sw2 = rsp_buf[n - 1];
+                let data = rsp_buf[..n - 2].to_vec();
+                card_responses.push((data, sw1, sw2));
+            } else {
+                card_responses.push((vec![], 0x6F, 0x00));
+            }
+        }
+
+        // Compare all responses pairwise
+        if card_responses.len() >= 2 {
+            let first = &card_responses[0];
+            for (idx, resp) in card_responses.iter().enumerate().skip(1) {
+                let cmp = compare_responses(
+                    &first.0,
+                    first.1,
+                    first.2,
+                    Some((&resp.0, resp.1, resp.2)),
+                );
+                self.stats.record(&cmp);
+
+                if cmp != CompareResult::Match {
+                    eprintln!(
+                        "[simrs-interposer] Diff: card 0 vs card {idx}: {cmp:?}",
+                    );
+                }
+            }
+        }
+
+        // Return first card's response
+        let response = card_responses
+            .first()
+            .map_or_else(|| vec![0x6F, 0x00], |(data, sw1, sw2)| {
+                let mut rsp = data.clone();
+                rsp.push(*sw1);
+                rsp.push(*sw2);
+                rsp
+            });
+
+        // Record response in PCAP.
+        if let Some(cap) = &mut self.capture {
+            cap.record_apdu(simrs_pcap::Direction::Response, &response)?;
+        }
+
+        // Send response to modem.
+        self.modem.send(&response)?;
+
+        Ok(())
+    }
+
     /// Build the response bytes to send back to the modem.
     fn build_response(
         &self,
@@ -352,6 +471,14 @@ impl ProxyLoop {
                 if let Some((d, s1, s2)) = real {
                     pack(d, s1, s2)
                 } else if let Some((d, s1, s2)) = shadow {
+                    pack(d, s1, s2)
+                } else {
+                    vec![0x6F, 0x00]
+                }
+            }
+            InterposerMode::Diff => {
+                // Diff mode: responses already compared, return first available
+                if let Some((d, s1, s2)) = real {
                     pack(d, s1, s2)
                 } else {
                     vec![0x6F, 0x00]
@@ -429,6 +556,7 @@ mod tests {
         let proxy = ProxyLoop::from_parts(
             modem_client,
             None,
+            vec![],
             None,
             None,
             InterposerMode::Log,
@@ -444,6 +572,7 @@ mod tests {
         let mut proxy = ProxyLoop::from_parts(
             modem_client,
             Some(card_terminal),
+            vec![],
             None,
             None,
             InterposerMode::Log,
@@ -495,6 +624,7 @@ mod tests {
         let mut proxy = ProxyLoop::from_parts(
             modem_client,
             Some(card_terminal),
+            vec![],
             Some(shadow),
             None,
             InterposerMode::Shadow,
@@ -546,6 +676,7 @@ mod tests {
         let mut proxy = ProxyLoop::from_parts(
             modem_client,
             Some(card_terminal),
+            vec![],
             Some(shadow),
             None,
             InterposerMode::Replace,
@@ -600,6 +731,7 @@ mod tests {
         let proxy = ProxyLoop::from_parts(
             modem_client,
             None,
+            vec![],
             None,
             None,
             InterposerMode::Log,
@@ -615,6 +747,7 @@ mod tests {
         let proxy = ProxyLoop::from_parts(
             modem_client,
             None,
+            vec![],
             None,
             None,
             InterposerMode::Log,

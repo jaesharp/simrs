@@ -29,7 +29,7 @@
 //! use simrs_usim::UsimApp;
 //! use simrs_iso7816::Command;
 //! use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
-//! use simrs_milenage::{MilenageParams, OpVariant};
+//! use simrs_milenage::{MilenageParams, OperatorVariant};
 //!
 //! static EF: EfDef = EfDef::transparent(
 //!     Fid::new(0x2FE2),
@@ -38,7 +38,7 @@
 //! );
 //! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[FileRef::Ef(&EF)] };
 //!
-//! let milenage = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+//! let milenage = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
 //! let mut app = UsimApp::new(&MF, &[], milenage);
 //!
 //! // SELECT MF (interindustry CLA)
@@ -61,7 +61,7 @@ use simrs_fs::{
     SelectionCtx, SelectedFile, Sfi,
 };
 use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
-use simrs_milenage::{AuthAlgorithm, MilenageError, MilenageParams};
+use simrs_milenage::{AuthenticationAlgorithm, AuthenticationError, MilenageParams};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
 use simrs_proactive::ProactiveState;
 
@@ -126,10 +126,10 @@ const GSM_AUTH_DATA_LEN: usize = 17; // 0x10 || RAND(16)
 const AUTH_VECTOR_LEN_PREFIX: u8 = 0x10;
 const AUTH_SUCCESS_TAG: u8 = 0xDB;
 const AUTH_SYNC_FAILURE_TAG: u8 = 0xDC;
-const AUTS_LEN: u8 = 0x0E;
-const AUTH_RES_LEN: u8 = 0x08;
-const AUTH_CK_IK_LEN: u8 = 0x10;
-const AUTH_SUCCESS_INNER_LEN: u8 = 1 + AUTH_RES_LEN + 1 + AUTH_CK_IK_LEN + 1 + AUTH_CK_IK_LEN;
+const RESYNC_TOKEN_LEN: u8 = 0x0E;
+const AUTH_RESPONSE_LEN: u8 = 0x08;
+const AUTH_KEY_LEN: u8 = 0x10;
+const AUTH_SUCCESS_INNER_LEN: u8 = 1 + AUTH_RESPONSE_LEN + 1 + AUTH_KEY_LEN + 1 + AUTH_KEY_LEN;
 
 // GSM context response constants (TS 31.102 clause 7.1.2).
 #[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
@@ -141,7 +141,7 @@ const GSM_KC_LEN: u8 = 0x08;
 const GSM_AUTH_RSP_LEN: usize = 1 + 4 + 1 + 8;
 
 // ---------------------------------------------------------------------------
-// AuthenticateResult
+// AuthenticationResult
 // ---------------------------------------------------------------------------
 
 /// AUTHENTICATE command result per TS 31.102 clause 7.1.2.1.
@@ -151,28 +151,32 @@ const GSM_AUTH_RSP_LEN: usize = 1 + 4 + 1 + 8;
 /// - Sync failure: AUTS returned in tag 0xDC for resynchronization
 /// - MAC failure: SW 98 62
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AuthenticateResult {
+pub enum AuthenticationResult {
     /// Successful authentication. Contains RES (8 bytes), CK (16 bytes),
     /// IK (16 bytes). Encoded as tag 0xDB with nested TLV.
     Success {
         /// Authentication response (f2 output).
-        res: [u8; 8],
+        response: [u8; 8],
         /// Ciphering key (f3 output).
-        ck: [u8; 16],
+        cipher_key: [u8; 16],
         /// Integrity key (f4 output).
-        ik: [u8; 16],
+        integrity_key: [u8; 16],
     },
     /// SQN synchronization failure. Contains AUTS (14 bytes).
     /// Encoded as tag 0xDC.
     SyncFailure {
         /// AUTS resynchronization token (14 bytes).
-        auts: [u8; 14],
+        resync_token: [u8; 14],
     },
     /// MAC verification failure. Returns SW 98 62.
     MacFailure,
 }
 
-impl AuthenticateResult {
+/// Deprecated: use [`AuthenticationResult`].
+#[deprecated(note = "use `AuthenticationResult`")]
+pub type AuthenticateResult = AuthenticationResult;
+
+impl AuthenticationResult {
     /// Encode the result into a byte buffer for APDU response.
     ///
     /// For `Success`: writes tag 0xDB, inner length, then length-prefixed
@@ -186,7 +190,7 @@ impl AuthenticateResult {
     /// Returns the number of bytes written.
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         match self {
-            Self::Success { res, ck, ik } => {
+            Self::Success { response, cipher_key, integrity_key } => {
                 // 0xDB <inner_len> <res_len> [RES] <ck_len> [CK] <ik_len> [IK]
                 let inner_len: u8 = AUTH_SUCCESS_INNER_LEN;
                 let mut pos: usize = 0;
@@ -195,26 +199,26 @@ impl AuthenticateResult {
                 buf[pos] = inner_len;
                 pos += 1;
                 // RES
-                buf[pos] = AUTH_RES_LEN;
+                buf[pos] = AUTH_RESPONSE_LEN;
                 pos += 1;
-                buf[pos..pos + 8].copy_from_slice(res);
+                buf[pos..pos + 8].copy_from_slice(response);
                 pos += 8;
                 // CK
-                buf[pos] = AUTH_CK_IK_LEN;
+                buf[pos] = AUTH_KEY_LEN;
                 pos += 1;
-                buf[pos..pos + 16].copy_from_slice(ck);
+                buf[pos..pos + 16].copy_from_slice(cipher_key);
                 pos += 16;
                 // IK
-                buf[pos] = AUTH_CK_IK_LEN;
+                buf[pos] = AUTH_KEY_LEN;
                 pos += 1;
-                buf[pos..pos + 16].copy_from_slice(ik);
+                buf[pos..pos + 16].copy_from_slice(integrity_key);
                 pos += 16;
                 pos
             }
-            Self::SyncFailure { auts } => {
+            Self::SyncFailure { resync_token } => {
                 buf[0] = AUTH_SYNC_FAILURE_TAG;
-                buf[1] = AUTS_LEN;
-                buf[2..16].copy_from_slice(auts);
+                buf[1] = RESYNC_TOKEN_LEN;
+                buf[2..16].copy_from_slice(resync_token);
                 16
             }
             Self::MacFailure => 0,
@@ -241,7 +245,7 @@ const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
 ///
 /// The type parameter `A` selects the authentication algorithm.
 /// The default is [`MilenageParams`] (TS 35.206).
-pub struct UsimApp<A: AuthAlgorithm = MilenageParams> {
+pub struct UsimApp<A: AuthenticationAlgorithm = MilenageParams> {
     fs: SelectionCtx,
     data: FsData<FS_CAP, FS_MAX_EFS>,
     mf: &'static DfDef,
@@ -270,7 +274,7 @@ pub struct UsimApp<A: AuthAlgorithm = MilenageParams> {
     proactive_session_active: bool,
 }
 
-impl<A: AuthAlgorithm> UsimApp<A> {
+impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Create a new USIM application.
     ///
     /// # Panics
@@ -283,10 +287,10 @@ impl<A: AuthAlgorithm> UsimApp<A> {
     /// ```
     /// use simrs_usim::UsimApp;
     /// use simrs_fs::{DfDef, Fid, AdfSlot};
-    /// use simrs_milenage::{MilenageParams, OpVariant};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant};
     ///
     /// static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
-    /// let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+    /// let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
     /// let app = UsimApp::new(&MF, &[], mil);
     /// ```
     pub fn new(
@@ -327,6 +331,22 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         &mut self.proactive
     }
 
+    /// Clear transient session state on power-on / reset.
+    ///
+    /// Per ETSI TS 102 221, a cold reset clears the response queue
+    /// (no data pending from the prior session) and ends any active
+    /// proactive session. PIN verified flags are handled separately
+    /// by the caller.
+    pub const fn reset_session(&mut self) {
+        self.rsp_queue.clear();
+        self.proactive_session_active = false;
+        self.proactive.reset_session();
+        self.fs = SelectionCtx::new(self.mf);
+        // Close all logical channels.
+        self.channels = [None, None, None, None];
+        self.last_aid_match = false;
+    }
+
     /// Advance all UICC-side proactive timers by `elapsed_secs`.
     ///
     /// Returns the number of timers that expired. The caller should
@@ -351,6 +371,10 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         + DeactivationTracker::SNAPSHOT_SIZE
         + 4 * (SelectionCtx::SNAPSHOT_SIZE + 1) // channels: 4 * (snapshot + is_open flag)
         + 1; // last_aid_match
+
+    /// Byte offset of the `PinManager` region within a `UsimApp` snapshot.
+    pub const PIN_SNAPSHOT_OFFSET: usize =
+        SelectionCtx::SNAPSHOT_SIZE + FsData::<FS_CAP, FS_MAX_EFS>::SNAPSHOT_SIZE;
 
     /// Serialize the USIM application state into `buf`.
     ///
@@ -971,24 +995,24 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
-        let mut rand = [0u8; 16];
-        rand.copy_from_slice(&data[1..17]);
-        let mut autn = [0u8; 16];
-        autn.copy_from_slice(&data[18..34]);
+        let mut challenge = [0u8; 16];
+        challenge.copy_from_slice(&data[1..17]);
+        let mut auth_token = [0u8; 16];
+        auth_token.copy_from_slice(&data[18..34]);
 
-        let auth_result = match self.auth.authenticate(&rand, &autn) {
-            Ok(output) => AuthenticateResult::Success {
-                res: output.res,
-                ck: output.ck,
-                ik: output.ik,
+        let auth_result = match self.auth.authenticate(&challenge, &auth_token) {
+            Ok(output) => AuthenticationResult::Success {
+                response: output.response,
+                cipher_key: output.cipher_key,
+                integrity_key: output.integrity_key,
             },
-            Err(MilenageError::MacFailure) => AuthenticateResult::MacFailure,
-            Err(MilenageError::SyncFailure { auts }) => {
-                AuthenticateResult::SyncFailure { auts }
+            Err(AuthenticationError::MacFailure) => AuthenticationResult::MacFailure,
+            Err(AuthenticationError::SyncFailure { resync_token }) => {
+                AuthenticationResult::SyncFailure { resync_token }
             }
         };
 
-        if auth_result == AuthenticateResult::MacFailure {
+        if auth_result == AuthenticationResult::MacFailure {
             write_sw(buf, StatusWord::AuthenticationError)
         } else {
             let q = self.rsp_queue.buf_mut();
@@ -1021,22 +1045,22 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
-        let mut rand = [0u8; 16];
-        rand.copy_from_slice(&data[1..17]);
+        let mut challenge = [0u8; 16];
+        challenge.copy_from_slice(&data[1..17]);
 
         // Compute SRES = f2(RAND)[0..4].
-        let res = self.auth.f2(&rand);
+        let response = self.auth.compute_response(&challenge);
         let mut sres = [0u8; 4];
-        sres.copy_from_slice(&res[..4]);
+        sres.copy_from_slice(&response[..4]);
 
         // Compute Kc per TS 33.102 Annex B c3 conversion:
         // Kc = CK1 xor CK2 xor IK1 xor IK2
         // where CK = CK1(8) || CK2(8), IK = IK1(8) || IK2(8).
-        let ck = self.auth.f3(&rand);
-        let ik = self.auth.f4(&rand);
-        let mut kc = [0u8; 8];
+        let cipher_key = self.auth.compute_cipher_key(&challenge);
+        let integrity_key = self.auth.compute_integrity_key(&challenge);
+        let mut gsm_cipher_key = [0u8; 8];
         for i in 0..8 {
-            kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
+            gsm_cipher_key[i] = cipher_key[i] ^ cipher_key[i + 8] ^ integrity_key[i] ^ integrity_key[i + 8];
         }
 
         // Encode response: 0x04 || SRES(4) || 0x08 || Kc(8).
@@ -1044,7 +1068,7 @@ impl<A: AuthAlgorithm> UsimApp<A> {
         q[0] = GSM_SRES_LEN;
         q[1..5].copy_from_slice(&sres);
         q[5] = GSM_KC_LEN;
-        q[6..14].copy_from_slice(&kc);
+        q[6..14].copy_from_slice(&gsm_cipher_key);
         self.rsp_queue.set_len(GSM_AUTH_RSP_LEN);
         write_sw(buf, StatusWord::bytes_available(GSM_AUTH_RSP_LEN as u8))
     }
@@ -1504,8 +1528,39 @@ impl<A: AuthAlgorithm> UsimApp<A> {
     ) -> &'buf [u8] {
         let data = cmd.data();
 
+        // Per ETSI TS 102 221 clause 11.2.2: ENVELOPE requires a prior
+        // TERMINAL PROFILE to have been sent in this session.
+        if !self.proactive.has_terminal_profile() {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+        }
+
+        // Reject empty data (no BER-TLV tag present).
+        if data.is_empty() {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        // Minimum BER-TLV: tag byte + length byte (at least 2 bytes).
+        if data.len() < 2 {
+            return write_sw(buf, StatusWord::wrong_params(0x80));
+        }
+
+        // Validate BER-TLV length field.
+        // Reject long-form BER length encoding (MSB set): T=0 APDUs are
+        // bounded to 255-byte Lc, so the outer TLV length must fit in a
+        // single short-form byte.
+        if data[1] & 0x80 != 0 {
+            return write_sw(buf, StatusWord::wrong_params(0x80));
+        }
+        // A zero-length value (L=00) is syntactically valid BER but
+        // semantically invalid for all envelope types that require inner
+        // TLVs (SMS-PP, Call Control, etc.).
+        let tlv_len = data[1] as usize;
+        if tlv_len == 0 || data.len() < 2 + tlv_len {
+            return write_sw(buf, StatusWord::wrong_params(0x80));
+        }
+
         // Determine envelope type from the outer BER-TLV tag byte.
-        let tag = data.first().copied().unwrap_or(0x00);
+        let tag = data[0];
 
         match tag {
             Self::ENV_TAG_SMS_PP_DOWNLOAD => {
@@ -1515,13 +1570,20 @@ impl<A: AuthAlgorithm> UsimApp<A> {
             }
             Self::ENV_TAG_CALL_CONTROL => {
                 // Call Control by USIM: allowed without modification.
+                // Per ETSI TS 102 223 clause 7.3.1 the USIM may allow,
+                // modify, or reject the call; this implementation always
+                // allows without modification.
                 write_sw(buf, StatusWord::Success)
             }
             _ => {
                 // Menu Selection (D3), Event Download (D6), and all other
-                // tags: pass to proactive state for processing.
-                self.proactive.process_envelope(data);
-                write_sw(buf, StatusWord::Success)
+                // recognized tags: pass to proactive state for processing.
+                if self.proactive.process_envelope(data) {
+                    write_sw(buf, StatusWord::Success)
+                } else {
+                    // Unrecognized or malformed envelope.
+                    write_sw(buf, StatusWord::wrong_params(0x80))
+                }
             }
         }
     }
@@ -1670,7 +1732,7 @@ fn write_ber_len(
 mod tests {
     use super::*;
     use simrs_fs::{AdfSlot, EfDef, Fid, FileRef, Sfi};
-    use simrs_milenage::OpVariant;
+    use simrs_milenage::OperatorVariant;
     use simrs_proactive::ProactiveCommand;
 
     // -- Test filesystem --
@@ -1766,7 +1828,7 @@ mod tests {
     ];
 
     fn app() -> UsimApp {
-        let mil = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let mil = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
         let mut a = UsimApp::new(&MF, &ADF_TABLE, mil);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -1781,7 +1843,7 @@ mod tests {
 
     /// Create an app with PIN1 enabled (not disabled) for PIN-gate tests.
     fn app_with_pin1_enabled() -> UsimApp {
-        let mil = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let mil = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
         let mut a = UsimApp::new(&MF, &ADF_TABLE, mil);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -2092,19 +2154,19 @@ mod tests {
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
         ];
-        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
-        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-        let amf = [0xB9, 0xB9];
-        let ak = params.f5(&rand_val);
-        let mac_a = params.f1(&rand_val, &sqn, &amf);
+        let mut params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let management_field = [0xB9, 0xB9];
+        let anonymity_key = params.compute_anonymity_key(&rand_val);
+        let auth_mac = params.compute_auth_mac(&rand_val, &sequence_number, &management_field);
 
         // AUTN = SQN XOR AK || AMF || MAC-A
-        let mut autn = [0u8; 16];
+        let mut auth_token = [0u8; 16];
         for i in 0..6 {
-            autn[i] = sqn[i] ^ ak[i];
+            auth_token[i] = sequence_number[i] ^ anonymity_key[i];
         }
-        autn[6..8].copy_from_slice(&amf);
-        autn[8..16].copy_from_slice(&mac_a);
+        auth_token[6..8].copy_from_slice(&management_field);
+        auth_token[8..16].copy_from_slice(&auth_mac);
 
         // Build AUTHENTICATE APDU.
         let mut apdu = [0u8; 5 + 34];
@@ -2116,7 +2178,7 @@ mod tests {
         apdu[5] = 0x10; // RAND length
         apdu[6..22].copy_from_slice(&rand_val);
         apdu[22] = 0x10; // AUTN length
-        apdu[23..39].copy_from_slice(&autn);
+        apdu[23..39].copy_from_slice(&auth_token);
 
         let (buf, _len) = send(&mut app, &apdu);
         assert_eq!(buf[0], 0x61); // data available
@@ -2131,13 +2193,13 @@ mod tests {
         assert_eq!(buf[0], 0xDB);
 
         // Verify against direct Milenage computation.
-        let expected = params.authenticate(&rand_val, &autn).unwrap();
+        let expected = params.authenticate(&rand_val, &auth_token).unwrap();
         // RES at offset 3 (after 0xDB, len, 0x08).
-        assert_eq!(&buf[3..11], &expected.res);
+        assert_eq!(&buf[3..11], &expected.response);
         // CK at offset 12 (after 0x10).
-        assert_eq!(&buf[12..28], &expected.ck);
+        assert_eq!(&buf[12..28], &expected.cipher_key);
         // IK at offset 29 (after 0x10).
-        assert_eq!(&buf[29..45], &expected.ik);
+        assert_eq!(&buf[29..45], &expected.integrity_key);
     }
 
     #[test]
@@ -2201,16 +2263,16 @@ mod tests {
         assert_eq!(buf[5], 0x08); // Kc length tag
 
         // Verify SRES = f2(RAND)[0..4].
-        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
-        let res = params.f2(&rand_val);
-        assert_eq!(&buf[1..5], &res[..4]);
+        let params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let response = params.compute_response(&rand_val);
+        assert_eq!(&buf[1..5], &response[..4]);
 
         // Verify Kc = CK1 xor CK2 xor IK1 xor IK2.
-        let ck = params.f3(&rand_val);
-        let ik = params.f4(&rand_val);
+        let cipher_key = params.compute_cipher_key(&rand_val);
+        let integrity_key = params.compute_integrity_key(&rand_val);
         let mut expected_kc = [0u8; 8];
         for i in 0..8 {
-            expected_kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
+            expected_kc[i] = cipher_key[i] ^ cipher_key[i + 8] ^ integrity_key[i] ^ integrity_key[i + 8];
         }
         assert_eq!(&buf[6..14], &expected_kc);
     }
@@ -2242,32 +2304,32 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x6A, 0x86)); // wrong P1-P2
     }
 
-    // -- AuthenticateResult::encode --
+    // -- AuthenticationResult::encode --
 
     #[test]
     fn authenticate_result_encode_success() {
         // Use ETSI TS 135 208 Test Set 1 to produce known RES/CK/IK values.
-        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let mut params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
         let rand_val: [u8; 16] = [
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
         ];
-        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-        let amf = [0xB9, 0xB9];
+        let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let management_field = [0xB9, 0xB9];
 
-        let ak = params.f5(&rand_val);
-        let mut autn = [0u8; 16];
+        let anonymity_key = params.compute_anonymity_key(&rand_val);
+        let mut auth_token = [0u8; 16];
         for i in 0..6 {
-            autn[i] = sqn[i] ^ ak[i];
+            auth_token[i] = sequence_number[i] ^ anonymity_key[i];
         }
-        autn[6..8].copy_from_slice(&amf);
-        autn[8..16].copy_from_slice(&params.f1(&rand_val, &sqn, &amf));
+        auth_token[6..8].copy_from_slice(&management_field);
+        auth_token[8..16].copy_from_slice(&params.compute_auth_mac(&rand_val, &sequence_number, &management_field));
 
-        let output = params.authenticate(&rand_val, &autn).unwrap();
-        let result = AuthenticateResult::Success {
-            res: output.res,
-            ck: output.ck,
-            ik: output.ik,
+        let output = params.authenticate(&rand_val, &auth_token).unwrap();
+        let result = AuthenticationResult::Success {
+            response: output.response,
+            cipher_key: output.cipher_key,
+            integrity_key: output.integrity_key,
         };
 
         let mut buf = [0u8; 64];
@@ -2278,20 +2340,20 @@ mod tests {
         assert_eq!(buf[0], 0xDB); // AUTH_SUCCESS_TAG
         assert_eq!(buf[1], 43);   // inner length = 1+8+1+16+1+16
         assert_eq!(buf[2], 0x08); // RES length prefix
-        assert_eq!(&buf[3..11], &output.res);
+        assert_eq!(&buf[3..11], &output.response);
         assert_eq!(buf[11], 0x10); // CK length prefix
-        assert_eq!(&buf[12..28], &output.ck);
+        assert_eq!(&buf[12..28], &output.cipher_key);
         assert_eq!(buf[28], 0x10); // IK length prefix
-        assert_eq!(&buf[29..45], &output.ik);
+        assert_eq!(&buf[29..45], &output.integrity_key);
     }
 
     #[test]
     fn authenticate_result_encode_sync_failure() {
-        let auts: [u8; 14] = [
+        let resync_token: [u8; 14] = [
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD,
             0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32,
         ];
-        let result = AuthenticateResult::SyncFailure { auts };
+        let result = AuthenticationResult::SyncFailure { resync_token };
 
         let mut buf = [0u8; 64];
         let n = result.encode(&mut buf);
@@ -2299,12 +2361,12 @@ mod tests {
         assert_eq!(n, 16); // tag + len + 14 bytes AUTS
         assert_eq!(buf[0], 0xDC); // AUTH_SYNC_FAILURE_TAG
         assert_eq!(buf[1], 0x0E); // 14
-        assert_eq!(&buf[2..16], &auts);
+        assert_eq!(&buf[2..16], &resync_token);
     }
 
     #[test]
     fn authenticate_result_encode_mac_failure() {
-        let result = AuthenticateResult::MacFailure;
+        let result = AuthenticationResult::MacFailure;
         let mut buf = [0u8; 64];
         let n = result.encode(&mut buf);
         assert_eq!(n, 0); // No data payload, SW only.
@@ -2694,19 +2756,58 @@ mod tests {
 
     // -- ENVELOPE --
 
+    /// Send TERMINAL PROFILE so the app accepts subsequent ENVELOPE commands.
+    fn send_terminal_profile(app: &mut UsimApp) {
+        let apdu = [
+            0x80, 0x10, 0x00, 0x00, // CLA INS P1 P2
+            0x04,                     // Lc = 4 bytes
+            0xFF, 0xFF, 0xFF, 0xFF,  // profile data (all features)
+        ];
+        let (buf, len) = send(app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
     #[test]
-    fn envelope_accepted() {
+    fn envelope_zero_length_tlv_rejected() {
         let mut app = app();
+        send_terminal_profile(&mut app);
+        // Tag D0, length 0x00 -- zero-length TLV is semantically invalid.
         let (buf, len) = send(
             &mut app,
             &[0x80, 0xC2, 0x00, 0x00, 0x02, 0xD0, 0x00],
         );
-        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(sw(&buf, len), (0x6A, 0x80));
+    }
+
+    #[test]
+    fn envelope_without_terminal_profile_rejected() {
+        let mut app = app();
+        // No TERMINAL PROFILE sent -- ENVELOPE must be rejected.
+        let (buf, len) = send(
+            &mut app,
+            &[0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, 0x82, 0x02, 0x83, 0x81],
+        );
+        assert_eq!(sw(&buf, len), (0x69, 0x86));
+    }
+
+    #[test]
+    fn envelope_rejected_after_reset() {
+        let mut app = app();
+        send_terminal_profile(&mut app);
+        // Reset the session (simulates card reset).
+        app.reset_session();
+        // ENVELOPE must be rejected again -- no TERMINAL PROFILE in new session.
+        let (buf, len) = send(
+            &mut app,
+            &[0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, 0x82, 0x02, 0x83, 0x81],
+        );
+        assert_eq!(sw(&buf, len), (0x69, 0x86));
     }
 
     #[test]
     fn envelope_menu_selection_via_apdu() {
         let mut app = app();
+        send_terminal_profile(&mut app);
         // Build a Menu Selection envelope: D3 03 90 01 02
         // (tag D3, length 3, inner: tag 90, length 1, item_id = 2)
         let apdu = [
@@ -2729,6 +2830,7 @@ mod tests {
     #[test]
     fn envelope_sms_pp_download_accepted() {
         let mut app = app();
+        send_terminal_profile(&mut app);
         // SMS-PP Data Download envelope: tag D1, length 4, then some inner TLVs.
         let apdu = [
             0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
@@ -2743,6 +2845,7 @@ mod tests {
     #[test]
     fn envelope_call_control_allowed() {
         let mut app = app();
+        send_terminal_profile(&mut app);
         // Call Control envelope: tag D4, length 4, then some inner TLVs.
         let apdu = [
             0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
@@ -2756,9 +2859,11 @@ mod tests {
     }
 
     #[test]
-    fn envelope_unknown_tag_accepted() {
+    fn envelope_unknown_tag_rejected() {
         let mut app = app();
-        // Unknown envelope tag (0xE0) -- should be accepted silently.
+        send_terminal_profile(&mut app);
+        // Unknown envelope tag (0xE0) -- not recognized by process_envelope(),
+        // so the catch-all branch rejects it.
         let apdu = [
             0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
             0x04,                     // Lc = 4 bytes of data
@@ -2766,7 +2871,7 @@ mod tests {
             0x01, 0x02,               // Arbitrary data
         ];
         let (buf, len) = send(&mut app, &apdu);
-        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(sw(&buf, len), (0x6A, 0x80));
     }
 
     #[test]
@@ -3078,7 +3183,7 @@ mod tests {
             simrs_fs::SelectionCtx::SNAPSHOT_SIZE
             + simrs_fs::FsData::<{ super::FS_CAP }, { super::FS_MAX_EFS }>::SNAPSHOT_SIZE
             + simrs_pin::PinManager::<5>::SNAPSHOT_SIZE
-            + <simrs_milenage::MilenageParams as simrs_milenage::AuthAlgorithm>::SNAPSHOT_SIZE
+            + <simrs_milenage::MilenageParams as simrs_milenage::AuthenticationAlgorithm>::SNAPSHOT_SIZE
             + simrs_proactive::ProactiveState::SNAPSHOT_SIZE
             + simrs_iso7816::ResponseQueue::<64>::SNAPSHOT_SIZE
             + 17 // terminal_capability (16) + len (1)
@@ -3105,7 +3210,7 @@ mod tests {
         assert_eq!(written, UsimApp::<MilenageParams>::SNAPSHOT_SIZE);
 
         // Restore into fresh app (same adfs).
-        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -3132,22 +3237,22 @@ mod tests {
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
         ];
-        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
-        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-        let amf = [0xB9, 0xB9];
-        let ak = params.f5(&rand_val);
-        let mac_a = params.f1(&rand_val, &sqn, &amf);
-        let mut autn = [0u8; 16];
+        let params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let management_field = [0xB9, 0xB9];
+        let anonymity_key = params.compute_anonymity_key(&rand_val);
+        let auth_mac = params.compute_auth_mac(&rand_val, &sequence_number, &management_field);
+        let mut auth_token = [0u8; 16];
         for i in 0..6 {
-            autn[i] = sqn[i] ^ ak[i];
+            auth_token[i] = sequence_number[i] ^ anonymity_key[i];
         }
-        autn[6..8].copy_from_slice(&amf);
-        autn[8..16].copy_from_slice(&mac_a);
+        auth_token[6..8].copy_from_slice(&management_field);
+        auth_token[8..16].copy_from_slice(&auth_mac);
 
         // Save and restore.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -3160,7 +3265,7 @@ mod tests {
         apdu[5] = 0x10;
         apdu[6..22].copy_from_slice(&rand_val);
         apdu[22] = 0x10;
-        apdu[23..39].copy_from_slice(&autn);
+        apdu[23..39].copy_from_slice(&auth_token);
 
         let (buf, _) = send(&mut dst, &apdu);
         assert_eq!(buf[0], 0x61); // data available
@@ -3182,7 +3287,7 @@ mod tests {
         // Save and restore.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -3197,7 +3302,7 @@ mod tests {
         let mut small = [0u8; 10];
         assert_eq!(src.save_state(&mut small), 0);
 
-        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&small));
     }
@@ -3211,14 +3316,14 @@ mod tests {
             simrs_fs::SelectionCtx::SNAPSHOT_SIZE
             + simrs_fs::FsData::<{ super::FS_CAP }, { super::FS_MAX_EFS }>::SNAPSHOT_SIZE
             + simrs_pin::PinManager::<5>::SNAPSHOT_SIZE
-            + <simrs_milenage::MilenageParams as simrs_milenage::AuthAlgorithm>::SNAPSHOT_SIZE
+            + <simrs_milenage::MilenageParams as simrs_milenage::AuthenticationAlgorithm>::SNAPSHOT_SIZE
             + simrs_proactive::ProactiveState::SNAPSHOT_SIZE
             + 64; // ResponseQueue data bytes (not including len)
         let src = app();
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
         snap[RSP_QUEUE_LEN_OFFSET] = u8::MAX;
-        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&snap));
     }
@@ -3857,6 +3962,15 @@ mod tests {
         #[test]
         fn envelope_not_gated_by_pin1() {
             let mut app = app_with_pin1_enabled();
+            // Satisfy TERMINAL PROFILE precondition (also must not require PIN1).
+            let (pbuf, plen) = send(&mut app,
+                &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF]);
+            assert_ne!(
+                sw_from_response(&pbuf, plen), SECURITY_NOT_SATISFIED,
+                "TERMINAL PROFILE must not be gated by PIN1"
+            );
+            // ENVELOPE: any non-PIN1-gating error (e.g. 6A 80 for zero-length
+            // TLV) is acceptable -- we only care that 69 82 is NOT returned.
             let (buf, len) = send(&mut app,
                 &[0x80, 0xC2, 0x00, 0x00, 0x02, 0xD0, 0x00]);
             let status = sw_from_response(&buf, len);
@@ -4082,7 +4196,7 @@ mod tests {
         // Verify snapshot roundtrip preserves the new data.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = app.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
     }
@@ -4422,16 +4536,16 @@ mod tests {
         ];
 
         // Compute AUTN from known SQN and AMF.
-        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
-        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-        let amf = [0xB9, 0xB9];
-        let ak = params.f5(&rand_val);
-        let mac_a = params.f1(&rand_val, &sqn, &amf);
+        let mut params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let management_field = [0xB9, 0xB9];
+        let anonymity_key = params.compute_anonymity_key(&rand_val);
+        let auth_mac = params.compute_auth_mac(&rand_val, &sequence_number, &management_field);
 
-        let mut autn = [0u8; 16];
-        for i in 0..6 { autn[i] = sqn[i] ^ ak[i]; }
-        autn[6..8].copy_from_slice(&amf);
-        autn[8..16].copy_from_slice(&mac_a);
+        let mut auth_token = [0u8; 16];
+        for i in 0..6 { auth_token[i] = sequence_number[i] ^ anonymity_key[i]; }
+        auth_token[6..8].copy_from_slice(&management_field);
+        auth_token[8..16].copy_from_slice(&auth_mac);
 
         // Build AUTHENTICATE APDU.
         let mut apdu = [0u8; 5 + 34];
@@ -4442,7 +4556,7 @@ mod tests {
         apdu[5] = 0x10;
         apdu[6..22].copy_from_slice(&rand_val);
         apdu[22] = 0x10;
-        apdu[23..39].copy_from_slice(&autn);
+        apdu[23..39].copy_from_slice(&auth_token);
 
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x61, 0x2D), "expected 61 2D (45 bytes available)");
@@ -4452,24 +4566,24 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         // Independently compute expected values.
-        let expected = params.authenticate(&rand_val, &autn).unwrap();
+        let expected = params.authenticate(&rand_val, &auth_token).unwrap();
 
         // Verify RES (8 bytes at offset 3).
-        assert_eq!(&buf[3..11], &expected.res,
+        assert_eq!(&buf[3..11], &expected.response,
             "RES must match Milenage f2 output");
 
         // Verify CK (16 bytes at offset 12).
-        assert_eq!(&buf[12..28], &expected.ck,
+        assert_eq!(&buf[12..28], &expected.cipher_key,
             "CK must match Milenage f3 output");
 
         // Verify IK (16 bytes at offset 29).
-        assert_eq!(&buf[29..45], &expected.ik,
+        assert_eq!(&buf[29..45], &expected.integrity_key,
             "IK must match Milenage f4 output");
 
         // Sanity: none of RES/CK/IK should be all-zeros (non-trivial output).
-        assert_ne!(expected.res, [0u8; 8], "RES must not be all-zeros");
-        assert_ne!(expected.ck, [0u8; 16], "CK must not be all-zeros");
-        assert_ne!(expected.ik, [0u8; 16], "IK must not be all-zeros");
+        assert_ne!(expected.response, [0u8; 8], "RES must not be all-zeros");
+        assert_ne!(expected.cipher_key, [0u8; 16], "CK must not be all-zeros");
+        assert_ne!(expected.integrity_key, [0u8; 16], "IK must not be all-zeros");
     }
 
     /// AUTHENTICATE with corrupted MAC in AUTN must return SW 98 62
@@ -4485,13 +4599,13 @@ mod tests {
         ];
 
         // Build AUTN with a deliberately corrupted MAC (all 0xAA).
-        let mut autn = [0u8; 16];
+        let mut auth_token = [0u8; 16];
         // SQN^AK = arbitrary
-        autn[0..6].copy_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
+        auth_token[0..6].copy_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
         // AMF = arbitrary
-        autn[6..8].copy_from_slice(&[0x00, 0x00]);
+        auth_token[6..8].copy_from_slice(&[0x00, 0x00]);
         // MAC-A = garbage (extremely unlikely to match real MAC)
-        autn[8..16].copy_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22]);
+        auth_token[8..16].copy_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22]);
 
         let mut apdu = [0u8; 5 + 34];
         apdu[0] = 0x00;
@@ -4501,7 +4615,7 @@ mod tests {
         apdu[5] = 0x10;
         apdu[6..22].copy_from_slice(&rand_val);
         apdu[22] = 0x10;
-        apdu[23..39].copy_from_slice(&autn);
+        apdu[23..39].copy_from_slice(&auth_token);
 
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(
@@ -4578,23 +4692,23 @@ mod tests {
     /// Helper: build a valid AUTN for the given RAND using Test Set 1 SQN/AMF.
     fn build_autn(
         params: &MilenageParams,
-        rand: &[u8; 16],
-        sqn: [u8; 6],
-        amf: [u8; 2],
+        challenge: &[u8; 16],
+        sequence_number: [u8; 6],
+        management_field: [u8; 2],
     ) -> [u8; 16] {
-        let ak = params.f5(rand);
-        let mac_a = params.f1(rand, &sqn, &amf);
-        let mut autn = [0u8; 16];
+        let anonymity_key = params.compute_anonymity_key(challenge);
+        let auth_mac = params.compute_auth_mac(challenge, &sequence_number, &management_field);
+        let mut auth_token = [0u8; 16];
         for i in 0..6 {
-            autn[i] = sqn[i] ^ ak[i];
+            auth_token[i] = sequence_number[i] ^ anonymity_key[i];
         }
-        autn[6..8].copy_from_slice(&amf);
-        autn[8..16].copy_from_slice(&mac_a);
-        autn
+        auth_token[6..8].copy_from_slice(&management_field);
+        auth_token[8..16].copy_from_slice(&auth_mac);
+        auth_token
     }
 
     /// Helper: build an AUTHENTICATE APDU (INS=0x88, P2=0x81 UMTS context).
-    fn build_authenticate_apdu(rand: &[u8; 16], autn: &[u8; 16]) -> [u8; 5 + 34] {
+    fn build_authenticate_apdu(challenge: &[u8; 16], auth_token: &[u8; 16]) -> [u8; 5 + 34] {
         let mut apdu = [0u8; 5 + 34];
         apdu[0] = 0x00; // CLA
         apdu[1] = 0x88; // INS = AUTHENTICATE
@@ -4602,9 +4716,9 @@ mod tests {
         apdu[3] = 0x81; // P2 = UMTS context
         apdu[4] = 0x22; // Lc = 34
         apdu[5] = 0x10; // RAND length prefix
-        apdu[6..22].copy_from_slice(rand);
+        apdu[6..22].copy_from_slice(challenge);
         apdu[22] = 0x10; // AUTN length prefix
-        apdu[23..39].copy_from_slice(autn);
+        apdu[23..39].copy_from_slice(auth_token);
         apdu
     }
 
@@ -4635,15 +4749,15 @@ mod tests {
             "GET RESPONSE for SELECT FCP must succeed");
 
         // Step 2: AUTHENTICATE with valid AUTN.
-        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let mut params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
         let rand_val: [u8; 16] = [
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
         ];
-        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-        let amf = [0xB9, 0xB9];
-        let autn = build_autn(&params, &rand_val, sqn, amf);
-        let apdu = build_authenticate_apdu(&rand_val, &autn);
+        let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let management_field = [0xB9, 0xB9];
+        let auth_token = build_autn(&params, &rand_val, sequence_number, management_field);
+        let apdu = build_authenticate_apdu(&rand_val, &auth_token);
 
         let (buf, _len) = send(&mut app, &apdu);
         assert_eq!(buf[0], 0x61,
@@ -4674,15 +4788,15 @@ mod tests {
         assert_eq!(ik_actual.len(), 16, "IK must be exactly 16 bytes");
 
         // Step 5: Cross-check against independent Milenage computation.
-        let expected = params.authenticate(&rand_val, &autn).unwrap();
-        assert_eq!(res_actual, &expected.res, "RES must match Milenage f2");
-        assert_eq!(ck_actual, &expected.ck, "CK must match Milenage f3");
-        assert_eq!(ik_actual, &expected.ik, "IK must match Milenage f4");
+        let expected = params.authenticate(&rand_val, &auth_token).unwrap();
+        assert_eq!(res_actual, &expected.response, "RES must match Milenage f2");
+        assert_eq!(ck_actual, &expected.cipher_key, "CK must match Milenage f3");
+        assert_eq!(ik_actual, &expected.integrity_key, "IK must match Milenage f4");
 
         // Non-triviality: none of the outputs should be all-zeros.
-        assert_ne!(expected.res, [0u8; 8], "RES must not be trivial");
-        assert_ne!(expected.ck, [0u8; 16], "CK must not be trivial");
-        assert_ne!(expected.ik, [0u8; 16], "IK must not be trivial");
+        assert_ne!(expected.response, [0u8; 8], "RES must not be trivial");
+        assert_ne!(expected.cipher_key, [0u8; 16], "CK must not be trivial");
+        assert_ne!(expected.integrity_key, [0u8; 16], "IK must not be trivial");
     }
 
     /// Multi-step sequence: SELECT ADF USIM -> AUTHENTICATE with bad AUTN ->
@@ -4707,21 +4821,21 @@ mod tests {
         // Step 2: AUTHENTICATE with corrupted AUTN.
         // Use a valid RAND but construct an AUTN with a deliberately wrong
         // MAC-A (bitwise NOT of the real MAC).
-        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
         let rand_val: [u8; 16] = [
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
         ];
-        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-        let amf = [0xB9, 0xB9];
-        let mut autn = build_autn(&params, &rand_val, sqn, amf);
+        let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let management_field = [0xB9, 0xB9];
+        let mut auth_token = build_autn(&params, &rand_val, sequence_number, management_field);
 
         // Corrupt the MAC-A (bytes 8..16) by bitwise NOT.
-        for b in &mut autn[8..16] {
+        for b in &mut auth_token[8..16] {
             *b = !*b;
         }
 
-        let apdu = build_authenticate_apdu(&rand_val, &autn);
+        let apdu = build_authenticate_apdu(&rand_val, &auth_token);
         let (buf, len) = send(&mut app, &apdu);
 
         // Must get SW 98 62 (authentication error / MAC failure).
@@ -4744,17 +4858,19 @@ mod tests {
     fn multistep_two_sequential_authenticates_different_res() {
         let mut app = app();
 
-        let params = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
-        let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-        let amf = [0xB9, 0xB9];
+        let params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let sequence_number_1 = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        // Second AUTHENTICATE must use a higher SQN (monotonic SQN tracking).
+        let sequence_number_2 = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x08];
+        let management_field = [0xB9, 0xB9];
 
         // First AUTHENTICATE with ETSI TS 135 208 Test Set 1 RAND.
         let rand1: [u8; 16] = [
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
         ];
-        let autn1 = build_autn(&params, &rand1, sqn, amf);
-        let apdu1 = build_authenticate_apdu(&rand1, &autn1);
+        let auth_token_1 = build_autn(&params, &rand1, sequence_number_1, management_field);
+        let apdu1 = build_authenticate_apdu(&rand1, &auth_token_1);
 
         let (buf, _len) = send(&mut app, &apdu1);
         assert_eq!(buf[0], 0x61, "first AUTHENTICATE must succeed (61 XX)");
@@ -4765,13 +4881,14 @@ mod tests {
         let mut res1 = [0u8; 8];
         res1.copy_from_slice(&buf1[3..11]);
 
-        // Second AUTHENTICATE with a different RAND (ETSI TS 135 208 Test Set 2).
+        // Second AUTHENTICATE with a different RAND (ETSI TS 135 208 Test Set 2)
+        // and an incremented SQN (SQN tracking requires monotonic increase).
         let rand2: [u8; 16] = [
             0xB9, 0xBE, 0xAD, 0x00, 0x47, 0x5E, 0x7B, 0x05,
             0x7B, 0x54, 0x0E, 0xA4, 0x02, 0xD5, 0x55, 0xB4,
         ];
-        let autn2 = build_autn(&params, &rand2, sqn, amf);
-        let apdu2 = build_authenticate_apdu(&rand2, &autn2);
+        let auth_token_2 = build_autn(&params, &rand2, sequence_number_2, management_field);
+        let apdu2 = build_authenticate_apdu(&rand2, &auth_token_2);
 
         let (buf, _len) = send(&mut app, &apdu2);
         assert_eq!(buf[0], 0x61, "second AUTHENTICATE must succeed (61 XX)");
@@ -4790,12 +4907,14 @@ mod tests {
         assert_ne!(res1, res2,
             "different RAND values must produce different RES values");
 
-        // Cross-check each RES against independent Milenage computation.
-        let expected1 = params.authenticate(&rand1, &autn1).unwrap();
-        let expected2 = params.authenticate(&rand2, &autn2).unwrap();
-        assert_eq!(res1, expected1.res,
+        // Cross-check each RES against independent (fresh) Milenage computation.
+        let mut check1 = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let expected1 = check1.authenticate(&rand1, &auth_token_1).unwrap();
+        let mut check2 = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let expected2 = check2.authenticate(&rand2, &auth_token_2).unwrap();
+        assert_eq!(res1, expected1.response,
             "first RES must match independent Milenage");
-        assert_eq!(res2, expected2.res,
+        assert_eq!(res2, expected2.response,
             "second RES must match independent Milenage");
 
         // CK and IK must also differ between the two runs.
@@ -4813,7 +4932,7 @@ mod tests {
     #[cfg(feature = "profile-full")]
     fn ref_app() -> UsimApp {
         use crate::profile;
-        let mil = MilenageParams::with_defaults(K, OpVariant::Opc(OPC));
+        let mil = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
         let mut a = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, mil);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -5255,7 +5374,7 @@ mod tests {
 mod proptests {
     use super::*;
     use simrs_fs::{EfDef, Fid, FileRef};
-    use simrs_milenage::OpVariant;
+    use simrs_milenage::OperatorVariant;
     use proptest::prelude::*;
 
     static PT_EF: EfDef = EfDef::transparent(
@@ -5302,7 +5421,7 @@ mod proptests {
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
             prop_assume!(u16::from(offset) + u16::from(length) <= 8);
-            let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
@@ -5322,7 +5441,7 @@ mod proptests {
         fn fcp_always_starts_with_62(idx in 0usize..2) {
             let fids: [u16; 2] = [0x3F00, 0x2FE2];
             let fid = fids[idx];
-            let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let fid_be = fid.to_be_bytes();
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, fid_be[0], fid_be[1]];
@@ -5343,7 +5462,7 @@ mod proptests {
         // For any valid record number, READ RECORD succeeds.
         #[test]
         fn read_record_in_bounds(rec in 1u8..=3u8) {
-            let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &PT_ADF_TABLE, mil);
             // Select ADF.USIM
             let sel_adf = [0x00, 0xA4, 0x04, 0x04, 0x07,
@@ -5369,7 +5488,7 @@ mod proptests {
         #[test]
         #[allow(clippy::cast_possible_truncation)] // data.len() is 1..=8, fits in u8
         fn update_binary_roundtrip(data in proptest::collection::vec(any::<u8>(), 1..=8)) {
-            let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             // Select the 8-byte transparent EF
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
@@ -5408,7 +5527,7 @@ mod proptests {
         #[test]
         fn read_binary_out_of_bounds_fails(offset in 0u16..256, length in 1u8..=255u8) {
             prop_assume!(u32::from(offset) + u32::from(length) > 8); // beyond 8-byte EF
-            let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();

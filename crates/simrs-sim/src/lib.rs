@@ -58,7 +58,7 @@ use simrs_fs::DfDef;
 #[cfg(feature = "gsm")]
 use simrs_gsm::GsmApp;
 use simrs_iso7816::{Command, StatusWord, write_sw};
-use simrs_milenage::{AuthAlgorithm, MilenageParams};
+use simrs_milenage::{AuthenticationAlgorithm, MilenageParams};
 #[cfg(feature = "usim")]
 use simrs_usim::UsimApp;
 
@@ -214,7 +214,7 @@ enum CardState {
 ///
 /// Enable features `gsm` and/or `usim` to include the respective
 /// application layers. With no features, all APDUs return `6E 00`.
-pub struct Sim<A: AuthAlgorithm = MilenageParams, const RSP_CAP: usize = 256> {
+pub struct Sim<A: AuthenticationAlgorithm = MilenageParams, const RSP_CAP: usize = 256> {
     atr: &'static [u8],
     state: CardState,
     rsp_buf: [u8; RSP_CAP],
@@ -228,7 +228,7 @@ pub struct Sim<A: AuthAlgorithm = MilenageParams, const RSP_CAP: usize = 256> {
     _auth: core::marker::PhantomData<A>,
 }
 
-impl<A: AuthAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
+impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     // -- Constructors (one per feature combination) --
 
     /// Create a new SIM card (no application features enabled).
@@ -371,13 +371,11 @@ impl<A: AuthAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
 
     /// Clear session state on power-on or reset.
     ///
-    /// Clears the PIN verified flags so that access-controlled operations
-    /// require re-verification after reset.
-    ///
-    /// NOTE: Currently no command handler in `GsmApp`/`UsimApp` consults
-    /// `is_verified()` (access control is always-allowed). This call is
-    /// structurally correct per ETSI TS 102 221 clause 11.1.9 and will
-    /// become observable when access control enforcement is added.
+    /// Per ETSI TS 102 221, a cold reset clears:
+    /// - PIN verified flags (re-verification required after reset)
+    /// - Response queue (no stale GET RESPONSE data from prior session)
+    /// - File selection context (MF implicitly selected)
+    /// - Logical channels
     // Allow: when no features are enabled, all cfg blocks compile away
     // leaving an empty body. The method is kept for structural correctness.
     #[allow(clippy::unused_self, clippy::needless_pass_by_ref_mut, clippy::missing_const_for_fn)]
@@ -385,10 +383,12 @@ impl<A: AuthAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
         #[cfg(feature = "gsm")]
         {
             self.gsm.pin_manager().reset_verified();
+            self.gsm.reset_session();
         }
         #[cfg(feature = "usim")]
         {
             self.usim.pin_manager().reset_verified();
+            self.usim.reset_session();
         }
     }
 
@@ -558,7 +558,7 @@ mod tests {
     use simrs_fs::AdfSlot;
     use simrs_milenage::MilenageParams;
     #[cfg(feature = "usim")]
-    use simrs_milenage::OpVariant;
+    use simrs_milenage::OperatorVariant;
     #[cfg(any(feature = "gsm", feature = "usim"))]
     use simrs_pin::{PinKey, PinValue};
 
@@ -626,7 +626,7 @@ mod tests {
         #[cfg(feature = "usim")]
         {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
             let usim = sim.usim_app_mut();
             *usim = UsimApp::new(&MF, &ADF_TABLE, mil);
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);

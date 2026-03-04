@@ -11,7 +11,6 @@ std     = []
 ct-validation = []
 
 [dependencies]
-simrs-consttime = { workspace = true }
 simrs-keccak    = { workspace = true }
 simrs-milenage  = { workspace = true }
 

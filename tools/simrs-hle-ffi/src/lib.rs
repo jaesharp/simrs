@@ -18,7 +18,7 @@ use std::cell::Cell;
 use simrs_gsm::Ki;
 use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
 
-/// ATR matching the swsim/SIMurai reference card.
+/// ATR matching a common reference card.
 ///
 /// This 4-byte ATR is intentionally incomplete per ISO/IEC 7816-3 encoding
 /// rules (T0=0x9F would declare TA1+TD1 present and 15 historical bytes).
@@ -27,7 +27,7 @@ use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
 /// parse the T0/TA1/historical structure itself. The driver transitions
 /// from WAIT_FOR_ATR to PPS once the peripheral stops raising RXTIDE
 /// interrupts (see USIMPeripheral.write_atr_byte). Therefore this compact
-/// ATR works reliably in practice and matches the SIMurai swsim reference.
+/// ATR works reliably in practice and matches common reference cards.
 static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
 
 // Thread-local ATR pointer/length. Defaults to the module-level `ATR` static

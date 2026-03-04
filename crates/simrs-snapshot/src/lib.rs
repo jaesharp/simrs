@@ -19,7 +19,7 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
-use simrs_milenage::AuthAlgorithm;
+use simrs_milenage::AuthenticationAlgorithm;
 use simrs_sim::Sim;
 
 /// Deterministic state serialization trait for snapshot-based fuzzing.
@@ -42,7 +42,7 @@ pub trait Snapshot {
     fn restore(&mut self, buf: &[u8]) -> bool;
 }
 
-impl<A: AuthAlgorithm, const RSP_CAP: usize> Snapshot for Sim<A, RSP_CAP> {
+impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Snapshot for Sim<A, RSP_CAP> {
     const SIZE: usize = Self::SNAPSHOT_SIZE;
 
     fn save(&self, buf: &mut [u8]) -> usize {

@@ -9,7 +9,7 @@
 
 use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, Sfi};
 use simrs_gsm::GsmApp;
-use simrs_milenage::{MilenageParams, OpVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant};
 use simrs_pin::{PinKey, PinValue};
 use simrs_proactive::{ProactiveCommand, TextCoding};
 use simrs_qemu::{QemuBridge, QemuBridgeError, ShmemMsgType};
@@ -131,7 +131,7 @@ fn make_sim() -> Sim<MilenageParams, 256> {
         .unwrap();
     let _ = gsm.pin_manager().verify(PinKey::PIN1, &pin);
 
-    let mil = MilenageParams::with_defaults(USIM_K, OpVariant::Opc(USIM_OPC));
+    let mil = MilenageParams::with_defaults(USIM_K, OperatorVariant::Opc(USIM_OPC));
     let usim = sim.usim_app_mut();
     *usim = UsimApp::new(&MF, &ADF_TABLE, mil);
     let pin2 = PinValue::new(PIN_VAL);
@@ -307,18 +307,18 @@ fn usim_select_aid_and_authenticate() {
         0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
         0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
     ];
-    let params = MilenageParams::with_defaults(USIM_K, OpVariant::Opc(USIM_OPC));
-    let sqn = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-    let amf = [0xB9, 0xB9];
-    let ak = params.f5(&rand_val);
-    let mac_a = params.f1(&rand_val, &sqn, &amf);
+    let params = MilenageParams::with_defaults(USIM_K, OperatorVariant::Opc(USIM_OPC));
+    let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+    let management_field = [0xB9, 0xB9];
+    let anonymity_key = params.compute_anonymity_key(&rand_val);
+    let auth_mac = params.compute_auth_mac(&rand_val, &sequence_number, &management_field);
 
-    let mut autn = [0u8; 16];
+    let mut auth_token = [0u8; 16];
     for i in 0..6 {
-        autn[i] = sqn[i] ^ ak[i];
+        auth_token[i] = sequence_number[i] ^ anonymity_key[i];
     }
-    autn[6..8].copy_from_slice(&amf);
-    autn[8..16].copy_from_slice(&mac_a);
+    auth_token[6..8].copy_from_slice(&management_field);
+    auth_token[8..16].copy_from_slice(&auth_mac);
 
     let mut auth_cmd = [0u8; 39];
     auth_cmd[0] = 0x00;
@@ -328,7 +328,7 @@ fn usim_select_aid_and_authenticate() {
     auth_cmd[5] = 0x10;
     auth_cmd[6..22].copy_from_slice(&rand_val);
     auth_cmd[22] = 0x10;
-    auth_cmd[23..39].copy_from_slice(&autn);
+    auth_cmd[23..39].copy_from_slice(&auth_token);
 
     let (sw1, sw2, _) = send(&mut sim, &auth_cmd);
     assert_eq!(sw1, 0x61);
@@ -340,15 +340,15 @@ fn usim_select_aid_and_authenticate() {
     assert_eq!(data[0], 0xDB);
 
     // Verify RES = f2(RAND).
-    let expected_res = params.f2(&rand_val);
-    assert_eq!(&data[3..11], &expected_res);
+    let expected_response = params.compute_response(&rand_val);
+    assert_eq!(&data[3..11], &expected_response);
 
     // Verify CK = f3(RAND).
-    let cipher_key = params.f3(&rand_val);
+    let cipher_key = params.compute_cipher_key(&rand_val);
     assert_eq!(&data[12..28], &cipher_key);
 
     // Verify IK = f4(RAND).
-    let integrity_key = params.f4(&rand_val);
+    let integrity_key = params.compute_integrity_key(&rand_val);
     assert_eq!(&data[29..45], &integrity_key);
 }
 

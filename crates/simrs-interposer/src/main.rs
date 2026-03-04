@@ -42,6 +42,7 @@ fn parse_args(args: &[String]) -> Result<InterposerConfig, String> {
     let mut mode = InterposerMode::Log;
     let mut modem_addr = String::from("127.0.0.1:37324");
     let mut card_addr: Option<String> = None;
+    let mut card_addrs: Vec<String> = Vec::new();
     let mut pcap_path: Option<String> = None;
     let mut link_type = LinkType::User0;
     let mut ki: Option<[u8; 16]> = None;
@@ -58,7 +59,7 @@ fn parse_args(args: &[String]) -> Result<InterposerConfig, String> {
                 i += 1;
                 let val = args.get(i).ok_or("--mode requires a value")?;
                 mode = parse_mode(val).ok_or_else(|| {
-                    format!("invalid mode '{val}': expected log, shadow, or replace")
+                    format!("invalid mode '{val}': expected log, shadow, replace, or diff")
                 })?;
             }
             "--modem" => {
@@ -69,11 +70,13 @@ fn parse_args(args: &[String]) -> Result<InterposerConfig, String> {
             }
             "--card" => {
                 i += 1;
-                card_addr = Some(
-                    args.get(i)
-                        .ok_or("--card requires an address")?
-                        .clone(),
-                );
+                let addr = args
+                    .get(i)
+                    .ok_or("--card requires an address")?
+                    .clone();
+                // For Diff mode, accumulate into card_addrs
+                // For other modes, use card_addr for backwards compat
+                card_addrs.push(addr);
             }
             "--pcap" => {
                 i += 1;
@@ -138,10 +141,16 @@ fn parse_args(args: &[String]) -> Result<InterposerConfig, String> {
         None
     };
 
+    // For backwards compat: if card_addrs has entries, use first for card_addr
+    if card_addr.is_none() && !card_addrs.is_empty() {
+        card_addr = Some(card_addrs[0].clone());
+    }
+
     Ok(InterposerConfig {
         mode,
         modem_addr,
         card_addr,
+        card_addrs,
         pcap_path,
         link_type,
         auth,
@@ -153,9 +162,9 @@ fn print_usage() {
     eprintln!("Usage: simrs-interposer [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --mode <log|shadow|replace>   Operating mode (default: log)");
+    eprintln!("  --mode <log|shadow|replace|diff> Operating mode (default: log)");
     eprintln!("  --modem <addr:port>           Modem-side swICC address (default: 127.0.0.1:37324)");
-    eprintln!("  --card <addr:port>            Card-side swICC address");
+    eprintln!("  --card <addr:port>            Card-side swICC address (can be repeated for diff mode)");
     eprintln!("  --pcap <path>                 PCAP output file path");
     eprintln!("  --link-type <gsmtap|user0>    PCAP link-layer type (default: user0)");
     eprintln!("  --ki <hex>                    GSM Ki (32 hex chars)");

@@ -3,7 +3,7 @@ name        = "simrs-milenage"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Milenage (f1-f5) UMTS authentication per ETSI TS 135 206 -- no_std"
+description = "Milenage UMTS authentication (f1--f5 functions) per ETSI TS 135 206 -- no_std"
 
 [features]
 default = []

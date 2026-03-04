@@ -46,7 +46,7 @@
 //! `OPc = E_K[OP] XOR OP` (ETSI TS 135 206 V17.0.0 Annex 1)
 //!
 //! OPc can be pre-computed off-card and stored directly, or computed on-card
-//! from OP. The [`OpVariant`] enum represents both options.
+//! from OP. The [`OperatorVariant`] enum represents both options.
 //!
 //! # Standards
 //! - ETSI TS 135 206 V17.0.0 -- Milenage algorithm specification
@@ -54,13 +54,39 @@
 //! - ETSI TS 133 102 V14.1.0 clause 6 -- 3GPP security architecture
 //! - 3GPP TS 31.102 V17.5.0 clause 7.1.2.1 -- AUTHENTICATE response
 //!
+//! # 3GPP Authentication Glossary
+//!
+//! These abbreviations from 3GPP TS 33.102 / TS 35.206 appear throughout the
+//! code. Several look similar (especially AUTN vs AUTS) but are distinct:
+//!
+//! | Abbreviation | Full Name | Bytes | Direction | Description |
+//! |--------------|-----------|-------|-----------|-------------|
+//! | RAND  | Random Challenge | 16 | Network -> USIM | Fresh random value from the network |
+//! | AUTN  | Authentication Token | 16 | Network -> USIM | `(SQN XOR AK) \|\| AMF \|\| MAC-A` |
+//! | AUTS  | Authentication Resynchronisation Token | 14 | USIM -> Network | `(SQN_MS XOR AK*) \|\| MAC-S` |
+//! | SQN   | Sequence Number | 6 | (internal) | 48-bit counter for replay protection |
+//! | SQN_HE | Sequence Number -- Home Environment | 6 | (USIM state) | Next expected SQN (replay threshold) |
+//! | SQN_MS | Sequence Number -- Mobile Station | 6 | (in AUTS) | USIM's current SQN sent during resync |
+//! | AMF   | Authentication Management Field | 2 | (in AUTN) | Operator-defined; bit 0 = separation bit |
+//! | AK    | Anonymity Key | 6 | (derived) | f5 output; masks SQN in AUTN |
+//! | AK*   | Resynch Anonymity Key | 6 | (derived) | f5\* output; masks SQN_MS in AUTS |
+//! | MAC-A | Message Authentication Code -- Authentication | 8 | (in AUTN) | f1 output; network proves knowledge of K |
+//! | MAC-S | Message Authentication Code -- Resync | 8 | (in AUTS) | f1\* output; authenticates resync request |
+//! | XMAC-A | Expected MAC-A | 8 | (computed) | USIM's locally computed MAC-A for comparison |
+//! | RES   | Authentication Response | 8 | USIM -> Network | f2 output; USIM proves knowledge of K |
+//! | CK    | Cipher Key | 16 | (derived) | f3 output; radio bearer encryption |
+//! | IK    | Integrity Key | 16 | (derived) | f4 output; radio bearer integrity |
+//! | Kc    | GSM Cipher Key | 8 | (derived) | C3 conversion of CK/IK for 2G interworking |
+//! | OP    | Operator Parameter | 16 | (provisioned) | Operator-specific constant |
+//! | OPc   | Operator Cipher | 16 | (derived/stored) | `E_K[OP] XOR OP`; pre-computed OP variant |
+//!
 //! # `no_std`, `no_alloc`
 //! This crate uses no heap. All state lives in [`MilenageParams`].
 //!
 //! # Example
 //!
 //! ```
-//! use simrs_milenage::{MilenageParams, OpVariant};
+//! use simrs_milenage::{MilenageParams, OperatorVariant};
 //!
 //! // ETSI TS 135 208 V17.0.0 Test Set 1
 //! let k    = [0x46,0x5B,0x5C,0xE8,0xB1,0x99,0xB4,0x9F,
@@ -72,13 +98,13 @@
 //! let sqn  = [0xFF,0x9B,0xB4,0xD0,0xB6,0x07];
 //! let amf  = [0xB9,0xB9];
 //!
-//! let params = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
+//! let params = MilenageParams::with_defaults(k, OperatorVariant::Opc(opc));
 //!
-//! assert_eq!(params.f1(&rand, &sqn, &amf),
+//! assert_eq!(params.compute_auth_mac(&rand, &sqn, &amf),
 //!            [0x4A,0x9F,0xFA,0xC3,0x54,0xDF,0xAF,0xB3]);
-//! assert_eq!(params.f2(&rand),
+//! assert_eq!(params.compute_response(&rand),
 //!            [0xA5,0x42,0x11,0xD5,0xE3,0xBA,0x50,0xBF]);
-//! assert_eq!(params.f5(&rand),
+//! assert_eq!(params.compute_anonymity_key(&rand),
 //!            [0xAA,0x68,0x9C,0x64,0x83,0x70]);
 //! ```
 //!
@@ -93,6 +119,9 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+// ct_eq is used in the AuthenticationAlgorithm::authenticate default method for
+// constant-time MAC-A comparison (TS 33.102 timing side-channel requirement).
+// Both MilenageParams and TuakParams inherit this through the trait default.
 use simrs_consttime::ct_eq;
 use simrs_rijndael::Rijndael;
 
@@ -103,16 +132,16 @@ use simrs_rijndael::Rijndael;
 /// - ETSI TS 135 206 V17.0.0 Annex 1 -- OPc computation: `OPc = E_K[OP] XOR OP`
 ///
 /// ```
-/// use simrs_milenage::OpVariant;
+/// use simrs_milenage::OperatorVariant;
 ///
 /// // Pre-computed OPc (recommended for production)
-/// let _opc = OpVariant::Opc([0xCD; 16]);
+/// let _opc = OperatorVariant::Opc([0xCD; 16]);
 ///
 /// // Raw OP (OPc computed at runtime from K and OP)
-/// let _op = OpVariant::Op([0xAB; 16]);
+/// let _op = OperatorVariant::Op([0xAB; 16]);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OpVariant {
+pub enum OperatorVariant {
     /// Pre-computed OPc (128 bits). Preferred -- avoids runtime AES call.
     Opc([u8; 16]),
     /// Raw OP. OPc will be derived as `E_K[OP] XOR OP` when needed.
@@ -130,28 +159,34 @@ pub enum OpVariant {
 /// or [`MilenageParams::new`] for custom operator-chosen values.
 ///
 /// ```
-/// use simrs_milenage::{MilenageParams, OpVariant};
+/// use simrs_milenage::{MilenageParams, OperatorVariant};
 ///
 /// let params = MilenageParams::with_defaults(
 ///     [0xFF; 16],                    // K
-///     OpVariant::Opc([0xAA; 16]),    // OPc
+///     OperatorVariant::Opc([0xAA; 16]),    // OPc
 /// );
 /// ```
 #[derive(Debug, Clone)]
 pub struct MilenageParams {
     /// Subscriber key K (128 bits).
     k: [u8; 16],
-    /// Pre-computed OPc (128 bits). Derived from OP if OpVariant::Op was given.
+    /// Pre-computed OPc (128 bits). Derived from OP if OperatorVariant::Op was given.
     opc: [u8; 16],
     /// Per-function XOR constants c1..c5 (128 bits each).
     ci: [[u8; 16]; 5],
     /// Per-function rotation constants r1..r5 (in bits).
     ri: [u8; 5],
+    /// Next expected SQN (big-endian 48-bit counter).
+    ///
+    /// Tracks the USIM's replay protection state per 3GPP TS 33.102 clause 6.3.3.
+    /// After a successful AUTHENTICATE with SQN=N, this advances to N+1.
+    /// Initialized to zero (all SQNs accepted on first authentication).
+    expected_sequence_number: [u8; 6],
 }
 
 impl Default for MilenageParams {
     fn default() -> Self {
-        Self::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]))
+        Self::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]))
     }
 }
 
@@ -161,38 +196,38 @@ impl Default for MilenageParams {
 /// response (tag `0xDB`) contains RES, CK, IK, and optionally Kc.
 ///
 /// ```
-/// use simrs_milenage::AuthOutput;
+/// use simrs_milenage::AuthenticationOutput;
 ///
-/// // AuthOutput fields are fixed-size arrays
-/// let out = AuthOutput {
-///     res: [0u8; 8],
-///     ck:  [0u8; 16],
-///     ik:  [0u8; 16],
-///     kc:  [0u8; 8],
+/// // AuthenticationOutput fields are fixed-size arrays
+/// let out = AuthenticationOutput {
+///     response: [0u8; 8],
+///     cipher_key:  [0u8; 16],
+///     integrity_key:  [0u8; 16],
+///     gsm_cipher_key:  [0u8; 8],
 /// };
-/// assert_eq!(out.res.len(), 8);
-/// assert_eq!(out.ck.len(), 16);
-/// assert_eq!(out.ik.len(), 16);
-/// assert_eq!(out.kc.len(), 8);
+/// assert_eq!(out.response.len(), 8);
+/// assert_eq!(out.cipher_key.len(), 16);
+/// assert_eq!(out.integrity_key.len(), 16);
+/// assert_eq!(out.gsm_cipher_key.len(), 8);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AuthOutput {
+pub struct AuthenticationOutput {
     /// RES: authentication response (8 bytes, f2 output).
     /// Sent to the network to prove knowledge of K.
-    pub res: [u8; 8],
+    pub response: [u8; 8],
 
     /// CK: ciphering key (16 bytes, f3 output).
     /// Used for radio bearer encryption (3G) or as input to KASME derivation (4G/5G).
-    pub ck: [u8; 16],
+    pub cipher_key: [u8; 16],
 
     /// IK: integrity key (16 bytes, f4 output).
     /// Used for radio bearer integrity (3G) or as input to KASME derivation (4G/5G).
-    pub ik: [u8; 16],
+    pub integrity_key: [u8; 16],
 
     /// Kc: GSM ciphering key (8 bytes, C3 conversion of CK and IK).
     /// For UMTS-GSM interworking per TS 33.102 clause 6.8.1.2.
     /// `Kc[i] = CK[i] XOR CK[i+8] XOR IK[i] XOR IK[i+8]` for i in 0..8.
-    pub kc: [u8; 8],
+    pub gsm_cipher_key: [u8; 8],
 }
 
 /// Authentication error.
@@ -201,7 +236,7 @@ pub struct AuthOutput {
 /// - MAC failure: XMAC-A != MAC-A from AUTN -> SW `98 62`
 /// - Sync failure: SQN out of range -> tag `0xDC` with 14-byte AUTS
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MilenageError {
+pub enum AuthenticationError {
     /// MAC-A verification failed. The network's authentication token is invalid.
     /// USIM returns SW `98 62`.
     MacFailure,
@@ -211,11 +246,11 @@ pub enum MilenageError {
     /// USIM returns tag `0xDC` with AUTS.
     SyncFailure {
         /// AUTS resynchronization token (14 bytes).
-        auts: [u8; 14],
+        resync_token: [u8; 14],
     },
 }
 
-impl core::fmt::Display for MilenageError {
+impl core::fmt::Display for AuthenticationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::MacFailure => f.write_str("MAC failure"),
@@ -289,6 +324,31 @@ impl<'a> SnapReader<'a> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Convert a 6-byte big-endian SQN to a u64.
+#[allow(clippy::trivially_copy_pass_by_ref)] // consistent with other Milenage helpers taking &[u8; N]
+pub const fn u48_from_be(b: &[u8; 6]) -> u64 {
+    (b[0] as u64) << 40
+        | (b[1] as u64) << 32
+        | (b[2] as u64) << 24
+        | (b[3] as u64) << 16
+        | (b[4] as u64) << 8
+        | (b[5] as u64)
+}
+
+/// Convert a u64 (lower 48 bits) to a 6-byte big-endian SQN.
+#[allow(clippy::cast_possible_truncation)] // intentional: extracting individual bytes from u64
+pub const fn u48_to_be(val: u64) -> [u8; 6] {
+    let v = val & 0x0000_FFFF_FFFF_FFFF;
+    [
+        (v >> 40) as u8,
+        (v >> 32) as u8,
+        (v >> 24) as u8,
+        (v >> 16) as u8,
+        (v >> 8) as u8,
+        v as u8,
+    ]
+}
+
 /// Const-compatible constant-time equality for two 16-byte arrays.
 ///
 /// Uses XOR accumulation (no early return) so execution time is independent
@@ -339,81 +399,234 @@ const fn compute_opc(aes: &Rijndael, op: &[u8; 16]) -> [u8; 16] {
 }
 
 // ---------------------------------------------------------------------------
-// AuthAlgorithm trait
+// AuthenticationAlgorithm trait
 // ---------------------------------------------------------------------------
 
 /// Authentication algorithm trait for UMTS/LTE/5G authentication.
 ///
 /// Abstracts the f1-f5 function set per TS 35.205. Implementations include
 /// Milenage (TS 35.206) and TUAK (TS 35.231).
-pub trait AuthAlgorithm {
+pub trait AuthenticationAlgorithm {
     /// Snapshot buffer size for this algorithm's state.
     const SNAPSHOT_SIZE: usize;
 
-    /// f1: Network authentication code MAC-A (8 bytes).
-    fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8];
-    /// f1*: Resynch authentication code MAC-S (8 bytes).
-    fn f1_star(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8];
-    /// f2: Authentication response RES (8 bytes).
-    fn f2(&self, rand: &[u8; 16]) -> [u8; 8];
-    /// f3: Ciphering key CK (16 bytes).
-    fn f3(&self, rand: &[u8; 16]) -> [u8; 16];
-    /// f4: Integrity key IK (16 bytes).
-    fn f4(&self, rand: &[u8; 16]) -> [u8; 16];
-    /// f5: Anonymity key AK (6 bytes).
-    fn f5(&self, rand: &[u8; 16]) -> [u8; 6];
-    /// f5*: Resynch anonymity key AK* (6 bytes).
-    fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6];
+    /// Compute the network authentication code MAC-A (8 bytes).
+    /// 3GPP function designation: f1.
+    fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
+    /// Compute the resynchronisation authentication code MAC-S (8 bytes).
+    /// 3GPP function designation: f1*.
+    fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
+    /// Compute the authentication response RES (8 bytes).
+    /// 3GPP function designation: f2.
+    fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8];
+    /// Compute the ciphering key CK (16 bytes).
+    /// 3GPP function designation: f3.
+    fn compute_cipher_key(&self, challenge: &[u8; 16]) -> [u8; 16];
+    /// Compute the integrity key IK (16 bytes).
+    /// 3GPP function designation: f4.
+    fn compute_integrity_key(&self, challenge: &[u8; 16]) -> [u8; 16];
+    /// Compute the anonymity key AK (6 bytes).
+    /// 3GPP function designation: f5.
+    fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
+    /// Compute the resynchronisation anonymity key AK* (6 bytes).
+    /// 3GPP function designation: f5*.
+    fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
 
-    /// Full authentication: verify AUTN, compute RES/CK/IK/Kc.
+    /// Return the expected sequence number (SQN_HE, 6 bytes big-endian).
+    fn expected_sequence_number(&self) -> [u8; 6];
+    /// Set the expected sequence number (SQN_HE, 6 bytes big-endian).
+    fn set_expected_sequence_number(&mut self, sqn: [u8; 6]);
+
+    /// Compute RES (8), CK (16), IK (16) in a single call.
+    ///
+    /// Default calls `compute_response`, `compute_cipher_key`, `compute_integrity_key`
+    /// individually, which may duplicate shared internal computation.  Override when
+    /// the algorithm can produce all three outputs from a single core invocation
+    /// (e.g. TUAK's single Keccak call via `tuak_f2345_core`).
+    fn compute_response_and_keys(&self, challenge: &[u8; 16]) -> ([u8; 8], [u8; 16], [u8; 16]) {
+        (
+            self.compute_response(challenge),
+            self.compute_cipher_key(challenge),
+            self.compute_integrity_key(challenge),
+        )
+    }
+
+    /// Full authentication: verify AUTN, check SQN freshness, compute RES/CK/IK/Kc.
+    ///
+    /// Performs the complete USIM-side authentication per TS 33.102 clause 6.3.3:
+    /// 1. Compute AK = f5(K, RAND)
+    /// 2. Recover SQN = (SQN XOR AK from AUTN) XOR AK
+    /// 3. Extract AMF from AUTN[6..8]
+    /// 4. Compute XMAC-A = f1(K, RAND, SQN, AMF)
+    /// 5. Compare XMAC-A with MAC-A from AUTN[8..16]
+    /// 6. If match: compute RES, CK, IK, Kc and return [`AuthenticationOutput`]
+    /// 7. If mismatch: return [`AuthenticationError::MacFailure`]
+    ///
+    /// # C3 Conversion (Kc derivation)
+    ///
+    /// Per TS 33.102 clause 6.8.1.2:
+    /// ```text
+    /// Kc[i] = CK[i] XOR CK[i+8] XOR IK[i] XOR IK[i+8]   for i in 0..8
+    /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`MilenageError::MacFailure`] if MAC verification fails,
-    /// or [`MilenageError::SyncFailure`] if the sequence number is stale.
-    fn authenticate(&self, rand: &[u8; 16], autn: &[u8; 16]) -> Result<AuthOutput, MilenageError>;
+    /// - [`AuthenticationError::MacFailure`] if XMAC-A does not match MAC-A from AUTN.
+    /// - [`AuthenticationError::SyncFailure`] if SQN is below `expected_sequence_number` (stale/replayed).
+    ///   Contains a 14-byte AUTS token for network resynchronization.
+    ///
+    /// # SQN Freshness Policy
+    ///
+    /// Simple monotonic acceptance: received SQN must be >= `expected_sequence_number`.
+    /// On success, `expected_sequence_number` advances to SQN + 1. No upper window bound.
+    /// Per 3GPP TS 33.102 clause 6.3.3.
+    ///
+    /// ```
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, AuthenticationError, AuthenticationAlgorithm};
+    ///
+    /// let mut p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+    ///
+    /// // Random AUTN will almost certainly fail MAC verification
+    /// let result = p.authenticate(&[0u8; 16], &[0xFFu8; 16]);
+    /// assert!(matches!(result, Err(AuthenticationError::MacFailure)));
+    /// ```
+    fn authenticate(
+        &mut self,
+        challenge: &[u8; 16],
+        auth_token: &[u8; 16],
+    ) -> Result<AuthenticationOutput, AuthenticationError> {
+        // 1. Compute AK = f5(RAND)
+        let anonymity_key = self.compute_anonymity_key(challenge);
+
+        // 2. Recover SQN: AUTN[0..6] = SQN XOR AK
+        let mut sequence_number = [0u8; 6];
+        for i in 0..6 {
+            sequence_number[i] = auth_token[i] ^ anonymity_key[i];
+        }
+
+        // 3. Extract AMF from AUTN[6..8]
+        let management_field: [u8; 2] = [auth_token[6], auth_token[7]];
+
+        // 4. Compute XMAC-A
+        let expected_mac = self.compute_auth_mac(challenge, &sequence_number, &management_field);
+
+        // 5. Compare with MAC-A from AUTN[8..16] (constant-time to prevent
+        //    timing side-channel leakage of MAC byte positions)
+        if !ct_eq(&expected_mac, &auth_token[8..16]) {
+            return Err(AuthenticationError::MacFailure);
+        }
+
+        // 5.5. SQN freshness check per TS 33.102 clause 6.3.3
+        let sqn_val = u48_from_be(&sequence_number);
+        let he_val = u48_from_be(&self.expected_sequence_number());
+        if sqn_val < he_val {
+            // SQN is stale -- construct AUTS for resynchronization.
+            // AUTS = Conc(SQN_MS) || MAC-S  per TS 33.102 clause 6.3.5
+            // Snapshot SQN_MS (our current expected SQN) before mutable calls.
+            let reported_sequence_number = self.expected_sequence_number();
+            let resync_anonymity_key = self.compute_resync_anonymity_key(challenge);
+            let resync_mac = self.compute_resync_mac(challenge, &reported_sequence_number, &[0x00, 0x00]);
+            let mut resync_token = [0u8; 14];
+            for i in 0..6 {
+                resync_token[i] = reported_sequence_number[i] ^ resync_anonymity_key[i];
+            }
+            resync_token[6..14].copy_from_slice(&resync_mac);
+            return Err(AuthenticationError::SyncFailure { resync_token });
+        }
+        // Advance expected_sequence_number past the accepted SQN (saturate at max to prevent
+        // wrap-around which would re-open the entire SQN window).
+        self.set_expected_sequence_number(
+            u48_to_be(sqn_val.saturating_add(1).min(0x0000_FFFF_FFFF_FFFF)),
+        );
+
+        // 6. Compute RES, CK, IK
+        let (response, cipher_key, integrity_key) = self.compute_response_and_keys(challenge);
+
+        // 7. C3 conversion: Kc[i] = CK[i] ^ CK[i+8] ^ IK[i] ^ IK[i+8]
+        let mut gsm_cipher_key = [0u8; 8];
+        for i in 0..8 {
+            gsm_cipher_key[i] = cipher_key[i] ^ cipher_key[i + 8] ^ integrity_key[i] ^ integrity_key[i + 8];
+        }
+
+        Ok(AuthenticationOutput { response, cipher_key, integrity_key, gsm_cipher_key })
+    }
 
     /// Serialize algorithm state.
     fn save_state(&self, buf: &mut [u8]) -> usize;
     /// Restore algorithm state.
     fn restore_state(&mut self, buf: &[u8]) -> bool;
+
+    /// Deprecated: use [`compute_auth_mac`](AuthenticationAlgorithm::compute_auth_mac).
+    #[deprecated(note = "use `compute_auth_mac` -- f1 is the 3GPP designation for MAC-A (network authentication code) computation")]
+    fn f1(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+        self.compute_auth_mac(challenge, sequence_number, management_field)
+    }
+    /// Deprecated: use [`compute_resync_mac`](AuthenticationAlgorithm::compute_resync_mac).
+    #[deprecated(note = "use `compute_resync_mac` -- f1* is the 3GPP designation for MAC-S (resync authentication code) computation")]
+    fn f1_star(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+        self.compute_resync_mac(challenge, sequence_number, management_field)
+    }
+    /// Deprecated: use [`compute_response`](AuthenticationAlgorithm::compute_response).
+    #[deprecated(note = "use `compute_response` -- f2 is the 3GPP designation for RES (authentication response) computation")]
+    fn f2(&self, challenge: &[u8; 16]) -> [u8; 8] {
+        self.compute_response(challenge)
+    }
+    /// Deprecated: use [`compute_cipher_key`](AuthenticationAlgorithm::compute_cipher_key).
+    #[deprecated(note = "use `compute_cipher_key` -- f3 is the 3GPP designation for CK (ciphering key) computation")]
+    fn f3(&self, challenge: &[u8; 16]) -> [u8; 16] {
+        self.compute_cipher_key(challenge)
+    }
+    /// Deprecated: use [`compute_integrity_key`](AuthenticationAlgorithm::compute_integrity_key).
+    #[deprecated(note = "use `compute_integrity_key` -- f4 is the 3GPP designation for IK (integrity key) computation")]
+    fn f4(&self, challenge: &[u8; 16]) -> [u8; 16] {
+        self.compute_integrity_key(challenge)
+    }
+    /// Deprecated: use [`compute_anonymity_key`](AuthenticationAlgorithm::compute_anonymity_key).
+    #[deprecated(note = "use `compute_anonymity_key` -- f5 is the 3GPP designation for AK (anonymity key) computation")]
+    fn f5(&self, challenge: &[u8; 16]) -> [u8; 6] {
+        self.compute_anonymity_key(challenge)
+    }
+    /// Deprecated: use [`compute_resync_anonymity_key`](AuthenticationAlgorithm::compute_resync_anonymity_key).
+    #[deprecated(note = "use `compute_resync_anonymity_key` -- f5* is the 3GPP designation for AK* (resync anonymity key) computation")]
+    fn f5_star(&self, challenge: &[u8; 16]) -> [u8; 6] {
+        self.compute_resync_anonymity_key(challenge)
+    }
 }
 
-impl AuthAlgorithm for MilenageParams {
+impl AuthenticationAlgorithm for MilenageParams {
     #[allow(clippy::use_self)] // Inherent const vs. trait const -- Self would be circular.
     const SNAPSHOT_SIZE: usize = MilenageParams::SNAPSHOT_SIZE;
 
-    fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8] {
-        self.f1(rand, sqn, amf)
+    fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+        self.compute_auth_mac(challenge, sequence_number, management_field)
     }
 
-    fn f1_star(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8] {
-        self.f1_star(rand, sqn, amf)
+    fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+        self.compute_resync_mac(challenge, sequence_number, management_field)
     }
 
-    fn f2(&self, rand: &[u8; 16]) -> [u8; 8] {
-        self.f2(rand)
+    fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8] {
+        self.compute_response(challenge)
     }
 
-    fn f3(&self, rand: &[u8; 16]) -> [u8; 16] {
-        self.f3(rand)
+    fn compute_cipher_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
+        self.compute_cipher_key(challenge)
     }
 
-    fn f4(&self, rand: &[u8; 16]) -> [u8; 16] {
-        self.f4(rand)
+    fn compute_integrity_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
+        self.compute_integrity_key(challenge)
     }
 
-    fn f5(&self, rand: &[u8; 16]) -> [u8; 6] {
-        self.f5(rand)
+    fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
+        self.compute_anonymity_key(challenge)
     }
 
-    fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6] {
-        self.f5_star(rand)
+    fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
+        self.compute_resync_anonymity_key(challenge)
     }
 
-    fn authenticate(&self, rand: &[u8; 16], autn: &[u8; 16]) -> Result<AuthOutput, MilenageError> {
-        self.authenticate(rand, autn)
-    }
+    fn expected_sequence_number(&self) -> [u8; 6] { self.expected_sequence_number }
+    fn set_expected_sequence_number(&mut self, sqn: [u8; 6]) { self.expected_sequence_number = sqn; }
 
     fn save_state(&self, buf: &mut [u8]) -> usize {
         self.save_state(buf)
@@ -457,24 +670,25 @@ impl MilenageParams {
     /// - c5=`00..08`, r5=96
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OpVariant};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant};
     ///
-    /// let p = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+    /// let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
     /// // Default params always succeed (no duplicate ci/ri pairs)
     /// ```
-    pub const fn with_defaults(k: [u8; 16], op: OpVariant) -> Self {
+    pub const fn with_defaults(k: [u8; 16], op: OperatorVariant) -> Self {
         // Default constants are guaranteed distinct, so unwrap is safe.
         // But we don't call new() to avoid the O(n^2) check for a known-good set.
         let aes = Rijndael::new(&k);
         let opc = match op {
-            OpVariant::Opc(opc) => opc,
-            OpVariant::Op(op_val) => compute_opc(&aes, &op_val),
+            OperatorVariant::Opc(opc) => opc,
+            OperatorVariant::Op(op_val) => compute_opc(&aes, &op_val),
         };
         Self {
             k,
             opc,
             ci: DEFAULT_CI,
             ri: DEFAULT_RI,
+            expected_sequence_number: [0u8; 6],
         }
     }
 
@@ -485,7 +699,7 @@ impl MilenageParams {
     /// Returns [`ParamError::DuplicateCiRi`] if any two (c_i, r_i) pairs are equal.
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OpVariant, ParamError};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, ParamError};
     ///
     /// // Custom constants: use default ci values so all pairs are distinct
     /// let c1 = [0u8; 16];
@@ -496,18 +710,18 @@ impl MilenageParams {
     /// let ci = [c1, c2, c3, c4, c5];
     /// let ri = [64, 0, 32, 64, 96];
     ///
-    /// let result = MilenageParams::new([0u8; 16], OpVariant::Opc([0u8; 16]), ci, ri);
+    /// let result = MilenageParams::new([0u8; 16], OperatorVariant::Opc([0u8; 16]), ci, ri);
     /// assert!(result.is_ok());
     ///
     /// // Duplicate (ci, ri) pair is rejected
     /// let ci_dup = [[0u8; 16]; 5]; // all zero
     /// let ri_dup = [0, 0, 32, 64, 96]; // r1==r2==0 with c1==c2
-    /// let err = MilenageParams::new([0u8; 16], OpVariant::Opc([0u8; 16]), ci_dup, ri_dup);
+    /// let err = MilenageParams::new([0u8; 16], OperatorVariant::Opc([0u8; 16]), ci_dup, ri_dup);
     /// assert!(matches!(err, Err(ParamError::DuplicateCiRi { first: 0, second: 1 })));
     /// ```
     pub const fn new(
         k: [u8; 16],
-        op: OpVariant,
+        op: OperatorVariant,
         ci: [[u8; 16]; 5],
         ri: [u8; 5],
     ) -> Result<Self, ParamError> {
@@ -531,198 +745,175 @@ impl MilenageParams {
 
         let aes = Rijndael::new(&k);
         let opc = match op {
-            OpVariant::Opc(opc) => opc,
-            OpVariant::Op(op_val) => compute_opc(&aes, &op_val),
+            OperatorVariant::Opc(opc) => opc,
+            OperatorVariant::Op(op_val) => compute_opc(&aes, &op_val),
         };
-        Ok(Self { k, opc, ci, ri })
+        Ok(Self { k, opc, ci, ri, expected_sequence_number: [0u8; 6] })
     }
 
-    /// f1: Network authentication code MAC-A (8 bytes).
+    /// Compute the network authentication code MAC-A (8 bytes).
     ///
     /// Per ETSI TS 135 206 V17.0.0 clause 3.1:
     /// `MAC-A = OUT1[0..8]` where OUT1 uses (c1, r1) with input `SQN || AMF || SQN || AMF`.
     ///
-    /// ```
-    /// use simrs_milenage::{MilenageParams, OpVariant};
+    /// 3GPP function designation: f1.
     ///
-    /// let p = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
-    /// let mac_a = p.f1(&[0u8; 16], &[0u8; 6], &[0u8; 2]);
+    /// ```
+    /// use simrs_milenage::{MilenageParams, OperatorVariant};
+    ///
+    /// let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+    /// let mac_a = p.compute_auth_mac(&[0u8; 16], &[0u8; 6], &[0u8; 2]);
     /// assert_eq!(mac_a.len(), 8);
     /// ```
-    pub fn f1(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8] {
-        let out1 = self.compute_out1(rand, sqn, amf);
+    pub fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+        let out1 = self.compute_out1(challenge, sequence_number, management_field);
         let mut mac_a = [0u8; 8];
         mac_a.copy_from_slice(&out1[..8]);
         mac_a
     }
 
-    /// f1\*: Resynch authentication code MAC-S (8 bytes).
+    /// Deprecated: use [`compute_auth_mac`](MilenageParams::compute_auth_mac).
+    #[deprecated(note = "use `compute_auth_mac` -- f1 is the 3GPP designation for MAC-A (network authentication code) computation")]
+    pub fn f1(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+        self.compute_auth_mac(challenge, sequence_number, management_field)
+    }
+
+    /// Compute the resynchronisation authentication code MAC-S (8 bytes).
     ///
     /// Per ETSI TS 135 206 V17.0.0 clause 3.2:
     /// `MAC-S = OUT1[8..16]` -- uses same computation as f1 but extracts the second half.
     ///
+    /// 3GPP function designation: f1*.
+    ///
     /// Used in AUTS construction for SQN resynchronization.
-    pub fn f1_star(&self, rand: &[u8; 16], sqn: &[u8; 6], amf: &[u8; 2]) -> [u8; 8] {
-        let out1 = self.compute_out1(rand, sqn, amf);
+    pub fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+        let out1 = self.compute_out1(challenge, sequence_number, management_field);
         let mut mac_s = [0u8; 8];
         mac_s.copy_from_slice(&out1[8..16]);
         mac_s
     }
 
-    /// f2: Authentication response RES (8 bytes).
+    /// Deprecated: use [`compute_resync_mac`](MilenageParams::compute_resync_mac).
+    #[deprecated(note = "use `compute_resync_mac` -- f1* is the 3GPP designation for MAC-S (resync authentication code) computation")]
+    pub fn f1_star(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+        self.compute_resync_mac(challenge, sequence_number, management_field)
+    }
+
+    /// Compute the authentication response RES (8 bytes).
     ///
     /// Per ETSI TS 135 206 V17.0.0 clause 3.3:
     /// `RES = OUT2[8..16]` where OUT2 uses (c2, r2).
     ///
-    /// ```
-    /// use simrs_milenage::{MilenageParams, OpVariant};
+    /// 3GPP function designation: f2.
     ///
-    /// let p = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
-    /// let res = p.f2(&[0u8; 16]);
-    /// assert_eq!(res.len(), 8);
     /// ```
-    pub fn f2(&self, rand: &[u8; 16]) -> [u8; 8] {
-        let out2 = self.compute_outi(rand, 1); // ci[1] = c2, ri[1] = r2
-        let mut res = [0u8; 8];
-        res.copy_from_slice(&out2[8..16]);
-        res
+    /// use simrs_milenage::{MilenageParams, OperatorVariant};
+    ///
+    /// let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+    /// let response = p.compute_response(&[0u8; 16]);
+    /// assert_eq!(response.len(), 8);
+    /// ```
+    pub fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8] {
+        let out2 = self.compute_outi(challenge, 1); // ci[1] = c2, ri[1] = r2
+        let mut response = [0u8; 8];
+        response.copy_from_slice(&out2[8..16]);
+        response
     }
 
-    /// f3: Ciphering key CK (16 bytes).
+    /// Deprecated: use [`compute_response`](MilenageParams::compute_response).
+    #[deprecated(note = "use `compute_response` -- f2 is the 3GPP designation for RES (authentication response) computation")]
+    pub fn f2(&self, challenge: &[u8; 16]) -> [u8; 8] {
+        self.compute_response(challenge)
+    }
+
+    /// Compute the ciphering key CK (16 bytes).
     ///
     /// Per ETSI TS 135 206 V17.0.0 clause 3.4:
     /// `CK = OUT3[0..16]` where OUT3 uses (c3, r3).
-    pub fn f3(&self, rand: &[u8; 16]) -> [u8; 16] {
-        self.compute_outi(rand, 2) // ci[2] = c3, ri[2] = r3
+    ///
+    /// 3GPP function designation: f3.
+    pub fn compute_cipher_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
+        self.compute_outi(challenge, 2) // ci[2] = c3, ri[2] = r3
     }
 
-    /// f4: Integrity key IK (16 bytes).
+    /// Deprecated: use [`compute_cipher_key`](MilenageParams::compute_cipher_key).
+    #[deprecated(note = "use `compute_cipher_key` -- f3 is the 3GPP designation for CK (ciphering key) computation")]
+    pub fn f3(&self, challenge: &[u8; 16]) -> [u8; 16] {
+        self.compute_cipher_key(challenge)
+    }
+
+    /// Compute the integrity key IK (16 bytes).
     ///
     /// Per ETSI TS 135 206 V17.0.0 clause 3.5:
     /// `IK = OUT4[0..16]` where OUT4 uses (c4, r4).
-    pub fn f4(&self, rand: &[u8; 16]) -> [u8; 16] {
-        self.compute_outi(rand, 3) // ci[3] = c4, ri[3] = r4
+    ///
+    /// 3GPP function designation: f4.
+    pub fn compute_integrity_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
+        self.compute_outi(challenge, 3) // ci[3] = c4, ri[3] = r4
     }
 
-    /// f5: Anonymity key AK (6 bytes).
+    /// Deprecated: use [`compute_integrity_key`](MilenageParams::compute_integrity_key).
+    #[deprecated(note = "use `compute_integrity_key` -- f4 is the 3GPP designation for IK (integrity key) computation")]
+    pub fn f4(&self, challenge: &[u8; 16]) -> [u8; 16] {
+        self.compute_integrity_key(challenge)
+    }
+
+    /// Compute the anonymity key AK (6 bytes).
     ///
     /// Per ETSI TS 135 206 V17.0.0 clause 3.6:
     /// `AK = OUT2[0..6]` -- shares the same computation as f2.
     ///
+    /// 3GPP function designation: f5.
+    ///
     /// Used to conceal SQN in AUTN: `AUTN = (SQN XOR AK) || AMF || MAC-A`.
-    pub fn f5(&self, rand: &[u8; 16]) -> [u8; 6] {
-        let out2 = self.compute_outi(rand, 1); // same (c2, r2) as f2
-        let mut ak = [0u8; 6];
-        ak.copy_from_slice(&out2[..6]);
-        ak
+    pub fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
+        let out2 = self.compute_outi(challenge, 1); // same (c2, r2) as f2
+        let mut anonymity_key = [0u8; 6];
+        anonymity_key.copy_from_slice(&out2[..6]);
+        anonymity_key
     }
 
-    /// f5\*: Resynch anonymity key AK\* (6 bytes).
+    /// Deprecated: use [`compute_anonymity_key`](MilenageParams::compute_anonymity_key).
+    #[deprecated(note = "use `compute_anonymity_key` -- f5 is the 3GPP designation for AK (anonymity key) computation")]
+    pub fn f5(&self, challenge: &[u8; 16]) -> [u8; 6] {
+        self.compute_anonymity_key(challenge)
+    }
+
+    /// Compute the resynchronisation anonymity key AK* (6 bytes).
     ///
     /// Per ETSI TS 135 206 V17.0.0 clause 3.7:
     /// `AK* = OUT5[0..6]` where OUT5 uses (c5, r5).
     ///
+    /// 3GPP function designation: f5*.
+    ///
     /// Used in AUTS construction: `AUTS = (SQN_MS XOR AK*) || MAC-S`.
-    pub fn f5_star(&self, rand: &[u8; 16]) -> [u8; 6] {
-        let out5 = self.compute_outi(rand, 4); // ci[4] = c5, ri[4] = r5
-        let mut ak = [0u8; 6];
-        ak.copy_from_slice(&out5[..6]);
-        ak
+    pub fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
+        let out5 = self.compute_outi(challenge, 4); // ci[4] = c5, ri[4] = r5
+        let mut anonymity_key = [0u8; 6];
+        anonymity_key.copy_from_slice(&out5[..6]);
+        anonymity_key
     }
 
-    /// Full authentication: verify AUTN, compute RES, CK, IK, Kc.
-    ///
-    /// Performs the complete USIM-side authentication per TS 33.102 clause 6.3.3:
-    /// 1. Compute AK = f5(K, RAND)
-    /// 2. Recover SQN = (SQN XOR AK from AUTN) XOR AK
-    /// 3. Extract AMF from AUTN[6..8]
-    /// 4. Compute XMAC-A = f1(K, RAND, SQN, AMF)
-    /// 5. Compare XMAC-A with MAC-A from AUTN[8..16]
-    /// 6. If match: compute RES, CK, IK, Kc and return [`AuthOutput`]
-    /// 7. If mismatch: return [`MilenageError::MacFailure`]
-    ///
-    /// # C3 Conversion (Kc derivation)
-    ///
-    /// Per TS 33.102 clause 6.8.1.2:
-    /// ```text
-    /// Kc[i] = CK[i] XOR CK[i+8] XOR IK[i] XOR IK[i+8]   for i in 0..8
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// - [`MilenageError::MacFailure`] if XMAC-A does not match MAC-A from AUTN.
-    /// - [`MilenageError::SyncFailure`] if SQN verification fails (when caller
-    ///   implements SQN checking and forwards the failure).
-    ///
-    /// # SQN Verification
-    ///
-    /// SQN verification is **not** performed in this function (the `SqnPolicy`
-    /// is handled by the caller in `simrs-usim`). This function only verifies
-    /// MAC-A.
-    ///
-    /// ```
-    /// use simrs_milenage::{MilenageParams, OpVariant, MilenageError};
-    ///
-    /// let p = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
-    ///
-    /// // Random AUTN will almost certainly fail MAC verification
-    /// let result = p.authenticate(&[0u8; 16], &[0xFFu8; 16]);
-    /// assert!(matches!(result, Err(MilenageError::MacFailure)));
-    /// ```
-    pub fn authenticate(
-        &self,
-        rand: &[u8; 16],
-        autn: &[u8; 16],
-    ) -> Result<AuthOutput, MilenageError> {
-        // 1. Compute AK = f5(RAND)
-        let ak = self.f5(rand);
-
-        // 2. Recover SQN: AUTN[0..6] = SQN XOR AK
-        let mut sqn = [0u8; 6];
-        for i in 0..6 {
-            sqn[i] = autn[i] ^ ak[i];
-        }
-
-        // 3. Extract AMF from AUTN[6..8]
-        let amf: [u8; 2] = [autn[6], autn[7]];
-
-        // 4. Compute XMAC-A
-        let xmac_a = self.f1(rand, &sqn, &amf);
-
-        // 5. Compare with MAC-A from AUTN[8..16] (constant-time to prevent
-        //    timing side-channel leakage of MAC byte positions)
-        if !ct_eq(&xmac_a, &autn[8..16]) {
-            return Err(MilenageError::MacFailure);
-        }
-
-        // 6. Compute RES, CK, IK
-        let res = self.f2(rand);
-        let ck = self.f3(rand);
-        let ik = self.f4(rand);
-
-        // 7. C3 conversion: Kc[i] = CK[i] ^ CK[i+8] ^ IK[i] ^ IK[i+8]
-        let mut kc = [0u8; 8];
-        for i in 0..8 {
-            kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
-        }
-
-        Ok(AuthOutput { res, ck, ik, kc })
+    /// Deprecated: use [`compute_resync_anonymity_key`](MilenageParams::compute_resync_anonymity_key).
+    #[deprecated(note = "use `compute_resync_anonymity_key` -- f5* is the 3GPP designation for AK* (resync anonymity key) computation")]
+    pub fn f5_star(&self, challenge: &[u8; 16]) -> [u8; 6] {
+        self.compute_resync_anonymity_key(challenge)
     }
 
     // -- Internal computation --
 
     /// Compute TEMP = E_K[RAND XOR OPc] (shared by all functions).
-    const fn compute_temp(&self, rand: &[u8; 16]) -> [u8; 16] {
+    const fn compute_temp(&self, challenge: &[u8; 16]) -> [u8; 16] {
         let aes = Rijndael::new(&self.k);
-        aes.encrypt(&xor128(rand, &self.opc))
+        aes.encrypt(&xor128(challenge, &self.opc))
     }
 
     /// Compute OUT_i for f2/f3/f4/f5/f5* (index 0-based into ci/ri arrays).
     ///
     /// `OUT_i = E_K[rot(TEMP XOR OPc, r_i) XOR c_i] XOR OPc`
-    fn compute_outi(&self, rand: &[u8; 16], idx: usize) -> [u8; 16] {
+    fn compute_outi(&self, challenge: &[u8; 16], idx: usize) -> [u8; 16] {
         let aes = Rijndael::new(&self.k);
-        let temp = self.compute_temp(rand);
+        let temp = self.compute_temp(challenge);
 
         let temp_xor_opc = xor128(&temp, &self.opc);
         let rotated = rotl128(&temp_xor_opc, self.ri[idx]);
@@ -741,19 +932,19 @@ impl MilenageParams {
     #[allow(clippy::trivially_copy_pass_by_ref)] // consistent API with public methods
     fn compute_out1(
         &self,
-        rand: &[u8; 16],
-        sqn: &[u8; 6],
-        amf: &[u8; 2],
+        challenge: &[u8; 16],
+        sequence_number: &[u8; 6],
+        management_field: &[u8; 2],
     ) -> [u8; 16] {
         let aes = Rijndael::new(&self.k);
-        let temp = self.compute_temp(rand);
+        let temp = self.compute_temp(challenge);
 
         // Build SQN || AMF || SQN || AMF (16 bytes)
         let mut sqn_amf = [0u8; 16];
-        sqn_amf[..6].copy_from_slice(sqn);
-        sqn_amf[6..8].copy_from_slice(amf);
-        sqn_amf[8..14].copy_from_slice(sqn);
-        sqn_amf[14..16].copy_from_slice(amf);
+        sqn_amf[..6].copy_from_slice(sequence_number);
+        sqn_amf[6..8].copy_from_slice(management_field);
+        sqn_amf[8..14].copy_from_slice(sequence_number);
+        sqn_amf[14..16].copy_from_slice(management_field);
 
         // (SQN||AMF||SQN||AMF) XOR OPc
         let xored = xor128(&sqn_amf, &self.opc);
@@ -773,8 +964,8 @@ impl MilenageParams {
 
     // -- snapshot --
 
-    /// Snapshot buffer size: 117 bytes (K(16) + OPc(16) + ci(80) + ri(5)).
-    pub const SNAPSHOT_SIZE: usize = 16 + 16 + 80 + 5;
+    /// Snapshot buffer size: 123 bytes (K(16) + OPc(16) + ci(80) + ri(5) + expected_sequence_number(6)).
+    pub const SNAPSHOT_SIZE: usize = 16 + 16 + 80 + 5 + 6;
 
     /// Serialize the Milenage parameters into `buf` as flat bytes.
     ///
@@ -791,6 +982,7 @@ impl MilenageParams {
             w.put_bytes(c);
         }
         w.put_bytes(&self.ri);
+        w.put_bytes(&self.expected_sequence_number);
         w.finish()
     }
 
@@ -809,9 +1001,62 @@ impl MilenageParams {
             r.get_bytes(c);
         }
         r.get_bytes(&mut self.ri);
+        r.get_bytes(&mut self.expected_sequence_number);
         true
     }
 }
+
+// ---------------------------------------------------------------------------
+// Deprecated accessor methods
+// ---------------------------------------------------------------------------
+
+impl AuthenticationOutput {
+    /// Deprecated: use field `response` directly.
+    #[deprecated(note = "use field `response` -- RES is the 3GPP abbreviation for Authentication Response")]
+    pub const fn res(&self) -> [u8; 8] { self.response }
+    /// Deprecated: use field `cipher_key` directly.
+    #[deprecated(note = "use field `cipher_key` -- CK is the 3GPP abbreviation for Cipher Key")]
+    pub const fn ck(&self) -> [u8; 16] { self.cipher_key }
+    /// Deprecated: use field `integrity_key` directly.
+    #[deprecated(note = "use field `integrity_key` -- IK is the 3GPP abbreviation for Integrity Key")]
+    pub const fn ik(&self) -> [u8; 16] { self.integrity_key }
+    /// Deprecated: use field `gsm_cipher_key` directly.
+    #[deprecated(note = "use field `gsm_cipher_key` -- Kc is the 3GPP abbreviation for GSM Cipher Key")]
+    pub const fn kc(&self) -> [u8; 8] { self.gsm_cipher_key }
+}
+
+impl AuthenticationError {
+    /// Deprecated: match on `SyncFailure { resync_token }` instead.
+    #[deprecated(note = "match on `SyncFailure { resync_token }` -- AUTS is the 3GPP abbreviation for Authentication Resynchronisation Token")]
+    pub const fn auts(&self) -> Option<[u8; 14]> {
+        match self {
+            Self::SyncFailure { resync_token } => Some(*resync_token),
+            Self::MacFailure => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Deprecated aliases -- old abbreviated names
+// ---------------------------------------------------------------------------
+
+/// Deprecated alias for [`OperatorVariant`].
+#[deprecated(note = "use `OperatorVariant` -- OP is the 3GPP Operator Parameter")]
+pub type OpVariant = OperatorVariant;
+
+/// Deprecated alias for [`AuthenticationOutput`].
+#[deprecated(note = "use `AuthenticationOutput` -- renamed for clarity")]
+pub type AuthOutput = AuthenticationOutput;
+
+/// Deprecated alias for [`AuthenticationError`].
+/// This type is used by both Milenage and TUAK; the old name incorrectly
+/// implied Milenage-only usage.
+#[deprecated(note = "use `AuthenticationError` -- renamed to reflect algorithm-independent usage")]
+pub type MilenageError = AuthenticationError;
+
+/// Deprecated alias for [`AuthenticationAlgorithm`].
+#[deprecated(note = "use `AuthenticationAlgorithm`")]
+pub use AuthenticationAlgorithm as AuthAlgorithm;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -861,46 +1106,226 @@ mod tests {
     const TS1_F5_AK: [u8; 6] = [0xAA, 0x68, 0x9C, 0x64, 0x83, 0x70];
     const TS1_F5S_AK: [u8; 6] = [0x45, 0x1E, 0x8B, 0xEC, 0xA4, 0x3B];
 
+    // ---------------------------------------------------------------
+    // ETSI TS 135 208 V17.0.0 Test Set 2
+    // ---------------------------------------------------------------
+
+    const TS2_K: [u8; 16] = [
+        0x03, 0x96, 0xEB, 0x31, 0x7B, 0x6D, 0x1C, 0x36,
+        0xF1, 0x9C, 0x1C, 0x84, 0xCD, 0x6F, 0xFD, 0x16,
+    ];
+    const TS2_OP: [u8; 16] = [
+        0xFF, 0x53, 0xBA, 0xDE, 0x17, 0xDF, 0x5D, 0x4E,
+        0x79, 0x30, 0x73, 0xCE, 0x9D, 0x75, 0x79, 0xFA,
+    ];
+    const TS2_OPC: [u8; 16] = [
+        0x53, 0xC1, 0x56, 0x71, 0xC6, 0x0A, 0x4B, 0x73,
+        0x1C, 0x55, 0xB4, 0xA4, 0x41, 0xC0, 0xBD, 0xE2,
+    ];
+    const TS2_RAND: [u8; 16] = [
+        0xC0, 0x0D, 0x60, 0x31, 0x03, 0xDC, 0xEE, 0x52,
+        0xC4, 0x47, 0x81, 0x19, 0x49, 0x42, 0x02, 0xE8,
+    ];
+    const TS2_SQN: [u8; 6] = [0xFD, 0x8E, 0xEF, 0x40, 0xDF, 0x7D];
+    const TS2_AMF: [u8; 2] = [0xAF, 0x17];
+    const TS2_F1_MAC_A: [u8; 8] = [0x5D, 0xF5, 0xB3, 0x18, 0x07, 0xE2, 0x58, 0xB0];
+    const TS2_F1S_MAC_S: [u8; 8] = [0xA8, 0xC0, 0x16, 0xE5, 0x1E, 0xF4, 0xA3, 0x43];
+    const TS2_F2_RES: [u8; 8] = [0xD3, 0xA6, 0x28, 0xED, 0x98, 0x86, 0x20, 0xF0];
+    const TS2_F3_CK: [u8; 16] = [
+        0x58, 0xC4, 0x33, 0xFF, 0x7A, 0x70, 0x82, 0xAC,
+        0xD4, 0x24, 0x22, 0x0F, 0x2B, 0x67, 0xC5, 0x56,
+    ];
+    const TS2_F4_IK: [u8; 16] = [
+        0x21, 0xA8, 0xC1, 0xF9, 0x29, 0x70, 0x2A, 0xDB,
+        0x3E, 0x73, 0x84, 0x88, 0xB9, 0xF5, 0xC5, 0xDA,
+    ];
+    const TS2_F5_AK: [u8; 6] = [0xC4, 0x77, 0x83, 0x99, 0x5F, 0x72];
+    const TS2_F5S_AK: [u8; 6] = [0x30, 0xF1, 0x19, 0x70, 0x61, 0xC1];
+
+    // ---------------------------------------------------------------
+    // ETSI TS 135 208 V17.0.0 Test Set 3
+    // ---------------------------------------------------------------
+
+    const TS3_K: [u8; 16] = [
+        0xFE, 0xC8, 0x6B, 0xA6, 0xEB, 0x70, 0x7E, 0xD0,
+        0x89, 0x05, 0x75, 0x7B, 0x1B, 0xB4, 0x4B, 0x8F,
+    ];
+    const TS3_OP: [u8; 16] = [
+        0xDB, 0xC5, 0x9A, 0xDC, 0xB6, 0xF9, 0xA0, 0xEF,
+        0x73, 0x54, 0x77, 0xB7, 0xFA, 0xDF, 0x83, 0x74,
+    ];
+    const TS3_OPC: [u8; 16] = [
+        0x10, 0x06, 0x02, 0x0F, 0x0A, 0x47, 0x8B, 0xF6,
+        0xB6, 0x99, 0xF1, 0x5C, 0x06, 0x2E, 0x42, 0xB3,
+    ];
+    const TS3_RAND: [u8; 16] = [
+        0x9F, 0x7C, 0x8D, 0x02, 0x1A, 0xCC, 0xF4, 0xDB,
+        0x21, 0x3C, 0xCF, 0xF0, 0xC7, 0xF7, 0x1A, 0x6A,
+    ];
+    const TS3_SQN: [u8; 6] = [0x9D, 0x02, 0x77, 0x59, 0x5F, 0xFC];
+    const TS3_AMF: [u8; 2] = [0x72, 0x5C];
+    const TS3_F1_MAC_A: [u8; 8] = [0x9C, 0xAB, 0xC3, 0xE9, 0x9B, 0xAF, 0x72, 0x81];
+    const TS3_F1S_MAC_S: [u8; 8] = [0x95, 0x81, 0x4B, 0xA2, 0xB3, 0x04, 0x43, 0x24];
+    const TS3_F2_RES: [u8; 8] = [0x80, 0x11, 0xC4, 0x8C, 0x0C, 0x21, 0x4E, 0xD2];
+    const TS3_F3_CK: [u8; 16] = [
+        0x5D, 0xBD, 0xBB, 0x29, 0x54, 0xE8, 0xF3, 0xCD,
+        0xE6, 0x65, 0xB0, 0x46, 0x17, 0x9A, 0x50, 0x98,
+    ];
+    const TS3_F4_IK: [u8; 16] = [
+        0x59, 0xA9, 0x2D, 0x3B, 0x47, 0x6A, 0x04, 0x43,
+        0x48, 0x70, 0x55, 0xCF, 0x88, 0xB2, 0x30, 0x7B,
+    ];
+    const TS3_F5_AK: [u8; 6] = [0x33, 0x48, 0x4D, 0xC2, 0x13, 0x6B];
+    const TS3_F5S_AK: [u8; 6] = [0xDE, 0xAC, 0xDD, 0x84, 0x8C, 0xC6];
+
+    // ---------------------------------------------------------------
+    // ETSI TS 135 208 V17.0.0 Test Set 4
+    // ---------------------------------------------------------------
+
+    const TS4_K: [u8; 16] = [
+        0x9E, 0x59, 0x44, 0xAE, 0xA9, 0x4B, 0x81, 0x16,
+        0x5C, 0x82, 0xFB, 0xF9, 0xF3, 0x2D, 0xB7, 0x51,
+    ];
+    const TS4_OP: [u8; 16] = [
+        0x22, 0x30, 0x14, 0xC5, 0x80, 0x66, 0x94, 0xC0,
+        0x07, 0xCA, 0x1E, 0xEE, 0xF5, 0x7F, 0x00, 0x4F,
+    ];
+    const TS4_OPC: [u8; 16] = [
+        0xA6, 0x4A, 0x50, 0x7A, 0xE1, 0xA2, 0xA9, 0x8B,
+        0xB8, 0x8E, 0xB4, 0x21, 0x01, 0x35, 0xDC, 0x87,
+    ];
+    const TS4_RAND: [u8; 16] = [
+        0xCE, 0x83, 0xDB, 0xC5, 0x4A, 0xC0, 0x27, 0x4A,
+        0x15, 0x7C, 0x17, 0xF8, 0x0D, 0x01, 0x7B, 0xD6,
+    ];
+    const TS4_SQN: [u8; 6] = [0x0B, 0x60, 0x4A, 0x81, 0xEC, 0xA8];
+    const TS4_AMF: [u8; 2] = [0x9E, 0x09];
+    const TS4_F1_MAC_A: [u8; 8] = [0x74, 0xA5, 0x82, 0x20, 0xCB, 0xA8, 0x4C, 0x49];
+    const TS4_F1S_MAC_S: [u8; 8] = [0xAC, 0x2C, 0xC7, 0x4A, 0x96, 0x87, 0x18, 0x37];
+    const TS4_F2_RES: [u8; 8] = [0xF3, 0x65, 0xCD, 0x68, 0x3C, 0xD9, 0x2E, 0x96];
+    const TS4_F3_CK: [u8; 16] = [
+        0xE2, 0x03, 0xED, 0xB3, 0x97, 0x15, 0x74, 0xF5,
+        0xA9, 0x4B, 0x0D, 0x61, 0xB8, 0x16, 0x34, 0x5D,
+    ];
+    const TS4_F4_IK: [u8; 16] = [
+        0x0C, 0x45, 0x24, 0xAD, 0xEA, 0xC0, 0x41, 0xC4,
+        0xDD, 0x83, 0x0D, 0x20, 0x85, 0x4F, 0xC4, 0x6B,
+    ];
+    const TS4_F5_AK: [u8; 6] = [0xF0, 0xB9, 0xC0, 0x8A, 0xD0, 0x2E];
+    const TS4_F5S_AK: [u8; 6] = [0x60, 0x85, 0xA8, 0x6C, 0x6F, 0x63];
+
+    // ---------------------------------------------------------------
+    // ETSI TS 135 208 V17.0.0 Test Set 5
+    // ---------------------------------------------------------------
+
+    const TS5_K: [u8; 16] = [
+        0x4A, 0xB1, 0xDE, 0xB0, 0x5C, 0xA6, 0xCE, 0xB0,
+        0x51, 0xFC, 0x98, 0xE7, 0x7D, 0x02, 0x6A, 0x84,
+    ];
+    const TS5_OP: [u8; 16] = [
+        0x2D, 0x16, 0xC5, 0xCD, 0x1F, 0xDF, 0x6B, 0x22,
+        0x38, 0x35, 0x84, 0xE3, 0xBE, 0xF2, 0xA8, 0xD8,
+    ];
+    const TS5_OPC: [u8; 16] = [
+        0xDC, 0xF0, 0x7C, 0xBD, 0x51, 0x85, 0x52, 0x90,
+        0xB9, 0x2A, 0x07, 0xA9, 0x89, 0x1E, 0x52, 0x3E,
+    ];
+    const TS5_RAND: [u8; 16] = [
+        0x74, 0xB0, 0xCD, 0x60, 0x31, 0xA1, 0xC8, 0x33,
+        0x9B, 0x2B, 0x6C, 0xE2, 0xB8, 0xC4, 0xA1, 0x86,
+    ];
+    const TS5_SQN: [u8; 6] = [0xE8, 0x80, 0xA1, 0xB5, 0x80, 0xB6];
+    const TS5_AMF: [u8; 2] = [0x9F, 0x07];
+    const TS5_F1_MAC_A: [u8; 8] = [0x49, 0xE7, 0x85, 0xDD, 0x12, 0x62, 0x6E, 0xF2];
+    const TS5_F1S_MAC_S: [u8; 8] = [0x9E, 0x85, 0x79, 0x03, 0x36, 0xBB, 0x3F, 0xA2];
+    const TS5_F2_RES: [u8; 8] = [0x58, 0x60, 0xFC, 0x1B, 0xCE, 0x35, 0x1E, 0x7E];
+    const TS5_F3_CK: [u8; 16] = [
+        0x76, 0x57, 0x76, 0x6B, 0x37, 0x3D, 0x1C, 0x21,
+        0x38, 0xF3, 0x07, 0xE3, 0xDE, 0x92, 0x42, 0xF9,
+    ];
+    const TS5_F4_IK: [u8; 16] = [
+        0x1C, 0x42, 0xE9, 0x60, 0xD8, 0x9B, 0x8F, 0xA9,
+        0x9F, 0x27, 0x44, 0xE0, 0x70, 0x8C, 0xCB, 0x53,
+    ];
+    const TS5_F5_AK: [u8; 6] = [0x31, 0xE1, 0x1A, 0x60, 0x91, 0x18];
+    const TS5_F5S_AK: [u8; 6] = [0xFE, 0x25, 0x55, 0xE5, 0x4A, 0xA9];
+
+    // ---------------------------------------------------------------
+    // ETSI TS 135 208 V17.0.0 Test Set 6
+    // ---------------------------------------------------------------
+
+    const TS6_K: [u8; 16] = [
+        0x6C, 0x38, 0xA1, 0x16, 0xAC, 0x28, 0x0C, 0x45,
+        0x4F, 0x59, 0x33, 0x2E, 0xE3, 0x5C, 0x8C, 0x4F,
+    ];
+    const TS6_OP: [u8; 16] = [
+        0x1B, 0xA0, 0x0A, 0x1A, 0x7C, 0x67, 0x00, 0xAC,
+        0x8C, 0x3F, 0xF3, 0xE9, 0x6A, 0xD0, 0x87, 0x25,
+    ];
+    const TS6_OPC: [u8; 16] = [
+        0x38, 0x03, 0xEF, 0x53, 0x63, 0xB9, 0x47, 0xC6,
+        0xAA, 0xA2, 0x25, 0xE5, 0x8F, 0xAE, 0x39, 0x34,
+    ];
+    const TS6_RAND: [u8; 16] = [
+        0xEE, 0x64, 0x66, 0xBC, 0x96, 0x20, 0x2C, 0x5A,
+        0x55, 0x7A, 0xBB, 0xEF, 0xF8, 0xBA, 0xBF, 0x63,
+    ];
+    const TS6_SQN: [u8; 6] = [0x41, 0x4B, 0x98, 0x22, 0x21, 0x81];
+    const TS6_AMF: [u8; 2] = [0x44, 0x64];
+    const TS6_F1_MAC_A: [u8; 8] = [0x07, 0x8A, 0xDF, 0xB4, 0x88, 0x24, 0x1A, 0x57];
+    const TS6_F1S_MAC_S: [u8; 8] = [0x80, 0x24, 0x6B, 0x8D, 0x01, 0x86, 0xBC, 0xF1];
+    const TS6_F2_RES: [u8; 8] = [0x16, 0xC8, 0x23, 0x3F, 0x05, 0xA0, 0xAC, 0x28];
+    const TS6_F3_CK: [u8; 16] = [
+        0x3F, 0x8C, 0x75, 0x87, 0xFE, 0x8E, 0x4B, 0x23,
+        0x3A, 0xF6, 0x76, 0xAE, 0xDE, 0x30, 0xBA, 0x3B,
+    ];
+    const TS6_F4_IK: [u8; 16] = [
+        0xA7, 0x46, 0x6C, 0xC1, 0xE6, 0xB2, 0xA1, 0x33,
+        0x7D, 0x49, 0xD3, 0xB6, 0x6E, 0x95, 0xD7, 0xB4,
+    ];
+    const TS6_F5_AK: [u8; 6] = [0x45, 0xB0, 0xF6, 0x9A, 0xB0, 0x6C];
+    const TS6_F5S_AK: [u8; 6] = [0x1F, 0x53, 0xCD, 0x2B, 0x11, 0x13];
+
     #[test]
     fn test_set_1_f1_mac_a() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
-        assert_eq!(p.f1(&TS1_RAND, &TS1_SQN, &TS1_AMF), TS1_F1_MAC_A);
+        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF), TS1_F1_MAC_A);
     }
 
     #[test]
     fn test_set_1_f1_star_mac_s() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
-        assert_eq!(p.f1_star(&TS1_RAND, &TS1_SQN, &TS1_AMF), TS1_F1S_MAC_S);
+        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(p.compute_resync_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF), TS1_F1S_MAC_S);
     }
 
     #[test]
     fn test_set_1_f2_res() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
-        assert_eq!(p.f2(&TS1_RAND), TS1_F2_RES);
+        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(p.compute_response(&TS1_RAND), TS1_F2_RES);
     }
 
     #[test]
     fn test_set_1_f3_ck() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
-        assert_eq!(p.f3(&TS1_RAND), TS1_F3_CK);
+        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(p.compute_cipher_key(&TS1_RAND), TS1_F3_CK);
     }
 
     #[test]
     fn test_set_1_f4_ik() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
-        assert_eq!(p.f4(&TS1_RAND), TS1_F4_IK);
+        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(p.compute_integrity_key(&TS1_RAND), TS1_F4_IK);
     }
 
     #[test]
     fn test_set_1_f5_ak() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
-        assert_eq!(p.f5(&TS1_RAND), TS1_F5_AK);
+        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(p.compute_anonymity_key(&TS1_RAND), TS1_F5_AK);
     }
 
     #[test]
     fn test_set_1_f5_star_ak() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
-        assert_eq!(p.f5_star(&TS1_RAND), TS1_F5S_AK);
+        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(p.compute_resync_anonymity_key(&TS1_RAND), TS1_F5S_AK);
     }
 
     // ---------------------------------------------------------------
@@ -909,9 +1334,9 @@ mod tests {
 
     #[test]
     fn op_and_opc_produce_same_f2() {
-        let p_opc = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
-        let p_op = MilenageParams::with_defaults(TS1_K, OpVariant::Op(TS1_OP));
-        assert_eq!(p_opc.f2(&TS1_RAND), p_op.f2(&TS1_RAND));
+        let p_opc = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let p_op = MilenageParams::with_defaults(TS1_K, OperatorVariant::Op(TS1_OP));
+        assert_eq!(p_opc.compute_response(&TS1_RAND), p_op.compute_response(&TS1_RAND));
     }
 
     // ---------------------------------------------------------------
@@ -920,33 +1345,70 @@ mod tests {
 
     #[test]
     fn authenticate_with_valid_autn() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
+        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
 
         // Construct valid AUTN: (SQN XOR AK) || AMF || MAC-A
-        let ak = p.f5(&TS1_RAND);
+        let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
         let mut autn = [0u8; 16];
         for i in 0..6 {
-            autn[i] = TS1_SQN[i] ^ ak[i];
+            autn[i] = TS1_SQN[i] ^ anonymity_key[i];
         }
         autn[6] = TS1_AMF[0];
         autn[7] = TS1_AMF[1];
-        let mac_a = p.f1(&TS1_RAND, &TS1_SQN, &TS1_AMF);
-        autn[8..16].copy_from_slice(&mac_a);
+        let auth_mac = p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF);
+        autn[8..16].copy_from_slice(&auth_mac);
 
         let result = p.authenticate(&TS1_RAND, &autn);
         assert!(result.is_ok(), "valid AUTN must authenticate successfully");
         let out = result.unwrap();
-        assert_eq!(out.res, TS1_F2_RES);
-        assert_eq!(out.ck, TS1_F3_CK);
-        assert_eq!(out.ik, TS1_F4_IK);
+        assert_eq!(out.response, TS1_F2_RES);
+        assert_eq!(out.cipher_key, TS1_F3_CK);
+        assert_eq!(out.integrity_key, TS1_F4_IK);
     }
 
     #[test]
     fn authenticate_with_bad_mac_fails() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
+        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
         // All-zero AUTN will have wrong MAC-A
         let result = p.authenticate(&TS1_RAND, &[0u8; 16]);
-        assert!(matches!(result, Err(MilenageError::MacFailure)));
+        assert!(matches!(result, Err(AuthenticationError::MacFailure)));
+    }
+
+    #[test]
+    fn sqn_boundary_accepts_equal_rejects_below() {
+        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let amf = [0x80, 0x00];
+
+        // Helper to build valid AUTN for a given SQN.
+        let build_autn = |p: &MilenageParams, sqn: [u8; 6]| -> [u8; 16] {
+            let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
+            let mut autn = [0u8; 16];
+            for i in 0..6 {
+                autn[i] = sqn[i] ^ anonymity_key[i];
+            }
+            autn[6..8].copy_from_slice(&amf);
+            autn[8..16].copy_from_slice(&p.compute_auth_mac(&TS1_RAND, &sqn, &amf));
+            autn
+        };
+
+        // SQN=5: accepted (expected_sequence_number starts at 0, so 5 >= 0).
+        let sqn_5 = [0, 0, 0, 0, 0, 5];
+        let autn = build_autn(&p, sqn_5);
+        assert!(p.authenticate(&TS1_RAND, &autn).is_ok());
+        // expected_sequence_number is now 6.
+
+        // SQN=6: boundary -- exactly expected_sequence_number, should be accepted.
+        let sqn_6 = [0, 0, 0, 0, 0, 6];
+        let autn = build_autn(&p, sqn_6);
+        assert!(p.authenticate(&TS1_RAND, &autn).is_ok());
+        // expected_sequence_number is now 7.
+
+        // SQN=6: now below expected_sequence_number=7, should be rejected as replay.
+        let autn = build_autn(&p, sqn_6);
+        assert!(
+            matches!(p.authenticate(&TS1_RAND, &autn), Err(AuthenticationError::SyncFailure { .. })),
+            "SQN below expected_sequence_number must trigger SyncFailure",
+        );
     }
 
     // ---------------------------------------------------------------
@@ -955,27 +1417,27 @@ mod tests {
 
     #[test]
     fn kc_is_c3_conversion_of_ck_ik() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
+        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
 
         // Construct valid AUTN
-        let ak = p.f5(&TS1_RAND);
+        let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
         let mut autn = [0u8; 16];
-        for i in 0..6 { autn[i] = TS1_SQN[i] ^ ak[i]; }
+        for i in 0..6 { autn[i] = TS1_SQN[i] ^ anonymity_key[i]; }
         autn[6..8].copy_from_slice(&TS1_AMF);
-        autn[8..16].copy_from_slice(&p.f1(&TS1_RAND, &TS1_SQN, &TS1_AMF));
+        autn[8..16].copy_from_slice(&p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF));
 
         let out = p.authenticate(&TS1_RAND, &autn).unwrap();
 
         // Verify C3 conversion: Kc[i] = CK[i]^CK[i+8]^IK[i]^IK[i+8]
         #[allow(clippy::needless_range_loop)] // indices into 4 arrays with offset
-        let expected_kc: [u8; 8] = {
-            let mut kc = [0u8; 8];
+        let expected_gsm_cipher_key: [u8; 8] = {
+            let mut gsm_cipher_key = [0u8; 8];
             for i in 0..8 {
-                kc[i] = out.ck[i] ^ out.ck[i + 8] ^ out.ik[i] ^ out.ik[i + 8];
+                gsm_cipher_key[i] = out.cipher_key[i] ^ out.cipher_key[i + 8] ^ out.integrity_key[i] ^ out.integrity_key[i + 8];
             }
-            kc
+            gsm_cipher_key
         };
-        assert_eq!(out.kc, expected_kc, "Kc must be C3 conversion of CK||IK");
+        assert_eq!(out.gsm_cipher_key, expected_gsm_cipher_key, "Kc must be C3 conversion of CK||IK");
     }
 
     // ---------------------------------------------------------------
@@ -984,8 +1446,8 @@ mod tests {
 
     #[test]
     fn deterministic() {
-        let p = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
-        assert_eq!(p.f2(&TS1_RAND), p.f2(&TS1_RAND));
+        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(p.compute_response(&TS1_RAND), p.compute_response(&TS1_RAND));
     }
 
     // ---------------------------------------------------------------
@@ -998,14 +1460,14 @@ mod tests {
         let ci = [[0u8; 16]; 5]; // all zero
         let ri = [0, 0, 32, 64, 96]; // r1==r2==0
 
-        let result = MilenageParams::new([0u8; 16], OpVariant::Opc([0u8; 16]), ci, ri);
+        let result = MilenageParams::new([0u8; 16], OperatorVariant::Opc([0u8; 16]), ci, ri);
         assert!(matches!(result, Err(ParamError::DuplicateCiRi { first: 0, second: 1 })));
     }
 
     #[test]
     fn defaults_always_valid() {
         // with_defaults should never fail
-        let p = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         let _ = p; // just verify construction succeeds
     }
 
@@ -1019,6 +1481,101 @@ mod tests {
         let aes = Rijndael::new(&TS1_K);
         let computed_opc = compute_opc(&aes, &TS1_OP);
         assert_eq!(computed_opc, TS1_OPC);
+    }
+
+    // ---------------------------------------------------------------
+    // Validate all functions for test sets 2--6
+    // ---------------------------------------------------------------
+
+    #[allow(clippy::too_many_arguments, clippy::trivially_copy_pass_by_ref)]
+    fn validate_test_set(
+        name: &str,
+        k: &[u8; 16], op: &[u8; 16], opc: &[u8; 16], challenge: &[u8; 16],
+        sequence_number: &[u8; 6], management_field: &[u8; 2],
+        expected_auth_mac: &[u8; 8], expected_resync_mac: &[u8; 8], expected_response: &[u8; 8],
+        expected_cipher_key: &[u8; 16], expected_integrity_key: &[u8; 16], expected_anonymity_key: &[u8; 6], expected_resync_anonymity_key: &[u8; 6],
+    ) {
+        let p = MilenageParams::with_defaults(*k, OperatorVariant::Opc(*opc));
+        assert_eq!(p.compute_auth_mac(challenge, sequence_number, management_field), *expected_auth_mac, "{name}: f1 mismatch");
+        assert_eq!(p.compute_resync_mac(challenge, sequence_number, management_field), *expected_resync_mac, "{name}: f1* mismatch");
+        assert_eq!(p.compute_response(challenge), *expected_response, "{name}: f2 mismatch");
+        assert_eq!(p.compute_cipher_key(challenge), *expected_cipher_key, "{name}: f3 mismatch");
+        assert_eq!(p.compute_integrity_key(challenge), *expected_integrity_key, "{name}: f4 mismatch");
+        assert_eq!(p.compute_anonymity_key(challenge), *expected_anonymity_key, "{name}: f5 mismatch");
+        assert_eq!(p.compute_resync_anonymity_key(challenge), *expected_resync_anonymity_key, "{name}: f5* mismatch");
+
+        // Also verify that using OP produces the same results as OPc.
+        let p_op = MilenageParams::with_defaults(*k, OperatorVariant::Op(*op));
+        assert_eq!(p_op.compute_response(challenge), *expected_response, "{name}: f2 via OP mismatch");
+    }
+
+    #[test]
+    fn test_set_2_all() {
+        validate_test_set("TS2", &TS2_K, &TS2_OP, &TS2_OPC, &TS2_RAND, &TS2_SQN, &TS2_AMF,
+            &TS2_F1_MAC_A, &TS2_F1S_MAC_S, &TS2_F2_RES, &TS2_F3_CK, &TS2_F4_IK, &TS2_F5_AK, &TS2_F5S_AK);
+    }
+
+    #[test]
+    fn test_set_3_all() {
+        validate_test_set("TS3", &TS3_K, &TS3_OP, &TS3_OPC, &TS3_RAND, &TS3_SQN, &TS3_AMF,
+            &TS3_F1_MAC_A, &TS3_F1S_MAC_S, &TS3_F2_RES, &TS3_F3_CK, &TS3_F4_IK, &TS3_F5_AK, &TS3_F5S_AK);
+    }
+
+    #[test]
+    fn test_set_4_all() {
+        validate_test_set("TS4", &TS4_K, &TS4_OP, &TS4_OPC, &TS4_RAND, &TS4_SQN, &TS4_AMF,
+            &TS4_F1_MAC_A, &TS4_F1S_MAC_S, &TS4_F2_RES, &TS4_F3_CK, &TS4_F4_IK, &TS4_F5_AK, &TS4_F5S_AK);
+    }
+
+    #[test]
+    fn test_set_5_all() {
+        validate_test_set("TS5", &TS5_K, &TS5_OP, &TS5_OPC, &TS5_RAND, &TS5_SQN, &TS5_AMF,
+            &TS5_F1_MAC_A, &TS5_F1S_MAC_S, &TS5_F2_RES, &TS5_F3_CK, &TS5_F4_IK, &TS5_F5_AK, &TS5_F5S_AK);
+    }
+
+    #[test]
+    fn test_set_6_all() {
+        validate_test_set("TS6", &TS6_K, &TS6_OP, &TS6_OPC, &TS6_RAND, &TS6_SQN, &TS6_AMF,
+            &TS6_F1_MAC_A, &TS6_F1S_MAC_S, &TS6_F2_RES, &TS6_F3_CK, &TS6_F4_IK, &TS6_F5_AK, &TS6_F5S_AK);
+    }
+
+    // ---------------------------------------------------------------
+    // OPc derivation for test sets 2--6
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn opc_derivation_matches_test_set_2() {
+        let aes = Rijndael::new(&TS2_K);
+        let computed_opc = compute_opc(&aes, &TS2_OP);
+        assert_eq!(computed_opc, TS2_OPC);
+    }
+
+    #[test]
+    fn opc_derivation_matches_test_set_3() {
+        let aes = Rijndael::new(&TS3_K);
+        let computed_opc = compute_opc(&aes, &TS3_OP);
+        assert_eq!(computed_opc, TS3_OPC);
+    }
+
+    #[test]
+    fn opc_derivation_matches_test_set_4() {
+        let aes = Rijndael::new(&TS4_K);
+        let computed_opc = compute_opc(&aes, &TS4_OP);
+        assert_eq!(computed_opc, TS4_OPC);
+    }
+
+    #[test]
+    fn opc_derivation_matches_test_set_5() {
+        let aes = Rijndael::new(&TS5_K);
+        let computed_opc = compute_opc(&aes, &TS5_OP);
+        assert_eq!(computed_opc, TS5_OPC);
+    }
+
+    #[test]
+    fn opc_derivation_matches_test_set_6() {
+        let aes = Rijndael::new(&TS6_K);
+        let computed_opc = compute_opc(&aes, &TS6_OP);
+        assert_eq!(computed_opc, TS6_OPC);
     }
 
     // ---------------------------------------------------------------
@@ -1047,32 +1604,63 @@ mod tests {
 
     #[test]
     fn snapshot_size_correct() {
-        assert_eq!(MilenageParams::SNAPSHOT_SIZE, 117);
+        assert_eq!(MilenageParams::SNAPSHOT_SIZE, 123);
     }
 
     #[test]
     fn snapshot_roundtrip_preserves_computation() {
-        let orig = MilenageParams::with_defaults(TS1_K, OpVariant::Opc(TS1_OPC));
+        let orig = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
 
         let mut snap = [0u8; MilenageParams::SNAPSHOT_SIZE];
-        assert_eq!(orig.save_state(&mut snap), 117);
+        assert_eq!(orig.save_state(&mut snap), 123);
 
         // Restore into a zeroed params.
-        let mut restored = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mut restored = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         assert!(restored.restore_state(&snap));
 
-        // Restored params must produce the same f2 output.
-        assert_eq!(restored.f2(&TS1_RAND), TS1_F2_RES);
-        assert_eq!(restored.f5(&TS1_RAND), TS1_F5_AK);
+        // Restored params must produce the same output.
+        assert_eq!(restored.compute_response(&TS1_RAND), TS1_F2_RES);
+        assert_eq!(restored.compute_anonymity_key(&TS1_RAND), TS1_F5_AK);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_preserves_sqn_he() {
+        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+
+        // Advance expected_sequence_number by performing a successful authenticate.
+        let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
+        let mut autn = [0u8; 16];
+        for i in 0..6 {
+            autn[i] = TS1_SQN[i] ^ anonymity_key[i];
+        }
+        autn[6..8].copy_from_slice(&TS1_AMF);
+        autn[8..16].copy_from_slice(&p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF));
+        p.authenticate(&TS1_RAND, &autn)
+            .expect("setup authenticate must succeed");
+
+        let mut snap = [0u8; MilenageParams::SNAPSHOT_SIZE];
+        assert_eq!(p.save_state(&mut snap), MilenageParams::SNAPSHOT_SIZE);
+
+        let mut restored =
+            MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        assert!(restored.restore_state(&snap));
+
+        // Replaying the same SQN must trigger SyncFailure on the restored
+        // instance, proving expected_sequence_number was preserved through save/restore.
+        let result = restored.authenticate(&TS1_RAND, &autn);
+        assert!(
+            matches!(result, Err(AuthenticationError::SyncFailure { .. })),
+            "restored instance must reject the already-consumed SQN",
+        );
     }
 
     #[test]
     fn snapshot_small_buffer_returns_zero_or_false() {
-        let p = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         let mut small = [0u8; 50];
         assert_eq!(p.save_state(&mut small), 0);
 
-        let mut p2 = MilenageParams::with_defaults([0u8; 16], OpVariant::Opc([0u8; 16]));
+        let mut p2 = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
         assert!(!p2.restore_state(&small));
     }
 
@@ -1121,60 +1709,59 @@ mod proptests {
     use proptest::prelude::*;
 
     proptest! {
-        // f2 and f5 share the same OUT2 computation, so f5 must be
-        // the first 6 bytes of OUT2 while f2 must be the last 8.
-        // We can't directly test OUT2, but we can test that f2 and f5
-        // are consistent: calling them both should produce valid, non-trivially-
-        // related outputs.
+        // Different keys must produce different response and anonymity key outputs.
+        // This tests the core security property: key sensitivity.
         #[test]
-        fn f2_f5_deterministic(k in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
-            let p = MilenageParams::with_defaults(k, OpVariant::Opc([0u8; 16]));
-            let res1 = p.f2(&rand);
-            let res2 = p.f2(&rand);
-            let ak1 = p.f5(&rand);
-            let ak2 = p.f5(&rand);
-            prop_assert_eq!(res1, res2);
-            prop_assert_eq!(ak1, ak2);
+        fn different_key_changes_response_and_anonymity_key(
+            k1 in any::<[u8; 16]>(),
+            k2 in any::<[u8; 16]>(),
+            challenge in any::<[u8; 16]>(),
+        ) {
+            prop_assume!(k1 != k2);
+            let p1 = MilenageParams::with_defaults(k1, OperatorVariant::Opc([0u8; 16]));
+            let p2 = MilenageParams::with_defaults(k2, OperatorVariant::Opc([0u8; 16]));
+            prop_assert_ne!(p1.compute_response(&challenge), p2.compute_response(&challenge), "different K must produce different RES");
+            prop_assert_ne!(p1.compute_anonymity_key(&challenge), p2.compute_anonymity_key(&challenge), "different K must produce different AK");
         }
     }
 
     proptest! {
         // Kc must always be the C3 conversion of CK and IK.
         #[test]
-        fn kc_is_always_c3(k in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
-            let p = MilenageParams::with_defaults(k, OpVariant::Opc([0u8; 16]));
-            let ck = p.f3(&rand);
-            let ik = p.f4(&rand);
-            let mut expected_kc = [0u8; 8];
+        fn kc_is_always_c3(k in any::<[u8; 16]>(), challenge in any::<[u8; 16]>()) {
+            let mut p = MilenageParams::with_defaults(k, OperatorVariant::Opc([0u8; 16]));
+            let cipher_key = p.compute_cipher_key(&challenge);
+            let integrity_key = p.compute_integrity_key(&challenge);
+            let mut expected_gsm_cipher_key = [0u8; 8];
             for i in 0..8 {
-                expected_kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
+                expected_gsm_cipher_key[i] = cipher_key[i] ^ cipher_key[i + 8] ^ integrity_key[i] ^ integrity_key[i + 8];
             }
 
             // Build a valid AUTN to test authenticate()
             let sqn = [0u8; 6];
             let amf = [0u8; 2];
-            let ak = p.f5(&rand);
+            let anonymity_key = p.compute_anonymity_key(&challenge);
             let mut autn = [0u8; 16];
-            for i in 0..6 { autn[i] = sqn[i] ^ ak[i]; }
+            for i in 0..6 { autn[i] = sqn[i] ^ anonymity_key[i]; }
             autn[6..8].copy_from_slice(&amf);
-            autn[8..16].copy_from_slice(&p.f1(&rand, &sqn, &amf));
+            autn[8..16].copy_from_slice(&p.compute_auth_mac(&challenge, &sqn, &amf));
 
-            let out = p.authenticate(&rand, &autn).unwrap();
-            prop_assert_eq!(out.kc, expected_kc);
+            let out = p.authenticate(&challenge, &autn).unwrap();
+            prop_assert_eq!(out.gsm_cipher_key, expected_gsm_cipher_key);
         }
     }
 
     proptest! {
-        // OP and pre-computed OPc must produce identical f2 output.
+        // OP and pre-computed OPc must produce identical response output.
         #[test]
-        fn op_vs_opc_equivalence(k in any::<[u8; 16]>(), op in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
+        fn op_vs_opc_equivalence(k in any::<[u8; 16]>(), op in any::<[u8; 16]>(), challenge in any::<[u8; 16]>()) {
             // Compute OPc manually
             let aes = Rijndael::new(&k);
             let opc = compute_opc(&aes, &op);
 
-            let p_op = MilenageParams::with_defaults(k, OpVariant::Op(op));
-            let p_opc = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
-            prop_assert_eq!(p_op.f2(&rand), p_opc.f2(&rand));
+            let p_op = MilenageParams::with_defaults(k, OperatorVariant::Op(op));
+            let p_opc = MilenageParams::with_defaults(k, OperatorVariant::Opc(opc));
+            prop_assert_eq!(p_op.compute_response(&challenge), p_opc.compute_response(&challenge));
         }
     }
 
@@ -1183,13 +1770,13 @@ mod proptests {
         #[test]
         fn different_rand_different_res(
             k in any::<[u8; 16]>(),
-            rand1 in any::<[u8; 16]>(),
-            rand2 in any::<[u8; 16]>(),
+            challenge1 in any::<[u8; 16]>(),
+            challenge2 in any::<[u8; 16]>(),
         ) {
-            prop_assume!(rand1 != rand2);
-            let p = MilenageParams::with_defaults(k, OpVariant::Opc([0u8; 16]));
+            prop_assume!(challenge1 != challenge2);
+            let p = MilenageParams::with_defaults(k, OperatorVariant::Opc([0u8; 16]));
             // Collision is theoretically possible but astronomically unlikely
-            prop_assert_ne!(p.f2(&rand1), p.f2(&rand2));
+            prop_assert_ne!(p.compute_response(&challenge1), p.compute_response(&challenge2));
         }
     }
 }
@@ -1234,9 +1821,9 @@ mod ct_validation {
                 (key, opc, rand_bytes)
             },
             |(key, opc, rand_bytes)| {
-                let params = MilenageParams::with_defaults(*key, OpVariant::Opc(*opc));
-                let res = params.f2(rand_bytes);
-                black_box(res);
+                let params = MilenageParams::with_defaults(*key, OperatorVariant::Opc(*opc));
+                let response = params.compute_response(rand_bytes);
+                black_box(response);
             },
         );
         result.report();

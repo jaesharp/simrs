@@ -35,10 +35,10 @@
 
 use core::cell::RefCell;
 use simrs_fs::{AdfSlot, DfDef};
-use simrs_milenage::{MilenageParams, OpVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant as MilOp};
 use simrs_profile::{AuthConfig, ProfileConfig};
 use simrs_sim::{Sim, SimEvent, SimResponse};
-use simrs_tuak::{TopVariant, TuakParams};
+use simrs_tuak::{OperatorVariant as TuakOp, TuakParams};
 
 /// Re-export [`simrs_gsm::Ki`] so callers of [`hle_init`] don't need a
 /// direct dependency on `simrs-gsm`.
@@ -109,7 +109,7 @@ pub fn hle_init(
 ) {
     SIM.with(|cell| {
         let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
-        let mil = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
+        let mil = MilenageParams::with_defaults(k, MilOp::Opc(opc));
         *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], mil);
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
@@ -131,7 +131,7 @@ pub fn hle_init_tuak(
 ) {
     SIM.with(|cell| {
         let mut sim = Sim::<TuakParams, 256>::new(atr, mf);
-        let tuak = TuakParams::new(k, TopVariant::TopC(topc));
+        let tuak = TuakParams::new(k, TuakOp::TopC(topc));
         *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], tuak);
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
@@ -152,7 +152,7 @@ pub fn hle_init_with_adf(
 ) {
     SIM.with(|cell| {
         let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
-        let mil = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
+        let mil = MilenageParams::with_defaults(k, MilOp::Opc(opc));
         *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, adf_table, mil);
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
@@ -173,7 +173,7 @@ pub fn hle_init_tuak_with_adf(
 ) {
     SIM.with(|cell| {
         let mut sim = Sim::<TuakParams, 256>::new(atr, mf);
-        let tuak = TuakParams::new(k, TopVariant::TopC(topc));
+        let tuak = TuakParams::new(k, TuakOp::TopC(topc));
         *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, adf_table, tuak);
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));

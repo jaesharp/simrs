@@ -11,6 +11,8 @@ pub enum InterposerMode {
     Shadow,
     /// Use simrs SIM responses instead of real SIM.
     Replace,
+    /// Compare responses from N SIM implementations (no shadow sim).
+    Diff,
 }
 
 /// Authentication credentials for the shadow/replace SIM.
@@ -32,7 +34,11 @@ pub struct InterposerConfig {
     /// Address of the modem-side swICC server (we act as card).
     pub modem_addr: String,
     /// Address of the card-side swICC server (we send APDUs to real SIM).
+    /// Used for Log, Shadow, Replace modes.
     pub card_addr: Option<String>,
+    /// Addresses of N card-side swICC servers for Diff mode.
+    /// Each connection receives the same APDUs and responses are compared.
+    pub card_addrs: Vec<String>,
     /// Path for PCAP output file.
     pub pcap_path: Option<String>,
     /// PCAP link-layer type.
@@ -73,12 +79,13 @@ const fn hex_nibble(b: u8) -> Option<u8> {
 
 /// Parse an [`InterposerMode`] from a string.
 ///
-/// Accepts `"log"`, `"shadow"`, or `"replace"` (case-insensitive).
+/// Accepts `"log"`, `"shadow"`, `"replace"`, or `"diff"` (case-insensitive).
 pub fn parse_mode(s: &str) -> Option<InterposerMode> {
     match s.to_ascii_lowercase().as_str() {
         "log" => Some(InterposerMode::Log),
         "shadow" => Some(InterposerMode::Shadow),
         "replace" => Some(InterposerMode::Replace),
+        "diff" => Some(InterposerMode::Diff),
         _ => None,
     }
 }
@@ -130,6 +137,7 @@ mod tests {
         assert_eq!(parse_mode("log"), Some(InterposerMode::Log));
         assert_eq!(parse_mode("shadow"), Some(InterposerMode::Shadow));
         assert_eq!(parse_mode("replace"), Some(InterposerMode::Replace));
+        assert_eq!(parse_mode("diff"), Some(InterposerMode::Diff));
         assert_eq!(parse_mode("LOG"), Some(InterposerMode::Log));
         assert_eq!(parse_mode("Shadow"), Some(InterposerMode::Shadow));
     }

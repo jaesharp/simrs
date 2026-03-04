@@ -13,7 +13,7 @@
 use std::process;
 
 use clap::{Parser, Subcommand};
-use simrs_milenage::{MilenageParams, OpVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant};
 
 #[derive(Parser)]
 #[command(name = "simrs-auth")]
@@ -81,8 +81,8 @@ fn main() {
 fn cmd_gen_vector(k_hex: &str, opc_hex: &str, sqn_hex: &str, amf_hex: &str, rand_hex: Option<&str>) {
     let k: [u8; 16] = parse_hex_or_exit(k_hex, "K");
     let opc: [u8; 16] = parse_hex_or_exit(opc_hex, "OPc");
-    let sqn: [u8; 6] = parse_hex_or_exit(sqn_hex, "SQN");
-    let amf: [u8; 2] = parse_hex_or_exit(amf_hex, "AMF");
+    let sequence_number: [u8; 6] = parse_hex_or_exit(sqn_hex, "SQN");
+    let management_field: [u8; 2] = parse_hex_or_exit(amf_hex, "AMF");
 
     let rand_bytes: [u8; 16] = rand_hex.map_or_else(
         || {
@@ -97,37 +97,38 @@ fn cmd_gen_vector(k_hex: &str, opc_hex: &str, sqn_hex: &str, amf_hex: &str, rand
     );
 
     // Standard ETSI TS 135 206 clause 4 operator constants (c1..c5, r1..r5).
-    let params = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
+    let params = MilenageParams::with_defaults(k, OperatorVariant::Opc(opc));
 
     // MME-side auth vector computation:
-    // AK = f5(RAND), MAC-A = f1(RAND, SQN, AMF)
-    // AUTN = (SQN XOR AK) || AMF || MAC-A
-    // XRES = f2(RAND), CK = f3(RAND), IK = f4(RAND)
-    let ak = params.f5(&rand_bytes);
-    let mac_a = params.f1(&rand_bytes, &sqn, &amf);
-    let xres = params.f2(&rand_bytes);
-    let ck = params.f3(&rand_bytes);
-    let ik = params.f4(&rand_bytes);
+    // anonymity_key  = f5(RAND)
+    // auth_mac       = f1(RAND, SQN, AMF)
+    // auth_token     = (SQN XOR anonymity_key) || AMF || auth_mac
+    // expected_response = f2(RAND), cipher_key = f3(RAND), integrity_key = f4(RAND)
+    let anonymity_key = params.compute_anonymity_key(&rand_bytes);
+    let auth_mac = params.compute_auth_mac(&rand_bytes, &sequence_number, &management_field);
+    let expected_response = params.compute_response(&rand_bytes);
+    let cipher_key = params.compute_cipher_key(&rand_bytes);
+    let integrity_key = params.compute_integrity_key(&rand_bytes);
 
-    let autn = build_autn(sqn, ak, amf, mac_a);
+    let auth_token = build_auth_token(sequence_number, anonymity_key, management_field, auth_mac);
 
     // JSON output -- consumed by Python subprocess.run() callers.
     // All values are lowercase hex without 0x prefix.
     println!(
         "{{\n  \"rand\": \"{}\",\n  \"autn\": \"{}\",\n  \"xres\": \"{}\",\n  \"ck\": \"{}\",\n  \"ik\": \"{}\"\n}}",
         hex_encode(&rand_bytes),
-        hex_encode(&autn),
-        hex_encode(&xres),
-        hex_encode(&ck),
-        hex_encode(&ik),
+        hex_encode(&auth_token),
+        hex_encode(&expected_response),
+        hex_encode(&cipher_key),
+        hex_encode(&integrity_key),
     );
 }
 
 fn cmd_verify(xres_hex: &str, res_hex: &str) {
-    let xres: [u8; 8] = parse_hex_or_exit(xres_hex, "XRES");
+    let expected_response: [u8; 8] = parse_hex_or_exit(xres_hex, "XRES");
     let res: [u8; 8] = parse_hex_or_exit(res_hex, "RES");
 
-    if constant_time_eq(xres, res) {
+    if constant_time_eq(expected_response, res) {
         println!("{{\"match\": true}}");
     } else {
         println!("{{\"match\": false}}");
@@ -140,14 +141,22 @@ fn cmd_verify(xres_hex: &str, res_hex: &str) {
 // ---------------------------------------------------------------------------
 
 /// Build AUTN = (SQN XOR AK) || AMF || MAC-A (16 bytes).
-fn build_autn(sqn: [u8; 6], ak: [u8; 6], amf: [u8; 2], mac_a: [u8; 8]) -> [u8; 16] {
-    let mut autn = [0u8; 16];
-    for (dst, (s, a)) in autn[..6].iter_mut().zip(sqn.iter().zip(ak.iter())) {
+fn build_auth_token(
+    sequence_number: [u8; 6],
+    anonymity_key: [u8; 6],
+    management_field: [u8; 2],
+    auth_mac: [u8; 8],
+) -> [u8; 16] {
+    let mut auth_token = [0u8; 16];
+    for (dst, (s, a)) in auth_token[..6]
+        .iter_mut()
+        .zip(sequence_number.iter().zip(anonymity_key.iter()))
+    {
         *dst = s ^ a;
     }
-    autn[6..8].copy_from_slice(&amf);
-    autn[8..16].copy_from_slice(&mac_a);
-    autn
+    auth_token[6..8].copy_from_slice(&management_field);
+    auth_token[8..16].copy_from_slice(&auth_mac);
+    auth_token
 }
 
 /// Constant-time equality for authentication tokens.
@@ -217,22 +226,22 @@ mod tests {
     fn gen_vector_matches_etsi_test_set_1() {
         let k: [u8; 16] = parse_hex(TS1_K, "K").unwrap();
         let opc: [u8; 16] = parse_hex(TS1_OPC, "OPc").unwrap();
-        let sqn: [u8; 6] = parse_hex(TS1_SQN, "SQN").unwrap();
-        let amf: [u8; 2] = parse_hex(TS1_AMF, "AMF").unwrap();
+        let sequence_number: [u8; 6] = parse_hex(TS1_SQN, "SQN").unwrap();
+        let management_field: [u8; 2] = parse_hex(TS1_AMF, "AMF").unwrap();
         let rand_bytes: [u8; 16] = parse_hex(TS1_RAND, "RAND").unwrap();
 
-        let params = MilenageParams::with_defaults(k, OpVariant::Opc(opc));
-        let ak = params.f5(&rand_bytes);
-        let mac_a = params.f1(&rand_bytes, &sqn, &amf);
-        let xres = params.f2(&rand_bytes);
-        let ck = params.f3(&rand_bytes);
-        let ik = params.f4(&rand_bytes);
-        let autn = build_autn(sqn, ak, amf, mac_a);
+        let params = MilenageParams::with_defaults(k, OperatorVariant::Opc(opc));
+        let anonymity_key = params.compute_anonymity_key(&rand_bytes);
+        let auth_mac = params.compute_auth_mac(&rand_bytes, &sequence_number, &management_field);
+        let expected_response = params.compute_response(&rand_bytes);
+        let cipher_key = params.compute_cipher_key(&rand_bytes);
+        let integrity_key = params.compute_integrity_key(&rand_bytes);
+        let auth_token = build_auth_token(sequence_number, anonymity_key, management_field, auth_mac);
 
-        assert_eq!(hex_encode(&xres), TS1_XRES);
-        assert_eq!(hex_encode(&ck), TS1_CK);
-        assert_eq!(hex_encode(&ik), TS1_IK);
-        assert_eq!(hex_encode(&autn), TS1_AUTN);
+        assert_eq!(hex_encode(&expected_response), TS1_XRES);
+        assert_eq!(hex_encode(&cipher_key), TS1_CK);
+        assert_eq!(hex_encode(&integrity_key), TS1_IK);
+        assert_eq!(hex_encode(&auth_token), TS1_AUTN);
     }
 
     #[test]
