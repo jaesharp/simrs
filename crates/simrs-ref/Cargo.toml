@@ -1,0 +1,23 @@
+[package]
+name = "simrs-ref"
+version = "0.1.0"
+edition = "2024"
+description = "Reference test vectors for SIM/USIM algorithm validation"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/example/simrs"
+
+[dependencies]
+simrs-comp128 = { path = "../simrs-comp128", optional = true }
+simrs-milenage = { path = "../simrs-milenage", optional = true }
+simrs-tuak = { path = "../simrs-tuak", optional = true }
+
+[dev-dependencies]
+simrs-comp128 = { path = "../simrs-comp128" }
+simrs-milenage = { path = "../simrs-milenage" }
+simrs-tuak = { path = "../simrs-tuak" }
+
+[features]
+default = []
+comp128 = ["dep:simrs-comp128"]
+milenage = ["dep:simrs-milenage"]
+tuak = ["dep:simrs-tuak"]
