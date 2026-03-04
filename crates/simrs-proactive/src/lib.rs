@@ -5,7 +5,7 @@
 //! `91 XX` status word override mechanism, ENVELOPE event processing,
 //! and terminal profile storage.
 //!
-//! Supported commands (P0 -- matching swsim):
+//! Supported commands:
 //! - DISPLAY TEXT (type `0x21`)
 //! - SET UP MENU (type `0x25`)
 //! - LAUNCH BROWSER (type `0x15`)
@@ -1836,6 +1836,34 @@ impl ProactiveState {
         // Zero out any previously stored bytes beyond the new length.
         self.profile[len..].fill(0);
         self.profile_len = len as u8;
+    }
+
+    /// Returns `true` if a TERMINAL PROFILE has been received in this session.
+    ///
+    /// Used by ENVELOPE validation: per ETSI TS 102 221, ENVELOPE is not
+    /// allowed before TERMINAL PROFILE has been sent.
+    pub const fn has_terminal_profile(&self) -> bool {
+        self.profile_len > 0
+    }
+
+    /// Clear transient session state on card reset.
+    ///
+    /// Per ETSI TS 102 221 clause 11.2.1, the terminal must re-send
+    /// TERMINAL PROFILE after every card reset. Clears the stored profile
+    /// and any pending envelope event. Timers and BIP channels are *not*
+    /// cleared here -- timer management is via `tick()`/`take_expired_timer()`
+    /// and channels via explicit CLOSE CHANNEL commands.
+    pub const fn reset_session(&mut self) {
+        self.profile_len = 0;
+        self.profile = [0u8; 32];
+        self.event_tag = 0;
+        self.event_item_id = 0;
+        self.event_type = 0;
+        self.event_timer_id = 0;
+        self.event_timer_value = [0u8; 3];
+        self.last_result = 0xFF;
+        self.len = 0;
+        self.seq = 0;
     }
 
     /// Check if a specific terminal capability is supported.
