@@ -258,6 +258,7 @@ impl<'a, A: AuthenticationAlgorithm, const RSP_CAP: usize> QemuBridge<'a, A, RSP
                 }
             }
             ShmemMsgType::PowerOff => {
+                let _ = self.sim.process(SimEvent::PowerOff);
                 // No response needed for power-off.
             }
             ShmemMsgType::Apdu => {

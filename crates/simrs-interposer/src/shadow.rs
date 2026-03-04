@@ -54,9 +54,26 @@ impl SimTerminal {
     }
 
     /// Process a power-on event. Returns ATR bytes.
+    ///
+    /// Idempotent: if already powered on, returns an empty slice
+    /// without resetting the SIM state.
     pub fn power_on(&mut self) -> &[u8] {
+        if self.powered_on {
+            return &[];
+        }
         self.powered_on = true;
         match self.sim.process(SimEvent::PowerOn) {
+            SimResponse::Atr(atr) => atr,
+            _ => &[],
+        }
+    }
+
+    /// Reset the SIM (warm reset). Returns ATR bytes.
+    ///
+    /// Clears session state (PIN verified flags, pending GET RESPONSE data).
+    pub fn reset(&mut self) -> &[u8] {
+        self.powered_on = true;
+        match self.sim.process(SimEvent::Reset) {
             SimResponse::Atr(atr) => atr,
             _ => &[],
         }
@@ -320,9 +337,12 @@ mod tests {
         let n1 = term1.exchange(&get_resp, &mut rsp1).unwrap();
         let n2 = term2.exchange(&get_resp, &mut rsp2).unwrap();
 
-        // With different Ki, responses should differ
-        // (at least the SRES/Kc parts will be different)
-        assert!(n1 >= 12, "Should return SRES(4) + Kc(8), got {n1}");
-        assert!(n2 >= 12, "Should return SRES(4) + Kc(8), got {n2}");
+        // Both should return SRES(4) + Kc(8) + SW(2) = 14 bytes
+        assert!(n1 >= 14, "Should return SRES(4) + Kc(8) + SW(2), got {n1}");
+        assert!(n2 >= 14, "Should return SRES(4) + Kc(8) + SW(2), got {n2}");
+
+        // With different Ki, the SRES/Kc data must differ
+        assert_ne!(&rsp1[..n1 - 2], &rsp2[..n2 - 2],
+            "Different Ki should produce different SRES/Kc");
     }
 }

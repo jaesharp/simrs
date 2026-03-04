@@ -142,6 +142,7 @@ const CLA_GSM_RAW: u8 = 0xA0;
 /// 1. `PowerOn` -- card activation, returns ATR
 /// 2. `Apdu` -- command exchange (repeats)
 /// 3. `Reset` -- warm reset, returns ATR, clears session state
+/// 4. `PowerOff` -- card deactivation, returns `Ignored`
 ///
 /// The `Tick` variant is an extension for advancing UICC-side timers
 /// (per ETSI TS 102 223 clause 6.6.21). Since `no_std` has no clock,
@@ -152,6 +153,11 @@ pub enum SimEvent<'a> {
     PowerOn,
     /// Warm reset. Returns ATR and clears session state.
     Reset,
+    /// Card deactivation. Returns `Ignored`.
+    ///
+    /// After `PowerOff`, subsequent APDUs return `Ignored` until the
+    /// next `PowerOn`.
+    PowerOff,
     /// APDU command (raw bytes, at least 4 for CLA INS P1 P2).
     Apdu(&'a [u8]),
     /// Advance UICC-side proactive timers by `elapsed_secs`.
@@ -339,6 +345,8 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     ///
     /// - `PowerOn` / `Reset`: returns [`SimResponse::Atr`].
     ///   Both clear PIN verified state.
+    /// - `PowerOff`: transitions to `Off` state, returns [`SimResponse::Ignored`].
+    ///   Subsequent APDUs return `Ignored` until the next `PowerOn`.
     /// - `Apdu`: parses the command, routes by CLA byte, returns
     ///   [`SimResponse::Apdu`] or [`SimResponse::Ignored`] if malformed
     ///   or the card is not powered on.
@@ -351,6 +359,10 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
                 self.state = CardState::Ready;
                 self.reset_session_state();
                 SimResponse::Atr(self.atr)
+            }
+            SimEvent::PowerOff => {
+                self.state = CardState::Off;
+                SimResponse::Ignored
             }
             SimEvent::Apdu(bytes) => {
                 if self.state != CardState::Ready {
@@ -679,6 +691,38 @@ mod tests {
         let mut sim = make_sim();
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
         assert!(matches!(rsp, SimResponse::Ignored));
+    }
+
+    #[test]
+    fn power_off_transitions_to_off() {
+        let mut sim = make_sim();
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // PowerOff returns Ignored
+        let rsp = sim.process(SimEvent::PowerOff);
+        assert!(matches!(rsp, SimResponse::Ignored));
+
+        // APDUs after PowerOff should be Ignored
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
+        assert!(matches!(rsp, SimResponse::Ignored));
+    }
+
+    #[test]
+    fn power_off_then_power_on_works() {
+        let mut sim = make_sim();
+        let _ = sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOff);
+
+        // PowerOn after PowerOff should work normally
+        let rsp = sim.process(SimEvent::PowerOn);
+        assert!(matches!(rsp, SimResponse::Atr(_)));
+
+        // APDUs should work again
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
+        match rsp {
+            SimResponse::Apdu { sw1, .. } => assert_eq!(sw1, 0x61),
+            other => panic!("expected Apdu, got {other:?}"),
+        }
     }
 
     // -----------------------------------------------------------------------
