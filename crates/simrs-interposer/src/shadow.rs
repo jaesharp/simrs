@@ -23,6 +23,7 @@ pub struct ShadowSim {
 pub struct SimTerminal {
     sim: Sim<MilenageParams, 256>,
     rsp_buf: [u8; 261],
+    powered_on: bool,
 }
 
 impl SimTerminal {
@@ -48,11 +49,13 @@ impl SimTerminal {
         Self {
             sim,
             rsp_buf: [0u8; 261],
+            powered_on: false,
         }
     }
 
     /// Process a power-on event. Returns ATR bytes.
     pub fn power_on(&mut self) -> &[u8] {
+        self.powered_on = true;
         match self.sim.process(SimEvent::PowerOn) {
             SimResponse::Atr(atr) => atr,
             _ => &[],
@@ -75,8 +78,9 @@ impl Transport for SimTerminal {
     type Error = TransportError;
 
     fn exchange(&mut self, cmd: &[u8], rsp: &mut [u8]) -> Result<usize, Self::Error> {
-        // Ensure powered on
-        self.power_on();
+        if !self.powered_on {
+            self.power_on();
+        }
 
         match self.sim.process(SimEvent::Apdu(cmd)) {
             SimResponse::Apdu { data, sw1, sw2 } => {
