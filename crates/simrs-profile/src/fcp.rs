@@ -9,7 +9,7 @@ use simrs_fs::{EfStructure, Fid, Sfi};
 
 /// Parsed FCP (File Control Parameters) from a TCA Profile Package.
 ///
-/// Field tag numbers follow ETSI TS 102 221 clause 11.1.1.3:
+/// Field tag numbers follow [ETSI TS 102 221 V18.0.0 clause 11.1.1.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A333%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D):
 /// - `[0]` / 0x80 = EF file size
 /// - `[2]` / 0x82 = file descriptor
 /// - `[3]` / 0x83 = file ID
@@ -153,7 +153,7 @@ impl Fcp {
     /// - `0x46` = cyclic
     /// - `0x39` = BER-TLV
     ///
-    /// Per ETSI TS 102 221, the file descriptor is:
+    /// Per [ETSI TS 102 221 V18.0.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf), the file descriptor is:
     /// - byte 0: file descriptor byte (structure + shareable)
     /// - byte 1: data coding byte
     /// - For record-based, optionally 2-3 more bytes:

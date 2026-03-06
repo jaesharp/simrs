@@ -798,7 +798,7 @@ impl GsmApp {
 
 ### `simrs-usim`
 
-**Standards:** ETSI TS 102 221 V16.4.0 (UICC interface), 3GPP TS 31.102 V17 (USIM application), TS 31.102 clause 7.1.2 (AUTHENTICATE), 3GPP TS 31.103 (ISIM), 3GPP TS 31.104 (HPSIM)
+**Standards:** ETSI TS 102 221 V18.0.0 (UICC interface), 3GPP TS 31.102 V17 (USIM application), TS 31.102 clause 7.1.2 (AUTHENTICATE), 3GPP TS 31.103 (ISIM), 3GPP TS 31.104 (HPSIM)
 
 **Deps:** [`simrs-iso7816`](#simrs-iso7816), [`simrs-bertlv`](#simrs-bertlv), [`simrs-milenage`](#simrs-milenage), [`simrs-fs`](#simrs-fs), [`simrs-pin`](#simrs-pin), [`simrs-proactive`](#simrs-proactive)
 

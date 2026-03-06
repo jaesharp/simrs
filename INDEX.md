@@ -192,7 +192,7 @@ graph TB
 | Standard | Crate(s) | Scope |
 |----------|----------|-------|
 | ISO/IEC 7816-4:2020 | [iso7816](crates/simrs-iso7816/) | APDU structure, status words, CLA/INS |
-| ETSI TS 102 221 V16.4.0 | [usim](crates/simrs-usim/), [fs](crates/simrs-fs/) | UICC-terminal interface, FCP, file system |
+| ETSI TS 102 221 V18.0.0 | [usim](crates/simrs-usim/), [fs](crates/simrs-fs/) | UICC-terminal interface, FCP, file system |
 | ETSI TS 101 220 V17.1.0 | [bertlv](crates/simrs-bertlv/) | BER-TLV tag assignments |
 | GSM 11.11 v4.21.1 | [gsm](crates/simrs-gsm/) | ME-SIM interface, SELECT response |
 | 3GPP TS 31.101/31.102 | [usim](crates/simrs-usim/) | USIM application |

@@ -20,7 +20,7 @@ graph LR
 
 | Spec | Coverage |
 |------|----------|
-| ETSI TS 102 221 V16.4.0 clause 8 | File structure (MF/DF/EF types) |
+| ETSI TS 102 221 V18.0.0 clause 8 | File structure (MF/DF/EF types) |
 | 3GPP TS 31.102 V17.5.0 clause 4 | USIM ADF EF catalog |
 | GSM 11.11 v4.21.1 clause 10 | SIM file system |
 

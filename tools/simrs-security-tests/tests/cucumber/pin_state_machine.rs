@@ -3,7 +3,7 @@
 //!
 //! Covers VERIFY, CHANGE, DISABLE, ENABLE, UNBLOCK lifecycle,
 //! power cycle persistence, and attack scenarios per:
-//!   - ETSI TS 102 221 clauses 11.1.9 -- 11.1.13
+//!   - ETSI TS 102 221 V18.0.0 clauses 11.1.9 -- 11.1.13
 //!   - `SIMuraI` (USENIX 2024)
 
 use cucumber::{given, then, when};
@@ -117,7 +117,7 @@ fn when_unblock_pin(world: &mut SimWorld, pin_name: String, puk: String, new_pin
 
 #[when(regex = r"^I query (PUK1|PUK2) retry counter$")]
 fn when_query_puk_retries(world: &mut SimWorld, puk_name: String) {
-    // ETSI TS 102 221 clause 11.1.13: RESET RETRY COUNTER uses the same
+    // ETSI TS 102 221 V18.0.0 clause 11.1.13: RESET RETRY COUNTER uses the same
     // P2 reference key as the PIN it unblocks (PUK1 -> P2=0x01 = PIN1).
     let key = match puk_name.as_str() {
         "PUK1" => PinKey::PIN1,
@@ -281,7 +281,7 @@ fn then_pin1_verified_flag(world: &mut SimWorld) {
         );
     }
     // If PIN1 is disabled, the security condition is unconditionally satisfied
-    // (ETSI TS 102 221 clause 11.1.9). That case is tested separately by
+    // (ETSI TS 102 221 V18.0.0 clause 11.1.9). That case is tested separately by
     // "the PIN1 security condition is satisfied without explicit VERIFY".
 }
 

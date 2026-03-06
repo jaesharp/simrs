@@ -1,7 +1,7 @@
-//! TUAK reference test vectors per ETSI TS 135 232 / 3GPP TS 35.231.
+//! TUAK reference test vectors per [3GPP TS 35.232 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135232/17.00.00_60/ts_135232v170000p.pdf) / [3GPP TS 35.231 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf).
 //!
 //! TUAK is the authentication algorithm for 3G/4G networks in some regions.
-//! Vectors sourced from 3GPP TS 35.233 (conformance test data).
+//! Vectors sourced from [3GPP TS 35.233 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135233/17.00.00_60/ts_135233v170000p.pdf) (conformance test data).
 
 use crate::ReferenceSource;
 
@@ -41,13 +41,13 @@ pub struct TuakVector {
     pub source: ReferenceSource,
 }
 
-/// Returns all TUAK reference test vectors from 3GPP TS 35.233.
+/// Returns all TUAK reference test vectors from [3GPP TS 35.233 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135233/17.00.00_60/ts_135233v170000p.pdf).
 #[inline]
 pub fn vectors() -> &'static [TuakVector] {
     &VECTORS
 }
 
-/// 3GPP TS 35.233 Test Set 1 (Section 6.3): 128-bit key, standard output sizes
+/// [3GPP TS 35.233 V17.0.0 clause 6.3](https://www.etsi.org/deliver/etsi_ts/135200_135299/135233/17.00.00_60/ts_135233v170000p.pdf#%5B%7B%22num%22%3A30%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C543%5D) Test Set 1: 128-bit key, standard output sizes
 static VECTORS: [TuakVector; 1] = [TuakVector {
     k: [
         0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB,
@@ -71,7 +71,7 @@ static VECTORS: [TuakVector; 1] = [TuakVector {
     amf: [0xFF, 0xFF],
     expected_f1: [0xF9, 0xA5, 0x4E, 0x6A, 0xEA, 0xA8, 0x61, 0x8D],
     expected_f1_star: [0xE9, 0x4B, 0x4D, 0xC6, 0xC7, 0x29, 0x7D, 0xF3],
-    // f2/f3/f4/f5 expected values below are for TS 35.233 INSTANCE=0x40
+    // f2/f3/f4/f5 expected values below are for 3GPP TS 35.233 V17.0.0 INSTANCE=0x40
     // (RES=32). TuakParams uses standard USIM INSTANCE=0x48 (RES=64) which
     // yields different f2345 output. Tests validate f1/f1*/f5* only since
     // those use separate INSTANCE bytes unaffected by RES size.

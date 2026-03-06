@@ -3,7 +3,7 @@
 //!
 //! Covers READ/UPDATE without SELECT, non-existent FIDs, offset boundary,
 //! GET RESPONSE queue behaviour per:
-//!   - ETSI TS 102 221 clause 8 (security architecture)
+//!   - ETSI TS 102 221 V18.0.0 clause 8 (security architecture)
 //!   - ISO/IEC 7816-4 clause 7
 
 use cucumber::given;

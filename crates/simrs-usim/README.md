@@ -55,7 +55,7 @@ always/conditionally included in all tiers. 245+ tests.
 
 | Spec | Coverage |
 |------|----------|
-| ETSI TS 102 221 V16.4.0 | SELECT (FCP), STATUS, READ/UPDATE BINARY/RECORD |
+| ETSI TS 102 221 V18.0.0 | SELECT (FCP), STATUS, READ/UPDATE BINARY/RECORD |
 | 3GPP TS 31.101/31.102 | USIM application, AUTHENTICATE, EF catalog |
 | 3GPP TS 31.102 clause 4.4.11 | DF_5GS (17 5G EFs, Rel-15 through Rel-17) |
 | 3GPP TS 31.103 | ISIM application (feature: `isim`) |

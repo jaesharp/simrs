@@ -5,7 +5,7 @@
 //! SQN sync failure, P2 validation per:
 //!   - 3GPP TS 31.102 clause 7.1.2
 //!   - 3GPP TS 33.102 clause 6.3
-//!   - ETSI TS 102 221 clause 11.1.10
+//!   - ETSI TS 102 221 V18.0.0 clause 11.1.10
 
 use cucumber::{given, then, when};
 use simrs_milenage::{MilenageParams, OperatorVariant};

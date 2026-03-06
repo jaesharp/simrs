@@ -70,7 +70,9 @@ impl SimTerminal {
 
     /// Reset the SIM (warm reset). Returns ATR bytes.
     ///
-    /// Clears session state (PIN verified flags, pending GET RESPONSE data).
+    /// Applies the configured reset policy (standard policy clears all
+    /// session state including PIN verified flags, file selection, and
+    /// pending GET RESPONSE data).
     pub fn reset(&mut self) -> &[u8] {
         self.powered_on = true;
         match self.sim.process(SimEvent::Reset) {

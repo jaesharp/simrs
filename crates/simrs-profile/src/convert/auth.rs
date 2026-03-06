@@ -6,14 +6,14 @@ use crate::pe::aka::{AlgoConfig, PeAkaParameter};
 /// Extracted authentication configuration.
 #[derive(Clone, Debug)]
 pub enum AuthConfig {
-    /// Milenage (3GPP TS 35.206) authentication.
+    /// Milenage ([3GPP TS 35.206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf)) authentication.
     Milenage {
         /// 128-bit subscriber key K.
         k: [u8; 16],
         /// 128-bit operator variant `OPc`.
         opc: [u8; 16],
     },
-    /// TUAK (3GPP TS 35.231) authentication.
+    /// TUAK ([3GPP TS 35.231 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf)) authentication.
     Tuak {
         /// 128-bit subscriber key K.
         k: [u8; 16],

@@ -24,7 +24,7 @@
 //! | f5       | AK     | 6     | OUT2[0..6]     | (c2, r2) -- shares computation with f2 |
 //! | f5\*     | AK\*   | 6     | OUT5[0..6]     | (c5, r5) |
 //!
-//! # Default Constants (ETSI TS 135 206 V17.0.0 clause 4)
+//! # Default Constants ([3GPP TS 35.206 V16.0.0 clause 4](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A24%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D))
 //!
 //! | Constant | Value | Notes |
 //! |----------|-------|-------|
@@ -43,20 +43,20 @@
 //!
 //! # OPc Computation
 //!
-//! `OPc = E_K[OP] XOR OP` (ETSI TS 135 206 V17.0.0 Annex 1)
+//! `OPc = E_K[OP] XOR OP` ([ETSI TS 135 206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf) Annex 1)
 //!
 //! OPc can be pre-computed off-card and stored directly, or computed on-card
 //! from OP. The [`OperatorVariant`] enum represents both options.
 //!
 //! # Standards
-//! - ETSI TS 135 206 V17.0.0 -- Milenage algorithm specification
-//! - ETSI TS 135 208 V17.0.0 -- Milenage test data (6 complete test sets)
-//! - ETSI TS 133 102 V14.1.0 clause 6 -- 3GPP security architecture
-//! - 3GPP TS 31.102 V17.5.0 clause 7.1.2.1 -- AUTHENTICATE response
+//! - [ETSI TS 135 206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf) -- Milenage algorithm specification
+//! - [ETSI TS 135 208 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135208/17.00.00_60/ts_135208v170000p.pdf) -- Milenage test data (6 complete test sets)
+//! - [3GPP TS 33.102 V17.0.0 clause 6](https://www.etsi.org/deliver/etsi_ts/133100_133199/133102/17.00.00_60/ts_133102v170000p.pdf#%5B%7B%22num%22%3A38%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C360%5D) -- 3GPP security architecture
+//! - [3GPP TS 31.102 V17.5.0 clause 7.1.2.1](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A632%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C638%5D) -- AUTHENTICATE response
 //!
 //! # 3GPP Authentication Glossary
 //!
-//! These abbreviations from 3GPP TS 33.102 / TS 35.206 appear throughout the
+//! These abbreviations from [3GPP TS 33.102 V17.0.0](https://www.etsi.org/deliver/etsi_ts/133100_133199/133102/17.00.00_60/ts_133102v170000p.pdf) / [3GPP TS 35.206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf) appear throughout the
 //! code. Several look similar (especially AUTN vs AUTS) but are distinct:
 //!
 //! | Abbreviation | Full Name | Bytes | Direction | Description |
@@ -88,7 +88,7 @@
 //! ```
 //! use simrs_milenage::{MilenageParams, OperatorVariant};
 //!
-//! // ETSI TS 135 208 V17.0.0 Test Set 1
+//! // ETSI TS 135 208 V17.0.0 Test Set 1 (clause 4.3.1)
 //! let k    = [0x46,0x5B,0x5C,0xE8,0xB1,0x99,0xB4,0x9F,
 //!             0xAA,0x5F,0x0A,0x2E,0xE2,0x38,0xA6,0xBC];
 //! let opc  = [0xCD,0x63,0xCB,0x71,0x95,0x4A,0x9F,0x4E,
@@ -120,7 +120,7 @@
 extern crate std;
 
 // ct_eq is used in the AuthenticationAlgorithm::authenticate default method for
-// constant-time MAC-A comparison (TS 33.102 timing side-channel requirement).
+// constant-time MAC-A comparison (3GPP TS 33.102 V17.0.0 timing side-channel requirement).
 // Both MilenageParams and TuakParams inherit this through the trait default.
 use simrs_consttime::ct_eq;
 use simrs_rijndael::Rijndael;
@@ -128,8 +128,8 @@ use simrs_rijndael::Rijndael;
 /// Operator variant: either raw OP (computed to OPc on-card) or pre-computed OPc.
 ///
 /// # Standards
-/// - ETSI TS 135 206 V17.0.0 clause 5.1 -- recommends pre-computing OPc off-card
-/// - ETSI TS 135 206 V17.0.0 Annex 1 -- OPc computation: `OPc = E_K[OP] XOR OP`
+/// - [3GPP TS 35.206 V16.0.0 clause 5.1](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A26%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C624%5D) -- recommends pre-computing OPc off-card
+/// - [ETSI TS 135 206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf) Annex 1 -- OPc computation: `OPc = E_K[OP] XOR OP`
 ///
 /// ```
 /// use simrs_milenage::OperatorVariant;
@@ -155,7 +155,7 @@ pub enum OperatorVariant {
 ///
 /// # Construction
 ///
-/// Use [`MilenageParams::with_defaults`] for the standard ETSI TS 135 206 constants,
+/// Use [`MilenageParams::with_defaults`] for the standard [ETSI TS 135 206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf) constants,
 /// or [`MilenageParams::new`] for custom operator-chosen values.
 ///
 /// ```
@@ -178,7 +178,7 @@ pub struct MilenageParams {
     ri: [u8; 5],
     /// Next expected SQN (big-endian 48-bit counter).
     ///
-    /// Tracks the USIM's replay protection state per 3GPP TS 33.102 clause 6.3.3.
+    /// Tracks the USIM's replay protection state per [3GPP TS 33.102 V17.0.0 clause 6.3.3](https://www.etsi.org/deliver/etsi_ts/133100_133199/133102/17.00.00_60/ts_133102v170000p.pdf#%5B%7B%22num%22%3A50%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D).
     /// After a successful AUTHENTICATE with SQN=N, this advances to N+1.
     /// Initialized to zero (all SQNs accepted on first authentication).
     expected_sequence_number: [u8; 6],
@@ -192,7 +192,7 @@ impl Default for MilenageParams {
 
 /// Successful authentication output.
 ///
-/// Per 3GPP TS 31.102 V17.5.0 clause 7.1.2.1, the successful AUTHENTICATE
+/// Per [3GPP TS 31.102 V17.5.0 clause 7.1.2.1](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A632%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C638%5D), the successful AUTHENTICATE
 /// response (tag `0xDB`) contains RES, CK, IK, and optionally Kc.
 ///
 /// ```
@@ -225,14 +225,14 @@ pub struct AuthenticationOutput {
     pub integrity_key: [u8; 16],
 
     /// Kc: GSM ciphering key (8 bytes, C3 conversion of CK and IK).
-    /// For UMTS-GSM interworking per TS 33.102 clause 6.8.1.2.
+    /// For UMTS-GSM interworking per [3GPP TS 33.102 V17.0.0 clause 6.8.1.2](https://www.etsi.org/deliver/etsi_ts/133100_133199/133102/17.00.00_60/ts_133102v170000p.pdf#%5B%7B%22num%22%3A90%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C250%5D).
     /// `Kc[i] = CK[i] XOR CK[i+8] XOR IK[i] XOR IK[i+8]` for i in 0..8.
     pub gsm_cipher_key: [u8; 8],
 }
 
 /// Authentication error.
 ///
-/// Per 3GPP TS 31.102 V17.5.0 clause 7.1.2.1:
+/// Per [3GPP TS 31.102 V17.5.0 clause 7.1.2.1](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A632%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C638%5D):
 /// - MAC failure: XMAC-A != MAC-A from AUTN -> SW `98 62`
 /// - Sync failure: SQN out of range -> tag `0xDC` with 14-byte AUTS
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,7 +261,7 @@ impl core::fmt::Display for AuthenticationError {
 
 /// Parameter validation error.
 ///
-/// Per ETSI TS 135 206 V17.0.0 clause 5.3, all (c_i, r_i) pairs must be distinct.
+/// Per [3GPP TS 35.206 V16.0.0 clause 5.3](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A28%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D), all (c_i, r_i) pairs must be distinct.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamError {
     /// Two or more (c_i, r_i) pairs are identical.
@@ -377,7 +377,7 @@ const fn xor128(a: &[u8; 16], b: &[u8; 16]) -> [u8; 16] {
 }
 
 /// 128-bit left rotation by `r` bits.
-/// Per ETSI TS 135 206: `rot(x, r)` rotates x left by r bits.
+/// Per [ETSI TS 135 206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf): `rot(x, r)` rotates x left by r bits.
 fn rotl128(input: &[u8; 16], r: u8) -> [u8; 16] {
     let rot = (r % 128) as usize;
     let byte_shift = rot / 8;
@@ -404,8 +404,8 @@ const fn compute_opc(aes: &Rijndael, op: &[u8; 16]) -> [u8; 16] {
 
 /// Authentication algorithm trait for UMTS/LTE/5G authentication.
 ///
-/// Abstracts the f1-f5 function set per TS 35.205. Implementations include
-/// Milenage (TS 35.206) and TUAK (TS 35.231).
+/// Abstracts the f1-f5 function set per [3GPP TS 35.205 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135205/17.00.00_60/ts_135205v170000p.pdf). Implementations include
+/// Milenage ([3GPP TS 35.206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf)) and TUAK ([3GPP TS 35.231 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf)).
 pub trait AuthenticationAlgorithm {
     /// Snapshot buffer size for this algorithm's state.
     const SNAPSHOT_SIZE: usize;
@@ -453,7 +453,7 @@ pub trait AuthenticationAlgorithm {
 
     /// Full authentication: verify AUTN, check SQN freshness, compute RES/CK/IK/Kc.
     ///
-    /// Performs the complete USIM-side authentication per TS 33.102 clause 6.3.3:
+    /// Performs the complete USIM-side authentication per [3GPP TS 33.102 V17.0.0 clause 6.3.3](https://www.etsi.org/deliver/etsi_ts/133100_133199/133102/17.00.00_60/ts_133102v170000p.pdf#%5B%7B%22num%22%3A50%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D):
     /// 1. Compute AK = f5(K, RAND)
     /// 2. Recover SQN = (SQN XOR AK from AUTN) XOR AK
     /// 3. Extract AMF from AUTN[6..8]
@@ -464,7 +464,7 @@ pub trait AuthenticationAlgorithm {
     ///
     /// # C3 Conversion (Kc derivation)
     ///
-    /// Per TS 33.102 clause 6.8.1.2:
+    /// Per [3GPP TS 33.102 V17.0.0 clause 6.8.1.2](https://www.etsi.org/deliver/etsi_ts/133100_133199/133102/17.00.00_60/ts_133102v170000p.pdf#%5B%7B%22num%22%3A90%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C250%5D):
     /// ```text
     /// Kc[i] = CK[i] XOR CK[i+8] XOR IK[i] XOR IK[i+8]   for i in 0..8
     /// ```
@@ -479,7 +479,7 @@ pub trait AuthenticationAlgorithm {
     ///
     /// Simple monotonic acceptance: received SQN must be >= `expected_sequence_number`.
     /// On success, `expected_sequence_number` advances to SQN + 1. No upper window bound.
-    /// Per 3GPP TS 33.102 clause 6.3.3.
+    /// Per [3GPP TS 33.102 V17.0.0 clause 6.3.3](https://www.etsi.org/deliver/etsi_ts/133100_133199/133102/17.00.00_60/ts_133102v170000p.pdf#%5B%7B%22num%22%3A50%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D).
     ///
     /// ```
     /// use simrs_milenage::{MilenageParams, OperatorVariant, AuthenticationError, AuthenticationAlgorithm};
@@ -516,12 +516,12 @@ pub trait AuthenticationAlgorithm {
             return Err(AuthenticationError::MacFailure);
         }
 
-        // 5.5. SQN freshness check per TS 33.102 clause 6.3.3
+        // 5.5. SQN freshness check per 3GPP TS 33.102 V17.0.0 clause 6.3.3
         let sqn_val = u48_from_be(&sequence_number);
         let he_val = u48_from_be(&self.expected_sequence_number());
         if sqn_val < he_val {
             // SQN is stale -- construct AUTS for resynchronization.
-            // AUTS = Conc(SQN_MS) || MAC-S  per TS 33.102 clause 6.3.5
+            // AUTS = Conc(SQN_MS) || MAC-S  per 3GPP TS 33.102 V17.0.0 clause 6.3.5
             // Snapshot SQN_MS (our current expected SQN) before mutable calls.
             let reported_sequence_number = self.expected_sequence_number();
             let resync_anonymity_key = self.compute_resync_anonymity_key(challenge);
@@ -638,7 +638,7 @@ impl AuthenticationAlgorithm for MilenageParams {
 }
 
 // ---------------------------------------------------------------------------
-// Default constants (ETSI TS 135 206 V17.0.0 clause 4)
+// Default constants (3GPP TS 35.206 V16.0.0 clause 4)
 // ---------------------------------------------------------------------------
 
 /// c1 = 00...00 (128 zero bits, even parity).
@@ -660,7 +660,7 @@ const DEFAULT_RI: [u8; 5] = [64, 0, 32, 64, 96];
 // ---------------------------------------------------------------------------
 
 impl MilenageParams {
-    /// Create parameters with ETSI TS 135 206 V17.0.0 default constants.
+    /// Create parameters with [ETSI TS 135 206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf) default constants.
     ///
     /// Default (c_i, r_i) values per clause 4:
     /// - c1=`00..00`, r1=64
@@ -725,7 +725,7 @@ impl MilenageParams {
         ci: [[u8; 16]; 5],
         ri: [u8; 5],
     ) -> Result<Self, ParamError> {
-        // Check all (ci, ri) pairs are distinct per TS 135 206 clause 5.3.
+        // Check all (ci, ri) pairs are distinct per 3GPP TS 35.206 V16.0.0 clause 5.3.
         let mut i = 0u8;
         while i < 5 {
             let mut j = i + 1;
@@ -753,7 +753,7 @@ impl MilenageParams {
 
     /// Compute the network authentication code MAC-A (8 bytes).
     ///
-    /// Per ETSI TS 135 206 V17.0.0 clause 3.1:
+    /// Per [3GPP TS 35.206 V16.0.0 clause 3.1](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A22%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C323%5D):
     /// `MAC-A = OUT1[0..8]` where OUT1 uses (c1, r1) with input `SQN || AMF || SQN || AMF`.
     ///
     /// 3GPP function designation: f1.
@@ -780,7 +780,7 @@ impl MilenageParams {
 
     /// Compute the resynchronisation authentication code MAC-S (8 bytes).
     ///
-    /// Per ETSI TS 135 206 V17.0.0 clause 3.2:
+    /// Per [3GPP TS 35.206 V16.0.0 clause 3.2](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A22%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C323%5D):
     /// `MAC-S = OUT1[8..16]` -- uses same computation as f1 but extracts the second half.
     ///
     /// 3GPP function designation: f1*.
@@ -801,7 +801,7 @@ impl MilenageParams {
 
     /// Compute the authentication response RES (8 bytes).
     ///
-    /// Per ETSI TS 135 206 V17.0.0 clause 3.3:
+    /// Per [3GPP TS 35.206 V16.0.0 clause 3.3](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A22%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C323%5D):
     /// `RES = OUT2[8..16]` where OUT2 uses (c2, r2).
     ///
     /// 3GPP function designation: f2.
@@ -828,7 +828,7 @@ impl MilenageParams {
 
     /// Compute the ciphering key CK (16 bytes).
     ///
-    /// Per ETSI TS 135 206 V17.0.0 clause 3.4:
+    /// Per [3GPP TS 35.206 V16.0.0 clause 3.4](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A22%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C323%5D):
     /// `CK = OUT3[0..16]` where OUT3 uses (c3, r3).
     ///
     /// 3GPP function designation: f3.
@@ -844,7 +844,7 @@ impl MilenageParams {
 
     /// Compute the integrity key IK (16 bytes).
     ///
-    /// Per ETSI TS 135 206 V17.0.0 clause 3.5:
+    /// Per [3GPP TS 35.206 V16.0.0 clause 3.5](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A22%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C323%5D):
     /// `IK = OUT4[0..16]` where OUT4 uses (c4, r4).
     ///
     /// 3GPP function designation: f4.
@@ -860,7 +860,7 @@ impl MilenageParams {
 
     /// Compute the anonymity key AK (6 bytes).
     ///
-    /// Per ETSI TS 135 206 V17.0.0 clause 3.6:
+    /// Per [3GPP TS 35.206 V16.0.0 clause 3.6](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A22%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C323%5D):
     /// `AK = OUT2[0..6]` -- shares the same computation as f2.
     ///
     /// 3GPP function designation: f5.
@@ -881,7 +881,7 @@ impl MilenageParams {
 
     /// Compute the resynchronisation anonymity key AK* (6 bytes).
     ///
-    /// Per ETSI TS 135 206 V17.0.0 clause 3.7:
+    /// Per [3GPP TS 35.206 V16.0.0 clause 3.7](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#%5B%7B%22num%22%3A22%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C323%5D):
     /// `AK* = OUT5[0..6]` where OUT5 uses (c5, r5).
     ///
     /// 3GPP function designation: f5*.
@@ -1071,7 +1071,7 @@ mod tests {
     // These are the canonical Milenage test vectors.
     // ---------------------------------------------------------------
 
-    // Test Set 1 parameters (TS 135 208 clause 5.1)
+    // Test Set 1 parameters (3GPP TS 35.208 V17.0.0 clause 4.3.1)
     const TS1_K: [u8; 16] = [
         0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
         0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC,
@@ -1107,7 +1107,7 @@ mod tests {
     const TS1_F5S_AK: [u8; 6] = [0x45, 0x1E, 0x8B, 0xEC, 0xA4, 0x3B];
 
     // ---------------------------------------------------------------
-    // ETSI TS 135 208 V17.0.0 Test Set 2
+    // ETSI TS 135 208 V17.0.0 Test Set 2 (clause 4.3.2)
     // ---------------------------------------------------------------
 
     const TS2_K: [u8; 16] = [
@@ -1143,7 +1143,7 @@ mod tests {
     const TS2_F5S_AK: [u8; 6] = [0x30, 0xF1, 0x19, 0x70, 0x61, 0xC1];
 
     // ---------------------------------------------------------------
-    // ETSI TS 135 208 V17.0.0 Test Set 3
+    // ETSI TS 135 208 V17.0.0 Test Set 3 (clause 4.3.3)
     // ---------------------------------------------------------------
 
     const TS3_K: [u8; 16] = [
@@ -1179,7 +1179,7 @@ mod tests {
     const TS3_F5S_AK: [u8; 6] = [0xDE, 0xAC, 0xDD, 0x84, 0x8C, 0xC6];
 
     // ---------------------------------------------------------------
-    // ETSI TS 135 208 V17.0.0 Test Set 4
+    // ETSI TS 135 208 V17.0.0 Test Set 4 (clause 4.3.4)
     // ---------------------------------------------------------------
 
     const TS4_K: [u8; 16] = [
@@ -1215,7 +1215,7 @@ mod tests {
     const TS4_F5S_AK: [u8; 6] = [0x60, 0x85, 0xA8, 0x6C, 0x6F, 0x63];
 
     // ---------------------------------------------------------------
-    // ETSI TS 135 208 V17.0.0 Test Set 5
+    // ETSI TS 135 208 V17.0.0 Test Set 5 (clause 4.3.5)
     // ---------------------------------------------------------------
 
     const TS5_K: [u8; 16] = [
@@ -1251,7 +1251,7 @@ mod tests {
     const TS5_F5S_AK: [u8; 6] = [0xFE, 0x25, 0x55, 0xE5, 0x4A, 0xA9];
 
     // ---------------------------------------------------------------
-    // ETSI TS 135 208 V17.0.0 Test Set 6
+    // ETSI TS 135 208 V17.0.0 Test Set 6 (clause 4.3.6)
     // ---------------------------------------------------------------
 
     const TS6_K: [u8; 16] = [

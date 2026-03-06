@@ -5,7 +5,7 @@
 //! malformed BER-TLV payloads per:
 //!   - CVE-2019-16256 (`SIMjacker`)
 //!   - 3GPP TS 23.048 (OTA security)
-//!   - ETSI TS 102 221 clause 11.2
+//!   - ETSI TS 102 221 V18.0.0 clause 11.2
 
 use cucumber::{given, then, when};
 use simrs_ota::{CommandPacketHeader, KeyId, OtaError, Spi};

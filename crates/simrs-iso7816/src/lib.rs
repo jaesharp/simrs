@@ -25,12 +25,12 @@
 //! | CLA | Class | Standard |
 //! |-----|-------|----------|
 //! | `0x0X`, `0x4X`, `0x6X` | Interindustry | ISO/IEC 7816-4 / ETSI TS 102 221 |
-//! | `0x8X` | ETSI proprietary (CAT) | ETSI TS 102 221 clause 10.1.1 |
+//! | `0x8X` | ETSI proprietary (CAT) | ETSI TS 102 221 V18.0.0 clause 10.1.1 |
 //! | `0xA0` | GSM proprietary | GSM 11.11 / 3GPP TS 51.011 |
 //!
 //! # Standards
 //! - ISO/IEC 7816-4:2020 -- Organization, security, and commands
-//! - ETSI TS 102 221 V16.4.0 clause 10.1.1 -- UICC-terminal CLA byte
+//! - [ETSI TS 102 221 V18.0.0 clause 10.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C531%5D) -- UICC-terminal CLA byte
 //! - GSM 11.11 v4.21.1 clause 9 -- ME-SIM interface
 //! - 3GPP TS 51.011 V4.15.0 clause 9 -- CLA class A0
 //!
@@ -75,7 +75,7 @@ extern crate alloc;
 
 /// Well-known INS (instruction) byte values.
 ///
-/// Per ISO/IEC 7816-4:2020 clause 5.1.2 and ETSI TS 102 221 clause 11.1.
+/// Per ISO/IEC 7816-4:2020 clause 5.1.2 and [ETSI TS 102 221 V18.0.0 clause 11.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A329%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C481%5D).
 ///
 /// ```
 /// use simrs_iso7816::ins;
@@ -85,52 +85,53 @@ extern crate alloc;
 /// assert_eq!(ins::VERIFY, 0x20);
 /// ```
 pub mod ins {
-    /// SELECT (file, DF, AID). ISO 7816-4, ETSI TS 102 221 clause 11.1.1.
+    /// SELECT (file, DF, AID). ISO 7816-4, [ETSI TS 102 221 V18.0.0 clause 11.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A329%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C371%5D).
     pub const SELECT: u8 = 0xA4;
-    /// STATUS. ETSI TS 102 221 clause 11.1.2.
+    /// STATUS. [ETSI TS 102 221 V18.0.0 clause 11.1.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A356%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C299%5D).
     pub const STATUS: u8 = 0xF2;
-    /// READ BINARY. ETSI TS 102 221 clause 11.1.3.
+    /// READ BINARY. [ETSI TS 102 221 V18.0.0 clause 11.1.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A359%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C413%5D).
     pub const READ_BINARY: u8 = 0xB0;
-    /// UPDATE BINARY. ETSI TS 102 221 clause 11.1.4.
+    /// UPDATE BINARY. [ETSI TS 102 221 V18.0.0 clause 11.1.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A361%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C620%5D).
     pub const UPDATE_BINARY: u8 = 0xD6;
-    /// READ RECORD. ETSI TS 102 221 clause 11.1.5.
+    /// READ RECORD. [ETSI TS 102 221 V18.0.0 clause 11.1.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A361%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C255%5D).
     pub const READ_RECORD: u8 = 0xB2;
-    /// UPDATE RECORD. ETSI TS 102 221 clause 11.1.6.
+    /// UPDATE RECORD. [ETSI TS 102 221 V18.0.0 clause 11.1.6](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A365%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const UPDATE_RECORD: u8 = 0xDC;
-    /// GET RESPONSE. ISO 7816-4.
+    /// GET RESPONSE. [ETSI TS 102 221 V18.0.0 clause 12.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A481%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C654%5D).
     pub const GET_RESPONSE: u8 = 0xC0;
-    /// VERIFY (PIN). ETSI TS 102 221 clause 11.1.9.
+    /// VERIFY (PIN). [ETSI TS 102 221 V18.0.0 clause 11.1.9](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A373%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C454%5D).
     pub const VERIFY: u8 = 0x20;
-    /// CHANGE REFERENCE DATA (change PIN). ETSI TS 102 221 clause 11.1.10.
+    /// CHANGE REFERENCE DATA (change PIN). [ETSI TS 102 221 V18.0.0 clause 11.1.10](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A377%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const CHANGE_REF_DATA: u8 = 0x24;
-    /// DISABLE PIN. ETSI TS 102 221 clause 11.1.11.
+    /// DISABLE PIN. [ETSI TS 102 221 V18.0.0 clause 11.1.11](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A377%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C217%5D).
     pub const DISABLE_PIN: u8 = 0x26;
-    /// ENABLE PIN. ETSI TS 102 221 clause 11.1.11.
+    /// ENABLE PIN. [ETSI TS 102 221 V18.0.0 clause 11.1.12](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A383%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const ENABLE_PIN: u8 = 0x28;
-    /// RESET RETRY COUNTER (unblock PIN). ETSI TS 102 221 clause 11.1.12.
+    /// RESET RETRY COUNTER (unblock PIN). [ETSI TS 102 221 V18.0.0 clause 11.1.13](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A385%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const RESET_RETRY_CTR: u8 = 0x2C;
     /// AUTHENTICATE (INTERNAL AUTHENTICATE / GENERAL AUTHENTICATE).
-    /// ETSI TS 102 221 clause 11.1.16 / 3GPP TS 31.102 clause 7.1.2.
+    ///
+    /// [ETSI TS 102 221 V18.0.0 clause 11.1.16](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A390%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C276%5D) / [3GPP TS 31.102 V17.5.0 clause 7.1.2](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A595%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C366%5D).
     pub const AUTHENTICATE: u8 = 0x88;
-    /// TERMINAL PROFILE. ETSI TS 102 221 clause 11.2.1.
+    /// TERMINAL PROFILE. [ETSI TS 102 221 V18.0.0 clause 11.2.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A465%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C751%5D).
     pub const TERMINAL_PROFILE: u8 = 0x10;
-    /// FETCH (proactive command retrieval). ETSI TS 102 221 clause 11.2.2.
+    /// FETCH (proactive command retrieval). [ETSI TS 102 221 V18.0.0 clause 11.2.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A468%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const FETCH: u8 = 0x12;
-    /// TERMINAL RESPONSE. ETSI TS 102 221 clause 11.2.3.
+    /// TERMINAL RESPONSE. [ETSI TS 102 221 V18.0.0 clause 11.2.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A468%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C443%5D).
     pub const TERMINAL_RESPONSE: u8 = 0x14;
-    /// ENVELOPE. ETSI TS 102 221 clause 11.2.4.
+    /// ENVELOPE. [ETSI TS 102 221 V18.0.0 clause 11.2.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A465%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C451%5D).
     pub const ENVELOPE: u8 = 0xC2;
-    /// INCREASE. ETSI TS 102 221 clause 11.1.7.
+    /// INCREASE. [ETSI TS 102 221 V18.0.0 clause 11.1.8](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A370%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C478%5D).
     pub const INCREASE: u8 = 0x32;
-    /// SEARCH RECORD. ETSI TS 102 221 clause 11.1.8.
+    /// SEARCH RECORD. [ETSI TS 102 221 V18.0.0 clause 11.1.7](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A367%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const SEARCH_RECORD: u8 = 0xA2;
-    /// MANAGE CHANNEL. ETSI TS 102 221 clause 11.1.17.
+    /// MANAGE CHANNEL. [ETSI TS 102 221 V18.0.0 clause 11.1.17](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A396%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C327%5D).
     pub const MANAGE_CHANNEL: u8 = 0x70;
-    /// DEACTIVATE FILE. ETSI TS 102 221 clause 11.1.14.
+    /// DEACTIVATE FILE. [ETSI TS 102 221 V18.0.0 clause 11.1.14](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A387%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C545%5D).
     pub const DEACTIVATE_FILE: u8 = 0x04;
-    /// ACTIVATE FILE. ETSI TS 102 221 clause 11.1.15.
+    /// ACTIVATE FILE. [ETSI TS 102 221 V18.0.0 clause 11.1.15](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A390%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C661%5D).
     pub const ACTIVATE_FILE: u8 = 0x44;
-    /// TERMINAL CAPABILITY. ETSI TS 102 221 clause 11.2.5.
+    /// TERMINAL CAPABILITY. [ETSI TS 102 221 V18.0.0 clause 11.1.19](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A400%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C537%5D).
     pub const TERMINAL_CAPABILITY: u8 = 0xAA;
 }
 
@@ -140,7 +141,7 @@ pub mod ins {
 
 /// FCP (File Control Parameters) BER-TLV tag values.
 ///
-/// Per ISO/IEC 7816-4:2020 Table 12 and ETSI TS 102 221 V16.4.0 clause 11.1.1.3.
+/// Per ISO/IEC 7816-4:2020 Table 12 and [ETSI TS 102 221 V18.0.0 clause 11.1.1.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A333%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D).
 ///
 /// ```
 /// use simrs_iso7816::fcp;
@@ -152,23 +153,23 @@ pub mod ins {
 pub mod fcp {
     /// FCP template tag. ISO 7816-4 Table 12.
     pub const TEMPLATE: u8 = 0x62;
-    /// File descriptor. ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.1.
+    /// File descriptor. ISO 7816-4 / [ETSI TS 102 221 V18.0.0 clause 11.1.1.4.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A335%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C365%5D).
     pub const FILE_DESCRIPTOR: u8 = 0x82;
-    /// File identifier. ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.4.
+    /// File identifier. ISO 7816-4 / [ETSI TS 102 221 V18.0.0 clause 11.1.1.4.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A337%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C261%5D).
     pub const FILE_ID: u8 = 0x83;
-    /// DF name (AID). ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.5.
+    /// DF name (AID). ISO 7816-4 / [ETSI TS 102 221 V18.0.0 clause 11.1.1.4.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A337%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C170%5D).
     pub const DF_NAME: u8 = 0x84;
     /// Proprietary information. ISO 7816-4.
     pub const PROPRIETARY_INFO: u8 = 0xA5;
-    /// Life cycle status integer. ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.9.
+    /// Life cycle status integer. ISO 7816-4 / [ETSI TS 102 221 V18.0.0 clause 11.1.1.4.9](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A353%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C242%5D).
     pub const LIFECYCLE_STATUS: u8 = 0x8A;
-    /// Security attributes (compact format). ETSI TS 102 221 clause 11.1.1.4.7.
+    /// Security attributes (compact format). [ETSI TS 102 221 V18.0.0 clause 11.1.1.4.7](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A350%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C518%5D).
     pub const SECURITY_ATTRS_COMPACT: u8 = 0x8C;
-    /// PIN status template DO. ETSI TS 102 221 clause 11.1.1.4.11.
+    /// PIN status template DO. [ETSI TS 102 221 V18.0.0 clause 11.1.1.4.10](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A356%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C636%5D).
     pub const PIN_STATUS_TEMPLATE: u8 = 0xC6;
-    /// File size (data bytes). ISO 7816-4 / ETSI TS 102 221 clause 11.1.1.4.2.
+    /// File size (data bytes). ISO 7816-4 / [ETSI TS 102 221 V18.0.0 clause 11.1.1.4.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A335%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C753%5D).
     pub const FILE_SIZE: u8 = 0x80;
-    /// Short File Identifier. ETSI TS 102 221 clause 11.1.1.4.8.
+    /// Short File Identifier. [ETSI TS 102 221 V18.0.0 clause 11.1.1.4.8](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A353%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C439%5D).
     pub const SHORT_FILE_ID: u8 = 0x88;
 }
 
@@ -181,7 +182,7 @@ pub mod fcp {
 /// Named constants for the second byte of `StatusWord::WrongParams(sw2)`
 /// and `StatusWord::CommandNotAllowed(sw2)`.
 ///
-/// Per ETSI TS 102 221 V16.4.0 clause 10.2.1 and ISO/IEC 7816-4:2020 clause 5.6.
+/// Per [ETSI TS 102 221 V18.0.0 clause 10.2.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A318%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C673%5D) and ISO/IEC 7816-4:2020 clause 5.6.
 ///
 /// ```
 /// use simrs_iso7816::{sw2, StatusWord};
@@ -223,7 +224,7 @@ pub mod sw2 {
 
 /// APDU status word (SW1-SW2).
 ///
-/// Per ISO/IEC 7816-4:2020 clause 5.6 and ETSI TS 102 221 clause 10.2.1.
+/// Per ISO/IEC 7816-4:2020 clause 5.6 and [ETSI TS 102 221 V18.0.0 clause 10.2.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A318%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C673%5D).
 ///
 /// ```
 /// use simrs_iso7816::StatusWord;
@@ -389,7 +390,7 @@ impl core::fmt::Display for StatusWord {
 
 /// Parsed CLA (class) byte.
 ///
-/// Per ISO/IEC 7816-4:2020 clause 5.1.1 and ETSI TS 102 221 clause 10.1.1.
+/// Per ISO/IEC 7816-4:2020 clause 5.1.1 and [ETSI TS 102 221 V18.0.0 clause 10.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C531%5D).
 ///
 /// ```
 /// use simrs_iso7816::ClassByte;

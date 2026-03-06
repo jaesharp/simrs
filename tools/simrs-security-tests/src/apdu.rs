@@ -194,7 +194,7 @@ pub fn verify(key: PinKey, pin: &str) -> ApduCmd {
 
 /// VERIFY PIN query: empty data returns retry count (SW 63 CX).
 ///
-/// Case 1 APDU per ETSI TS 102 221 clause 11.1.9: no data, no Le.
+/// Case 1 APDU per ETSI TS 102 221 V18.0.0 clause 11.1.9: no data, no Le.
 pub const fn verify_query(key: PinKey) -> ApduCmd {
     ApduCmd {
         cla: 0x00,

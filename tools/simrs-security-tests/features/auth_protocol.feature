@@ -6,7 +6,7 @@
 #   3GPP TS 31.102 V16.9.0  clause 7.1.2   (AUTHENTICATE command)
 #   3GPP TS 33.102 V16.2.0  clause 6.3     (AKA authentication and key agreement)
 #   3GPP TS 35.205 V16.0.0                 (Milenage algorithm spec)
-#   ETSI TS 102 221 V16.4.0 clause 11.1.10 (AUTHENTICATE)
+#   ETSI TS 102 221 V18.0.0 clause 11.1.10 (AUTHENTICATE)
 #   GSM 11.11 / 3GPP TS 51.011 clause 9   (RUN GSM ALGORITHM, INS=0x88, P2=0x00)
 #
 # AUTHENTICATE APDU structure (3GPP USIM context, 3GPP TS 31.102 clause 7.1.2):

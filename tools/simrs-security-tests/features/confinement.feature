@@ -8,7 +8,7 @@
 # domain.
 #
 # Standards:
-#   ETSI TS 102 221 V16.4.0  clause 8 (security architecture: access control)
+#   ETSI TS 102 221 V18.0.0  clause 8 (security architecture: access control)
 #   ISO/IEC 7816-4:2020      clause 5 (basic organisations and operations)
 #   3GPP TS 31.102 V16.8.0   clause 7.1.2 (AUTHENTICATE)
 #

@@ -10,7 +10,7 @@ BER-TLV encoding and decoding with dry-run mode.
 |------|--------|----------|
 | ETSI TS 101 220 V17.1.0 | all | Tag assignments |
 | ISO/IEC 8825-1 | BER | Basic Encoding Rules |
-| ETSI TS 102 221 V16.4.0 | 11.1 | FCP TLV structures |
+| ETSI TS 102 221 V18.0.0 | 11.1 | FCP TLV structures |
 
 ## Dependencies
 

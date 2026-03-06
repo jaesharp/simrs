@@ -121,7 +121,7 @@
 //! # Standards
 //! - 3GPP TS 31.102 V17.5.0 clause 4.2 -- USIM EF definitions
 //! - 3GPP TS 31.102 V17.5.0 clause 4.4 -- File identifiers
-//! - ETSI TS 102 221 V16.4.0 clause 13 -- UICC files under MF
+//! - [ETSI TS 102 221 V18.0.0 clause 13](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A483%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- UICC files under MF
 
 use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, Sfi};
 #[cfg(test)]
@@ -134,7 +134,7 @@ use simrs_fs::EfStructure;
 /// EF.ICCID (2FE2) -- ICC Identification.
 ///
 /// 10-byte transparent EF. Default: test ICCID `8901260000000000000`.
-/// Encoding: BCD-nibble-swapped per ETSI TS 102 221 clause 13.2.
+/// Encoding: BCD-nibble-swapped per [ETSI TS 102 221 V18.0.0 clause 13.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A486%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 pub static EF_ICCID: EfDef = EfDef::transparent(
     Fid::new(0x2FE2),
     Some(Sfi::new(2)),
@@ -294,7 +294,7 @@ pub static EF_AD: EfDef = EfDef::transparent(
 
 /// EF.UST (6F38) -- USIM Service Table.
 ///
-/// 16-byte transparent EF. Each bit enables a service per TS 31.102 clause 4.2.8.
+/// 16-byte transparent EF. Each bit enables a service per [3GPP TS 31.102 V17.5.0 clause 4.2.8](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A62%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 /// Default: services 1-25 enabled (local phone book, FDN, SMS, etc.),
 /// plus 5GS services: 122-124, 126, 129-130, 132, 135, 137-138, 140-142.
 ///
@@ -314,7 +314,7 @@ static EF_UST_DATA: [u8; 18] = [
 
 /// EF.UST (6F38) -- USIM Service Table.
 ///
-/// 18-byte transparent EF. Each bit enables a service per TS 31.102 clause 4.2.8.
+/// 18-byte transparent EF. Each bit enables a service per [3GPP TS 31.102 V17.5.0 clause 4.2.8](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A62%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 /// See `EF_UST_DATA` for which services are enabled.
 pub static EF_UST: EfDef = EfDef::transparent(
     Fid::new(0x6F38),
@@ -336,7 +336,7 @@ pub static EF_ACC: EfDef = EfDef::transparent(
 /// 11-byte transparent EF. Bytes 0-3: TMSI (0xFF = unprovisioned),
 /// bytes 4-8: LAI (MCC/MNC/LAC), byte 9: TMSI TIME, byte 10: update status.
 /// Default: unprovisioned (0xFF fill, status 0x02 = not updated).
-/// TS 31.102 clause 4.2.17.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.17](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A78%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C122%5D).
 pub static EF_LOCI: EfDef = EfDef::transparent(
     Fid::new(0x6F7E),
     None,
@@ -381,7 +381,7 @@ pub static EF_HPPLMN: EfDef = EfDef::transparent(
 ///
 /// 33-byte transparent EF. Byte 0: KSI (key set identifier).
 /// Bytes 1-16: CK (ciphering key). Bytes 17-32: IK (integrity key).
-/// TS 31.102 clause 4.2.6.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.6](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A58%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C566%5D).
 pub static EF_KEYS: EfDef = EfDef::transparent(
     Fid::new(0x6F08),
     Some(Sfi::new(8)),
@@ -397,7 +397,7 @@ pub static EF_KEYS: EfDef = EfDef::transparent(
 /// EF.KeysPS (6F09) -- Ciphering and Integrity Keys for Packet Switched domain.
 ///
 /// 33-byte transparent EF. Same layout as EF.Keys.
-/// TS 31.102 clause 4.2.7.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.7](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A60%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C747%5D).
 pub static EF_KEYS_PS: EfDef = EfDef::transparent(
     Fid::new(0x6F09),
     Some(Sfi::new(9)),
@@ -417,7 +417,7 @@ pub static EF_KEYS_PS: EfDef = EfDef::transparent(
 /// EF.LI (6F05) -- Language Indication.
 ///
 /// Transparent EF, 10 bytes. Contains language preferences.
-/// TS 31.102 clause 4.2.9. SFI 0x02.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.9](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A68%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C127%5D). SFI 0x02.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_LI: EfDef = EfDef::transparent(
     Fid::new(0x6F05),
@@ -432,7 +432,7 @@ static EF_MSISDN_DATA: [u8; 60] = [0xFF; 60];
 /// EF.MSISDN (6F40) -- MSISDN (own phone number).
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
-/// TS 31.102 clause 4.2.26.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.26](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A96%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C210%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_MSISDN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F40),
@@ -448,7 +448,7 @@ static EF_SMSP_DATA: [u8; 104] = [0xFF; 104];
 /// EF.SMSP (6F42) -- Short Message Service Parameters.
 ///
 /// Linear-fixed, 2 records of 52 bytes. Default: empty.
-/// TS 31.102 clause 4.2.27.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.27](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A98%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C499%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_SMSP: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F42),
@@ -464,7 +464,7 @@ static EF_FDN_DATA: [u8; 60] = [0xFF; 60];
 /// EF.FDN (6F3B) -- Fixed Dialling Numbers.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
-/// TS 31.102 clause 4.2.24.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.24](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A92%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C340%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_FDN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F3B),
@@ -477,7 +477,7 @@ pub static EF_FDN: EfDef = EfDef::linear_fixed(
 ///
 /// 17-byte transparent EF. Byte 0: display condition.
 /// Bytes 1-16: SPN in UCS2 or GSM 7-bit. Default: empty.
-/// TS 31.102 clause 4.2.12.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.12](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C585%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_SPN: EfDef = EfDef::transparent(
     Fid::new(0x6F46),
@@ -491,7 +491,7 @@ pub static EF_SPN: EfDef = EfDef::transparent(
 /// EF.CBMI (6F45) -- Cell Broadcast Message Identifier selection.
 ///
 /// 20-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.14.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.14](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A76%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C705%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_CBMI: EfDef = EfDef::transparent(
     Fid::new(0x6F45),
@@ -502,7 +502,7 @@ pub static EF_CBMI: EfDef = EfDef::transparent(
 /// EF.CBMID (6F48) -- Cell Broadcast Message Identifier for Data Download.
 ///
 /// 20-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.20. SFI 0x0E.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.20](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A86%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C754%5D). SFI 0x0E.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_CBMID: EfDef = EfDef::transparent(
     Fid::new(0x6F48),
@@ -513,7 +513,7 @@ pub static EF_CBMID: EfDef = EfDef::transparent(
 /// EF.CBMIR (6F50) -- Cell Broadcast Message Identifier Range selection.
 ///
 /// 20-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.22.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.22](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A88%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C208%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_CBMIR: EfDef = EfDef::transparent(
     Fid::new(0x6F50),
@@ -533,7 +533,7 @@ static EF_SMS_DATA: [u8; 352] = {
 /// EF.SMS (6F3C) -- Short Messages.
 ///
 /// Linear-fixed, 2 records of 176 bytes. Default: free (status byte 0x00).
-/// TS 31.102 clause 4.2.25.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.25](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A94%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C421%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_SMS: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F3C),
@@ -545,7 +545,7 @@ pub static EF_SMS: EfDef = EfDef::linear_fixed(
 /// EF.SMSS (6F43) -- SMS Status.
 ///
 /// 2-byte transparent EF. Byte 0: last TP-MR. Byte 1: memory cap exceeded flag.
-/// TS 31.102 clause 4.2.28.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.28](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A100%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C220%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_SMSS: EfDef = EfDef::transparent(
     Fid::new(0x6F43),
@@ -560,7 +560,7 @@ static EF_SMSR_DATA: [u8; 60] = [0xFF; 60];
 /// EF.SMSR (6F47) -- Short Message Status Reports.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
-/// TS 31.102 clause 4.2.29.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.29](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A102%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C430%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_SMSR: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F47),
@@ -585,7 +585,7 @@ static EF_ECC_DATA: [u8; 80] = {
 /// EF.ECC (6FB7) -- Emergency Call Codes.
 ///
 /// Linear-fixed, 5 records of 16 bytes. Default: empty.
-/// TS 31.102 clause 4.2.21. SFI 0x01.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.21](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A86%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C409%5D). SFI 0x01.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_ECC: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FB7),
@@ -607,7 +607,7 @@ static EF_PLMNWACT_DATA: [u8; 60] = {
 /// EF.PLMNwAcT (6F60) -- User Controlled PLMN Selector with Access Technology.
 ///
 /// Transparent, 60 bytes. 12 entries of 5 bytes (3 PLMN + 2 AcT).
-/// TS 31.102 clause 4.2.5. SFI 0x0A.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.5](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A54%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C383%5D). SFI 0x0A.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_PLMNWACT: EfDef = EfDef::transparent(
     Fid::new(0x6F60),
@@ -627,7 +627,7 @@ static EF_OPLMNWACT_DATA: [u8; 60] = {
 /// EF.OPLMNwACT (6F61) -- Operator Controlled PLMN Selector with Access Technology.
 ///
 /// Transparent, 60 bytes.
-/// TS 31.102 clause 4.2.59. SFI 0x11.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.59](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C319%5D). SFI 0x11.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_OPLMNWACT: EfDef = EfDef::transparent(
     Fid::new(0x6F61),
@@ -647,7 +647,7 @@ static EF_HPLMNWACT_DATA: [u8; 60] = {
 /// EF.HPLMNwAcT (6F62) -- HPLMN Selector with Access Technology.
 ///
 /// Transparent, 60 bytes.
-/// TS 31.102 clause 4.2.60. SFI 0x13.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.60](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A146%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C226%5D). SFI 0x13.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_HPLMNWACT: EfDef = EfDef::transparent(
     Fid::new(0x6F62),
@@ -658,7 +658,7 @@ pub static EF_HPLMNWACT: EfDef = EfDef::transparent(
 /// EF.EHPLMN (6FD9) -- Equivalent HPLMN.
 ///
 /// 12-byte transparent EF. 4 PLMN entries of 3 bytes each.
-/// TS 31.102 clause 4.2.84. SFI 0x1D.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.84](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A190%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C632%5D). SFI 0x1D.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_EHPLMN: EfDef = EfDef::transparent(
     Fid::new(0x6FD9),
@@ -676,7 +676,7 @@ static EF_PNN_DATA: [u8; 96] = [0xFF; 96];
 /// EF.PNN (6FC5) -- PLMN Network Name.
 ///
 /// Linear-fixed, 4 records of 24 bytes. Default: empty.
-/// TS 31.102 clause 4.2.58. SFI 0x19.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.58](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A142%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C334%5D). SFI 0x19.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_PNN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FC5),
@@ -692,7 +692,7 @@ static EF_OPL_DATA: [u8; 8] = [0xFF; 8];
 /// EF.OPL (6FC6) -- Operator PLMN List.
 ///
 /// Linear-fixed, 1 record of 8 bytes. Default: empty.
-/// TS 31.102 clause 4.2.59.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.59](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C319%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_OPL: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FC6),
@@ -704,7 +704,7 @@ pub static EF_OPL: EfDef = EfDef::linear_fixed(
 /// EF.GID1 (6F3E) -- Group Identifier Level 1.
 ///
 /// 10-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.10.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.10](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A70%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C434%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_GID1: EfDef = EfDef::transparent(
     Fid::new(0x6F3E),
@@ -715,7 +715,7 @@ pub static EF_GID1: EfDef = EfDef::transparent(
 /// EF.GID2 (6F3F) -- Group Identifier Level 2.
 ///
 /// 10-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.11.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.11](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A70%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C220%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_GID2: EfDef = EfDef::transparent(
     Fid::new(0x6F3F),
@@ -726,7 +726,7 @@ pub static EF_GID2: EfDef = EfDef::transparent(
 /// EF.SPDI (6FCD) -- Service Provider Display Information.
 ///
 /// 33-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.66. SFI 0x1B.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.66](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A156%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C606%5D). SFI 0x1B.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_SPDI: EfDef = EfDef::transparent(
     Fid::new(0x6FCD),
@@ -737,7 +737,7 @@ pub static EF_SPDI: EfDef = EfDef::transparent(
 /// EF.ACL (6F57) -- Access Point Name Control List.
 ///
 /// 4-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.48.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.48](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A128%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C477%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_ACL: EfDef = EfDef::transparent(
     Fid::new(0x6F57),
@@ -748,7 +748,7 @@ pub static EF_ACL: EfDef = EfDef::transparent(
 /// EF.EST (6F56) -- Enabled Services Table.
 ///
 /// 9-byte transparent EF. Default: all services disabled.
-/// TS 31.102 clause 4.2.47. SFI 0x05.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.47](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A126%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C397%5D). SFI 0x05.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_EST: EfDef = EfDef::transparent(
     Fid::new(0x6F56),
@@ -759,7 +759,7 @@ pub static EF_EST: EfDef = EfDef::transparent(
 /// EF.EPSLOCI (6FE3) -- EPS Location Information.
 ///
 /// 18-byte transparent EF. Contains GUTI, last visited TAI, EPS update status.
-/// TS 31.102 clause 4.2.91. SFI 0x1E.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.91](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A203%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C261%5D). SFI 0x1E.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_EPSLOCI: EfDef = EfDef::transparent(
     Fid::new(0x6FE3),
@@ -787,7 +787,7 @@ static EF_EPSNSC_DATA: [u8; 54] = [
 /// EF.EPSNSC (6FE4) -- EPS NAS Security Context.
 ///
 /// Linear-fixed, 1 record of 54 bytes.
-/// TS 31.102 clause 4.2.92. SFI 0x18.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.92](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A209%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D). SFI 0x18.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_EPSNSC: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FE4),
@@ -803,7 +803,7 @@ pub static EF_EPSNSC: EfDef = EfDef::linear_fixed(
 /// EF.DCK (6F2C) -- Depersonalisation Control Keys.
 ///
 /// 16-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.42.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.42](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A122%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C322%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_DCK: EfDef = EfDef::transparent(
     Fid::new(0x6F2C),
@@ -814,7 +814,7 @@ pub static EF_DCK: EfDef = EfDef::transparent(
 /// EF.CNL (6F32) -- Co-operative Network List.
 ///
 /// 24-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.43.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.43](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A124%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C727%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_CNL: EfDef = EfDef::transparent(
     Fid::new(0x6F32),
@@ -825,7 +825,7 @@ pub static EF_CNL: EfDef = EfDef::transparent(
 /// EF.ACMmax (6F37) -- ACM Maximum Value.
 ///
 /// 3-byte transparent EF. Default: 0x000000 (no maximum).
-/// TS 31.102 clause 4.2.44.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.44](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A124%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C695%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_ACMMAX: EfDef = EfDef::transparent(
     Fid::new(0x6F37),
@@ -840,7 +840,7 @@ static EF_ACM_DATA: [u8; 9] = [0x00; 9];
 /// EF.ACM (6F39) -- Accumulated Call Meter.
 ///
 /// Cyclic, 3 records of 3 bytes. Default: zero.
-/// TS 31.102 clause 4.2.45. SFI 0x1C.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.45](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A124%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C311%5D). SFI 0x1C.
 #[cfg(feature = "profile-full")]
 pub static EF_ACM: EfDef = EfDef::cyclic(
     Fid::new(0x6F39),
@@ -852,7 +852,7 @@ pub static EF_ACM: EfDef = EfDef::cyclic(
 /// EF.PUCT (6F41) -- Price per Unit and Currency Table.
 ///
 /// 5-byte transparent EF. Default: empty currency, zero price.
-/// TS 31.102 clause 4.2.46.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.46](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A126%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_PUCT: EfDef = EfDef::transparent(
     Fid::new(0x6F41),
@@ -867,7 +867,7 @@ static EF_SDN_DATA: [u8; 60] = [0xFF; 60];
 /// EF.SDN (6F49) -- Service Dialling Numbers.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
-/// TS 31.102 clause 4.2.31.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.31](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A104%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C540%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_SDN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F49),
@@ -888,7 +888,7 @@ static EF_EXT2_DATA: [u8; 26] = {
 /// EF.EXT2 (6F4B) -- Extension 2 (FDN).
 ///
 /// Linear-fixed, 2 records of 13 bytes. Default: empty.
-/// TS 31.102 clause 4.2.32.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.32](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A104%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C295%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_EXT2: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F4B),
@@ -904,7 +904,7 @@ static EF_EXT3_DATA: [u8; 26] = [0xFF; 26];
 /// EF.EXT3 (6F4C) -- Extension 3 (SDN).
 ///
 /// Linear-fixed, 2 records of 13 bytes. Default: empty.
-/// TS 31.102 clause 4.2.33.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.33](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A106%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C452%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_EXT3: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F4C),
@@ -920,7 +920,7 @@ static EF_BDN_DATA: [u8; 116] = [0xFF; 116];
 /// EF.BDN (6F4D) -- Barred Dialling Numbers.
 ///
 /// Linear-fixed, 4 records of 29 bytes. Default: empty.
-/// TS 31.102 clause 4.2.34.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.34](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A112%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C230%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_BDN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F4D),
@@ -936,7 +936,7 @@ static EF_EXT5_DATA: [u8; 52] = [0xFF; 52];
 /// EF.EXT5 (6F4E) -- Extension 5 (ICI/OCI/MSISDN).
 ///
 /// Linear-fixed, 4 records of 13 bytes. Default: empty.
-/// TS 31.102 clause 4.2.35.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.35](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A114%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C391%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_EXT5: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F4E),
@@ -952,7 +952,7 @@ static EF_CCP2_DATA: [u8; 60] = [0xFF; 60];
 /// EF.CCP2 (6F4F) -- Capability Configuration Parameters 2.
 ///
 /// Linear-fixed, 4 records of 15 bytes. Default: empty.
-/// TS 31.102 clause 4.2.36. SFI 0x16.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.36](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A116%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C508%5D). SFI 0x16.
 #[cfg(feature = "profile-full")]
 pub static EF_CCP2: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F4F),
@@ -968,7 +968,7 @@ static EF_CMI_DATA: [u8; 44] = [0xFF; 44];
 /// EF.CMI (6F58) -- Comparison Method Information.
 ///
 /// Linear-fixed, 4 records of 11 bytes. Default: empty.
-/// TS 31.102 clause 4.2.49.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.49](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A128%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C220%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_CMI: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F58),
@@ -980,7 +980,7 @@ pub static EF_CMI: EfDef = EfDef::linear_fixed(
 /// EF.START_HFN (6F5B) -- Initialisation values for Hyperframe number.
 ///
 /// 6-byte transparent EF. Default: all zeros.
-/// TS 31.102 clause 4.2.50. SFI 0x0F.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.50](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A130%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C564%5D). SFI 0x0F.
 #[cfg(feature = "profile-full")]
 pub static EF_START_HFN: EfDef = EfDef::transparent(
     Fid::new(0x6F5B),
@@ -991,7 +991,7 @@ pub static EF_START_HFN: EfDef = EfDef::transparent(
 /// EF.THRESHOLD (6F5C) -- Maximum value of START.
 ///
 /// 3-byte transparent EF. Default: 0xFFFFFF.
-/// TS 31.102 clause 4.2.51. SFI 0x10.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.51](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C497%5D). SFI 0x10.
 #[cfg(feature = "profile-full")]
 pub static EF_THRESHOLD: EfDef = EfDef::transparent(
     Fid::new(0x6F5C),
@@ -1011,7 +1011,7 @@ static EF_ICI_DATA: [u8; 30] = [
 /// EF.ICI (6F80) -- Incoming Call Information.
 ///
 /// Cyclic, 1 record of 30 bytes.
-/// TS 31.102 clause 4.2.52. SFI 0x14.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.52](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A134%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D). SFI 0x14.
 #[cfg(feature = "profile-full")]
 pub static EF_ICI: EfDef = EfDef::cyclic(
     Fid::new(0x6F80),
@@ -1032,7 +1032,7 @@ static EF_OCI_DATA: [u8; 30] = [
 /// EF.OCI (6F81) -- Outgoing Call Information.
 ///
 /// Cyclic, 1 record of 30 bytes.
-/// TS 31.102 clause 4.2.53. SFI 0x15.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.53](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A134%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C548%5D). SFI 0x15.
 #[cfg(feature = "profile-full")]
 pub static EF_OCI: EfDef = EfDef::cyclic(
     Fid::new(0x6F81),
@@ -1048,7 +1048,7 @@ static EF_ICT_DATA: [u8; 3] = [0x00; 3];
 /// EF.ICT (6F82) -- Incoming Call Timer.
 ///
 /// Cyclic, 1 record of 3 bytes.
-/// TS 31.102 clause 4.2.54.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.54](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A136%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_ICT: EfDef = EfDef::cyclic(
     Fid::new(0x6F82),
@@ -1064,7 +1064,7 @@ static EF_OCT_DATA: [u8; 3] = [0x00; 3];
 /// EF.OCT (6F83) -- Outgoing Call Timer.
 ///
 /// Cyclic, 1 record of 3 bytes.
-/// TS 31.102 clause 4.2.55.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.55](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A136%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C322%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_OCT: EfDef = EfDef::cyclic(
     Fid::new(0x6F83),
@@ -1076,7 +1076,7 @@ pub static EF_OCT: EfDef = EfDef::cyclic(
 /// EF.VGCS (6FB1) -- Voice Group Call Service.
 ///
 /// 40-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.15.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.15](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A76%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C370%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_VGCS: EfDef = EfDef::transparent(
     Fid::new(0x6FB1),
@@ -1087,7 +1087,7 @@ pub static EF_VGCS: EfDef = EfDef::transparent(
 /// EF.VGCSS (6FB2) -- Voice Group Call Service Status.
 ///
 /// 7-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.16.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.16](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A78%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C636%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_VGCSS: EfDef = EfDef::transparent(
     Fid::new(0x6FB2),
@@ -1098,7 +1098,7 @@ pub static EF_VGCSS: EfDef = EfDef::transparent(
 /// EF.VBS (6FB3) -- Voice Broadcast Service.
 ///
 /// 40-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.17.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.17](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A78%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C122%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_VBS: EfDef = EfDef::transparent(
     Fid::new(0x6FB3),
@@ -1109,7 +1109,7 @@ pub static EF_VBS: EfDef = EfDef::transparent(
 /// EF.VBSS (6FB4) -- Voice Broadcast Service Status.
 ///
 /// 7-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.18.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.18](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A80%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C120%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_VBSS: EfDef = EfDef::transparent(
     Fid::new(0x6FB4),
@@ -1120,7 +1120,7 @@ pub static EF_VBSS: EfDef = EfDef::transparent(
 /// EF.eMLPP (6FB5) -- enhanced Multi-Level Pre-emption and Priority.
 ///
 /// 2-byte transparent EF. Default: 0x0000.
-/// TS 31.102 clause 4.2.19.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.19](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A86%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_EMLPP: EfDef = EfDef::transparent(
     Fid::new(0x6FB5),
@@ -1131,7 +1131,7 @@ pub static EF_EMLPP: EfDef = EfDef::transparent(
 /// EF.AaeM (6FB6) -- Automatic Answer for eMLPP.
 ///
 /// 1-byte transparent EF. Default: 0x00.
-/// TS 31.102 clause 4.2.20.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.20](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A86%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C754%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_AAEM: EfDef = EfDef::transparent(
     Fid::new(0x6FB6),
@@ -1155,7 +1155,7 @@ static EF_NETPAR_DATA: [u8; 62] = [
 /// EF.NETPAR (6FC4) -- Network Parameters.
 ///
 /// 62-byte transparent EF.
-/// TS 31.102 clause 4.2.57.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.57](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A138%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C715%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_NETPAR: EfDef = EfDef::transparent(
     Fid::new(0x6FC4),
@@ -1170,7 +1170,7 @@ static EF_MBDN_DATA: [u8; 96] = [0xFF; 96];
 /// EF.MBDN (6FC7) -- Mailbox Dialling Numbers.
 ///
 /// Linear-fixed, 4 records of 24 bytes. Default: empty.
-/// TS 31.102 clause 4.2.60.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.60](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A146%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C226%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_MBDN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FC7),
@@ -1186,7 +1186,7 @@ static EF_EXT6_DATA: [u8; 52] = [0xFF; 52];
 /// EF.EXT6 (6FC8) -- Extension 6 (MBDN).
 ///
 /// Linear-fixed, 4 records of 13 bytes. Default: empty.
-/// TS 31.102 clause 4.2.61.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.61](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A148%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C511%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_EXT6: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FC8),
@@ -1202,7 +1202,7 @@ static EF_MBI_DATA: [u8; 16] = [0xFF; 16];
 /// EF.MBI (6FC9) -- Mailbox Identifier.
 ///
 /// Linear-fixed, 4 records of 4 bytes. Default: empty.
-/// TS 31.102 clause 4.2.62.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.62](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A148%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C276%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_MBI: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FC9),
@@ -1218,7 +1218,7 @@ static EF_MWIS_DATA: [u8; 20] = [0xFF; 20];
 /// EF.MWIS (6FCA) -- Message Waiting Indication Status.
 ///
 /// Linear-fixed, 4 records of 5 bytes. Default: empty.
-/// TS 31.102 clause 4.2.63.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.63](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A150%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C465%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_MWIS: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FCA),
@@ -1234,7 +1234,7 @@ static EF_CFIS_DATA: [u8; 64] = [0xFF; 64];
 /// EF.CFIS (6FCB) -- Call Forwarding Indication Status.
 ///
 /// Linear-fixed, 4 records of 16 bytes. Default: empty.
-/// TS 31.102 clause 4.2.64.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.64](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A152%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C164%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_CFIS: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FCB),
@@ -1250,7 +1250,7 @@ static EF_EXT7_DATA: [u8; 52] = [0xFF; 52];
 /// EF.EXT7 (6FCC) -- Extension 7 (CFIS).
 ///
 /// Linear-fixed, 4 records of 13 bytes. Default: empty.
-/// TS 31.102 clause 4.2.65.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.65](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A154%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C113%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_EXT7: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FCC),
@@ -1266,7 +1266,7 @@ static EF_MMSN_DATA: [u8; 96] = [0xFF; 96];
 /// EF.MMSN (6FCE) -- MMS Notification.
 ///
 /// Linear-fixed, 4 records of 24 bytes. Default: empty.
-/// TS 31.102 clause 4.2.67.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.67](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A158%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_MMSN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FCE),
@@ -1282,7 +1282,7 @@ static EF_EXT8_DATA: [u8; 256] = [0xFF; 256];
 /// EF.EXT8 (6FCF) -- Extension 8 (MMS).
 ///
 /// Linear-fixed, 4 records of 64 bytes. Default: empty.
-/// TS 31.102 clause 4.2.68.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.68](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A160%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C494%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_EXT8: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FCF),
@@ -1294,7 +1294,7 @@ pub static EF_EXT8: EfDef = EfDef::linear_fixed(
 /// EF.MMSICP (6FD0) -- MMS Issuer Connectivity Parameters.
 ///
 /// 32-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.69.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.69](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A162%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C703%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_MMSICP: EfDef = EfDef::transparent(
     Fid::new(0x6FD0),
@@ -1309,7 +1309,7 @@ static EF_MMSUP_DATA: [u8; 64] = [0xFF; 64];
 /// EF.MMSUP (6FD1) -- MMS User Preferences.
 ///
 /// Linear-fixed, 1 record of 64 bytes. Default: empty.
-/// TS 31.102 clause 4.2.70.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.70](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A166%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C623%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_MMSUP: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FD1),
@@ -1321,7 +1321,7 @@ pub static EF_MMSUP: EfDef = EfDef::linear_fixed(
 /// EF.MMSUCP (6FD2) -- MMS User Connectivity Parameters.
 ///
 /// 4-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.71.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.71](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A168%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C609%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_MMSUCP: EfDef = EfDef::transparent(
     Fid::new(0x6FD2),
@@ -1336,7 +1336,7 @@ static EF_NIA_DATA: [u8; 21] = [0xFF; 21];
 /// EF.NIA (6FD3) -- Network's Indication of Alerting.
 ///
 /// Linear-fixed, 1 record of 21 bytes. Default: empty.
-/// TS 31.102 clause 4.2.72.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.72](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A168%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C232%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_NIA: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FD3),
@@ -1348,7 +1348,7 @@ pub static EF_NIA: EfDef = EfDef::linear_fixed(
 /// EF.VGCSCA (6FD4) -- Voice Group Call Service Ciphering Algorithm.
 ///
 /// 20-byte transparent EF. Default: all zeroes.
-/// TS 31.102 clause 4.2.73.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.73](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A170%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C415%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_VGCSCA: EfDef = EfDef::transparent(
     Fid::new(0x6FD4),
@@ -1359,7 +1359,7 @@ pub static EF_VGCSCA: EfDef = EfDef::transparent(
 /// EF.GBABP (6FD6) -- GBA Bootstrapping Parameters.
 ///
 /// 64-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.76.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.76](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A178%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C461%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_GBABP: EfDef = EfDef::transparent(
     Fid::new(0x6FD6),
@@ -1374,7 +1374,7 @@ static EF_MSK_DATA: [u8; 80] = [0xFF; 80];
 /// EF.MSK (6FD7) -- MBMS Service Key List.
 ///
 /// Linear-fixed, 4 records of 20 bytes. Default: empty.
-/// TS 31.102 clause 4.2.77.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.77](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A180%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C781%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_MSK: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FD7),
@@ -1390,7 +1390,7 @@ static EF_MUK_DATA: [u8; 40] = [0xFF; 40];
 /// EF.MUK (6FD8) -- MBMS User Key.
 ///
 /// Linear-fixed, 1 record of 40 bytes. Default: empty.
-/// TS 31.102 clause 4.2.78.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.78](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A182%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C781%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_MUK: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FD8),
@@ -1406,7 +1406,7 @@ static EF_GBANL_DATA: [u8; 4] = [0xFF; 4];
 /// EF.GBANL (6FDA) -- GBA NAF List.
 ///
 /// Linear-fixed, 1 record of 4 bytes. Default: empty.
-/// TS 31.102 clause 4.2.82.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.82](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A188%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C551%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_GBANL: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FDA),
@@ -1418,7 +1418,7 @@ pub static EF_GBANL: EfDef = EfDef::linear_fixed(
 /// EF.EHPLMNPI (6FDB) -- EHPLMN Presentation Indication.
 ///
 /// 1-byte transparent EF. 0x02 = display highest priority EHPLMN only.
-/// TS 31.102 clause 4.2.85.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.85](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A190%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C286%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_EHPLMNPI: EfDef = EfDef::transparent(
     Fid::new(0x6FDB),
@@ -1433,7 +1433,7 @@ static EF_NAFKCA_DATA: [u8; 64] = [0xFF; 64];
 /// EF.NAFKCA (6FDD) -- NAF Key Centre Address.
 ///
 /// Linear-fixed, 2 records of 32 bytes. Default: empty.
-/// TS 31.102 clause 4.2.83.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.83](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A188%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C520%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_NAFKCA: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FDD),
@@ -1445,7 +1445,7 @@ pub static EF_NAFKCA: EfDef = EfDef::linear_fixed(
 /// EF.SPNI (6FDE) -- Service Provider Name Icon.
 ///
 /// 30-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.86.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.86](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A192%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C687%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_SPNI: EfDef = EfDef::transparent(
     Fid::new(0x6FDE),
@@ -1460,7 +1460,7 @@ static EF_PNNI_DATA: [u8; 90] = [0xFF; 90];
 /// EF.PNNI (6FDF) -- PLMN Network Name Icon.
 ///
 /// Linear-fixed, 3 records of 30 bytes. Default: empty.
-/// TS 31.102 clause 4.2.87.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.87](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A192%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C359%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_PNNI: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FDF),
@@ -1485,7 +1485,7 @@ static EF_NCP_IP_DATA: [u8; 54] = [
 /// EF.NCP-IP (6FE2) -- Network Connectivity Parameters for USIM IP connections.
 ///
 /// Linear-fixed, 1 record of 54 bytes.
-/// TS 31.102 clause 4.2.89.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.89](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A196%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C427%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_NCP_IP: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FE2),
@@ -1497,7 +1497,7 @@ pub static EF_NCP_IP: EfDef = EfDef::linear_fixed(
 /// EF.UFC (6FE6) -- UICC IARI Feature Codes.
 ///
 /// 64-byte transparent EF. Default: all zeroes.
-/// TS 31.102 clause 4.2.93.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.93](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C109%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_UFC: EfDef = EfDef::transparent(
     Fid::new(0x6FE6),
@@ -1508,7 +1508,7 @@ pub static EF_UFC: EfDef = EfDef::transparent(
 /// EF.NASCONFIG (6FE8) -- Non Access Stratum Configuration.
 ///
 /// 4-byte transparent EF. Default: empty.
-/// TS 31.102 clause 4.2.94.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.94](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A213%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_NASCONFIG: EfDef = EfDef::transparent(
     Fid::new(0x6FE8),
@@ -1519,7 +1519,7 @@ pub static EF_NASCONFIG: EfDef = EfDef::transparent(
 /// EF.PWS (6FEC) -- Public Warning System.
 ///
 /// 3-byte transparent EF. Default: all zeroes.
-/// TS 31.102 clause 4.2.96.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.96](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A225%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C573%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_PWS: EfDef = EfDef::transparent(
     Fid::new(0x6FEC),
@@ -1534,7 +1534,7 @@ static EF_FDNURI_DATA: [u8; 4] = [0xFF; 4];
 /// EF.FDNURI (6FED) -- FDN URI.
 ///
 /// Linear-fixed, 1 record of 4 bytes. Default: empty.
-/// TS 31.102 clause 4.2.97.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.97](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A225%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C191%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_FDNURI: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FED),
@@ -1550,7 +1550,7 @@ static EF_BDNURI_DATA: [u8; 512] = [0xFF; 512];
 /// EF.BDNURI (6FEE) -- BDN URI.
 ///
 /// Linear-fixed, 4 records of 128 bytes. Default: empty.
-/// TS 31.102 clause 4.2.98.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.98](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A227%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C277%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_BDNURI: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FEE),
@@ -1566,7 +1566,7 @@ static EF_SDNURI_DATA: [u8; 4] = [0xFF; 4];
 /// EF.SDNURI (6FEF) -- SDN URI.
 ///
 /// Linear-fixed, 1 record of 4 bytes. Default: empty.
-/// TS 31.102 clause 4.2.99.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.99](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A229%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C277%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_SDNURI: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FEF),
@@ -1582,7 +1582,7 @@ static EF_IPS_DATA: [u8; 20] = [0xFF; 20];
 /// EF.IPS (6FF1) -- IMEI(SV) Pairing Status.
 ///
 /// Cyclic, 5 records of 4 bytes. Default: empty.
-/// TS 31.102 clause 4.2.101.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.101](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A233%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C318%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_IPS: EfDef = EfDef::cyclic(
     Fid::new(0x6FF1),
@@ -1594,7 +1594,7 @@ pub static EF_IPS: EfDef = EfDef::cyclic(
 /// EF.FromPreferred (6FF7) -- From Preferred.
 ///
 /// 1-byte transparent EF. Default: 0xFF.
-/// TS 31.102 clause 4.2.105.
+/// [3GPP TS 31.102 V17.5.0 clause 4.2.105](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A243%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C489%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_FROM_PREFERRED: EfDef = EfDef::transparent(
     Fid::new(0x6FF7),
@@ -1610,7 +1610,7 @@ pub static EF_FROM_PREFERRED: EfDef = EfDef::transparent(
 ///
 /// 9-byte transparent EF. Bytes 0-7: Kc. Byte 8: CKSN.
 /// Default: empty key, CKSN = 7 (no key).
-/// TS 31.102 clause 4.4.3.
+/// [3GPP TS 31.102 V17.5.0 clause 4.4.3](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A301%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C334%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_KC: EfDef = EfDef::transparent(
     Fid::new(0x4F20),
@@ -1622,7 +1622,7 @@ pub static EF_KC: EfDef = EfDef::transparent(
 ///
 /// 9-byte transparent EF. Same layout as EF.Kc.
 /// Default: empty key, CKSN = 7 (no key).
-/// TS 31.102 clause 4.4.4.
+/// [3GPP TS 31.102 V17.5.0 clause 4.4.4](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A307%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C358%5D).
 #[cfg(feature = "profile-full")]
 pub static EF_KC_GPRS: EfDef = EfDef::transparent(
     Fid::new(0x4F52),
@@ -1633,7 +1633,7 @@ pub static EF_KC_GPRS: EfDef = EfDef::transparent(
 /// DF.GSM-ACCESS (5F3B) -- GSM Access sub-DF under ADF.USIM.
 ///
 /// Contains EF.Kc and EF.KcGPRS for GSM/GPRS access.
-/// TS 31.102 clause 4.4.
+/// [3GPP TS 31.102 V17.5.0 clause 4.4](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A255%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C272%5D).
 #[cfg(feature = "profile-full")]
 pub static DF_GSM_ACCESS: DfDef = DfDef {
     fid: Fid::new(0x5F3B),
@@ -2242,17 +2242,17 @@ const _: () = simrs_fs::assert_fids_unique(&[
 pub static USIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
 
 // ---------------------------------------------------------------------------
-// ISIM ADF -- TS 31.103
+// ISIM ADF -- 3GPP TS 31.103 V17.0.0
 // ---------------------------------------------------------------------------
 
-/// Standard ISIM AID: A0000000871004 (per 3GPP TS 31.103).
+/// Standard ISIM AID: A0000000871004 (per [3GPP TS 31.103 V17.0.0](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf)).
 #[cfg(feature = "isim")]
 pub static ISIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x04];
 
 /// EF.IMPI (6F02) under ADF.ISIM -- IMS Private User Identity.
 ///
 /// 64-byte transparent EF. Default: empty.
-/// TS 31.103 clause 4.2.2.
+/// [3GPP TS 31.103 V17.0.0 clause 4.2.2](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A24%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C460%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_IMPI: EfDef = EfDef::transparent(
     Fid::new(0x6F02),
@@ -2263,7 +2263,7 @@ pub static ISIM_EF_IMPI: EfDef = EfDef::transparent(
 /// EF.DOMAIN (6F03) under ADF.ISIM -- Home Network Domain Name.
 ///
 /// 64-byte transparent EF. Default: empty.
-/// TS 31.103 clause 4.2.3.
+/// [3GPP TS 31.103 V17.0.0 clause 4.2.3](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A26%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_DOMAIN: EfDef = EfDef::transparent(
     Fid::new(0x6F03),
@@ -2274,7 +2274,7 @@ pub static ISIM_EF_DOMAIN: EfDef = EfDef::transparent(
 /// EF.IMPU (6F04) under ADF.ISIM -- IMS Public User Identity.
 ///
 /// Linear-fixed, 2 records of 64 bytes. Default: empty.
-/// TS 31.103 clause 4.2.4.
+/// [3GPP TS 31.103 V17.0.0 clause 4.2.4](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A26%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C438%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_IMPU: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F04),
@@ -2298,7 +2298,7 @@ pub static ISIM_EF_ARR: EfDef = EfDef::linear_fixed(
 /// EF.IST (6F07) under ADF.ISIM -- ISIM Service Table.
 ///
 /// 4-byte transparent EF. Default: empty.
-/// TS 31.103 clause 4.2.7.
+/// [3GPP TS 31.103 V17.0.0 clause 4.2.7](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A30%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C489%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_IST: EfDef = EfDef::transparent(
     Fid::new(0x6F07),
@@ -2309,7 +2309,7 @@ pub static ISIM_EF_IST: EfDef = EfDef::transparent(
 /// EF.P-CSCF (6F09) under ADF.ISIM -- P-CSCF Address.
 ///
 /// 64-byte transparent EF. Default: empty.
-/// TS 31.103 clause 4.2.8.
+/// [3GPP TS 31.103 V17.0.0 clause 4.2.8](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A34%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C758%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_PCSCF: EfDef = EfDef::transparent(
     Fid::new(0x6F09),
@@ -2320,7 +2320,7 @@ pub static ISIM_EF_PCSCF: EfDef = EfDef::transparent(
 /// EF.GBABP (6F3A) under ADF.ISIM -- GBA Bootstrapping Parameters.
 ///
 /// 64-byte transparent EF. Default: empty.
-/// TS 31.103 clause 4.2.9.
+/// [3GPP TS 31.103 V17.0.0 clause 4.2.9](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A36%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_GBABP: EfDef = EfDef::transparent(
     Fid::new(0x6F3A),
@@ -2331,7 +2331,7 @@ pub static ISIM_EF_GBABP: EfDef = EfDef::transparent(
 /// EF.GBANL (6F3B) under ADF.ISIM -- GBA NAF List.
 ///
 /// Linear-fixed, 1 record of 4 bytes. Default: empty.
-/// TS 31.103 clause 4.2.10.
+/// [3GPP TS 31.103 V17.0.0 clause 4.2.10](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A36%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C239%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_GBANL: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F3B),
@@ -2343,7 +2343,7 @@ pub static ISIM_EF_GBANL: EfDef = EfDef::linear_fixed(
 /// EF.NAFKCA (6F3C) under ADF.ISIM -- NAF Key Centre Address.
 ///
 /// Linear-fixed, 1 record of 32 bytes. Default: empty.
-/// TS 31.103 clause 4.2.11.
+/// [3GPP TS 31.103 V17.0.0 clause 4.2.11](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A38%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C209%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_NAFKCA: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F3C),
@@ -2355,7 +2355,7 @@ pub static ISIM_EF_NAFKCA: EfDef = EfDef::linear_fixed(
 /// EF.AD (6FAD) under ADF.ISIM -- Administrative Data.
 ///
 /// 4-byte transparent EF. Default: normal operation.
-/// TS 31.103 clause 4.2.6.
+/// [3GPP TS 31.103 V17.0.0 clause 4.2.5](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A28%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_AD: EfDef = EfDef::transparent(
     Fid::new(0x6FAD),
@@ -2365,7 +2365,7 @@ pub static ISIM_EF_AD: EfDef = EfDef::transparent(
 
 /// ADF.ISIM root DF.
 ///
-/// Contains 10 EFs per 3GPP TS 31.103.
+/// Contains 10 EFs per [3GPP TS 31.103 V17.0.0 clause 4.2](https://www.etsi.org/deliver/etsi_ts/131100_131199/131103/17.00.00_60/ts_131103v170000p.pdf#%5B%7B%22num%22%3A24%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C590%5D).
 #[cfg(feature = "isim")]
 pub static ADF_ISIM_ROOT: DfDef = DfDef {
     fid: Fid::new(0xFF02),
@@ -2398,10 +2398,10 @@ const _: () = simrs_fs::assert_fids_unique(&[
 ]);
 
 // ---------------------------------------------------------------------------
-// HPSIM ADF -- TS 31.104
+// HPSIM ADF -- 3GPP TS 31.104 V17.0.0
 // ---------------------------------------------------------------------------
 
-/// Standard HPSIM AID: A000000087100A (per 3GPP TS 31.104).
+/// Standard HPSIM AID: A000000087100A (per [3GPP TS 31.104 V17.0.0](https://www.etsi.org/deliver/etsi_ts/131100_131199/131104/17.00.00_60/ts_131104v170000p.pdf)).
 #[cfg(feature = "hpsim")]
 pub static HPSIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x0A];
 
@@ -2420,7 +2420,7 @@ pub static HPSIM_EF_ARR: EfDef = EfDef::linear_fixed(
 /// EF.HPST (6F07) under ADF.HPSIM -- HPSIM Service Table.
 ///
 /// 2-byte transparent EF. Default: empty.
-/// TS 31.104 clause 4.2.2.
+/// [3GPP TS 31.104 V17.0.0 clause 4.2.2](https://www.etsi.org/deliver/etsi_ts/131100_131199/131104/17.00.00_60/ts_131104v170000p.pdf#%5B%7B%22num%22%3A9%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C498%5D).
 #[cfg(feature = "hpsim")]
 pub static HPSIM_EF_HPST: EfDef = EfDef::transparent(
     Fid::new(0x6F07),
@@ -2431,7 +2431,7 @@ pub static HPSIM_EF_HPST: EfDef = EfDef::transparent(
 /// EF.AD (6FAD) under ADF.HPSIM -- Administrative Data.
 ///
 /// 4-byte transparent EF. Default: empty.
-/// TS 31.104 clause 4.2.3.
+/// [3GPP TS 31.104 V17.0.0 clause 4.2.3](https://www.etsi.org/deliver/etsi_ts/131100_131199/131104/17.00.00_60/ts_131104v170000p.pdf#%5B%7B%22num%22%3A9%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C253%5D).
 #[cfg(feature = "hpsim")]
 pub static HPSIM_EF_AD: EfDef = EfDef::transparent(
     Fid::new(0x6FAD),
@@ -2441,7 +2441,7 @@ pub static HPSIM_EF_AD: EfDef = EfDef::transparent(
 
 /// ADF.HPSIM root DF.
 ///
-/// Contains 3 EFs per 3GPP TS 31.104.
+/// Contains 3 EFs per [3GPP TS 31.104 V17.0.0 clause 4.2](https://www.etsi.org/deliver/etsi_ts/131100_131199/131104/17.00.00_60/ts_131104v170000p.pdf#%5B%7B%22num%22%3A8%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C384%5D).
 #[cfg(feature = "hpsim")]
 pub static ADF_HPSIM_ROOT: DfDef = DfDef {
     fid: Fid::new(0xFF03),
@@ -2514,13 +2514,14 @@ pub static ADF_TABLE: [AdfSlot; 3] = [
 ];
 
 // ---------------------------------------------------------------------------
-// EFs under DF.TELECOM (7F10) -- ETSI TS 102 221 clause 13
+// EFs under DF.TELECOM (7F10) -- ETSI TS 102 221 V16.4.0 clause 13.4
+// (DF.TELECOM EFs removed from TS 102 221 V18.0.0)
 // ---------------------------------------------------------------------------
 
 /// EF.ADN (6F3A) under DF.TELECOM -- Abbreviated Dialling Numbers.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.1.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.1.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_ADN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F3A),
@@ -2532,7 +2533,7 @@ pub static TELECOM_EF_ADN: EfDef = EfDef::linear_fixed(
 /// EF.FDN (6F3B) under DF.TELECOM -- Fixed Dialling Numbers.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.2.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.2.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_FDN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F3B),
@@ -2544,7 +2545,7 @@ pub static TELECOM_EF_FDN: EfDef = EfDef::linear_fixed(
 /// EF.SMS (6F3C) under DF.TELECOM -- Short Messages.
 ///
 /// Linear-fixed, 2 records of 176 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.3.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.3.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_SMS: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F3C),
@@ -2556,7 +2557,7 @@ pub static TELECOM_EF_SMS: EfDef = EfDef::linear_fixed(
 /// EF.CCP (6F3D) under DF.TELECOM -- Capability Configuration Parameters.
 ///
 /// Linear-fixed, 3 records of 14 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.4.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.4.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_CCP: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F3D),
@@ -2568,7 +2569,7 @@ pub static TELECOM_EF_CCP: EfDef = EfDef::linear_fixed(
 /// EF.MSISDN (6F40) under DF.TELECOM -- MSISDN.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.5.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.5.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_MSISDN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F40),
@@ -2580,7 +2581,7 @@ pub static TELECOM_EF_MSISDN: EfDef = EfDef::linear_fixed(
 /// EF.SMSP (6F42) under DF.TELECOM -- Short Message Service Parameters.
 ///
 /// Linear-fixed, 2 records of 44 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.6.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.6.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_SMSP: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F42),
@@ -2592,7 +2593,7 @@ pub static TELECOM_EF_SMSP: EfDef = EfDef::linear_fixed(
 /// EF.SMSS (6F43) under DF.TELECOM -- SMS Status.
 ///
 /// 2-byte transparent EF. Default: empty.
-/// ETSI TS 102 221 clause 13.4.7.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.7.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_SMSS: EfDef = EfDef::transparent(
     Fid::new(0x6F43),
@@ -2603,7 +2604,7 @@ pub static TELECOM_EF_SMSS: EfDef = EfDef::transparent(
 /// EF.LND (6F44) under DF.TELECOM -- Last Number Dialled.
 ///
 /// Cyclic, 3 records of 30 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.8.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.8.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_LND: EfDef = EfDef::cyclic(
     Fid::new(0x6F44),
@@ -2615,7 +2616,7 @@ pub static TELECOM_EF_LND: EfDef = EfDef::cyclic(
 /// EF.SMSR (6F47) under DF.TELECOM -- Short Message Status Reports.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.9.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.9.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_SMSR: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F47),
@@ -2627,7 +2628,7 @@ pub static TELECOM_EF_SMSR: EfDef = EfDef::linear_fixed(
 /// EF.SDN (6F49) under DF.TELECOM -- Service Dialling Numbers.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.10.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.10.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_SDN: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F49),
@@ -2639,7 +2640,7 @@ pub static TELECOM_EF_SDN: EfDef = EfDef::linear_fixed(
 /// EF.EXT1 (6F4A) under DF.TELECOM -- Extension 1.
 ///
 /// Linear-fixed, 2 records of 13 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.11.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.11.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_EXT1: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F4A),
@@ -2651,7 +2652,7 @@ pub static TELECOM_EF_EXT1: EfDef = EfDef::linear_fixed(
 /// EF.EXT2 (6F4B) under DF.TELECOM -- Extension 2.
 ///
 /// Linear-fixed, 2 records of 13 bytes. Default: empty.
-/// ETSI TS 102 221 clause 13.4.12.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.12.
 #[cfg(feature = "telecom")]
 pub static TELECOM_EF_EXT2: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F4B),
@@ -2663,7 +2664,7 @@ pub static TELECOM_EF_EXT2: EfDef = EfDef::linear_fixed(
 /// DF.TELECOM (7F10) -- Telecom DF.
 ///
 /// When the `telecom` feature is enabled, populated with 12 EFs per
-/// ETSI TS 102 221 clause 13.
+/// ETSI TS 102 221 V16.4.0 clause 13.4.
 #[cfg(feature = "telecom")]
 pub static DF_TELECOM: DfDef = DfDef {
     fid: Fid::new(0x7F10),
@@ -2711,7 +2712,7 @@ pub static DF_TELECOM: DfDef = DfDef {
 /// EF.PL (2F05) -- Preferred Languages.
 ///
 /// 10-byte transparent EF under MF. Default: empty.
-/// ETSI TS 102 221 clause 13.3.
+/// [ETSI TS 102 221 V18.0.0 clause 13.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A489%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 pub static EF_PL: EfDef = EfDef::transparent(
     Fid::new(0x2F05),
     None,
@@ -3211,7 +3212,7 @@ mod tests {
             "USIM AID PIX must be 1002");
     }
 
-    /// ISIM AID is correct per TS 31.103.
+    /// ISIM AID is correct per 3GPP TS 31.103 V17.0.0.
     #[cfg(feature = "isim")]
     #[test]
     fn isim_aid_bytes_correct() {

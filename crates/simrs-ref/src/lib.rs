@@ -2,7 +2,7 @@
 //!
 //! This crate provides reference test vectors for cross-validation against
 //! multiple reference implementations. Vectors are sourced from:
-//! - ETSI TS 135 208 (Milenage)
+//! - [ETSI TS 135 208 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135208/17.00.00_60/ts_135208v170000p.pdf) (Milenage)
 //! - ETSI TS 135 232 (TUAK)
 //! - GSM 11.11 / 3GPP TS 51.011 (COMP128v1)
 //! - swsim (Osmocom C reference)

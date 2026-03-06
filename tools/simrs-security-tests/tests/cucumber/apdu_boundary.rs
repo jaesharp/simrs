@@ -4,7 +4,7 @@
 //! Covers truncated APDUs, invalid CLA/INS, length mismatches,
 //! APDU before power-on, and rapid/stress sequences per:
 //!   - ISO/IEC 7816-4:2020 clause 5
-//!   - ETSI TS 102 221 clauses 10, 11
+//!   - ETSI TS 102 221 V18.0.0 clauses 10, 11
 //!   - `SIMTester` (`SRLabs` 2013), `pyAPDUFuzzer`
 
 use cucumber::{given, then, when};

@@ -23,7 +23,7 @@
 //! # Standards
 //!
 //! - OASIS `VirtIO` Specification 1.2 -- virtqueue mechanics
-//! - ETSI TS 102 600 / ISO/IEC 7816-3 -- T=0 framing carried over virtqueue
+//! - [ETSI TS 102 600 V10.1.0](https://www.etsi.org/deliver/etsi_ts/102600_102699/102600/10.01.00_60/ts_102600v100100p.pdf) / ISO/IEC 7816-3 -- T=0 framing carried over virtqueue
 //!
 //! # `no_std`
 //!

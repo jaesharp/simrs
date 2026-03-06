@@ -4,7 +4,7 @@
 //! Covers GET RESPONSE without prior command, double GET RESPONSE,
 //! FCP sensitive data exclusion, power cycle stale data per:
 //!   - ISO/IEC 7816-4 clause 7.6
-//!   - ETSI TS 102 221 clause 11.1.2, 11.1.1.3
+//!   - ETSI TS 102 221 V18.0.0 clause 11.1.2, 11.1.1.3
 
 use cucumber::{then, when};
 use simrs_security_tests::parse_hex;

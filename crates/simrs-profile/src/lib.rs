@@ -10,7 +10,7 @@
 //! |------|----------|
 //! | TCA eUICC Profile Package v3.3.1 | Profile Element parsing, filesystem conversion |
 //! | GSMA SGP.22 v2.6 | Profile Package is the UPP format from SGP.22 |
-//! | ETSI TS 102 221 | FCP file descriptor interpretation |
+//! | [ETSI TS 102 221 V18.0.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf) | FCP file descriptor interpretation |
 //!
 //! # Architecture
 //!

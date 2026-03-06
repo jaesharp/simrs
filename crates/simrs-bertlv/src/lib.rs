@@ -35,9 +35,9 @@
 //! | 256--65535 | `0x82, hi, lo` | 3 |
 //!
 //! # Standards
-//! - ETSI TS 101 220 V17.1.0 -- BER-TLV tag assignments
+//! - [ETSI TS 101 220 V17.1.0](https://www.etsi.org/deliver/etsi_ts/101200_101299/101220/17.01.00_60/ts_101220v170100p.pdf) -- BER-TLV tag assignments
 //! - ISO/IEC 8825-1 -- Basic Encoding Rules
-//! - ETSI TS 102 221 V16.4.0 clause 11.1 -- FCP BER-TLV
+//! - [ETSI TS 102 221 V18.0.0 clause 11.1.1.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A333%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D) -- FCP BER-TLV
 //!
 //! # `no_std`
 //! Fully `no_std`. No heap allocation.

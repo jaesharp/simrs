@@ -3,8 +3,8 @@
 # Security regression: filesystem access control bypass.
 #
 # Standards:
-#   ETSI TS 102 221 V16.4.0  clause 8  (security architecture)
-#   ETSI TS 102 221 V16.4.0  clause 11 (command descriptions)
+#   ETSI TS 102 221 V18.0.0  clause 8  (security architecture)
+#   ETSI TS 102 221 V18.0.0  clause 11 (command descriptions)
 #   ETSI TS 102 222 V16.0.0  clause 6  (administrative commands)
 #   ISO/IEC 7816-4:2020      clause 7  (interindustry commands)
 #

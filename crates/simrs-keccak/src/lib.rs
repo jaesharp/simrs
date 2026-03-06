@@ -1,14 +1,14 @@
 //! Keccak-f\[1600\] permutation.
 //!
 //! Pure Rust implementation of the Keccak-f\[1600\] permutation used as
-//! the core primitive of SHA-3 (FIPS 202) and TUAK (3GPP TS 35.231).
+//! the core primitive of SHA-3 ([NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf)) and TUAK ([3GPP TS 35.231 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf)).
 //!
 //! This crate implements only the raw permutation function, not the
 //! sponge construction. TUAK uses Keccak-f\[1600\] directly.
 //!
 //! # Standards
-//! - NIST FIPS 202 -- SHA-3 Standard
-//! - NIST SP 800-185 -- SHA-3 Derived Functions
+//! - [NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf) -- SHA-3 Standard
+//! - [NIST SP 800-185](https://nvlpubs.nist.gov/nistpubs/specialpublications/nist.sp.800-185.pdf) -- SHA-3 Derived Functions
 //!
 //! # `no_std`
 //! This crate is `no_std`. No heap allocation.
@@ -27,7 +27,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-/// Round constants for Keccak-f\[1600\] (FIPS 202 Section 3.2.5).
+/// Round constants for Keccak-f\[1600\] ([NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf) Section 3.2.5).
 ///
 /// 24 constants, one per round, derived from a degree-8 LFSR.
 const RC: [u64; 24] = [
@@ -57,7 +57,7 @@ const RC: [u64; 24] = [
     0x8000_0000_8000_8008,
 ];
 
-/// Rotation offsets for each of the 25 lanes (FIPS 202 Section 3.2.2).
+/// Rotation offsets for each of the 25 lanes ([NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf) Section 3.2.2).
 ///
 /// Indexed as `OFFSETS[x + 5*y]` in row-major order.
 const RHO_OFFSETS: [u32; 25] = [
@@ -68,7 +68,7 @@ const RHO_OFFSETS: [u32; 25] = [
     18,  2, 61, 56, 14,
 ];
 
-/// Theta step mapping (FIPS 202 Section 3.2.1).
+/// Theta step mapping ([NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf) Section 3.2.1).
 ///
 /// Computes the column parity and XORs an adjustment into every lane.
 fn theta(state: &mut [u64; 25]) {
@@ -84,7 +84,7 @@ fn theta(state: &mut [u64; 25]) {
     }
 }
 
-/// Rho step mapping (FIPS 202 Section 3.2.2).
+/// Rho step mapping ([NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf) Section 3.2.2).
 ///
 /// Rotates each lane by a fixed offset.
 fn rho(state: &mut [u64; 25]) {
@@ -93,7 +93,7 @@ fn rho(state: &mut [u64; 25]) {
     }
 }
 
-/// Pi step mapping (FIPS 202 Section 3.2.3).
+/// Pi step mapping ([NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf) Section 3.2.3).
 ///
 /// Rearranges lanes: `A'[y, 2x+3y] = A[x, y]`.
 fn pi(state: &mut [u64; 25]) {
@@ -105,7 +105,7 @@ fn pi(state: &mut [u64; 25]) {
     }
 }
 
-/// Chi step mapping (FIPS 202 Section 3.2.4).
+/// Chi step mapping ([NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf) Section 3.2.4).
 ///
 /// Non-linear step: `A'[x] = A[x] XOR ((NOT A[x+1]) AND A[x+2])`.
 fn chi(state: &mut [u64; 25]) {
@@ -124,7 +124,7 @@ fn chi(state: &mut [u64; 25]) {
     }
 }
 
-/// Iota step mapping (FIPS 202 Section 3.2.5).
+/// Iota step mapping ([NIST FIPS 202](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf) Section 3.2.5).
 ///
 /// XORs a round constant into lane (0,0).
 const fn iota(state: &mut [u64; 25], round: usize) {
@@ -380,7 +380,7 @@ mod tests {
     /// Verify that the iota step correctly applies round constants by testing
     /// that lane\[0\] = RC\[0\] (= 1) as initial state produces a different
     /// result than the all-zero state. This exercises the round constant table
-    /// matching FIPS 202 Section 3.2.5.
+    /// matching NIST FIPS 202 Section 3.2.5.
     #[test]
     fn keccak_f1600_round_constant_lane0_propagation() {
         let mut state_rc0 = [0u64; 25];

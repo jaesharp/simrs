@@ -10,7 +10,7 @@
 //! |--------------|----------|---------------|
 //! | `pin_state_machine` | PIN/PUK state machine attacks | ETSI TS 102 221, `SIMuraI` USENIX 2024 |
 //! | `apdu_boundary` | APDU boundary conditions | ISO 7816-4, APDU fuzzing research |
-//! | `fs_access_control` | Filesystem access control bypass | ETSI TS 102 221 clause 8 |
+//! | `fs_access_control` | Filesystem access control bypass | ETSI TS 102 221 V18.0.0 clause 8 |
 //! | `ota_envelope` | OTA/ENVELOPE injection | CVE-2019-16256, GSM 03.48 |
 //! | `auth_protocol` | AUTHENTICATE protocol attacks | 3GPP TS 31.102, TS 33.102 |
 //! | `data_leakage` | GET RESPONSE data leakage | ISO 7816-4 clause 7.6 |

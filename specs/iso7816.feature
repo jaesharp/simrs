@@ -4,7 +4,7 @@
 #
 # Standards:
 #   - ISO/IEC 7816-4:2020 clause 5
-#   - ETSI TS 102 221 V16.4.0 clause 10
+#   - ETSI TS 102 221 V18.0.0 clause 10
 #   - GSM 11.11 v4.21.1 clause 9
 
 Feature: ISO 7816 APDU Parsing

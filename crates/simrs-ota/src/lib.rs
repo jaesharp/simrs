@@ -1,8 +1,8 @@
 //! OTA (Over-The-Air) secured packet structure for SIM card remote management.
 //!
 //! Implements the command and response packet formats defined in:
-//! - ETSI TS 102 225 -- Secured packet structure for the UICC
-//! - ETSI TS 102 226 -- Remote APDU structure for UICC-based applications
+//! - [ETSI TS 102 225 V18.1.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf) -- Secured packet structure for the UICC
+//! - [ETSI TS 102 226 V17.0.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102226/17.00.00_60/ts_102226v170000p.pdf) -- Remote APDU structure for UICC-based applications
 //!
 //! # Supported Security Modes
 //!
@@ -80,7 +80,7 @@ impl core::fmt::Display for OtaError {
 // Redundancy check mode
 // ---------------------------------------------------------------------------
 
-/// Redundancy check mode -- TS 102 225 clause 5.1.1.
+/// Redundancy check mode -- [ETSI TS 102 225 V18.1.0 clause 5.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A37%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C715%5D).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RedundancyCheck {
     /// No redundancy check.
@@ -97,7 +97,7 @@ pub enum RedundancyCheck {
 // Cryptographic algorithm
 // ---------------------------------------------------------------------------
 
-/// Cryptographic algorithm identifier -- TS 102 225 clause 5.1.2.
+/// Cryptographic algorithm identifier -- [ETSI TS 102 225 V18.1.0 clause 5.1.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A40%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C639%5D).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CryptoAlgo {
     /// DES / Triple-DES.
@@ -112,7 +112,7 @@ pub enum CryptoAlgo {
 // SPI (Security Parameter Indicator)
 // ---------------------------------------------------------------------------
 
-/// Security Parameter Indicator (SPI) -- TS 102 225 clause 5.1.1.
+/// Security Parameter Indicator (SPI) -- [ETSI TS 102 225 V18.1.0 clause 5.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A37%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C715%5D).
 ///
 /// Two bytes controlling the security applied to a command or response packet.
 ///
@@ -136,7 +136,7 @@ pub struct Spi {
 impl Spi {
     /// Redundancy check mode (SPI1 bits 1-0).
     ///
-    /// Per TS 102 225 clause 5.1.1:
+    /// Per [ETSI TS 102 225 V18.1.0 clause 5.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A37%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C715%5D):
     /// - `00` = No redundancy check
     /// - `01` = Redundancy Check (CRC)
     /// - `10` = Cryptographic Checksum (CC)
@@ -176,7 +176,7 @@ impl Spi {
 // KIc / KID (Key Identifier)
 // ---------------------------------------------------------------------------
 
-/// Key Identifier byte (KIc or KID) -- TS 102 225 clause 5.1.2.
+/// Key Identifier byte (KIc or KID) -- [ETSI TS 102 225 V18.1.0 clause 5.1.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A40%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C639%5D).
 ///
 /// Encodes both the cryptographic algorithm and the key index used for
 /// ciphering (KIc) or integrity (KID).
@@ -198,9 +198,9 @@ impl KeyId {
 
     /// Cryptographic algorithm (bits 2-0).
     ///
-    /// Per TS 102 225 clause 5.1.2:
+    /// Per [ETSI TS 102 225 V18.1.0 clause 5.1.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A40%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C639%5D):
     /// - `001` = DES
-    /// - `010` = AES (TS 102 225 Annex B)
+    /// - `010` = AES ([ETSI TS 102 225 V18.1.0 Annex B](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf))
     /// - Other = Proprietary
     pub const fn algorithm(&self) -> CryptoAlgo {
         match self.raw & 0x07 {
@@ -226,7 +226,7 @@ const HEADER_SIZE: usize = 13;
 /// Size of the pre-TAR portion: SPI(2) + KIc(1) + KID(1) = 4.
 const PRE_TAR_SIZE: usize = 4;
 
-/// Command packet header -- TS 102 225 clause 5.1.
+/// Command packet header -- [ETSI TS 102 225 V18.1.0 clause 5.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A34%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C675%5D).
 ///
 /// Contains the security parameters, key identifiers, target application
 /// reference (TAR), replay counter, and padding counter.
@@ -267,10 +267,10 @@ impl Default for CommandPacketHeader {
 }
 
 // ---------------------------------------------------------------------------
-// Remote APDU (TS 102 226)
+// Remote APDU (ETSI TS 102 226 V17.0.0)
 // ---------------------------------------------------------------------------
 
-/// Remote APDU command structure per TS 102 226 clause 5.2.1.
+/// Remote APDU command structure per [ETSI TS 102 226 V17.0.0 clause 5.2.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102226/17.00.00_60/ts_102226v170000p.pdf#%5B%7B%22num%22%3A32%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C198%5D).
 ///
 /// Used to encode remote file management or applet management commands
 /// that are transported inside an OTA command packet.
@@ -312,7 +312,7 @@ impl Default for RemoteApdu {
 
 /// Encode a list of remote APDUs into a command data field.
 ///
-/// Per TS 102 226, each APDU is encoded as:
+/// Per [ETSI TS 102 226 V17.0.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102226/17.00.00_60/ts_102226v170000p.pdf), each APDU is encoded as:
 /// `CLA | INS | P1 | P2 | Lc | Data[Lc]`
 ///
 /// For case 1 (no data), it is just `CLA | INS | P1 | P2`.
@@ -361,7 +361,7 @@ pub fn encode_remote_apdus(
 }
 
 // ---------------------------------------------------------------------------
-// Padding (TS 102 225 clause 5.1.4)
+// Padding (ETSI TS 102 225 V18.1.0 clause 5.1.4)
 // ---------------------------------------------------------------------------
 
 /// Apply zero-byte padding to make `data` a multiple of `BLOCK_SIZE` (16).
@@ -393,7 +393,7 @@ fn apply_padding(data: &[u8], padded: &mut [u8]) -> Result<usize, OtaError> {
 ///
 /// `data` must be a multiple of 16 bytes (caller pads first). The IV is
 /// all-zeros per the OTA specification default. Returns the 8-byte MAC
-/// (left half of the final CBC block) per TS 102 225 Annex B.
+/// (left half of the final CBC block) per [ETSI TS 102 225 V18.1.0 Annex B](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf).
 fn aes_cbc_mac(key: &[u8; 16], data: &[u8]) -> [u8; 8] {
     let rij = Rijndael::new(key);
     let mut cv = [0u8; 16]; // IV = 0
@@ -440,13 +440,13 @@ fn aes_cbc_encrypt(key: &[u8; 16], data: &mut [u8]) {
 }
 
 // ---------------------------------------------------------------------------
-// Command packet encoding (TS 102 225 clause 5.1)
+// Command packet encoding (ETSI TS 102 225 V18.1.0 clause 5.1)
 // ---------------------------------------------------------------------------
 
-/// MAC size in bytes (8-byte CC per TS 102 225 Annex B for AES).
+/// MAC size in bytes (8-byte CC per [ETSI TS 102 225 V18.1.0 Annex B](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf) for AES).
 const CC_SIZE: usize = 8;
 
-/// Encode a command packet per TS 102 225 clause 5.1.
+/// Encode a command packet per [ETSI TS 102 225 V18.1.0 clause 5.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A34%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C675%5D).
 ///
 /// The packet layout in `buf` is:
 /// ```text
@@ -454,7 +454,7 @@ const CC_SIZE: usize = 8;
 /// ```
 ///
 /// - `hdr`: Command packet header (SPI, keys, TAR, counter).
-/// - `data`: Remote APDU payload (TS 102 226 encoded).
+/// - `data`: Remote APDU payload ([ETSI TS 102 226 V17.0.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102226/17.00.00_60/ts_102226v170000p.pdf) encoded).
 /// - `key_cipher`: AES-128 key for ciphering (if SPI indicates ciphering).
 /// - `key_mac`: AES-128 key for CC (if SPI indicates CC).
 /// - `buf`: Output buffer, must be large enough to hold the complete packet.
@@ -606,10 +606,10 @@ pub fn encode_command_packet(
 }
 
 // ---------------------------------------------------------------------------
-// Command packet decoding (TS 102 225 clause 5.1)
+// Command packet decoding (ETSI TS 102 225 V18.1.0 clause 5.1)
 // ---------------------------------------------------------------------------
 
-/// Decode and verify a command packet per TS 102 225 clause 5.1.
+/// Decode and verify a command packet per [ETSI TS 102 225 V18.1.0 clause 5.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A34%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C675%5D).
 ///
 /// - `packet`: The complete received packet bytes.
 /// - `key_cipher`: AES-128 key for deciphering (if ciphered). Currently not
@@ -722,10 +722,10 @@ pub fn decode_command_packet(
 }
 
 // ---------------------------------------------------------------------------
-// Response packet encoding (TS 102 225 clause 5.2)
+// Response packet encoding (ETSI TS 102 225 V18.1.0 clause 5.2)
 // ---------------------------------------------------------------------------
 
-/// Encode a response packet per TS 102 225 clause 5.2.
+/// Encode a response packet per [ETSI TS 102 225 V18.1.0 clause 5.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A49%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 ///
 /// Layout:
 /// ```text
@@ -734,7 +734,7 @@ pub fn decode_command_packet(
 ///
 /// - `tar`: Toolkit Application Reference (echoed from command).
 /// - `counter`: Replay counter (echoed or incremented).
-/// - `status_code`: Response status code per TS 102 225 clause 5.2.1.
+/// - `status_code`: Response status code per [ETSI TS 102 225 V18.1.0 clause 5.2.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102225/18.01.00_60/ts_102225v180100p.pdf#%5B%7B%22num%22%3A49%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 /// - `data`: Response data.
 /// - `spi`: SPI from the original command (determines security applied to response).
 /// - `key_cipher`: AES-128 key for ciphering the response.
@@ -1191,7 +1191,7 @@ mod tests {
     #[test]
     fn cbc_mac_known_vector() {
         // With IV=0, CBC-MAC of a single block equals AES-ECB of that block.
-        // Using NIST SP 800-38A F.1.1 values:
+        // Using NIST SP 800-38A Section F.1.1 values:
         //   Key:       2b7e1516 28aed2a6 abf71588 09cf4f3c
         //   Plaintext: 6bc1bee2 2e409f96 e93d7e11 7393172a
         //   AES-ECB:   3ad77bb4 0d7a3660 a89ecaf3 2466ef97

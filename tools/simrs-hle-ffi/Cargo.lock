@@ -144,7 +144,6 @@ dependencies = [
 name = "simrs-tuak"
 version = "0.1.0"
 dependencies = [
- "simrs-consttime",
  "simrs-keccak",
  "simrs-milenage",
 ]
