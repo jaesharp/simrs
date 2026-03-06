@@ -98,6 +98,7 @@ pub mod ins {
     /// UPDATE RECORD. [ETSI TS 102 221 V18.0.0 clause 11.1.6](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A365%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const UPDATE_RECORD: u8 = 0xDC;
     /// GET RESPONSE. [ETSI TS 102 221 V18.0.0 clause 12.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A481%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C654%5D).
+    /// (Moved from clause 11 to supplemental chapter 12 in V18.0.0.)
     pub const GET_RESPONSE: u8 = 0xC0;
     /// VERIFY (PIN). [ETSI TS 102 221 V18.0.0 clause 11.1.9](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A373%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C454%5D).
     pub const VERIFY: u8 = 0x20;
@@ -115,6 +116,8 @@ pub mod ins {
     pub const AUTHENTICATE: u8 = 0x88;
     /// TERMINAL PROFILE. [ETSI TS 102 221 V18.0.0 clause 11.2.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A465%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C751%5D).
     pub const TERMINAL_PROFILE: u8 = 0x10;
+    // V18.0.0 reordered clause 11.2: ENVELOPE (11.2.2), FETCH (11.2.3),
+    // TERMINAL RESPONSE (11.2.4). V16.4.0 was: FETCH, TR, ENVELOPE.
     /// FETCH (proactive command retrieval). [ETSI TS 102 221 V18.0.0 clause 11.2.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A468%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const FETCH: u8 = 0x12;
     /// TERMINAL RESPONSE. [ETSI TS 102 221 V18.0.0 clause 11.2.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A468%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C443%5D).
@@ -275,10 +278,10 @@ pub enum StatusWord {
     /// `6F 00` -- No precise diagnosis (technical problem, no info given).
     NoPreciseDiagnosis,
     /// `91 XX` -- Proactive command pending; SW2 = FETCH length.
-    /// Per ETSI TS 102 223 clause 6.1.
+    /// Per [ETSI TS 102 223 V17.2.0 clause 6.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A116%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C305%5D).
     ProactivePending(u8),
     /// `98 62` -- Authentication error (MAC failure).
-    /// Per 3GPP TS 31.102 clause 7.1.2.1.
+    /// Per [3GPP TS 31.102 V17.5.0 clause 7.1.2.1](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A632%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C638%5D).
     AuthenticationError,
     /// Any other SW1/SW2 pair not specifically modeled.
     Other(u8, u8),

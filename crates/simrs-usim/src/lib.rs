@@ -261,7 +261,8 @@ pub struct UsimApp<A: AuthenticationAlgorithm = MilenageParams> {
     /// Deactivated file tracking (persistent -- survives reset, see
     /// [`DeactivationTracker`] docs).
     deactivation: DeactivationTracker,
-    /// Logical channel contexts. Channel 0 is the basic channel (always open).
+    /// Logical channel contexts. Channel 0 is the basic channel (always open);
+    /// its selection state lives in `self.fs`, so `channels[0]` is always `None`.
     /// Channels 1-3 are optional logical channels.
     channels: [Option<SelectionCtx>; 4],
     /// Tracks the last AID selected via SELECT by AID, for "next occurrence" iteration.
@@ -366,6 +367,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Terminal capability is session-scoped data received via TERMINAL
     /// CAPABILITY ([ETSI TS 102 221 V18.0.0 clause 11.1.19](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A400%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C537%5D)) during card activation
     /// and must be re-sent by the terminal after each reset.
+    ///
+    /// Note: this corrects the previous `reset_session` which did not
+    /// clear terminal capability; clause 11.1.19 specifies it as
+    /// session-scoped.
     pub const fn reset_proactive_session(&mut self) {
         self.proactive_session_active = false;
         self.proactive.reset_session();

@@ -249,16 +249,6 @@ impl GsmApp {
         self.fs = SelectionCtx::new(self.mf);
     }
 
-    /// Clear transient session state on power-on / reset.
-    ///
-    /// Clears the response queue and resets the file selection context
-    /// to MF. GSM has no logical channels or proactive session state.
-    /// PIN verified flags are handled separately by the caller.
-    pub const fn reset_session(&mut self) {
-        self.clear_response_queue();
-        self.reset_file_selection();
-    }
-
     // -- snapshot --
 
     /// Snapshot buffer size in bytes.

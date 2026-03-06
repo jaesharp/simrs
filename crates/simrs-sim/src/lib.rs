@@ -530,14 +530,14 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
         match event {
             SimEvent::PowerOn => {
                 let effects = (self.reset_policy)(ResetKind::Cold);
-                self.state = CardState::Ready;
                 self.apply_reset_effects(effects);
+                self.state = CardState::Ready;
                 SimResponse::Atr(self.atr)
             }
             SimEvent::Reset => {
                 let effects = (self.reset_policy)(ResetKind::Warm);
-                self.state = CardState::Ready;
                 self.apply_reset_effects(effects);
+                self.state = CardState::Ready;
                 SimResponse::Atr(self.atr)
             }
             SimEvent::PowerOff => {
