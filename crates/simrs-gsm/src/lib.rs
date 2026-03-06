@@ -5,7 +5,7 @@
 //! RUN GSM ALGORITHM (COMP128 A3/A8), VERIFY PIN, CHANGE REFERENCE DATA,
 //! DISABLE PIN, ENABLE PIN, and UNBLOCK PIN.
 //!
-//! Constructs GSM 11.11 clause 9.2.1 SELECT responses:
+//! Constructs [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D) SELECT responses:
 //! - MF/DF: 23 bytes
 //! - EF: 15 bytes
 //!
@@ -20,8 +20,8 @@
 //! buffer.
 //!
 //! # Standards
-//! - GSM 11.11 v4.21.1 (ETS 300 608) -- ME-SIM interface
-//! - 3GPP TS 51.011 V4.15.0 -- SIM-ME interface
+//! - [GSM 11.11 (ETSI TS 151 011 V4.15.0)](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf) -- ME-SIM interface
+//! - [3GPP TS 51.011 V4.15.0](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf) -- SIM-ME interface
 //!
 //! # `no_std`
 //! This crate is `no_std`.
@@ -142,10 +142,10 @@ impl core::fmt::Display for Ki {
 /// GSM CLA byte.
 const CLA_GSM: u8 = 0xA0;
 
-/// DF/MF SELECT response length per GSM 11.11 clause 9.2.1.
+/// DF/MF SELECT response length per [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
 const DF_RSP_LEN: usize = 23;
 
-/// EF SELECT response length per GSM 11.11 clause 9.2.1.
+/// EF SELECT response length per [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
 const EF_RSP_LEN: usize = 15;
 
 // GSM 11.11 status words (proprietary, not reused from simrs-iso7816).
@@ -153,7 +153,7 @@ const SW_FILE_NOT_FOUND: [u8; 2] = [0x94, 0x04];
 const SW_FILE_INCONSISTENT: [u8; 2] = [0x94, 0x08];
 const SW_NO_EF_SELECTED: [u8; 2] = [0x94, 0x00];
 
-// GSM 11.11 clause 9.2.1 file type indicators.
+// GSM 11.11 (ETSI TS 151 011 V4.15.0) clause 9.2.1 file type indicators.
 const FILE_TYPE_MF: u8 = 0x01;
 const FILE_TYPE_DF: u8 = 0x02;
 const FILE_TYPE_EF: u8 = 0x04;
@@ -161,13 +161,13 @@ const FILE_TYPE_EF: u8 = 0x04;
 // GSM 11.11 proprietary SW1 (not in ISO 7816-4).
 const SW1_RESPONSE_AVAILABLE: u8 = 0x9F;
 
-// GSM 11.11 clause 9.2.1 SELECT response structure.
+// GSM 11.11 (ETSI TS 151 011 V4.15.0) clause 9.2.1 SELECT response structure.
 const DF_GSM_DATA_LEN: u8 = 0x0A;
 const EF_EXTRA_DATA_LEN: u8 = 0x02;
 const FILE_STATUS_NOT_INVALIDATED: u8 = 0x01;
 const FILE_CHARS_CLOCK_STOP: u8 = 0x32;
 
-// GSM 11.11 clause 9.2.1 CHV status values.
+// GSM 11.11 (ETSI TS 151 011 V4.15.0) clause 9.2.1 CHV status values.
 const NUM_CHV_LEVELS: u8 = 0x04;
 const CHV_INIT_3_RETRIES: u8 = 0x83;
 const UNBLOCK_CHV_INIT_10_RETRIES: u8 = 0x8A;
@@ -239,14 +239,24 @@ impl GsmApp {
         &mut self.pin
     }
 
+    /// Clear the response queue (pending GET RESPONSE data).
+    pub const fn clear_response_queue(&mut self) {
+        self.rsp_queue.clear();
+    }
+
+    /// Reset the file selection context to MF.
+    pub const fn reset_file_selection(&mut self) {
+        self.fs = SelectionCtx::new(self.mf);
+    }
+
     /// Clear transient session state on power-on / reset.
     ///
     /// Clears the response queue and resets the file selection context
     /// to MF. GSM has no logical channels or proactive session state.
     /// PIN verified flags are handled separately by the caller.
     pub const fn reset_session(&mut self) {
-        self.rsp_queue.clear();
-        self.fs = SelectionCtx::new(self.mf);
+        self.clear_response_queue();
+        self.reset_file_selection();
     }
 
     // -- snapshot --
@@ -755,7 +765,7 @@ impl GsmApp {
 // GSM 11.11 SELECT response builders
 // ---------------------------------------------------------------------------
 
-/// Build a 23-byte DF/MF SELECT response per GSM 11.11 clause 9.2.1.
+/// Build a 23-byte DF/MF SELECT response per [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
 fn build_df_response(df: &DfDef, out: &mut [u8; 23]) {
     out.fill(0x00);
 
@@ -804,7 +814,7 @@ fn build_df_response(df: &DfDef, out: &mut [u8; 23]) {
     // Byte 22: RFU.
 }
 
-/// Build a 15-byte EF SELECT response per GSM 11.11 clause 9.2.1.
+/// Build a 15-byte EF SELECT response per [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
 #[allow(clippy::cast_possible_truncation)]
 fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
     out.fill(0x00);

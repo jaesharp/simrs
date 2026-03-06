@@ -7,7 +7,7 @@
 //! DISABLE PIN, ENABLE PIN, UNBLOCK PIN, TERMINAL PROFILE, FETCH,
 //! TERMINAL RESPONSE, and ENVELOPE.
 //!
-//! Constructs FCP BER-TLV per ETSI TS 102 221 clause 11.1.1.3 using a
+//! Constructs FCP BER-TLV per [ETSI TS 102 221 V18.0.0 clause 11.1.1.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A333%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D) using a
 //! dry-run/real-run pattern for buffer-size determination.
 //!
 //! Post-APDU hook: if a proactive command is pending and SW would be
@@ -15,10 +15,10 @@
 //! command length.
 //!
 //! # Standards
-//! - ETSI TS 102 221 V16.4.0 -- UICC-terminal interface
+//! - [ETSI TS 102 221 V18.0.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf) -- UICC-terminal interface
 //! - 3GPP TS 31.101 V17.0.0 -- UICC-terminal interface (3GPP additions)
-//! - 3GPP TS 31.102 V17.5.0 -- USIM application characteristics
-//! - ETSI TS 102 223 V17.2.0 -- Card Application Toolkit (proactive)
+//! - [3GPP TS 31.102 V17.5.0](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf) -- USIM application characteristics
+//! - [ETSI TS 102 223 V17.2.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf) -- Card Application Toolkit (proactive)
 //!
 //! # `no_std`
 //! This crate is `no_std`. All buffers are stack-allocated.
@@ -71,7 +71,7 @@ use simrs_proactive::ProactiveState;
 
 /// Filesystem data buffer capacity, selected by feature flag.
 ///
-/// - `profile-full`: 8192 bytes (full TS 31.102 catalog + ISIM/HPSIM/TELECOM)
+/// - `profile-full`: 8192 bytes (full [TS 31.102](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf) catalog + ISIM/HPSIM/TELECOM)
 /// - `profile-standard` (default): 4096 bytes (56 EFs: baseline USIM + DF_5GS)
 /// - `profile-minimal`: 1024 bytes (31 EFs: LTE attach minimum + DF_5GS)
 ///
@@ -85,7 +85,7 @@ const FS_CAP: usize = 1024;
 
 /// Maximum number of EFs in the filesystem, selected by feature flag.
 ///
-/// - `profile-full`: 160 (full TS 31.102 + ISIM/HPSIM/TELECOM)
+/// - `profile-full`: 160 (full [TS 31.102](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf) + ISIM/HPSIM/TELECOM)
 /// - `profile-standard` (default): 80 (56 EFs + headroom for telecom/additive)
 /// - `profile-minimal`: 40 (31 EFs + headroom)
 ///
@@ -103,20 +103,20 @@ const CLA_ETSI: u8 = 0x80;
 /// Maximum FCP size (conservative upper bound for our file tree).
 const FCP_BUF_CAP: usize = 64;
 
-// ETSI TS 102 221 clause 11.1.1.4.1: File descriptor byte values.
+// ETSI TS 102 221 V18.0.0 clause 11.1.1.4.3: File descriptor byte values.
 const FD_DF: u8 = 0x78;
 const DATA_CODING_BER_TLV: u8 = 0x21;
 
-// ETSI TS 102 221 clause 11.1.1.4.9: Life cycle status.
+// ETSI TS 102 221 V18.0.0 clause 11.1.1.4.9: Life cycle status.
 const LIFECYCLE_ACTIVATED: u8 = 0x05;
 
-// ETSI TS 102 221 clause 11.1.1.4.8: SFI encoding.
+// ETSI TS 102 221 V18.0.0 clause 11.1.1.4.8: SFI encoding.
 const SFI_INDICATOR: u8 = 0x04;
 
 // PIN status template DO values.
 const PS_DO_TAG: u8 = 0x90;
 
-// 3GPP TS 31.102 clause 7.1.2: AUTHENTICATE protocol constants.
+// 3GPP TS 31.102 V17.5.0 clause 7.1.2: AUTHENTICATE protocol constants.
 #[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const P2_GSM_CONTEXT: u8 = 0x00;
 const P2_UMTS_CONTEXT: u8 = 0x81;
@@ -131,7 +131,7 @@ const AUTH_RESPONSE_LEN: u8 = 0x08;
 const AUTH_KEY_LEN: u8 = 0x10;
 const AUTH_SUCCESS_INNER_LEN: u8 = 1 + AUTH_RESPONSE_LEN + 1 + AUTH_KEY_LEN + 1 + AUTH_KEY_LEN;
 
-// GSM context response constants (TS 31.102 clause 7.1.2).
+// GSM context response constants (3GPP TS 31.102 V17.5.0 clause 7.1.2).
 #[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const GSM_SRES_LEN: u8 = 0x04;
 #[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
@@ -144,7 +144,7 @@ const GSM_AUTH_RSP_LEN: usize = 1 + 4 + 1 + 8;
 // AuthenticationResult
 // ---------------------------------------------------------------------------
 
-/// AUTHENTICATE command result per TS 31.102 clause 7.1.2.1.
+/// AUTHENTICATE command result per [3GPP TS 31.102 V17.5.0 clause 7.1.2.1](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A632%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C638%5D).
 ///
 /// Encodes the three possible outcomes of UMTS AUTHENTICATE:
 /// - Success: RES, CK, IK returned in tag 0xDB
@@ -244,7 +244,7 @@ const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
 /// state, and the response queue for GET RESPONSE.
 ///
 /// The type parameter `A` selects the authentication algorithm.
-/// The default is [`MilenageParams`] (TS 35.206).
+/// The default is [`MilenageParams`] ([TS 35.206](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf)).
 pub struct UsimApp<A: AuthenticationAlgorithm = MilenageParams> {
     fs: SelectionCtx,
     data: FsData<FS_CAP, FS_MAX_EFS>,
@@ -258,7 +258,8 @@ pub struct UsimApp<A: AuthenticationAlgorithm = MilenageParams> {
     terminal_capability: [u8; 16],
     /// Length of stored terminal capability data.
     terminal_capability_len: u8,
-    /// Deactivated file tracking.
+    /// Deactivated file tracking (persistent -- survives reset, see
+    /// [`DeactivationTracker`] docs).
     deactivation: DeactivationTracker,
     /// Logical channel contexts. Channel 0 is the basic channel (always open).
     /// Channels 1-3 are optional logical channels.
@@ -331,19 +332,52 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         &mut self.proactive
     }
 
-    /// Clear transient session state on power-on / reset.
+    /// Clear the response queue (pending GET RESPONSE data).
     ///
-    /// Per ETSI TS 102 221, a cold reset clears the response queue
-    /// (no data pending from the prior session) and ends any active
-    /// proactive session. PIN verified flags are handled separately
-    /// by the caller.
-    pub const fn reset_session(&mut self) {
+    /// Per [ETSI TS 102 221 V18.0.0 clause 12.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A481%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C654%5D), GET RESPONSE must immediately
+    /// follow the command it retrieves data for; any intervening command
+    /// clears the response queue.
+    pub const fn clear_response_queue(&mut self) {
         self.rsp_queue.clear();
+    }
+
+    /// Reset the file selection context to MF (basic channel).
+    ///
+    /// After this call, the card behaves as if freshly activated with
+    /// MF implicitly selected ([ETSI TS 102 221 V18.0.0 clause 8.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A263%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C220%5D)).
+    pub const fn reset_file_selection(&mut self) {
+        self.fs = SelectionCtx::new(self.mf);
+    }
+
+    /// Close supplementary logical channels (1-3).
+    ///
+    /// Channel 0 (basic channel) is not routed through `channels[]` --
+    /// its selection context lives in `self.fs` directly
+    /// ([ETSI TS 102 221 V18.0.0 clause 8.7](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A276%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C459%5D)).
+    pub const fn close_all_channels(&mut self) {
+        self.channels[1] = None;
+        self.channels[2] = None;
+        self.channels[3] = None;
+    }
+
+    /// Reset proactive session state (profile, pending command, events,
+    /// terminal capability).
+    ///
+    /// Terminal capability is session-scoped data received via TERMINAL
+    /// CAPABILITY ([ETSI TS 102 221 V18.0.0 clause 11.1.19](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A400%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C537%5D)) during card activation
+    /// and must be re-sent by the terminal after each reset.
+    pub const fn reset_proactive_session(&mut self) {
         self.proactive_session_active = false;
         self.proactive.reset_session();
-        self.fs = SelectionCtx::new(self.mf);
-        // Close all logical channels.
-        self.channels = [None, None, None, None];
+        self.terminal_capability = [0u8; 16];
+        self.terminal_capability_len = 0;
+    }
+
+    /// Clear the last AID match flag.
+    ///
+    /// Resets the "next occurrence" iterator for SELECT by AID
+    /// ([ETSI TS 102 221 V18.0.0 clause 11.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A329%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C371%5D)).
+    pub const fn clear_last_aid_match(&mut self) {
         self.last_aid_match = false;
     }
 
@@ -755,7 +789,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     /// Resolve record number from P1 and P2 mode bits.
     ///
-    /// P2 low 3 bits encode the record access mode per ETSI TS 102 221:
+    /// P2 low 3 bits encode the record access mode per [ETSI TS 102 221 clause 11.1.5.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A363%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C478%5D):
     /// - 0x02: next record (P1 + 1; if P1 == 0, use record 1)
     /// - 0x03: previous record (P1 - 1)
     /// - 0x04: absolute (P1 = record number)
@@ -900,7 +934,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        // Per ETSI TS 102 221 clause 11.1.2:
+        // Per ETSI TS 102 221 V18.0.0 clause 11.1.2:
         // P1: 0x00 = no indication (current DF info).
         // P1: 0x01 = current DF info (same as 0x00).
         // P1: 0x02 = no data returned, just SW 90 00.
@@ -1024,7 +1058,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     /// GSM security context (P2=0x00): compute SRES and Kc from RAND.
     ///
-    /// Per TS 31.102 clause 7.1.2 and TS 33.102 Annex B (c3 conversion):
+    /// Per [3GPP TS 31.102 V17.5.0 clause 7.1.2](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A595%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C366%5D) and TS 33.102 Annex B (c3 conversion):
     /// - SRES = f2(RAND) truncated to 4 bytes
     /// - CK = f3(RAND), IK = f4(RAND)
     /// - Kc = CK[0..8] xor CK[8..16] xor IK[0..8] xor IK[8..16]
@@ -1528,7 +1562,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ) -> &'buf [u8] {
         let data = cmd.data();
 
-        // Per ETSI TS 102 221 clause 11.2.2: ENVELOPE requires a prior
+        // Per ETSI TS 102 221 V18.0.0 clause 11.2.2: ENVELOPE requires a prior
         // TERMINAL PROFILE to have been sent in this session.
         if !self.proactive.has_terminal_profile() {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
@@ -1590,7 +1624,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 }
 
 // ---------------------------------------------------------------------------
-// FCP BER-TLV builder per ETSI TS 102 221 clause 11.1.1.3
+// FCP BER-TLV builder per ETSI TS 102 221 V18.0.0 clause 11.1.1.3
 // ---------------------------------------------------------------------------
 
 /// Build an FCP template for the selected file.
@@ -2794,8 +2828,14 @@ mod tests {
     fn envelope_rejected_after_reset() {
         let mut app = app();
         send_terminal_profile(&mut app);
-        // Reset the session (simulates card reset).
-        app.reset_session();
+        // Simulate card reset: mirrors Sim::apply_reset_effects in
+        // simrs-sim/src/lib.rs (pin clearing is at Sim level, not here).
+        // NOTE: if apply_reset_effects gains new subsystems, update here.
+        app.clear_response_queue();
+        app.reset_file_selection();
+        app.close_all_channels();
+        app.reset_proactive_session();
+        app.clear_last_aid_match();
         // ENVELOPE must be rejected again -- no TERMINAL PROFILE in new session.
         let (buf, len) = send(
             &mut app,
@@ -4207,6 +4247,28 @@ mod tests {
         let (buf, len) = send(&mut app,
             &[0x00, 0xAA, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
+    }
+
+    #[test]
+    fn reset_proactive_session_clears_terminal_capability() {
+        let mut app = app();
+
+        // Set terminal capability via APDU.
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xAA, 0x00, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04],
+        );
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Verify it was stored.
+        assert_eq!(app.terminal_capability_len, 4);
+        assert_eq!(&app.terminal_capability[..4], &[0x01, 0x02, 0x03, 0x04]);
+
+        // Reset proactive session -- should clear terminal capability.
+        app.reset_proactive_session();
+
+        assert_eq!(app.terminal_capability_len, 0);
+        assert_eq!(app.terminal_capability, [0u8; 16]);
     }
 
     // ===================================================================

@@ -13,9 +13,18 @@
 //!     -> SimResponse::Apdu { data, sw1, sw2 }
 //! ```
 //!
+//! # Lifecycle Policy
+//!
+//! On `PowerOn` (cold reset) and `Reset` (warm reset), the card invokes
+//! a configurable reset policy (`fn(ResetKind) -> ResetEffects`) to decide
+//! which session state is cleared. The default [`standard_reset_policy`]
+//! clears everything on both cold and warm resets, matching [ETSI TS 102 221
+//! V18.0.0 clause 6.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A207%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D). Use [`Sim::with_reset_policy`] to customize this behavior
+//! for card profiles that preserve state across warm resets.
+//!
 //! # Features
 //!
-//! - `gsm` -- enables GSM 11.11 application layer (CLA=`0xA0`)
+//! - `gsm` -- enables [GSM 11.11 (TS 51.011 V4.15.0)](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf) application layer (CLA=`0xA0`)
 //! - `usim` -- enables 3GPP USIM application layer (CLA=`0x00`/`0x80`)
 //!
 //! Enable one or both. With neither feature, all APDUs return `6E 00`.
@@ -63,6 +72,85 @@ use simrs_milenage::{AuthenticationAlgorithm, MilenageParams};
 use simrs_usim::UsimApp;
 
 // ---------------------------------------------------------------------------
+// Lifecycle policy
+// ---------------------------------------------------------------------------
+
+/// Distinguishes cold reset (power-on) from warm reset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetKind {
+    /// Cold reset -- card was powered on from the Off state, or the host
+    /// issued a full power cycle.
+    Cold,
+    /// Warm reset -- RST line asserted while Vcc remains applied.
+    Warm,
+}
+
+/// Per-subsystem flags controlling what session state is cleared on reset.
+///
+/// Each flag corresponds to a discrete piece of session state. A value of
+/// `true` means the subsystem is cleared; `false` preserves it across the
+/// reset boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct ResetEffects {
+    /// Clear PIN/PUK verified flags (re-verification required).
+    pub clear_pin_verified: bool,
+    /// Clear the GET RESPONSE queue (no stale data from prior session).
+    pub clear_response_queue: bool,
+    /// Reset file selection context (MF implicitly selected).
+    pub clear_file_selection: bool,
+    /// Close supplementary logical channels 1-3.
+    ///
+    /// USIM-specific; has no effect when only the `gsm` feature is enabled.
+    pub clear_logical_channels: bool,
+    /// Reset the proactive (STK) session and terminal capability.
+    ///
+    /// USIM-specific; has no effect when only the `gsm` feature is enabled.
+    pub clear_proactive_session: bool,
+    /// Clear the last AID match flag.
+    ///
+    /// USIM-specific; has no effect when only the `gsm` feature is enabled.
+    pub clear_last_aid_match: bool,
+}
+
+impl ResetEffects {
+    /// All subsystems cleared -- matches [ETSI TS 102 221 V18.0.0 clause 6.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A207%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D) reset procedures.
+    pub const fn all() -> Self {
+        Self {
+            clear_pin_verified: true,
+            clear_response_queue: true,
+            clear_file_selection: true,
+            clear_logical_channels: true,
+            clear_proactive_session: true,
+            clear_last_aid_match: true,
+        }
+    }
+
+    /// No subsystems cleared -- everything preserved across reset.
+    pub const fn none() -> Self {
+        Self {
+            clear_pin_verified: false,
+            clear_response_queue: false,
+            clear_file_selection: false,
+            clear_logical_channels: false,
+            clear_proactive_session: false,
+            clear_last_aid_match: false,
+        }
+    }
+}
+
+/// Standard reset policy: clear all session state on both cold and warm
+/// reset. This is the default used by [`Sim::new`] and matches ETSI TS
+/// 102 221 clause 6.5 (reset procedures).
+///
+/// Both cold and warm resets clear all session state identically.
+/// Custom policies may differentiate by matching on `kind` -- pass a
+/// custom `fn(ResetKind) -> ResetEffects` to [`Sim::with_reset_policy`].
+pub const fn standard_reset_policy(_kind: ResetKind) -> ResetEffects {
+    ResetEffects::all()
+}
+
+// ---------------------------------------------------------------------------
 // State hash buffer upper bound
 // ---------------------------------------------------------------------------
 
@@ -91,7 +179,7 @@ const STATE_HASH_BUF: usize = 256;
 // CLA byte classification
 // ---------------------------------------------------------------------------
 
-/// CLA family classification per ETSI TS 102 221.
+/// CLA family classification per [ETSI TS 102 221 V18.0.0 clause 10.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C531%5D).
 ///
 /// Strips logical channel bits from the CLA byte and classifies the
 /// command into a routing family. The original CLA byte is passed to
@@ -141,17 +229,21 @@ const CLA_GSM_RAW: u8 = 0xA0;
 /// Per ISO/IEC 7816-3, the card lifecycle is:
 /// 1. `PowerOn` -- card activation, returns ATR
 /// 2. `Apdu` -- command exchange (repeats)
-/// 3. `Reset` -- warm reset, returns ATR, clears session state
+/// 3. `Reset` -- warm reset, returns ATR
 /// 4. `PowerOff` -- card deactivation, returns `Ignored`
 ///
+/// `PowerOn` and `Reset` invoke the configured reset policy to determine
+/// which session state is cleared. See [`Sim::with_reset_policy`] and
+/// [`ResetEffects`].
+///
 /// The `Tick` variant is an extension for advancing UICC-side timers
-/// (per ETSI TS 102 223 clause 6.6.21). Since `no_std` has no clock,
+/// (per [ETSI TS 102 223 V17.2.0 clause 6.6.21](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A233%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C572%5D)). Since `no_std` has no clock,
 /// the caller supplies elapsed seconds.
 #[derive(Debug, Clone, Copy)]
 pub enum SimEvent<'a> {
     /// Card power-on (cold reset). Returns ATR.
     PowerOn,
-    /// Warm reset. Returns ATR and clears session state.
+    /// Warm reset. Returns ATR.
     Reset,
     /// Card deactivation. Returns `Ignored`.
     ///
@@ -220,9 +312,16 @@ enum CardState {
 ///
 /// Enable features `gsm` and/or `usim` to include the respective
 /// application layers. With no features, all APDUs return `6E 00`.
+///
+/// # Reset policy
+///
+/// The reset policy is set at construction time via [`Sim::new`] (which
+/// uses [`standard_reset_policy`]) or [`Sim::with_reset_policy`]. It
+/// cannot be changed after construction.
 pub struct Sim<A: AuthenticationAlgorithm = MilenageParams, const RSP_CAP: usize = 256> {
     atr: &'static [u8],
     state: CardState,
+    reset_policy: fn(ResetKind) -> ResetEffects,
     rsp_buf: [u8; RSP_CAP],
     #[cfg(feature = "gsm")]
     gsm: GsmApp,
@@ -236,15 +335,31 @@ pub struct Sim<A: AuthenticationAlgorithm = MilenageParams, const RSP_CAP: usize
 
 impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     // -- Constructors (one per feature combination) --
+    //
+    // `new()` uses [`standard_reset_policy`] (clear everything on both
+    // cold and warm reset). `with_reset_policy()` accepts a custom
+    // `fn(ResetKind) -> ResetEffects` for card-specific behavior.
 
     /// Create a new SIM card (no application features enabled).
     ///
     /// All APDUs will return `6E 00` (class not supported).
     #[cfg(not(any(feature = "gsm", feature = "usim")))]
-    pub const fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
+    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
+        Self::with_reset_policy(atr, mf, standard_reset_policy)
+    }
+
+    /// Create a new SIM card (no application features enabled) with a
+    /// custom reset policy.
+    #[cfg(not(any(feature = "gsm", feature = "usim")))]
+    pub fn with_reset_policy(
+        atr: &'static [u8],
+        mf: &'static DfDef,
+        reset_policy: fn(ResetKind) -> ResetEffects,
+    ) -> Self {
         Self {
             atr,
             state: CardState::Off,
+            reset_policy,
             rsp_buf: [0u8; RSP_CAP],
             _mf: mf,
             _auth: core::marker::PhantomData,
@@ -260,9 +375,21 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// Configure PINs via `sim.gsm_app_mut().pin_manager().add_pin(...)`.
     #[cfg(all(feature = "gsm", not(feature = "usim")))]
     pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
+        Self::with_reset_policy(atr, mf, standard_reset_policy)
+    }
+
+    /// Create a new SIM card with GSM application layer and a custom
+    /// reset policy.
+    #[cfg(all(feature = "gsm", not(feature = "usim")))]
+    pub fn with_reset_policy(
+        atr: &'static [u8],
+        mf: &'static DfDef,
+        reset_policy: fn(ResetKind) -> ResetEffects,
+    ) -> Self {
         Self {
             atr,
             state: CardState::Off,
+            reset_policy,
             rsp_buf: [0u8; RSP_CAP],
             gsm: GsmApp::new(mf, simrs_gsm::Ki([0u8; 16])),
             _auth: core::marker::PhantomData,
@@ -282,9 +409,24 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     where
         A: Default,
     {
+        Self::with_reset_policy(atr, mf, standard_reset_policy)
+    }
+
+    /// Create a new SIM card with USIM application layer and a custom
+    /// reset policy.
+    #[cfg(all(feature = "usim", not(feature = "gsm")))]
+    pub fn with_reset_policy(
+        atr: &'static [u8],
+        mf: &'static DfDef,
+        reset_policy: fn(ResetKind) -> ResetEffects,
+    ) -> Self
+    where
+        A: Default,
+    {
         Self {
             atr,
             state: CardState::Off,
+            reset_policy,
             rsp_buf: [0u8; RSP_CAP],
             usim: UsimApp::new(mf, &[], A::default()),
         }
@@ -301,9 +443,35 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     where
         A: Default,
     {
+        Self::with_reset_policy(atr, mf, standard_reset_policy)
+    }
+
+    /// Create a new SIM card with both GSM and USIM application layers
+    /// and a custom reset policy.
+    ///
+    /// ```ignore
+    /// // Warm reset preserves PIN verified status:
+    /// fn warm_preserves_pin(kind: ResetKind) -> ResetEffects {
+    ///     match kind {
+    ///         ResetKind::Cold => ResetEffects::all(),
+    ///         ResetKind::Warm => ResetEffects { clear_pin_verified: false, ..ResetEffects::all() },
+    ///     }
+    /// }
+    /// let sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, warm_preserves_pin);
+    /// ```
+    #[cfg(all(feature = "gsm", feature = "usim"))]
+    pub fn with_reset_policy(
+        atr: &'static [u8],
+        mf: &'static DfDef,
+        reset_policy: fn(ResetKind) -> ResetEffects,
+    ) -> Self
+    where
+        A: Default,
+    {
         Self {
             atr,
             state: CardState::Off,
+            reset_policy,
             rsp_buf: [0u8; RSP_CAP],
             gsm: GsmApp::new(mf, simrs_gsm::Ki([0u8; 16])),
             usim: UsimApp::new(mf, &[], A::default()),
@@ -341,10 +509,15 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// Process an event and produce a response.
     ///
     /// This is the single entry point for all card interactions.
-    /// Never panics.
+    /// The built-in logic never panics. If a custom reset policy supplied
+    /// to [`Sim::with_reset_policy`] panics, the panic propagates to the
+    /// caller with the card state unchanged (the state transition occurs
+    /// only after the policy returns successfully).
     ///
-    /// - `PowerOn` / `Reset`: returns [`SimResponse::Atr`].
-    ///   Both clear PIN verified state.
+    /// - `PowerOn` / `Reset`: invokes the reset policy, applies the
+    ///   returned [`ResetEffects`], and returns [`SimResponse::Atr`].
+    ///   With [`standard_reset_policy`] both clear all session state.
+    ///   Custom policies may preserve selected subsystems.
     /// - `PowerOff`: transitions to `Off` state, returns [`SimResponse::Ignored`].
     ///   Subsequent APDUs return `Ignored` until the next `PowerOn`.
     /// - `Apdu`: parses the command, routes by CLA byte, returns
@@ -355,9 +528,16 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     ///   `usim_app_mut().proactive_state().take_expired_timer()`.
     pub fn process(&mut self, event: SimEvent<'_>) -> SimResponse<'_> {
         match event {
-            SimEvent::PowerOn | SimEvent::Reset => {
+            SimEvent::PowerOn => {
+                let effects = (self.reset_policy)(ResetKind::Cold);
                 self.state = CardState::Ready;
-                self.reset_session_state();
+                self.apply_reset_effects(effects);
+                SimResponse::Atr(self.atr)
+            }
+            SimEvent::Reset => {
+                let effects = (self.reset_policy)(ResetKind::Warm);
+                self.state = CardState::Ready;
+                self.apply_reset_effects(effects);
                 SimResponse::Atr(self.atr)
             }
             SimEvent::PowerOff => {
@@ -381,26 +561,47 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
         }
     }
 
-    /// Clear session state on power-on or reset.
+    /// Apply per-subsystem reset effects according to the reset policy.
     ///
-    /// Per ETSI TS 102 221, a cold reset clears:
-    /// - PIN verified flags (re-verification required after reset)
-    /// - Response queue (no stale GET RESPONSE data from prior session)
-    /// - File selection context (MF implicitly selected)
-    /// - Logical channels
+    /// Each flag in [`ResetEffects`] independently controls whether its
+    /// corresponding piece of session state is cleared. The subsystems are
+    /// independent and the application order does not affect the outcome.
     // Allow: when no features are enabled, all cfg blocks compile away
     // leaving an empty body. The method is kept for structural correctness.
-    #[allow(clippy::unused_self, clippy::needless_pass_by_ref_mut, clippy::missing_const_for_fn)]
-    fn reset_session_state(&mut self) {
+    #[allow(clippy::unused_self, clippy::needless_pass_by_ref_mut, clippy::missing_const_for_fn, unused_variables)]
+    fn apply_reset_effects(&mut self, effects: ResetEffects) {
         #[cfg(feature = "gsm")]
         {
-            self.gsm.pin_manager().reset_verified();
-            self.gsm.reset_session();
+            if effects.clear_pin_verified {
+                self.gsm.pin_manager().reset_verified();
+            }
+            if effects.clear_response_queue {
+                self.gsm.clear_response_queue();
+            }
+            if effects.clear_file_selection {
+                self.gsm.reset_file_selection();
+            }
         }
         #[cfg(feature = "usim")]
         {
-            self.usim.pin_manager().reset_verified();
-            self.usim.reset_session();
+            if effects.clear_pin_verified {
+                self.usim.pin_manager().reset_verified();
+            }
+            if effects.clear_response_queue {
+                self.usim.clear_response_queue();
+            }
+            if effects.clear_file_selection {
+                self.usim.reset_file_selection();
+            }
+            if effects.clear_logical_channels {
+                self.usim.close_all_channels();
+            }
+            if effects.clear_proactive_session {
+                self.usim.reset_proactive_session();
+            }
+            if effects.clear_last_aid_match {
+                self.usim.clear_last_aid_match();
+            }
         }
     }
 
@@ -622,8 +823,14 @@ mod tests {
     // -- Test helper --
 
     fn make_sim() -> Sim<MilenageParams, 256> {
+        make_sim_with_policy(standard_reset_policy)
+    }
+
+    fn make_sim_with_policy(
+        policy: fn(ResetKind) -> ResetEffects,
+    ) -> Sim<MilenageParams, 256> {
         #[allow(unused_mut)]
-        let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &MF);
+        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, policy);
 
         #[cfg(feature = "gsm")]
         {
@@ -647,6 +854,28 @@ mod tests {
         }
 
         sim
+    }
+
+    /// Verify USIM PIN1 ("1234") on a powered-on SIM.
+    #[cfg(feature = "usim")]
+    fn verify_usim_pin(sim: &mut Sim<MilenageParams, 256>) {
+        let cmd = [0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
+        let rsp = sim.process(SimEvent::Apdu(&cmd));
+        assert!(
+            matches!(rsp, SimResponse::Apdu { sw1: 0x90, sw2: 0x00, .. }),
+            "VERIFY PIN1 setup should succeed, got {rsp:?}"
+        );
+    }
+
+    /// Verify GSM PIN1 ("1234") on a powered-on SIM.
+    #[cfg(feature = "gsm")]
+    fn verify_gsm_pin(sim: &mut Sim<MilenageParams, 256>) {
+        let cmd = [0xA0, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
+        let rsp = sim.process(SimEvent::Apdu(&cmd));
+        assert!(
+            matches!(rsp, SimResponse::Apdu { sw1: 0x90, sw2: 0x00, .. }),
+            "GSM VERIFY PIN1 setup should succeed, got {rsp:?}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -707,6 +936,8 @@ mod tests {
         assert!(matches!(rsp, SimResponse::Ignored));
     }
 
+    // CLA=0x00 routes to UsimApp, so this test requires the `usim` feature.
+    #[cfg(feature = "usim")]
     #[test]
     fn power_off_then_power_on_works() {
         let mut sim = make_sim();
@@ -717,7 +948,7 @@ mod tests {
         let rsp = sim.process(SimEvent::PowerOn);
         assert!(matches!(rsp, SimResponse::Atr(_)));
 
-        // APDUs should work again
+        // APDUs should work again (CLA=0x00 SELECT MF -> USIM returns 61 XX)
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
         match rsp {
             SimResponse::Apdu { sw1, .. } => assert_eq!(sw1, 0x61),
@@ -963,46 +1194,40 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Reset clears PIN state
+    // Reset clears PIN state (standard policy)
     // -----------------------------------------------------------------------
 
-    // NOTE: This test verifies that reset_session_state() calls
-    // reset_verified() without error, and that the VERIFY command path
-    // works correctly through a reset boundary. However, currently no
-    // command handler in GsmApp/UsimApp consults is_verified() for access
-    // control (all operations are "always allowed"). The reset_verified()
-    // call is structurally correct per ETSI TS 102 221 clause 11.1.9 and
-    // will become behaviorally testable when access control enforcement is
-    // added to the application layers.
     #[cfg(feature = "gsm")]
     #[test]
-    fn reset_allows_pin_reverification() {
+    fn reset_clears_pin_verified_standard_policy() {
         let mut sim = make_sim();
         let _ = sim.process(SimEvent::PowerOn);
 
-        // Verify PIN via GSM (correct PIN -> 90 00)
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0xA0, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
-        match rsp {
-            SimResponse::Apdu { sw1, sw2, .. } => assert_eq!((sw1, sw2), (0x90, 0x00)),
-            _ => panic!("expected successful VERIFY"),
-        }
+        // Verify GSM PIN1 and select EF.ICCID
+        verify_gsm_pin(&mut sim);
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x9F, .. }));
+        let _ = sim.process(SimEvent::Apdu(&[0xA0, 0xC0, 0x00, 0x00, 0x0F]));
 
-        // Reset
+        // Confirm READ BINARY works (PIN verified, EF selected)
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xB0, 0x00, 0x00, 0x0A]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x90, sw2: 0x00, .. }),
+            "READ BINARY should succeed before reset");
+
+        // Standard reset clears everything including PIN verified
         let _ = sim.process(SimEvent::Reset);
 
-        // After reset, re-verify with correct PIN succeeds (counter is intact).
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0xA0, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
+        // Re-select EF.ICCID (file selection cleared by standard policy)
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x9F, .. }));
+        let _ = sim.process(SimEvent::Apdu(&[0xA0, 0xC0, 0x00, 0x00, 0x0F]));
+
+        // READ BINARY without re-verifying -- should fail (PIN cleared)
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xB0, 0x00, 0x00, 0x0A]));
         match rsp {
             SimResponse::Apdu { sw1, sw2, .. } => {
-                assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
-                    "correct PIN should succeed after reset"
-                );
+                assert_eq!((sw1, sw2), (0x69, 0x82),
+                    "READ BINARY must fail after reset: PIN cleared by standard policy");
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1358,6 +1583,905 @@ mod tests {
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00]));
         assert!(matches!(rsp, SimResponse::Ignored),
             "3-byte APDU must return Ignored");
+    }
+
+    // -----------------------------------------------------------------------
+    // Reset policy
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn reset_effects_all_sets_every_flag() {
+        let e = ResetEffects::all();
+        assert!(e.clear_pin_verified);
+        assert!(e.clear_response_queue);
+        assert!(e.clear_file_selection);
+        assert!(e.clear_logical_channels);
+        assert!(e.clear_proactive_session);
+        assert!(e.clear_last_aid_match);
+    }
+
+    #[test]
+    fn reset_effects_none_clears_every_flag() {
+        let e = ResetEffects::none();
+        assert!(!e.clear_pin_verified);
+        assert!(!e.clear_response_queue);
+        assert!(!e.clear_file_selection);
+        assert!(!e.clear_logical_channels);
+        assert!(!e.clear_proactive_session);
+        assert!(!e.clear_last_aid_match);
+    }
+
+    #[test]
+    fn standard_policy_returns_all_for_cold() {
+        assert_eq!(standard_reset_policy(ResetKind::Cold), ResetEffects::all());
+    }
+
+    #[test]
+    fn standard_policy_returns_all_for_warm() {
+        assert_eq!(standard_reset_policy(ResetKind::Warm), ResetEffects::all());
+    }
+
+    #[test]
+    fn power_on_passes_cold_to_policy() {
+        use core::sync::atomic::{AtomicU8, Ordering};
+        static KIND: AtomicU8 = AtomicU8::new(0xFF);
+        fn recording(kind: ResetKind) -> ResetEffects {
+            KIND.store(kind as u8, Ordering::Relaxed);
+            ResetEffects::all()
+        }
+        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, recording);
+        let _ = sim.process(SimEvent::PowerOn);
+        assert_eq!(KIND.load(Ordering::Relaxed), ResetKind::Cold as u8);
+    }
+
+    #[test]
+    fn reset_passes_warm_to_policy() {
+        use core::sync::atomic::{AtomicU8, Ordering};
+        static KIND: AtomicU8 = AtomicU8::new(0xFF);
+        fn recording(kind: ResetKind) -> ResetEffects {
+            KIND.store(kind as u8, Ordering::Relaxed);
+            ResetEffects::all()
+        }
+        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, recording);
+        let _ = sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::Reset);
+        assert_eq!(KIND.load(Ordering::Relaxed), ResetKind::Warm as u8);
+    }
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn with_reset_policy_preserves_state() {
+        fn noop_policy(_kind: ResetKind) -> ResetEffects {
+            ResetEffects::none()
+        }
+
+        let mut sim = make_sim_with_policy(noop_policy);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_usim_pin(&mut sim);
+
+        // SELECT EF.ICCID to establish a verifiable file selection
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }));
+        // Drain queue
+        let _ = sim.process(SimEvent::Apdu(&[0x00, 0xC0, 0x00, 0x00, 0x20]));
+
+        let rsp = sim.process(SimEvent::Reset);
+        assert!(matches!(rsp, SimResponse::Atr(_)));
+
+        // File selection survived -- READ BINARY returns ICCID data
+        // (PIN also preserved since noop_policy clears nothing)
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, data } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "file selection should survive noop reset");
+                assert_eq!(data, &ICCID_DATA);
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn custom_policy_warm_preserves_pin() {
+        use simrs_pin::{PinKey, PinValue};
+
+        fn warm_preserves_pin(kind: ResetKind) -> ResetEffects {
+            match kind {
+                ResetKind::Cold => ResetEffects::all(),
+                ResetKind::Warm => ResetEffects {
+                    clear_pin_verified: false,
+                    ..ResetEffects::all()
+                },
+            }
+        }
+
+        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, warm_preserves_pin);
+
+        // Configure PIN1 on the USIM app.
+        let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+        sim.usim_app_mut()
+            .pin_manager()
+            .add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true)
+            .unwrap();
+
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // VERIFY PIN1
+        let verify_cmd =
+            [0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
+        let rsp = sim.process(SimEvent::Apdu(&verify_cmd));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x90, sw2: 0x00, .. }));
+
+        // Warm reset: clear_pin_verified=false (preserved), but
+        // clear_file_selection=true (cleared). Re-select EF.ICCID.
+        let _ = sim.process(SimEvent::Reset);
+
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }));
+        let _ = sim.process(SimEvent::Apdu(&[0x00, 0xC0, 0x00, 0x00, 0x20]));
+
+        // READ BINARY without re-verifying PIN -- should succeed because
+        // warm_preserves_pin keeps the verified flag on warm reset.
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "PIN should remain verified after warm reset");
+            }
+            _ => panic!("expected Apdu response"),
+        }
+
+        // Cold reset (PowerOn): clear_pin_verified=true, all cleared.
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // Re-select EF.ICCID (file selection cleared by cold reset)
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }));
+        let _ = sim.process(SimEvent::Apdu(&[0x00, 0xC0, 0x00, 0x00, 0x20]));
+
+        // READ BINARY without re-verifying PIN -- should fail because
+        // cold reset cleared the verified flag.
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x69, 0x82),
+                    "PIN should be cleared after cold reset");
+            }
+            _ => panic!("expected Apdu response"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Reset policy: per-flag behavioral tests
+    // -----------------------------------------------------------------------
+    //
+    // Each test verifies that a single ResetEffects flag independently
+    // controls its subsystem:
+    //
+    //   - `preserve_all`: all flags false -- nothing cleared
+    //   - `clear_only_X`: exactly one flag true, rest false
+    //
+    // The test pattern is:
+    //   1. Set up the target state (queue response, select file, etc.)
+    //   2. Reset with the policy
+    //   3. Assert the target was preserved or cleared
+    //   4. ("cleared" tests) Assert an adjacent subsystem was NOT disturbed
+
+    // -- Policy catalogue --
+
+    #[cfg(any(feature = "gsm", feature = "usim"))]
+    fn preserve_all(_: ResetKind) -> ResetEffects { ResetEffects::none() }
+
+    #[cfg(any(feature = "gsm", feature = "usim"))]
+    fn clear_only_pin_verified(_: ResetKind) -> ResetEffects {
+        ResetEffects { clear_pin_verified: true, ..ResetEffects::none() }
+    }
+
+    #[cfg(any(feature = "gsm", feature = "usim"))]
+    fn clear_only_response_queue(_: ResetKind) -> ResetEffects {
+        ResetEffects { clear_response_queue: true, ..ResetEffects::none() }
+    }
+
+    #[cfg(any(feature = "gsm", feature = "usim"))]
+    fn clear_only_file_selection(_: ResetKind) -> ResetEffects {
+        ResetEffects { clear_file_selection: true, ..ResetEffects::none() }
+    }
+
+    #[cfg(feature = "usim")]
+    fn clear_only_logical_channels(_: ResetKind) -> ResetEffects {
+        ResetEffects { clear_logical_channels: true, ..ResetEffects::none() }
+    }
+
+    #[cfg(feature = "usim")]
+    fn clear_only_proactive_session(_: ResetKind) -> ResetEffects {
+        ResetEffects { clear_proactive_session: true, ..ResetEffects::none() }
+    }
+
+    #[cfg(feature = "usim")]
+    fn clear_only_last_aid_match(_: ResetKind) -> ResetEffects {
+        ResetEffects { clear_last_aid_match: true, ..ResetEffects::none() }
+    }
+
+    // -- pin verified (USIM) --
+    //
+    // PIN tests use a PIN-gated operation (READ BINARY on EF.ICCID) as the
+    // observable rather than re-issuing VERIFY, because a correct-PIN VERIFY
+    // always returns 90 00 regardless of whether the verified flag survived
+    // the reset. Using READ BINARY directly exposes the flag state.
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn pin_verified_preserved_when_flag_false() {
+        let mut sim = make_sim_with_policy(preserve_all);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_usim_pin(&mut sim);
+
+        // SELECT EF.ICCID, drain queue
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }));
+        let _ = sim.process(SimEvent::Apdu(&[0x00, 0xC0, 0x00, 0x00, 0x20]));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // READ BINARY without re-verifying PIN -- should succeed because
+        // clear_pin_verified=false preserves the verified flag, and
+        // clear_file_selection=false preserves the EF.ICCID selection.
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, data } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "READ BINARY should succeed: PIN preserved across reset");
+                assert_eq!(data, &ICCID_DATA);
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn pin_verified_cleared_when_flag_true() {
+        let mut sim = make_sim_with_policy(clear_only_pin_verified);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_usim_pin(&mut sim);
+
+        // SELECT EF.ICCID, drain queue (file selection preserved by policy)
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }));
+        let _ = sim.process(SimEvent::Apdu(&[0x00, 0xC0, 0x00, 0x00, 0x20]));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // READ BINARY without re-verifying PIN -- should fail because
+        // clear_pin_verified=true cleared the verified flag.
+        // File selection is preserved, so the failure is specifically due to PIN.
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x69, 0x82),
+                    "READ BINARY must fail: PIN cleared by reset");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+
+        // Re-verify PIN, then READ BINARY should succeed (proving it was
+        // only PIN that blocked access, not file selection or anything else).
+        verify_usim_pin(&mut sim);
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, data } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "READ BINARY should succeed after re-verifying PIN");
+                assert_eq!(data, &ICCID_DATA);
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    // -- pin verified (GSM) --
+
+    #[cfg(feature = "gsm")]
+    #[test]
+    fn gsm_pin_verified_preserved_when_flag_false() {
+        let mut sim = make_sim_with_policy(preserve_all);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_gsm_pin(&mut sim);
+
+        // SELECT EF.ICCID via GSM, drain queue
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x9F, .. }));
+        let _ = sim.process(SimEvent::Apdu(&[0xA0, 0xC0, 0x00, 0x00, 0x0F]));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // READ BINARY without re-verifying PIN -- should succeed
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, data } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "GSM READ BINARY should succeed: PIN preserved across reset");
+                assert_eq!(data, &ICCID_DATA);
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "gsm")]
+    #[test]
+    fn gsm_pin_verified_cleared_when_flag_true() {
+        let mut sim = make_sim_with_policy(clear_only_pin_verified);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_gsm_pin(&mut sim);
+
+        // SELECT EF.ICCID via GSM, drain queue
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x9F, .. }));
+        let _ = sim.process(SimEvent::Apdu(&[0xA0, 0xC0, 0x00, 0x00, 0x0F]));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // READ BINARY without re-verifying PIN -- should fail
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x69, 0x82),
+                    "GSM READ BINARY must fail: PIN cleared by reset");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    // -- response queue (USIM) --
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn response_queue_preserved_when_flag_false() {
+        let mut sim = make_sim_with_policy(preserve_all);
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // SELECT MF queues FCP in response queue -> 61 XX
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
+        let le = match rsp {
+            SimResponse::Apdu { sw1: 0x61, sw2, .. } => sw2,
+            other => panic!("expected 61 XX, got {other:?}"),
+        };
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // GET RESPONSE should still return the queued FCP
+        let mut gr = [0x00, 0xC0, 0x00, 0x00, 0x00];
+        gr[4] = le;
+        let rsp = sim.process(SimEvent::Apdu(&gr));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, data } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "queued response should survive reset when clear_response_queue=false");
+                assert!(!data.is_empty(), "FCP data should be present");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn response_queue_cleared_when_flag_true() {
+        let mut sim = make_sim_with_policy(clear_only_response_queue);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_usim_pin(&mut sim);
+
+        // SELECT EF.ICCID first (establishes file selection for isolation check)
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // Queue was cleared -- GET RESPONSE returns 6F 00 (no data pending)
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xC0, 0x00, 0x00, 0x20]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x6F, 0x00),
+                    "GET RESPONSE must return 6F 00 (no data) after queue cleared");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+
+        // Isolation: file selection was NOT cleared
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, data } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "file selection should be preserved (isolation check)");
+                assert_eq!(data, &ICCID_DATA);
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    // -- response queue (GSM) --
+
+    #[cfg(feature = "gsm")]
+    #[test]
+    fn gsm_response_queue_preserved_when_flag_false() {
+        let mut sim = make_sim_with_policy(preserve_all);
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // SELECT MF via GSM CLA -> 9F XX
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]));
+        let le = match rsp {
+            SimResponse::Apdu { sw1: 0x9F, sw2, .. } => sw2,
+            other => panic!("expected 9F XX, got {other:?}"),
+        };
+
+        let _ = sim.process(SimEvent::Reset);
+
+        let mut gr = [0xA0, 0xC0, 0x00, 0x00, 0x00];
+        gr[4] = le;
+        let rsp = sim.process(SimEvent::Apdu(&gr));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "GSM queue should survive reset when clear_response_queue=false");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "gsm")]
+    #[test]
+    fn gsm_response_queue_cleared_when_flag_true() {
+        let mut sim = make_sim_with_policy(clear_only_response_queue);
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // SELECT MF via GSM CLA -> 9F XX
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x9F, .. }));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // Queue was cleared -- GET RESPONSE returns 6F 00 (no data pending)
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xC0, 0x00, 0x00, 0x17]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x6F, 0x00),
+                    "GSM GET RESPONSE must return 6F 00 (no data) after queue cleared");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    // -- file selection (USIM) --
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn file_selection_preserved_when_flag_false() {
+        let mut sim = make_sim_with_policy(preserve_all);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_usim_pin(&mut sim);
+
+        // SELECT EF.ICCID (2FE2)
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }),
+            "SELECT EF.ICCID should succeed");
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // READ BINARY on preserved selection -- should return ICCID data
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, data } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "READ BINARY should succeed on preserved file selection");
+                assert_eq!(data, &ICCID_DATA,
+                    "should read ICCID data from preserved EF selection");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn file_selection_cleared_when_flag_true() {
+        let mut sim = make_sim_with_policy(clear_only_file_selection);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_usim_pin(&mut sim);
+
+        // SELECT EF.ICCID, then queue a response so we can check isolation
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
+        let le = match rsp {
+            SimResponse::Apdu { sw1: 0x61, sw2, .. } => sw2,
+            other => panic!("expected 61 XX, got {other:?}"),
+        };
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // Isolation first: response queue was NOT cleared.
+        // Must check GET RESPONSE BEFORE any other command, because
+        // non-GET-RESPONSE commands clear the response queue per
+        // ETSI TS 102 221 V18.0.0 clause 11.1.3.
+        let mut gr = [0x00, 0xC0, 0x00, 0x00, 0x00];
+        gr[4] = le;
+        let rsp = sim.process(SimEvent::Apdu(&gr));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "response queue should be preserved (isolation check)");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+
+        // READ BINARY should fail -- MF is selected (not an EF)
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x69, 0x86),
+                    "READ BINARY must return 69 86 (no current EF) after file selection reset");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    // -- file selection (GSM) --
+
+    #[cfg(feature = "gsm")]
+    #[test]
+    fn gsm_file_selection_preserved_when_flag_false() {
+        let mut sim = make_sim_with_policy(preserve_all);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_gsm_pin(&mut sim);
+
+        // SELECT EF.ICCID via GSM CLA
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x9F, .. }),
+            "GSM SELECT EF.ICCID should succeed");
+        // Drain queue so READ BINARY doesn't trigger queue-clearing behavior
+        let _ = sim.process(SimEvent::Apdu(&[0xA0, 0xC0, 0x00, 0x00, 0x0F]));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // READ BINARY on preserved selection
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, data } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "GSM READ BINARY should succeed on preserved file selection");
+                assert_eq!(data, &ICCID_DATA);
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "gsm")]
+    #[test]
+    fn gsm_file_selection_cleared_when_flag_true() {
+        let mut sim = make_sim_with_policy(clear_only_file_selection);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_gsm_pin(&mut sim);
+
+        // SELECT EF.ICCID via GSM CLA
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x9F, .. }));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // READ BINARY should fail with "no EF selected" (not PIN failure)
+        let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x94, 0x00),
+                    "GSM READ BINARY must return 94 00 (no EF selected) after file selection reset");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    // -- logical channels (USIM only) --
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn logical_channels_preserved_when_flag_false() {
+        let mut sim = make_sim_with_policy(preserve_all);
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // MANAGE CHANNEL: open channel (P1=0x00, P2=0x00)
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0x70, 0x00, 0x00, 0x01]));
+        let ch = match rsp {
+            SimResponse::Apdu { sw1: 0x90, sw2: 0x00, data } => {
+                assert_eq!(data.len(), 1, "should return channel number");
+                data[0]
+            }
+            other => panic!("expected channel open success, got {other:?}"),
+        };
+        assert!((1..=3).contains(&ch), "channel number should be 1-3, got {ch}");
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // SELECT MF on the preserved channel -- should succeed with 61 XX
+        let cla = ch;
+        let rsp = sim.process(SimEvent::Apdu(&[cla, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!(sw1, 0x61,
+                    "channel {ch} should remain open, expected 61 XX got {sw1:02X} {sw2:02X}");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn logical_channels_closed_when_flag_true() {
+        let mut sim = make_sim_with_policy(clear_only_logical_channels);
+        let _ = sim.process(SimEvent::PowerOn);
+        verify_usim_pin(&mut sim);
+
+        // MANAGE CHANNEL: open channel
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0x70, 0x00, 0x00, 0x01]));
+        let ch = match rsp {
+            SimResponse::Apdu { sw1: 0x90, sw2: 0x00, data } => data[0],
+            other => panic!("expected channel open success, got {other:?}"),
+        };
+
+        // SELECT EF.ICCID on basic channel for isolation check
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }));
+        // Drain queue
+        let _ = sim.process(SimEvent::Apdu(&[0x00, 0xC0, 0x00, 0x00, 0x20]));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // SELECT on closed channel should fail with 69 86
+        let cla = ch;
+        let rsp = sim.process(SimEvent::Apdu(&[cla, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x69, 0x86),
+                    "channel {ch} should be closed after reset with clear_logical_channels=true");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+
+        // Isolation: file selection on basic channel was NOT cleared
+        let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xB0, 0x00, 0x00, 0x0A]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, data } => {
+                assert_eq!((sw1, sw2), (0x90, 0x00),
+                    "basic channel file selection should be preserved (isolation check)");
+                assert_eq!(data, &ICCID_DATA);
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    // -- proactive session (USIM only) --
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn proactive_session_preserved_when_flag_false() {
+        let mut sim = make_sim_with_policy(preserve_all);
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // TERMINAL PROFILE activates proactive session
+        let rsp = sim.process(SimEvent::Apdu(
+            &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF],
+        ));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x90, sw2: 0x00, .. }));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // ENVELOPE (Menu Selection D3) should be accepted (session still active)
+        let rsp = sim.process(SimEvent::Apdu(
+            &[0x80, 0xC2, 0x00, 0x00, 0x05, 0xD3, 0x03, 0x90, 0x01, 0x02],
+        ));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!(sw1, 0x90,
+                    "ENVELOPE should succeed when proactive session preserved, got {sw1:02X} {sw2:02X}");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn proactive_session_cleared_when_flag_true() {
+        let mut sim = make_sim_with_policy(clear_only_proactive_session);
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // TERMINAL PROFILE activates proactive session
+        let rsp = sim.process(SimEvent::Apdu(
+            &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF],
+        ));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x90, sw2: 0x00, .. }));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // ENVELOPE (Menu Selection D3) should be rejected (session cleared)
+        let rsp = sim.process(SimEvent::Apdu(
+            &[0x80, 0xC2, 0x00, 0x00, 0x05, 0xD3, 0x03, 0x90, 0x01, 0x02],
+        ));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x69, 0x86),
+                    "ENVELOPE should be rejected after proactive session cleared");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    // -- last AID match (USIM only) --
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn last_aid_match_preserved_when_flag_false() {
+        let mut sim = make_sim_with_policy(preserve_all);
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // SELECT by AID (USIM AID: A0 00 00 00 87 10 02)
+        // P1=04 (select by DF name), P2=04 (FCI)
+        let rsp = sim.process(SimEvent::Apdu(
+            &[0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+        ));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }),
+            "SELECT by AID should succeed");
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // "Next occurrence" SELECT by AID (P2=02) should fail
+        // because last_aid_match is still true from the prior SELECT.
+        let rsp = sim.process(SimEvent::Apdu(
+            &[0x00, 0xA4, 0x04, 0x02, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+        ));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x6A, 0x82),
+                    "next-occurrence SELECT should fail when last_aid_match preserved");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "usim")]
+    #[test]
+    fn last_aid_match_cleared_when_flag_true() {
+        let mut sim = make_sim_with_policy(clear_only_last_aid_match);
+        let _ = sim.process(SimEvent::PowerOn);
+
+        // SELECT by AID -> sets last_aid_match=true
+        let rsp = sim.process(SimEvent::Apdu(
+            &[0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+        ));
+        assert!(matches!(rsp, SimResponse::Apdu { sw1: 0x61, .. }));
+
+        let _ = sim.process(SimEvent::Reset);
+
+        // "Next occurrence" SELECT by AID should now succeed because
+        // last_aid_match was cleared (treated as first occurrence).
+        let rsp = sim.process(SimEvent::Apdu(
+            &[0x00, 0xA4, 0x04, 0x02, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+        ));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!(sw1, 0x61,
+                    "next-occurrence SELECT should succeed after clearing last_aid_match, got {sw1:02X} {sw2:02X}");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Reset policy: adversarial / boundary tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn power_off_does_not_invoke_reset_policy() {
+        use core::sync::atomic::{AtomicU8, Ordering};
+        static CALL_COUNT: AtomicU8 = AtomicU8::new(0);
+        fn counting_policy(kind: ResetKind) -> ResetEffects {
+            CALL_COUNT.fetch_add(1, Ordering::Relaxed);
+            let _ = kind;
+            ResetEffects::all()
+        }
+
+        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, counting_policy);
+        CALL_COUNT.store(0, Ordering::Relaxed);
+
+        // PowerOn invokes the policy once (Cold)
+        let _ = sim.process(SimEvent::PowerOn);
+        assert_eq!(CALL_COUNT.load(Ordering::Relaxed), 1, "PowerOn should invoke policy");
+
+        // PowerOff must NOT invoke the policy
+        let _ = sim.process(SimEvent::PowerOff);
+        assert_eq!(CALL_COUNT.load(Ordering::Relaxed), 1,
+            "PowerOff must not invoke reset policy");
+    }
+
+    #[test]
+    fn multiple_resets_each_invoke_policy() {
+        use core::sync::atomic::{AtomicU8, Ordering};
+        static CALL_COUNT: AtomicU8 = AtomicU8::new(0);
+        fn counting_policy(kind: ResetKind) -> ResetEffects {
+            let _ = kind;
+            CALL_COUNT.fetch_add(1, Ordering::Relaxed);
+            ResetEffects::all()
+        }
+
+        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, counting_policy);
+        CALL_COUNT.store(0, Ordering::Relaxed);
+
+        let _ = sim.process(SimEvent::PowerOn); // call 1
+        let _ = sim.process(SimEvent::Reset);   // call 2
+        let _ = sim.process(SimEvent::Reset);   // call 3
+        let _ = sim.process(SimEvent::Reset);   // call 4
+
+        assert_eq!(CALL_COUNT.load(Ordering::Relaxed), 4,
+            "policy should be invoked on every PowerOn and Reset");
+    }
+
+    #[test]
+    fn power_cycle_always_passes_cold() {
+        use core::sync::atomic::{AtomicU8, Ordering};
+        static LAST_KIND: AtomicU8 = AtomicU8::new(0xFF);
+        fn recording(kind: ResetKind) -> ResetEffects {
+            LAST_KIND.store(kind as u8, Ordering::Relaxed);
+            ResetEffects::all()
+        }
+
+        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, recording);
+
+        // First PowerOn -> Cold
+        let _ = sim.process(SimEvent::PowerOn);
+        assert_eq!(LAST_KIND.load(Ordering::Relaxed), ResetKind::Cold as u8);
+
+        // Warm reset -> Warm
+        let _ = sim.process(SimEvent::Reset);
+        assert_eq!(LAST_KIND.load(Ordering::Relaxed), ResetKind::Warm as u8);
+
+        // PowerOff -> PowerOn should be Cold (not Warm)
+        let _ = sim.process(SimEvent::PowerOff);
+        let _ = sim.process(SimEvent::PowerOn);
+        assert_eq!(LAST_KIND.load(Ordering::Relaxed), ResetKind::Cold as u8,
+            "PowerOn after PowerOff must pass Cold, not Warm");
+    }
+
+    #[test]
+    fn reset_from_off_state_transitions_to_ready() {
+        let mut sim = make_sim();
+        // Card starts Off. Reset from Off -> should transition to Ready.
+        let rsp = sim.process(SimEvent::Reset);
+        assert!(matches!(rsp, SimResponse::Atr(_)),
+            "Reset from Off should return ATR (transition to Ready)");
+
+        // Card should now accept APDUs
+        let rsp = sim.process(SimEvent::Apdu(&[0xF0, 0xA4, 0x00, 0x00]));
+        match rsp {
+            SimResponse::Apdu { sw1, sw2, .. } => {
+                assert_eq!((sw1, sw2), (0x6E, 0x00), "card should be Ready after Reset from Off");
+            }
+            other => panic!("expected Apdu, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn struct_update_syntax_produces_single_false_flag() {
+        let effects = ResetEffects { clear_pin_verified: false, ..ResetEffects::all() };
+        assert!(!effects.clear_pin_verified);
+        assert!(effects.clear_response_queue);
+        assert!(effects.clear_file_selection);
+        assert!(effects.clear_logical_channels);
+        assert!(effects.clear_proactive_session);
+        assert!(effects.clear_last_aid_match);
+    }
+
+    #[test]
+    fn struct_update_syntax_produces_single_true_flag() {
+        let effects = ResetEffects { clear_response_queue: true, ..ResetEffects::none() };
+        assert!(!effects.clear_pin_verified);
+        assert!(effects.clear_response_queue);
+        assert!(!effects.clear_file_selection);
+        assert!(!effects.clear_logical_channels);
+        assert!(!effects.clear_proactive_session);
+        assert!(!effects.clear_last_aid_match);
     }
 
     // -----------------------------------------------------------------------
