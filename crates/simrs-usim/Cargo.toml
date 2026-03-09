@@ -9,10 +9,10 @@ description = "3GPP USIM application layer (Milenage auth, FCP, TERMINAL PROFILE
 default = ["profile-standard"]
 
 # Profile tiers (additive: full includes standard includes minimal)
-# DF_5GS (17 EFs, 482B) is included in all tiers.
-profile-minimal  = []   # LTE attach minimum (31 EFs, FsData<1024, 40>)
-profile-standard = []   # Baseline USIM + SMS + 5GS (56 EFs, FsData<4096, 80>)
-profile-full     = ["profile-standard"]  # Full TS 31.102 catalog (113 EFs, FsData<8192, 160>)
+# DF_5GS (19 EFs) is included in all tiers.
+profile-minimal  = []   # LTE attach minimum (33 EFs, FsData<1024, 40>)
+profile-standard = []   # Baseline USIM + SMS + 5GS (58 EFs, FsData<4096, 80>)
+profile-full     = ["profile-standard"]  # Full TS 31.102 catalog (207 EFs, FsData<16384, 290>)
 
 # Application ADFs (additive)
 isim  = []   # ADF.ISIM per TS 31.103 (~10 EFs)

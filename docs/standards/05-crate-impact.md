@@ -70,7 +70,7 @@ Crate dependency for TUAK support (implemented):
 4. UPDATE RECORD for EF5GS3GPPNSC (ME writes security context) handled
 5. UPDATE BINARY for EF5GS3GPPLOCI (ME writes 5G-GUTI) handled
 
-Full catalog: 90 ADF EFs + 17 DF_5GS + ISIM + HPSIM.
+Full catalog: 115 ADF EFs + 19 DF_5GS + 11 sub-DFs + ISIM + HPSIM.
 
 **No changes needed for AUTHENTICATE** -- the handler is already generation-agnostic.
 

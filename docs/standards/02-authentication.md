@@ -440,7 +440,7 @@ pub enum SqnPolicy {
 The **AMF separation bit** (bit 0 of AMF octet 1) distinguishes 5G vectors (bit=1) from 3G/4G (bit=0), but the USIM doesn't act on it -- it verifies MAC-A regardless. The ME uses it to decide which key derivation to perform.
 
 This means **no changes to `simrs-milenage` or `simrs-usim` AUTHENTICATE handling are needed for 5G support**. The 5G-specific work is:
-1. DF_5GS EFs (17 EFs) are defined in `simrs-usim::profile` (implemented)
+1. DF_5GS EFs (19 EFs) are defined in `simrs-usim::profile` (implemented)
 2. UPDATE RECORD for EF5GS3GPPNSC is handled by the standard record-write path (implemented)
 3. Optionally implementing SUCI computation (future -- requires ECIES)
 
@@ -454,10 +454,10 @@ This means **no changes to `simrs-milenage` or `simrs-usim` AUTHENTICATE handlin
 | Authentication | EPS-AKA | 5G-AKA or EAP-AKA' |
 | USIM requirement | Rel-8+ (EPS-capable) | Rel-15+ (DF_5GS, services 121-125) |
 | SUCI | Not used | Required for identity privacy |
-| 5G EFs needed | No (NR is transparent to USIM) | Yes (4F01-4F0D) |
+| 5G EFs needed | No (NR is transparent to USIM) | Yes (4F01-4F11, 4F15-4F16) |
 | AMF separation bit | 0 | 1 |
 
-**Impact on simrs:** For Shannon fuzzing in NSA mode, the current simrs USIM (with EPS EFs) is sufficient. For SA mode, the DF_5GS directory (17 EFs, Rel-15 through Rel-17) is implemented in `simrs-usim::profile` and included in all profile tiers.
+**Impact on simrs:** For Shannon fuzzing in NSA mode, the current simrs USIM (with EPS EFs) is sufficient. For SA mode, the DF_5GS directory (19 EFs, Rel-15 through Rel-18) is implemented in `simrs-usim::profile` and included in all profile tiers.
 
 ---
 

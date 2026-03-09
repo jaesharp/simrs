@@ -104,7 +104,7 @@ graph LR
 | 3G/4G/5G | TUAK (f1-f5, Keccak) | `simrs-keccak`, `simrs-tuak`, `simrs-hle` | Implemented; HLE dispatches Milenage or TUAK |
 | 4G LTE (EPS) | EPS-AKA (Milenage + KASME KDF) | `simrs-usim` | USIM-side identical to 3G; ME-side KDF out of scope |
 | 5G NR NSA | EPS-AKA (via LTE anchor) | `simrs-usim` | No 5G-specific USIM changes needed |
-| 5G NR SA | 5G-AKA / EAP-AKA' | `simrs-usim` (DF_5GS: 17 EFs) | USIM-side: DF_5GS EFs implemented (SUCI, 5G-GUTI, KAMF, URSP, CAG); ME-side key derivation out of scope |
+| 5G NR SA | 5G-AKA / EAP-AKA' | `simrs-usim` (DF_5GS: 19 EFs) | USIM-side: DF_5GS EFs implemented (SUCI, 5G-GUTI, KAMF, URSP, CAG, MCHPPLMN, KAUSF); ME-side key derivation out of scope |
 
 ## Protocol Coverage (Tiers 5--6)
 

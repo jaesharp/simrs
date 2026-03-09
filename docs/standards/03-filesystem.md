@@ -14,8 +14,8 @@ The simrs profile system implements EFs from the following applications and dire
 |-------------|------|----------|-------------|-------|
 | ADF.USIM (minimal) | TS 31.102 | 10 | `profile-minimal` | `simrs-usim` |
 | ADF.USIM (standard) | TS 31.102 | 35 | `profile-standard` (default) | `simrs-usim` |
-| ADF.USIM (full) | TS 31.102 | 90 EFs + 2 sub-DFs | `profile-full` | `simrs-usim` |
-| DF_5GS | TS 31.102 clause 4.4.11 | 17 | always (under ADF.USIM) | `simrs-usim` |
+| ADF.USIM (full) | TS 31.102 | 115 EFs + 11 sub-DFs | `profile-full` | `simrs-usim` |
+| DF_5GS | TS 31.102 clause 4.4.11 | 19 | always (under ADF.USIM) | `simrs-usim` |
 | DF.GSM-ACCESS | TS 31.102 clause 4.4 | 2 | `profile-full` | `simrs-usim` |
 | ADF.ISIM | TS 31.103 | 10 | `isim` | `simrs-usim` |
 | ADF.HPSIM | TS 31.104 | 3 | `hpsim` | `simrs-usim` |
@@ -215,10 +215,12 @@ Per TS 31.102 clause 4.4.11. Under DF_5GS (FID 5FC0, child of ADF_USIM).
 | 4F0F | EFDRI | 140 | 17 | Transparent | Disaster roaming info |
 | 4F10 | EF5GSEDRX | 141 | 17 | Transparent | 5G eDRX parameters |
 | 4F11 | EF5GNSWO_CONF | 142 | 17 | Transparent | NSWO configuration |
+| 4F15 | EFMCHPPLMN | 144 | 18 | Transparent | HPPLMN search multiplier |
+| 4F16 | EFKAUSF_DERIVATION | 145 | 18 | Transparent | KAUSF derivation config |
 
 ### Rust Implementation
 
-All 17 DF_5GS EFs are implemented as `static EfDef` definitions in `simrs-usim::profile`,
+All 19 DF_5GS EFs are implemented as `static EfDef` definitions in `simrs-usim::profile`,
 constructed via typed constructors (`EfDef::transparent`, `EfDef::linear_fixed`). Each
 constructor validates data length at compile time (record-based variants assert
 `data.len() == record_size * num_records`). DF_5GS FID uniqueness is enforced by a
@@ -277,7 +279,7 @@ sequenceDiagram
     ME->>USIM: UPDATE BINARY EF_EPSLOCI (GUTI, TAI, status)
 ```
 
-**Implementation status:** The full TS 31.102 catalog is implemented across three profile tiers (minimal/standard/full), controlled by compile-time feature flags. The `profile-full` tier provides 90 ADF.USIM EFs plus 17 DF_5GS EFs and 2 DF.GSM-ACCESS EFs (113 total including 4 MF EFs). Additional ADFs -- ISIM (10 EFs, TS 31.103) and HPSIM (3 EFs, TS 31.104) -- and DF.TELECOM (12 EFs) are available via their respective feature flags. All EFs use typed `EfDef` constructors with compile-time data length validation, `Fid`/`Sfi` validated newtypes, and `assert_fids_unique` compile-time FID uniqueness checks per DF scope. Empty EFs default to 0xFF-filled data.
+**Implementation status:** The full TS 31.102 catalog is implemented across three profile tiers (minimal/standard/full), controlled by compile-time feature flags. The `profile-full` tier provides 115 ADF.USIM EFs plus 19 DF_5GS EFs, 11 sub-DFs with 88 child EFs (207 total including 4 MF EFs). Additional ADFs -- ISIM (10 EFs, TS 31.103) and HPSIM (3 EFs, TS 31.104) -- and DF.TELECOM (12 EFs) are available via their respective feature flags. All EFs use typed `EfDef` constructors with compile-time data length validation, `Fid`/`Sfi` validated newtypes, and `assert_fids_unique` compile-time FID uniqueness checks per DF scope. Empty EFs default to 0xFF-filled data.
 
 ---
 

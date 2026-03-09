@@ -162,7 +162,7 @@ graph TB
 | [`simrs-proactive`](crates/simrs-proactive/) | Composition | yes | Proactive UICC / CAT command encoding | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-proactive) |
 | [`simrs-ota`](crates/simrs-ota/) | Composition | yes | OTA secured packets (TS 102 225/226) | [rijndael](crates/simrs-rijndael/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-ota) |
 | [`simrs-gsm`](crates/simrs-gsm/) | Application | yes | GSM 11.11 SIM app (SELECT, RUN GSM ALGO, STATUS). Profile tiers: `profile-minimal` (9 EFs), `profile-standard` (19 EFs, default). | [iso7816](crates/simrs-iso7816/), [comp128](crates/simrs-comp128/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/) | [API](docs/architecture.md#simrs-gsm) |
-| [`simrs-usim`](crates/simrs-usim/) | Application | yes | 3GPP USIM app (FCP, AUTH, TERMINAL PROFILE, FETCH). Profile tiers: `profile-minimal` (31 EFs), `profile-standard` (56 EFs, default), `profile-full` (113 EFs). Full profile: 90 ADF.USIM EFs + 17 DF_5GS EFs + 2 DF.GSM-ACCESS EFs + 4 MF EFs. Optional ADFs: `isim` (ISIM, 10 EFs, TS 31.103), `hpsim` (HPSIM, 3 EFs, TS 31.104). Optional: `telecom` (DF.TELECOM, 12 EFs). Meta flags: `profile-lte`, `profile-5g`, `profile-ims`, `profile-all`. | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/), [milenage](crates/simrs-milenage/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [proactive](crates/simrs-proactive/) | [API](docs/architecture.md#simrs-usim) |
+| [`simrs-usim`](crates/simrs-usim/) | Application | yes | 3GPP USIM app (FCP, AUTH, TERMINAL PROFILE, FETCH). Profile tiers: `profile-minimal` (33 EFs), `profile-standard` (58 EFs, default), `profile-full` (207 EFs). Full profile: 115 ADF.USIM EFs + 19 DF_5GS EFs + 11 sub-DFs (88 child EFs) + 4 MF EFs. Optional ADFs: `isim` (ISIM, 10 EFs, TS 31.103), `hpsim` (HPSIM, 3 EFs, TS 31.104). Optional: `telecom` (DF.TELECOM, 12 EFs). Meta flags: `profile-lte`, `profile-5g`, `profile-ims`, `profile-all`. | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/), [milenage](crates/simrs-milenage/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [proactive](crates/simrs-proactive/) | [API](docs/architecture.md#simrs-usim) |
 | [`simrs-sim`](crates/simrs-sim/) | Application | yes | Top-level `Sim` state machine, event-driven entry point | [iso7816](crates/simrs-iso7816/), [fs](crates/simrs-fs/), [pin](crates/simrs-pin/), [gsm](crates/simrs-gsm/)^opt^, [usim](crates/simrs-usim/)^opt^ | [API](docs/architecture.md#simrs-sim) |
 | [`simrs-transport`](crates/simrs-transport/) | Boundary | yes | `Transport` trait (APDU exchange abstraction) | [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport) |
 | [`simrs-transport-tcp`](crates/simrs-transport-tcp/) | Boundary | **no** | TCP client for swICC PC/SC server protocol | [transport](crates/simrs-transport/), [iso7816](crates/simrs-iso7816/) | [API](docs/architecture.md#simrs-transport-tcp) |
@@ -192,15 +192,15 @@ graph TB
 | Standard | Crate(s) | Scope |
 |----------|----------|-------|
 | ISO/IEC 7816-4:2020 | [iso7816](crates/simrs-iso7816/) | APDU structure, status words, CLA/INS |
-| ETSI TS 102 221 V18.0.0 | [usim](crates/simrs-usim/), [fs](crates/simrs-fs/) | UICC-terminal interface, FCP, file system |
-| ETSI TS 101 220 V17.1.0 | [bertlv](crates/simrs-bertlv/) | BER-TLV tag assignments |
+| ETSI TS 102 221 V18.3.0 | [usim](crates/simrs-usim/), [fs](crates/simrs-fs/) | UICC-terminal interface, FCP, file system |
+| ETSI TS 101 220 V19.0.0 | [bertlv](crates/simrs-bertlv/) | BER-TLV tag assignments |
 | GSM 11.11 v4.21.1 | [gsm](crates/simrs-gsm/) | ME-SIM interface, SELECT response |
 | 3GPP TS 31.101/31.102 | [usim](crates/simrs-usim/) | USIM application |
 | 3GPP TS 31.103 | [usim](crates/simrs-usim/) | ISIM application (feature: `isim`) |
 | 3GPP TS 31.104 | [usim](crates/simrs-usim/) | HPSIM application (feature: `hpsim`) |
-| ETSI TS 102 223 V17.2.0 | [proactive](crates/simrs-proactive/) | Card Application Toolkit |
-| ETSI TS 135 206 V17.0.0 | [milenage](crates/simrs-milenage/) | Milenage algorithm |
-| ETSI TS 135 208 V17.0.0 | [milenage](crates/simrs-milenage/) | Milenage test vectors |
+| ETSI TS 102 223 V18.2.0 | [proactive](crates/simrs-proactive/) | Card Application Toolkit |
+| ETSI TS 135 206 V19.0.0 | [milenage](crates/simrs-milenage/) | Milenage algorithm |
+| ETSI TS 135 208 V19.0.0 | [milenage](crates/simrs-milenage/) | Milenage test vectors |
 | NIST FIPS 197 | [rijndael](crates/simrs-rijndael/) | AES-128 |
 | ISO/IEC 8825-1 | [bertlv](crates/simrs-bertlv/) | BER-TLV encoding rules |
 | 3GPP TS 51.011 V4.15.0 | [gsm](crates/simrs-gsm/) | GSM SIM-ME interface (successor to GSM 11.11) |

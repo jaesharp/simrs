@@ -459,7 +459,7 @@ PCAP + GSMTAP SIM frame encoder. Zero dependencies, `no_std`. Used by [`simrs-in
 
 ### `simrs-milenage`
 
-**Standards:** ETSI TS 135 206 V17.0.0, ETSI TS 135 208 V17.0.0
+**Standards:** ETSI TS 135 206 V19.0.0, ETSI TS 135 208 V19.0.0
 
 **Deps:** [`simrs-rijndael`](#simrs-rijndael)
 
@@ -556,9 +556,9 @@ All identifier and definition types enforce invariants at construction time:
 
 | Tier | `CAP` | `MAX_EFS` | Typical EF count |
 |------|-------|-----------|------------------|
-| `profile-minimal` | 1024 | 40 | ~31 EFs |
-| `profile-standard` | 4096 | 80 | ~56 EFs |
-| `profile-full` | 8192 | 160 | ~113 EFs |
+| `profile-minimal` | 1024 | 40 | ~33 EFs |
+| `profile-standard` | 4096 | 80 | ~58 EFs |
+| `profile-full` | 16384 | 290 | ~207 EFs |
 
 ```rust
 // --- File identifiers (TS 102 221 clause 8.2) ---
@@ -712,7 +712,7 @@ impl<const N: usize> PinManager<N> {
 
 ### `simrs-proactive`
 
-**Standards:** ETSI TS 102 223 V17.2.0 (CAT), 3GPP TS 31.111 V17.0.0 (USAT), 3GPP TS 23.038 (data coding)
+**Standards:** ETSI TS 102 223 V18.2.0 (CAT), 3GPP TS 31.111 V19.3.0 (USAT), 3GPP TS 23.038 (data coding)
 
 **Deps:** [`simrs-iso7816`](#simrs-iso7816), [`simrs-bertlv`](#simrs-bertlv)
 
@@ -798,7 +798,7 @@ impl GsmApp {
 
 ### `simrs-usim`
 
-**Standards:** ETSI TS 102 221 V18.0.0 (UICC interface), 3GPP TS 31.102 V17 (USIM application), TS 31.102 clause 7.1.2 (AUTHENTICATE), 3GPP TS 31.103 (ISIM), 3GPP TS 31.104 (HPSIM)
+**Standards:** ETSI TS 102 221 V18.3.0 (UICC interface), 3GPP TS 31.102 V17 (USIM application), TS 31.102 clause 7.1.2 (AUTHENTICATE), 3GPP TS 31.103 (ISIM), 3GPP TS 31.104 (HPSIM)
 
 **Deps:** [`simrs-iso7816`](#simrs-iso7816), [`simrs-bertlv`](#simrs-bertlv), [`simrs-milenage`](#simrs-milenage), [`simrs-fs`](#simrs-fs), [`simrs-pin`](#simrs-pin), [`simrs-proactive`](#simrs-proactive)
 
@@ -820,14 +820,14 @@ Application ADFs are independently additive:
 
 | Feature | Standard | EFs |
 |---------|----------|-----|
-| (always) ADF.USIM | TS 31.102 | ~91 ADF EFs + 17 DF_5GS |
+| (always) ADF.USIM | TS 31.102 | 115 ADF EFs + 19 DF_5GS + sub-DFs |
 | `isim` | TS 31.103 | 10 EFs (IMPI, IMPU, Domain, ...) |
 | `hpsim` | TS 31.104 | 3 EFs (ARR, HPST, AD) |
 | `telecom` | TS 102 221 | 12 EFs (ADN, FDN, SMS, ...) |
 
 Meta features for convenience: `profile-lte`, `profile-5g`, `profile-ims`, `profile-all`.
 
-DF_5GS (17 EFs, ~482 bytes) is included in all tiers. GSM profile (`simrs-gsm`) has its own independent profile with `profile-minimal` (~8 EFs) and `profile-standard` (~22 EFs).
+DF_5GS (19 EFs) is included in all tiers. GSM profile (`simrs-gsm`) has its own independent profile with `profile-minimal` (~8 EFs) and `profile-standard` (~22 EFs).
 
 All DFs use compile-time `assert_fids_unique` to prevent duplicate FIDs.
 

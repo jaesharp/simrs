@@ -20,8 +20,8 @@ graph LR
 
 | Spec | Coverage |
 |------|----------|
-| ETSI TS 102 221 V18.0.0 clause 8 | File structure (MF/DF/EF types) |
-| 3GPP TS 31.102 V17.5.0 clause 4 | USIM ADF EF catalog |
+| ETSI TS 102 221 V18.3.0 clause 8 | File structure (MF/DF/EF types) |
+| 3GPP TS 31.102 V19.4.0 clause 4 | USIM ADF EF catalog |
 | GSM 11.11 v4.21.1 clause 10 | SIM file system |
 
 ## Dependencies
@@ -55,9 +55,9 @@ Typical sizes by profile tier:
 
 | Profile | `CAP` | `MAX_EFS` | Notes |
 |---------|-------|-----------|-------|
-| USIM minimal | 1024 | 40 | 31 EFs (incl. DF_5GS) |
-| USIM standard | 4096 | 80 | 56 EFs |
-| USIM full + all | 8192 | 160 | 113+ EFs across all ADFs |
+| USIM minimal | 1024 | 40 | 33 EFs (incl. DF_5GS) |
+| USIM standard | 4096 | 80 | 58 EFs |
+| USIM full + all | 16384 | 290 | 206+ EFs across all ADFs |
 | GSM minimal | 256 | 16 | 9 EFs |
 | GSM standard | 1024 | 32 | 19 EFs |
 

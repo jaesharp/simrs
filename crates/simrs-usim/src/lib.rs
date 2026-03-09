@@ -7,7 +7,7 @@
 //! DISABLE PIN, ENABLE PIN, UNBLOCK PIN, TERMINAL PROFILE, FETCH,
 //! TERMINAL RESPONSE, and ENVELOPE.
 //!
-//! Constructs FCP BER-TLV per [ETSI TS 102 221 V18.0.0 clause 11.1.1.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A333%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D) using a
+//! Constructs FCP BER-TLV per [ETSI TS 102 221 V18.3.0 clause 11.1.1.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A335%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D) using a
 //! dry-run/real-run pattern for buffer-size determination.
 //!
 //! Post-APDU hook: if a proactive command is pending and SW would be
@@ -15,10 +15,10 @@
 //! command length.
 //!
 //! # Standards
-//! - [ETSI TS 102 221 V18.0.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf) -- UICC-terminal interface
-//! - 3GPP TS 31.101 V17.0.0 -- UICC-terminal interface (3GPP additions)
-//! - [3GPP TS 31.102 V17.5.0](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf) -- USIM application characteristics
-//! - [ETSI TS 102 223 V17.2.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf) -- Card Application Toolkit (proactive)
+//! - [ETSI TS 102 221 V18.3.0](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf) -- UICC-terminal interface
+//! - [3GPP TS 31.101 V17.0.0](../../../docs/specs/3gpp/ts-31.101/ts_131101v170000p.pdf) -- UICC-terminal interface (3GPP additions)
+//! - [3GPP TS 31.102 V19.4.0](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf) -- USIM application characteristics
+//! - [ETSI TS 102 223 V18.2.0](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf) -- Card Application Toolkit (proactive)
 //!
 //! # `no_std`
 //! This crate is `no_std`. All buffers are stack-allocated.
@@ -71,11 +71,11 @@ use simrs_proactive::ProactiveState;
 
 /// Filesystem data buffer capacity, selected by feature flag.
 ///
-/// - `profile-full`: 8192 bytes (full [TS 31.102](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf) catalog + ISIM/HPSIM/TELECOM)
-/// - `profile-standard` (default): 4096 bytes (56 EFs: baseline USIM + DF_5GS)
-/// - `profile-minimal`: 1024 bytes (31 EFs: LTE attach minimum + DF_5GS)
+/// - `profile-full`: 16384 bytes (full [3GPP TS 31.102 V19.4.0](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf) catalog + ISIM/HPSIM/TELECOM)
+/// - `profile-standard` (default): 4096 bytes (58 EFs: baseline USIM + DF_5GS)
+/// - `profile-minimal`: 1024 bytes (33 EFs: LTE attach minimum + DF_5GS)
 ///
-/// Note: DF_5GS (17 EFs, ~482 bytes) is included in all tiers.
+/// Note: DF_5GS (19 EFs) is included in all tiers.
 #[cfg(feature = "profile-full")]
 const FS_CAP: usize = 16384;
 #[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
@@ -85,13 +85,13 @@ const FS_CAP: usize = 1024;
 
 /// Maximum number of EFs in the filesystem, selected by feature flag.
 ///
-/// - `profile-full`: 160 (full [TS 31.102](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf) + ISIM/HPSIM/TELECOM)
-/// - `profile-standard` (default): 80 (56 EFs + headroom for telecom/additive)
-/// - `profile-minimal`: 40 (31 EFs + headroom)
+/// - `profile-full`: 290 (full [3GPP TS 31.102 V19.4.0](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf) + ISIM/HPSIM/TELECOM + legacy DFs)
+/// - `profile-standard` (default): 80 (58 EFs + headroom for telecom/additive)
+/// - `profile-minimal`: 40 (33 EFs + headroom)
 ///
-/// Note: DF_5GS (17 EFs) is included in all tiers.
+/// Note: DF_5GS (19 EFs) is included in all tiers.
 #[cfg(feature = "profile-full")]
-const FS_MAX_EFS: usize = 255;
+const FS_MAX_EFS: usize = 290;
 #[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
 const FS_MAX_EFS: usize = 80;
 #[cfg(all(feature = "profile-minimal", not(feature = "profile-standard"), not(feature = "profile-full")))]
@@ -103,20 +103,20 @@ const CLA_ETSI: u8 = 0x80;
 /// Maximum FCP size (conservative upper bound for our file tree).
 const FCP_BUF_CAP: usize = 64;
 
-// ETSI TS 102 221 V18.0.0 clause 11.1.1.4.3: File descriptor byte values.
+// ETSI TS 102 221 V18.3.0 clause 11.1.1.4.3: File descriptor byte values.
 const FD_DF: u8 = 0x78;
 const DATA_CODING_BER_TLV: u8 = 0x21;
 
-// ETSI TS 102 221 V18.0.0 clause 11.1.1.4.9: Life cycle status.
+// ETSI TS 102 221 V18.3.0 clause 11.1.1.4.9: Life cycle status.
 const LIFECYCLE_ACTIVATED: u8 = 0x05;
 
-// ETSI TS 102 221 V18.0.0 clause 11.1.1.4.8: SFI encoding.
+// ETSI TS 102 221 V18.3.0 clause 11.1.1.4.8: SFI encoding.
 const SFI_INDICATOR: u8 = 0x04;
 
 // PIN status template DO values.
 const PS_DO_TAG: u8 = 0x90;
 
-// 3GPP TS 31.102 V17.5.0 clause 7.1.2: AUTHENTICATE protocol constants.
+// 3GPP TS 31.102 V19.4.0 clause 7.1.2: AUTHENTICATE protocol constants.
 #[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const P2_GSM_CONTEXT: u8 = 0x00;
 const P2_UMTS_CONTEXT: u8 = 0x81;
@@ -131,7 +131,7 @@ const AUTH_RESPONSE_LEN: u8 = 0x08;
 const AUTH_KEY_LEN: u8 = 0x10;
 const AUTH_SUCCESS_INNER_LEN: u8 = 1 + AUTH_RESPONSE_LEN + 1 + AUTH_KEY_LEN + 1 + AUTH_KEY_LEN;
 
-// GSM context response constants (3GPP TS 31.102 V17.5.0 clause 7.1.2).
+// GSM context response constants (3GPP TS 31.102 V19.4.0 clause 7.1.2).
 #[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const GSM_SRES_LEN: u8 = 0x04;
 #[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
@@ -144,7 +144,7 @@ const GSM_AUTH_RSP_LEN: usize = 1 + 4 + 1 + 8;
 // AuthenticationResult
 // ---------------------------------------------------------------------------
 
-/// AUTHENTICATE command result per [3GPP TS 31.102 V17.5.0 clause 7.1.2.1](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A632%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C638%5D).
+/// AUTHENTICATE command result per [3GPP TS 31.102 V19.4.0 clause 7.1.2.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A754%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C330%5D).
 ///
 /// Encodes the three possible outcomes of UMTS AUTHENTICATE:
 /// - Success: RES, CK, IK returned in tag 0xDB
@@ -226,7 +226,7 @@ impl AuthenticationResult {
     }
 }
 
-// PIN data widths (ETSI TS 102 221).
+// PIN data widths (ETSI TS 102 221 V18.3.0).
 const PIN_DATA_LEN: usize = 8;
 /// PUK(8) + new PIN(8) for RESET RETRY COUNTER.
 const PUK_NEW_PIN_LEN: usize = PIN_DATA_LEN * 2;
@@ -244,7 +244,7 @@ const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
 /// state, and the response queue for GET RESPONSE.
 ///
 /// The type parameter `A` selects the authentication algorithm.
-/// The default is [`MilenageParams`] ([TS 35.206](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf)).
+/// The default is [`MilenageParams`] ([ETSI TS 135 206 V19.0.0](../../../docs/specs/3gpp/ts-35.206/ts_135206v190000p.pdf)).
 pub struct UsimApp<A: AuthenticationAlgorithm = MilenageParams> {
     fs: SelectionCtx,
     data: FsData<FS_CAP, FS_MAX_EFS>,
@@ -335,7 +335,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     /// Clear the response queue (pending GET RESPONSE data).
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 12.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A481%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C654%5D), GET RESPONSE must immediately
+    /// Per [ETSI TS 102 221 V18.3.0 clause 12.1.1](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A483%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C655%5D), GET RESPONSE must immediately
     /// follow the command it retrieves data for; any intervening command
     /// clears the response queue.
     pub const fn clear_response_queue(&mut self) {
@@ -345,7 +345,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Reset the file selection context to MF (basic channel).
     ///
     /// After this call, the card behaves as if freshly activated with
-    /// MF implicitly selected ([ETSI TS 102 221 V18.0.0 clause 8.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A263%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C220%5D)).
+    /// MF implicitly selected ([ETSI TS 102 221 V18.3.0 clause 8.4](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A265%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C220%5D)).
     pub const fn reset_file_selection(&mut self) {
         self.fs = SelectionCtx::new(self.mf);
     }
@@ -354,7 +354,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ///
     /// Channel 0 (basic channel) is not routed through `channels[]` --
     /// its selection context lives in `self.fs` directly
-    /// ([ETSI TS 102 221 V18.0.0 clause 8.7](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A276%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C459%5D)).
+    /// ([ETSI TS 102 221 V18.3.0 clause 8.7](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A278%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C459%5D)).
     pub const fn close_all_channels(&mut self) {
         self.channels[1] = None;
         self.channels[2] = None;
@@ -365,7 +365,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// terminal capability).
     ///
     /// Terminal capability is session-scoped data received via TERMINAL
-    /// CAPABILITY ([ETSI TS 102 221 V18.0.0 clause 11.1.19](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A400%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C537%5D)) during card activation
+    /// CAPABILITY ([ETSI TS 102 221 V18.3.0 clause 11.1.19](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A402%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C538%5D)) during card activation
     /// and must be re-sent by the terminal after each reset.
     ///
     /// Note: this corrects the previous `reset_session` which did not
@@ -381,7 +381,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Clear the last AID match flag.
     ///
     /// Resets the "next occurrence" iterator for SELECT by AID
-    /// ([ETSI TS 102 221 V18.0.0 clause 11.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A329%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C371%5D)).
+    /// ([ETSI TS 102 221 V18.3.0 clause 11.1.1](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A331%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C371%5D)).
     pub const fn clear_last_aid_match(&mut self) {
         self.last_aid_match = false;
     }
@@ -794,7 +794,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     /// Resolve record number from P1 and P2 mode bits.
     ///
-    /// P2 low 3 bits encode the record access mode per [ETSI TS 102 221 clause 11.1.5.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A363%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C478%5D):
+    /// P2 low 3 bits encode the record access mode per [ETSI TS 102 221 V18.3.0 clause 11.1.5.2](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A365%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C479%5D):
     /// - 0x02: next record (P1 + 1; if P1 == 0, use record 1)
     /// - 0x03: previous record (P1 - 1)
     /// - 0x04: absolute (P1 = record number)
@@ -939,7 +939,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        // Per ETSI TS 102 221 V18.0.0 clause 11.1.2:
+        // Per ETSI TS 102 221 V18.3.0 clause 11.1.2:
         // P1: 0x00 = no indication (current DF info).
         // P1: 0x01 = current DF info (same as 0x00).
         // P1: 0x02 = no data returned, just SW 90 00.
@@ -1063,7 +1063,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     /// GSM security context (P2=0x00): compute SRES and Kc from RAND.
     ///
-    /// Per [3GPP TS 31.102 V17.5.0 clause 7.1.2](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A595%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C366%5D) and TS 33.102 Annex B (c3 conversion):
+    /// Per [3GPP TS 31.102 V19.4.0 clause 7.1.2](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A717%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C738%5D) and TS 33.102 Annex B (c3 conversion):
     /// - SRES = f2(RAND) truncated to 4 bytes
     /// - CK = f3(RAND), IK = f4(RAND)
     /// - Kc = CK[0..8] xor CK[8..16] xor IK[0..8] xor IK[8..16]
@@ -1555,9 +1555,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     // -- ENVELOPE --
 
-    /// Envelope tag: SMS-PP Data Download (ETSI TS 102 223 clause 7.1).
+    /// Envelope tag: SMS-PP Data Download ([ETSI TS 102 223 V18.2.0 clause 7.1](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf)).
     const ENV_TAG_SMS_PP_DOWNLOAD: u8 = 0xD1;
-    /// Envelope tag: Call Control by USIM (ETSI TS 102 223 clause 7.3).
+    /// Envelope tag: Call Control by USIM ([ETSI TS 102 223 V18.2.0 clause 7.3](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf)).
     const ENV_TAG_CALL_CONTROL: u8 = 0xD4;
 
     fn handle_envelope<'buf>(
@@ -1567,7 +1567,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ) -> &'buf [u8] {
         let data = cmd.data();
 
-        // Per ETSI TS 102 221 V18.0.0 clause 11.2.2: ENVELOPE requires a prior
+        // Per ETSI TS 102 221 V18.3.0 clause 11.2.2: ENVELOPE requires a prior
         // TERMINAL PROFILE to have been sent in this session.
         if !self.proactive.has_terminal_profile() {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
@@ -1629,7 +1629,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 }
 
 // ---------------------------------------------------------------------------
-// FCP BER-TLV builder per ETSI TS 102 221 V18.0.0 clause 11.1.1.3
+// FCP BER-TLV builder per ETSI TS 102 221 V18.3.0 clause 11.1.1.3
 // ---------------------------------------------------------------------------
 
 /// Build an FCP template for the selected file.
