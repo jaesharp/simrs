@@ -8,6 +8,8 @@ members = [
     "crates/simrs-comp128",
     "crates/simrs-keccak",
     "crates/simrs-sha256",
+    "crates/simrs-kdf",
+    "crates/simrs-ecies",
     "crates/simrs-milenage",
     "crates/simrs-tuak",
     "crates/simrs-fs",
@@ -53,6 +55,8 @@ simrs-rijndael            = { path = "crates/simrs-rijndael",            default
 simrs-comp128             = { path = "crates/simrs-comp128",             default-features = false }
 simrs-keccak              = { path = "crates/simrs-keccak",              default-features = false }
 simrs-sha256              = { path = "crates/simrs-sha256",              default-features = false }
+simrs-kdf                 = { path = "crates/simrs-kdf",                 default-features = false }
+simrs-ecies               = { path = "crates/simrs-ecies",               default-features = false }
 simrs-milenage            = { path = "crates/simrs-milenage",            default-features = false }
 simrs-tuak                = { path = "crates/simrs-tuak",                default-features = false }
 simrs-fs                  = { path = "crates/simrs-fs",                  default-features = false }

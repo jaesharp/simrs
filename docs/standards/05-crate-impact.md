@@ -33,6 +33,9 @@ What 4G-LTE and 5G-NR support means for each simrs crate.
 | [simrs-consttime-macros](../../crates/simrs-consttime-macros/) | None | None | None | -- |
 | [simrs-consttime-validation](../../crates/simrs-consttime-validation/) | None | None | None | -- |
 | [simrs-transport-tcp](../../crates/simrs-transport-tcp/) | No change | No change | No change | -- |
+| [simrs-sha256](../../crates/simrs-sha256/) | None | None | None | Done |
+| [simrs-kdf](../../crates/simrs-kdf/) | KASME, KeNB, algorithm keys | +KAUSF, RES*, KSEAF, KAMF, KgNB | Same as 4G | Done |
+| [simrs-ecies](../../crates/simrs-ecies/) | None | SUCI encryption (Profile A + B) | None | Done |
 | [simrs-profile](../../crates/simrs-profile/) | Synthesizes all other crates | Synthesizes all other crates | Synthesizes all other crates | Done |
 
 ---
@@ -104,8 +107,9 @@ Note: many proactive commands are already implemented (DISPLAY TEXT, GET INPUT, 
 | 5 | snapshot, hle, fuzz | EPS + 5G state in snapshots | Done |
 | 6 | fs, usim, consttime | Type system: EfDef constructors, Sfi/Fid validation, compile-time FID uniqueness | Done |
 | -- | simrs-tuak, simrs-keccak | TUAK algorithm (256-bit K for 5G SUCI) | Done |
-| Future | simrs-kdf | HMAC-SHA-256 KDF for ME-side derivation (KASME, KAUSF) | -- |
-| Future | simrs-ecies | ECIES for SUCI computation (Curve25519 / secp256r1) | -- |
+| -- | simrs-sha256 | SHA-256 hash (NIST FIPS 180-4) | Done |
+| -- | simrs-kdf | HMAC-SHA-256 KDF for ME-side derivation (KASME, KAUSF, KSEAF, KAMF, KgNB) | Done |
+| -- | simrs-ecies | ECIES Profiles A + B for SUCI computation (X25519/P-256 + AES-128-CTR) | Done |
 
 ---
 

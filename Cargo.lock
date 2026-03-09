@@ -545,6 +545,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-ecies"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-consttime-validation",
+ "simrs-kdf",
+ "simrs-rijndael",
+]
+
+[[package]]
 name = "simrs-fs"
 version = "0.1.0"
 dependencies = [
@@ -606,8 +616,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-kdf"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-consttime-validation",
+ "simrs-sha256",
+]
+
+[[package]]
 name = "simrs-keccak"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-consttime-validation",
+]
 
 [[package]]
 name = "simrs-milenage"
@@ -709,6 +732,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-sha256"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-consttime-validation",
+]
+
+[[package]]
 name = "simrs-sim"
 version = "0.1.0"
 dependencies = [
@@ -755,6 +786,7 @@ version = "0.1.0"
 name = "simrs-tuak"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "simrs-consttime-validation",
  "simrs-keccak",
  "simrs-milenage",

@@ -1,0 +1,22 @@
+[package]
+name        = "simrs-ecies"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ECIES Profiles A & B (X25519/P-256 + AES-128-CTR + HMAC-SHA-256) for SUCI per TS 33.501 -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+ct-validation = []
+
+[dependencies]
+simrs-kdf      = { workspace = true }
+simrs-rijndael = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
+
+[lints]
+workspace = true

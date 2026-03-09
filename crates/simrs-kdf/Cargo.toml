@@ -1,0 +1,21 @@
+[package]
+name        = "simrs-kdf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HMAC-SHA-256 and 3GPP key derivation functions (TS 33.220/33.401/33.501) -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+ct-validation = []
+
+[dependencies]
+simrs-sha256 = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
+
+[lints]
+workspace = true
