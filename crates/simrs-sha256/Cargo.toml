@@ -1,0 +1,17 @@
+[package]
+name        = "simrs-sha256"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SHA-256 hash per NIST FIPS 180-4 -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true
