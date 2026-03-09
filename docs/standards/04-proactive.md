@@ -12,8 +12,8 @@ CAT/USAT commands, FETCH mechanism, OTA, event downloads.
 |------|---------|-------|
 | ETSI TS 102 223 | V18.2.0 (2025-04) | Card Application Toolkit -- access-technology agnostic |
 | 3GPP TS 31.111 | V19.3.0 (2025-09) | USIM Application Toolkit -- 3GPP extensions |
-| ETSI TS 102 225 | V18.1.0 (2024-07) | Secured packet structure (SCP80 for OTA) |
-| ETSI TS 102 226 | V18.5.0 (2025-01) | Remote APDU structure (OTA file/applet mgmt) |
+| ETSI TS 102 225 | V19.0.0 (2025-10) | Secured packet structure (SCP80 for OTA) |
+| ETSI TS 102 226 | V19.0.0 (2025-10) | Remote APDU structure (OTA file/applet mgmt) |
 | 3GPP TS 31.115 | V19.0.0 (2025-09) | Secured packet (3GPP-specific SMS-PP mapping) |
 | 3GPP TS 31.116 | V19.0.0 (2025-09) | Remote APDU (3GPP-specific) |
 

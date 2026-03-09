@@ -3,8 +3,8 @@
 # Security regression tests for the PIN/PUK state machine.
 #
 # Exercises vulnerability classes documented in:
-#   - ETSI TS 102 221 V18.0.0 clauses 11.1.9 -- 11.1.13
-#   - 3GPP TS 31.102 V17.5.0 clause 6.2
+#   - ETSI TS 102 221 V18.3.0 clauses 11.1.9 -- 11.1.13
+#   - 3GPP TS 31.102 V19.4.0 clause 6.2
 #   - SIMuraI: Exploiting SIM Card Vulnerabilities (USENIX 2024)
 #   - Security Explorations research (PIN bypass techniques)
 #

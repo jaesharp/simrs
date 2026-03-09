@@ -1,3 +1,10 @@
+# specs/sim.feature
+#
+# BDD specification for SIM/USIM orchestrator.
+#
+# Standards:
+#   - ETSI TS 102 221 V18.3.0 (UICC-terminal interface)
+
 Feature: SIM/USIM Orchestrator (simrs-sim)
   As a SIM card simulator
   I need a single entry-point state machine that accepts power/reset/APDU events

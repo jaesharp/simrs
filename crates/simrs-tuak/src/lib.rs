@@ -1,4 +1,4 @@
-//! TUAK authentication algorithm ([3GPP TS 35.231 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf)).
+//! TUAK authentication algorithm ([3GPP TS 35.231 V19.0.0](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf)).
 //!
 //! Pure Rust implementation of the TUAK authentication and key generation
 //! functions for USIM. Built on Keccak-f\[1600\] via `simrs-keccak`.
@@ -16,7 +16,7 @@
 //! ```
 //!
 //! All multi-byte fields are stored in reversed (big-endian-to-little-endian) byte
-//! order within the Keccak state per [3GPP TS 35.231 V17.0.0 clause 4](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf#%5B%7B%22num%22%3A22%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+//! order within the Keccak state per [3GPP TS 35.231 V19.0.0 clause 4](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A33%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 //!
 //! After applying Keccak-f\[1600\], outputs are extracted from specific byte positions
 //! and reversed back to big-endian.
@@ -37,9 +37,9 @@
 //! and zeroed RAND/SQN/AMF fields. The first 32 bytes of the output become TOPc.
 //!
 //! # Standards
-//! - [3GPP TS 35.231 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf) -- TUAK algorithm specification
-//! - [3GPP TS 35.232 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135232/17.00.00_60/ts_135232v170000p.pdf) -- TUAK implementers' test data
-//! - [3GPP TS 35.233 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135233/17.00.00_60/ts_135233v170000p.pdf) -- TUAK design conformance test data
+//! - [3GPP TS 35.231 V19.0.0](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf) -- TUAK algorithm specification
+//! - [3GPP TS 35.232 V19.0.0](../../../docs/specs/3gpp/ts-35.232/ts_135232v190000p.pdf) -- TUAK implementers' test data
+//! - [3GPP TS 35.233 V19.0.0](../../../docs/specs/3gpp/ts-35.233/ts_135233v190000p.pdf) -- TUAK design conformance test data
 //!
 //! # `no_std`
 //! This crate is `no_std`. No heap allocation.
@@ -86,7 +86,7 @@ const INSTANCE_F2345: u8 = 0x48;
 /// Encoding: base 0xC0.
 const INSTANCE_F5_STAR: u8 = 0xC0;
 
-// Byte offsets within the 200-byte Keccak state (3GPP TS 35.231 V17.0.0 clause 4).
+// Byte offsets within the 200-byte Keccak state (3GPP TS 35.231 V19.0.0 clause 4).
 const OFF_TOPC: usize = 0;       // 32 bytes
 const OFF_INSTANCE: usize = 32;  // 1 byte
 const OFF_ALGONAME: usize = 33;  // 7 bytes
@@ -151,7 +151,7 @@ impl<'a> SnapReader<'a> {
 /// TOPc will be derived using Keccak-f\[1600\].
 ///
 /// # Standards
-/// - [3GPP TS 35.231 V17.0.0 clause 6.1](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf#%5B%7B%22num%22%3A28%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C392%5D) -- TOPc derivation
+/// - [3GPP TS 35.231 V19.0.0 clause 6.1](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A39%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D) -- TOPc derivation
 ///
 /// ```
 /// use simrs_tuak::OperatorVariant;
@@ -166,7 +166,7 @@ impl<'a> SnapReader<'a> {
 pub enum OperatorVariant {
     /// Pre-computed TOPc (256 bits). Preferred -- avoids runtime Keccak call.
     TopC([u8; 32]),
-    /// Raw TOP. TOPc will be derived as per [3GPP TS 35.231 V17.0.0 clause 6.1](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf#%5B%7B%22num%22%3A28%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C392%5D).
+    /// Raw TOP. TOPc will be derived as per [3GPP TS 35.231 V19.0.0 clause 6.1](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A39%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D).
     Top([u8; 32]),
 }
 
@@ -202,7 +202,7 @@ pub struct TuakParams {
     /// Derived operator constant TOPc (256 bits).
     top_c: [u8; 32],
     /// Next expected SQN (big-endian 48-bit), for replay protection per
-    /// [3GPP TS 33.102 V17.0.0 clause 6.3.3](https://www.etsi.org/deliver/etsi_ts/133100_133199/133102/17.00.00_60/ts_133102v170000p.pdf#%5B%7B%22num%22%3A50%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D). Initialized to zero (accept any SQN).
+    /// [3GPP TS 33.102 V19.1.0 clause 6.3.3](../../../docs/specs/3gpp/ts-33.102/ts_133102v190100p.pdf#%5B%7B%22num%22%3A58%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D). Initialized to zero (accept any SQN).
     expected_sequence_number: [u8; 6],
 }
 
@@ -216,7 +216,7 @@ impl TuakParams {
     /// Create with standard parameters.
     ///
     /// If `top` is [`OperatorVariant::Top`], TOPc is derived from K and TOP using
-    /// Keccak-f\[1600\] per [3GPP TS 35.231 V17.0.0 clause 6.1](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf#%5B%7B%22num%22%3A28%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C392%5D).
+    /// Keccak-f\[1600\] per [3GPP TS 35.231 V19.0.0 clause 6.1](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A39%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D).
     ///
     /// ```
     /// use simrs_tuak::{TuakParams, OperatorVariant};
@@ -234,7 +234,7 @@ impl TuakParams {
     /// Compute the network authentication code MAC-A (8 bytes).
     ///
     /// 3GPP function designation: f1.
-    /// Per [3GPP TS 35.231 V17.0.0 clause 5.1](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf#%5B%7B%22num%22%3A24%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C489%5D). Uses INSTANCE 0x08 (MAC=64, K=128).
+    /// Per [3GPP TS 35.231 V19.0.0 clause 5.1](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A35%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C432%5D). Uses INSTANCE 0x08 (MAC=64, K=128).
     ///
     /// ```
     /// use simrs_tuak::{TuakParams, OperatorVariant};
@@ -266,7 +266,7 @@ impl TuakParams {
     /// Compute the resynchronisation authentication code MAC-S (8 bytes).
     ///
     /// 3GPP function designation: f1*.
-    /// Per [3GPP TS 35.231 V17.0.0 clause 5.2](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf#%5B%7B%22num%22%3A26%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C255%5D). Uses INSTANCE 0x88 (MAC=64, K=128).
+    /// Per [3GPP TS 35.231 V19.0.0 clause 5.2](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A37%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C177%5D). Uses INSTANCE 0x88 (MAC=64, K=128).
     ///
     /// Used in AUTS construction for SQN resynchronization.
     pub fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
@@ -292,7 +292,7 @@ impl TuakParams {
     /// Compute the authentication response RES (8 bytes).
     ///
     /// 3GPP function designation: f2.
-    /// Per [3GPP TS 35.231 V17.0.0 clause 5.3](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf#%5B%7B%22num%22%3A28%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C732%5D). Uses INSTANCE 0x48
+    /// Per [3GPP TS 35.231 V19.0.0 clause 5.3](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A39%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C639%5D). Uses INSTANCE 0x48
     /// (RES=64, CK=128, IK=128, K=128).
     ///
     /// ```
@@ -318,7 +318,7 @@ impl TuakParams {
     /// Compute the ciphering key CK (16 bytes).
     ///
     /// 3GPP function designation: f3.
-    /// Per [3GPP TS 35.231 V17.0.0 clause 5.4](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf).
+    /// Per [3GPP TS 35.231 V19.0.0 clause 5.4](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf).
     pub fn compute_cipher_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
         let buf = tuak_f2345_core(&self.key, &self.top_c, challenge);
         let mut ck = [0u8; 16];
@@ -335,7 +335,7 @@ impl TuakParams {
     /// Compute the integrity key IK (16 bytes).
     ///
     /// 3GPP function designation: f4.
-    /// Per [3GPP TS 35.231 V17.0.0 clause 5.5](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf).
+    /// Per [3GPP TS 35.231 V19.0.0 clause 5.5](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf).
     pub fn compute_integrity_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
         let buf = tuak_f2345_core(&self.key, &self.top_c, challenge);
         let mut ik = [0u8; 16];
@@ -352,7 +352,7 @@ impl TuakParams {
     /// Compute the anonymity key AK (6 bytes).
     ///
     /// 3GPP function designation: f5.
-    /// Per [3GPP TS 35.231 V17.0.0 clause 5.6](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf). Shares computation with f2/f3/f4.
+    /// Per [3GPP TS 35.231 V19.0.0 clause 5.6](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf). Shares computation with f2/f3/f4.
     ///
     /// Used to conceal SQN in AUTN: `AUTN = (SQN XOR AK) || AMF || MAC-A`.
     pub fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
@@ -371,7 +371,7 @@ impl TuakParams {
     /// Compute the resynchronisation anonymity key AK* (6 bytes).
     ///
     /// 3GPP function designation: f5*.
-    /// Per [3GPP TS 35.231 V17.0.0 clause 5.7](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf). Uses INSTANCE 0xC0 (K=128).
+    /// Per [3GPP TS 35.231 V19.0.0 clause 5.7](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf). Uses INSTANCE 0xC0 (K=128).
     ///
     /// Used in AUTS construction: `AUTS = (SQN_MS XOR AK*) || MAC-S`.
     pub fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
@@ -489,7 +489,7 @@ impl AuthenticationAlgorithm for TuakParams {
 
 /// Copy `src` into `buf` at byte offset `offset` with reversed byte order.
 ///
-/// Per [3GPP TS 35.231 V17.0.0 clause 4](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf#%5B%7B%22num%22%3A22%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D): all multi-byte fields are stored most-significant
+/// Per [3GPP TS 35.231 V19.0.0 clause 4](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A33%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D): all multi-byte fields are stored most-significant
 /// byte first in the algorithm description, but the Keccak state uses
 /// little-endian lane ordering. The reference implementation reverses each
 /// field before placing it in the state buffer.
@@ -537,7 +537,7 @@ fn init_state(
     // K (16 bytes, reversed) -- bytes 64..79, rest (80..95) stay zero for 128-bit key
     push_data(buf, OFF_KEY, key);
 
-    // Padding markers per 3GPP TS 35.231 V17.0.0 clause 4.
+    // Padding markers per 3GPP TS 35.231 V19.0.0 clause 4.
     buf[OFF_PAD_1F] = 0x1F;
     buf[OFF_PAD_80] = 0x80;
 }
@@ -607,7 +607,7 @@ fn tuak_f5star_core(
     buf
 }
 
-/// Compute TOPc from TOP and K per [3GPP TS 35.231 V17.0.0 clause 6.1](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf#%5B%7B%22num%22%3A28%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C392%5D).
+/// Compute TOPc from TOP and K per [3GPP TS 35.231 V19.0.0 clause 6.1](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A39%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D).
 ///
 /// Uses INSTANCE=0x00, zeroed RAND/AMF/SQN, with TOP in the TOPc position.
 /// The first 32 bytes of the Keccak output (reversed) become TOPc.
@@ -715,7 +715,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
-    // 3GPP TS 35.233 V17.0.0 Test Set 1 (Section 6.3)
+    // 3GPP TS 35.233 V19.0.0 Test Set 1 (Section 6.3)
     //
     // K = 128-bit, MAC=64, RES=32, CK=128, IK=128
     // KeccakIterations = 1
@@ -846,7 +846,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
-    // 3GPP TS 35.233 V17.0.0 Test Set 4 (Section 6.6)
+    // 3GPP TS 35.233 V19.0.0 Test Set 4 (Section 6.6)
     //
     // K = 128-bit, MAC=128, RES=128, CK=128, IK=128
     // KeccakIterations = 1
@@ -869,7 +869,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
-    // 3GPP TS 35.233 V17.0.0 Test Set 2 (Section 6.4)
+    // 3GPP TS 35.233 V19.0.0 Test Set 2 (Section 6.4)
     //
     // K = 256-bit, MAC=128, RES=64, CK=128, IK=128
     // KeccakIterations = 1

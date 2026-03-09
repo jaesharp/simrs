@@ -19,12 +19,12 @@
 //! a configurable reset policy (`fn(ResetKind) -> ResetEffects`) to decide
 //! which session state is cleared. The default [`standard_reset_policy`]
 //! clears everything on both cold and warm resets, matching [ETSI TS 102 221
-//! V18.0.0 clause 6.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A207%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D). Use [`Sim::with_reset_policy`] to customize this behavior
+//! V18.3.0 clause 6.5](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C582%5D). Use [`Sim::with_reset_policy`] to customize this behavior
 //! for card profiles that preserve state across warm resets.
 //!
 //! # Features
 //!
-//! - `gsm` -- enables [GSM 11.11 (TS 51.011 V4.15.0)](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf) application layer (CLA=`0xA0`)
+//! - `gsm` -- enables [GSM 11.11 (TS 51.011 V4.15.0)](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf) application layer (CLA=`0xA0`)
 //! - `usim` -- enables 3GPP USIM application layer (CLA=`0x00`/`0x80`)
 //!
 //! Enable one or both. With neither feature, all APDUs return `6E 00`.
@@ -114,7 +114,7 @@ pub struct ResetEffects {
 }
 
 impl ResetEffects {
-    /// All subsystems cleared -- matches [ETSI TS 102 221 V18.0.0 clause 6.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A207%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D) reset procedures.
+    /// All subsystems cleared -- matches [ETSI TS 102 221 V18.3.0 clause 6.5](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C582%5D) reset procedures.
     pub const fn all() -> Self {
         Self {
             clear_pin_verified: true,
@@ -141,7 +141,7 @@ impl ResetEffects {
 
 /// Standard reset policy: clear all session state on both cold and warm
 /// reset. This is the default used by [`Sim::new`] and matches ETSI TS
-/// 102 221 clause 6.5 (reset procedures).
+/// 102 221 V18.3.0 clause 6.5 (reset procedures).
 ///
 /// Both cold and warm resets clear all session state identically.
 /// Custom policies may differentiate by matching on `kind` -- pass a
@@ -179,7 +179,7 @@ const STATE_HASH_BUF: usize = 256;
 // CLA byte classification
 // ---------------------------------------------------------------------------
 
-/// CLA family classification per [ETSI TS 102 221 V18.0.0 clause 10.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C531%5D).
+/// CLA family classification per [ETSI TS 102 221 V18.3.0 clause 10.1.1](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A311%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C531%5D).
 ///
 /// Strips logical channel bits from the CLA byte and classifies the
 /// command into a routing family. The original CLA byte is passed to
@@ -237,7 +237,7 @@ const CLA_GSM_RAW: u8 = 0xA0;
 /// [`ResetEffects`].
 ///
 /// The `Tick` variant is an extension for advancing UICC-side timers
-/// (per [ETSI TS 102 223 V17.2.0 clause 6.6.21](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A233%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C572%5D)). Since `no_std` has no clock,
+/// (per [ETSI TS 102 223 V18.2.0 clause 6.6.21](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A232%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C199%5D)). Since `no_std` has no clock,
 /// the caller supplies elapsed seconds.
 #[derive(Debug, Clone, Copy)]
 pub enum SimEvent<'a> {
@@ -2098,7 +2098,7 @@ mod tests {
         // Isolation first: response queue was NOT cleared.
         // Must check GET RESPONSE BEFORE any other command, because
         // non-GET-RESPONSE commands clear the response queue per
-        // ETSI TS 102 221 V18.0.0 clause 11.1.3.
+        // ETSI TS 102 221 V18.3.0 clause 11.1.3.
         let mut gr = [0x00, 0xC0, 0x00, 0x00, 0x00];
         gr[4] = le;
         let rsp = sim.process(SimEvent::Apdu(&gr));

@@ -4,9 +4,9 @@
 #
 # Standards:
 #   ISO/IEC 7816-4:2020      clause 7.6  (GET RESPONSE command)
-#   ETSI TS 102 221 V18.0.0  clause 11.1.2  (GET RESPONSE)
-#   ETSI TS 102 221 V18.0.0  clause 11.1.1.3 (FCP template structure)
-#   3GPP TS 31.102 V16.9.0   clause 11.2.1  (SELECT response for USIM)
+#   ETSI TS 102 221 V18.3.0  clause 11.1.2  (GET RESPONSE)
+#   ETSI TS 102 221 V18.3.0  clause 11.1.1.3 (FCP template structure)
+#   3GPP TS 31.102 V19.4.0   clause 11.2.1  (SELECT response for USIM)
 #
 # Vulnerability model:
 #   The GET RESPONSE command (INS=0xC0) retrieves data that was queued by a

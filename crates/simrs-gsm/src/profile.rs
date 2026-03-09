@@ -39,8 +39,7 @@
 //! ```
 //!
 //! # Standards
-//! - GSM 11.11 v4.21.1 (ETS 300 608)
-//! - 3GPP TS 51.011 V4.15.0
+//! - [3GPP TS 51.011 V4.15.0](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf) (GSM 11.11)
 
 use simrs_fs::{DfDef, EfDef, Fid, FileRef};
 #[cfg(test)]
@@ -53,7 +52,7 @@ use simrs_fs::EfStructure;
 /// EF.ICCID (2FE2) -- ICC Identification.
 ///
 /// 10-byte transparent EF. Default: test ICCID.
-/// Encoding: BCD-nibble-swapped per [ETSI TS 151 011 V4.15.0 clause 10.1.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A105%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C436%5D).
+/// Encoding: BCD-nibble-swapped per [ETSI TS 151 011 V4.15.0 clause 10.1.1](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A105%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C436%5D).
 pub static EF_ICCID: EfDef = EfDef::transparent(
     Fid::new(0x2FE2),
     None,
@@ -67,7 +66,7 @@ pub static EF_ICCID: EfDef = EfDef::transparent(
 /// EF.LP (6F05) -- Language Preference.
 ///
 /// 4-byte transparent EF. Default: `[0x0E, 0x01, 0xFF, 0xFF]`.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.6](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A117%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C128%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.6](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A117%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C128%5D).
 pub static EF_LP: EfDef = EfDef::transparent(
     Fid::new(0x6F05),
     None,
@@ -77,7 +76,7 @@ pub static EF_LP: EfDef = EfDef::transparent(
 /// EF.IMSI (6F07) -- International Mobile Subscriber Identity.
 ///
 /// 9-byte transparent EF. Default: test IMSI.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.2](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A111%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C772%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.2](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A111%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C772%5D).
 pub static EF_IMSI: EfDef = EfDef::transparent(
     Fid::new(0x6F07),
     None,
@@ -88,7 +87,7 @@ pub static EF_IMSI: EfDef = EfDef::transparent(
 ///
 /// 9-byte transparent EF. Bytes 0-7: Kc. Byte 8: CKSN.
 /// Default: Kc=FF..FF, CKSN=7 (no key).
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.3](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A114%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C772%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.3](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A114%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C772%5D).
 pub static EF_KC: EfDef = EfDef::transparent(
     Fid::new(0x6F20),
     None,
@@ -98,7 +97,7 @@ pub static EF_KC: EfDef = EfDef::transparent(
 /// EF.HPPLMN (6F31) -- Higher Priority PLMN Search Period.
 ///
 /// 1-byte transparent EF. Default: 0x05.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.8](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A129%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C363%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.8](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A129%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C363%5D).
 pub static EF_HPPLMN: EfDef = EfDef::transparent(
     Fid::new(0x6F31),
     None,
@@ -108,7 +107,7 @@ pub static EF_HPPLMN: EfDef = EfDef::transparent(
 /// EF.SST (6F38) -- SIM Service Table.
 ///
 /// 14-byte transparent EF. Default: standard service table.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.7](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A123%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C772%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.7](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A123%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C772%5D).
 pub static EF_SST: EfDef = EfDef::transparent(
     Fid::new(0x6F38),
     None,
@@ -121,7 +120,7 @@ pub static EF_SST: EfDef = EfDef::transparent(
 /// EF.ACC (6F78) -- Access Control Class.
 ///
 /// 2-byte transparent EF. Default: `[0x00, 0x80]`.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.15](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A141%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C415%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.15](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A141%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C415%5D).
 pub static EF_ACC: EfDef = EfDef::transparent(
     Fid::new(0x6F78),
     None,
@@ -131,7 +130,7 @@ pub static EF_ACC: EfDef = EfDef::transparent(
 /// EF.LOCI (6F7E) -- Location Information.
 ///
 /// 11-byte transparent EF. Default: empty LOCI.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.18](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A150%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C699%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.18](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A150%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C699%5D).
 pub static EF_LOCI: EfDef = EfDef::transparent(
     Fid::new(0x6F7E),
     None,
@@ -148,7 +147,7 @@ pub static EF_LOCI: EfDef = EfDef::transparent(
 ///
 /// 12-byte transparent EF (4 PLMN entries x 3 bytes).
 /// Default: all 0xFF (no forbidden PLMNs).
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.16](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C690%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.16](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C690%5D).
 pub static EF_FPLMN: EfDef = EfDef::transparent(
     Fid::new(0x6F7B),
     None,
@@ -158,7 +157,7 @@ pub static EF_FPLMN: EfDef = EfDef::transparent(
 /// EF.AD (6FAD) -- Administrative Data.
 ///
 /// 3-byte transparent EF. Default: `[0x00, 0xFF, 0xFF]`.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.18](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A150%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C699%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.18](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A150%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C699%5D).
 pub static EF_AD: EfDef = EfDef::transparent(
     Fid::new(0x6FAD),
     None,
@@ -172,7 +171,7 @@ pub static EF_AD: EfDef = EfDef::transparent(
 /// EF.PLMNsel (6F30) -- PLMN Selector.
 ///
 /// 3-byte transparent EF. Default: test PLMN.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.4](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A114%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C364%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.4](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A114%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C364%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_PLMNSEL: EfDef = EfDef::transparent(
     Fid::new(0x6F30),
@@ -183,7 +182,7 @@ pub static EF_PLMNSEL: EfDef = EfDef::transparent(
 /// EF.ACMmax (6F37) -- ACM Maximum Value.
 ///
 /// 3-byte transparent EF. Default: 0x000000 (no maximum).
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.14](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A141%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C724%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.14](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A141%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C724%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_ACMMAX: EfDef = EfDef::transparent(
     Fid::new(0x6F37),
@@ -194,7 +193,7 @@ pub static EF_ACMMAX: EfDef = EfDef::transparent(
 /// EF.ACM (6F39) -- Accumulated Call Meter.
 ///
 /// Cyclic, 3 records of 3 bytes. Default: zero.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.13](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A138%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C385%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.13](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A138%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C385%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_ACM: EfDef = EfDef::cyclic(
     Fid::new(0x6F39),
@@ -206,7 +205,7 @@ pub static EF_ACM: EfDef = EfDef::cyclic(
 /// EF.GID1 (6F3E) -- Group Identifier Level 1.
 ///
 /// 4-byte transparent EF. Default: empty.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.9](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C772%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.9](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C772%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_GID1: EfDef = EfDef::transparent(
     Fid::new(0x6F3E),
@@ -217,7 +216,7 @@ pub static EF_GID1: EfDef = EfDef::transparent(
 /// EF.GID2 (6F3F) -- Group Identifier Level 2.
 ///
 /// 4-byte transparent EF. Default: empty.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.10](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C567%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.10](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C567%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_GID2: EfDef = EfDef::transparent(
     Fid::new(0x6F3F),
@@ -228,7 +227,7 @@ pub static EF_GID2: EfDef = EfDef::transparent(
 /// EF.PUCT (6F41) -- Price per Unit and Currency Table.
 ///
 /// 5-byte transparent EF. Default: empty price table.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.12](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A135%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C457%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.12](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A135%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C457%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_PUCT: EfDef = EfDef::transparent(
     Fid::new(0x6F41),
@@ -239,7 +238,7 @@ pub static EF_PUCT: EfDef = EfDef::transparent(
 /// EF.CBMI (6F45) -- Cell Broadcast Message Identifier Selection.
 ///
 /// 10-byte transparent EF. Default: empty.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.11](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C331%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.11](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C331%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_CBMI: EfDef = EfDef::transparent(
     Fid::new(0x6F45),
@@ -250,7 +249,7 @@ pub static EF_CBMI: EfDef = EfDef::transparent(
 /// EF.SPN (6F46) -- Service Provider Name.
 ///
 /// 17-byte transparent EF. Default: test service provider name.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.11](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C331%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.11](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C331%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_SPN: EfDef = EfDef::transparent(
     Fid::new(0x6F46),
@@ -264,7 +263,7 @@ pub static EF_SPN: EfDef = EfDef::transparent(
 /// EF.BCCH (6F74) -- Broadcast Control Channel.
 ///
 /// 16-byte transparent EF. Default: all zeros.
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.17](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C121%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.17](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C121%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_BCCH: EfDef = EfDef::transparent(
     Fid::new(0x6F74),
@@ -275,7 +274,7 @@ pub static EF_BCCH: EfDef = EfDef::transparent(
 /// EF.Phase (6FAE) -- Phase Identification.
 ///
 /// 1-byte transparent EF. Default: 0x03 (phase 2+).
-/// [ETSI TS 151 011 V4.15.0 clause 10.3.19](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A153%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C415%5D).
+/// [ETSI TS 151 011 V4.15.0 clause 10.3.19](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A153%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C415%5D).
 #[cfg(any(feature = "profile-standard", not(feature = "profile-minimal")))]
 pub static EF_PHASE: EfDef = EfDef::transparent(
     Fid::new(0x6FAE),

@@ -8,9 +8,9 @@
 # domain.
 #
 # Standards:
-#   ETSI TS 102 221 V18.0.0  clause 8 (security architecture: access control)
+#   ETSI TS 102 221 V18.3.0  clause 8 (security architecture: access control)
 #   ISO/IEC 7816-4:2020      clause 5 (basic organisations and operations)
-#   3GPP TS 31.102 V16.8.0   clause 7.1.2 (AUTHENTICATE)
+#   3GPP TS 31.102 V19.4.0   clause 7.1.2 (AUTHENTICATE)
 #
 # Methodology:
 #   Each scenario sends a single command that is designed to succeed, then

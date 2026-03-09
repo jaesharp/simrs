@@ -209,7 +209,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
-    // ETSI TS 135 208 V17.0.0 Test Set 1
+    // ETSI TS 135 208 V19.0.0 Test Set 1
     const TS1_K: &str = "465B5CE8B199B49FAA5F0A2EE238A6BC";
     const TS1_OPC: &str = "CD63CB71954A9F4E48A5994E37A02BAF";
     const TS1_RAND: &str = "23553CBE9637A89D218AE64DAE47BF35";

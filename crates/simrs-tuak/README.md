@@ -9,9 +9,9 @@ built on Keccak-f[1600].
 
 | Spec | Clause | Coverage |
 |------|--------|----------|
-| 3GPP TS 35.231 V17.0.0 | Clauses 4-6 | TUAK algorithm specification |
-| 3GPP TS 35.232 V17.0.0 | -- | Implementers' test data |
-| 3GPP TS 35.233 V17.0.0 | -- | Design conformance test data |
+| 3GPP TS 35.231 V19.0.0 | Clauses 4-6 | TUAK algorithm specification |
+| 3GPP TS 35.232 V19.0.0 | -- | Implementers' test data |
+| 3GPP TS 35.233 V19.0.0 | -- | Design conformance test data |
 
 ## Dependencies
 

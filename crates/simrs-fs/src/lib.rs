@@ -1,7 +1,7 @@
 //! ICC filesystem model: MF, DF, ADF, and EF nodes.
 //!
 //! Provides a hierarchical, `const`-static filesystem tree matching the UICC
-//! file system per ETSI TS 102 221. Elementary files (EFs) come in three
+//! file system per [ETSI TS 102 221 V18.3.0](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf). Elementary files (EFs) come in three
 //! structures: transparent (binary), linear fixed (records), and cyclic.
 //! The [`SelectionCtx`] tracks the current MF, DF, ADF, and EF across
 //! SELECT operations. The [`FsData`] store holds mutable copies of all EF
@@ -32,10 +32,10 @@
 //! | By AID | 0x04 | Match AID prefix against ADF table |
 //!
 //! # Standards
-//! - [ETSI TS 102 221 V18.0.0 clause 8](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A259%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- File system structure
-//! - [ETSI TS 102 221 V18.0.0 clause 11.1.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A329%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C371%5D) -- SELECT
-//! - [3GPP TS 31.102 V17.5.0 clause 4](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A48%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C729%5D) -- USIM file system
-//! - [GSM 11.11 v4.21.1 (ETSI TS 151 011 V4.15.0) clause 10](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A105%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C727%5D) -- SIM file system
+//! - [ETSI TS 102 221 V18.3.0 clause 8](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A261%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- File system structure
+//! - [ETSI TS 102 221 V18.3.0 clause 11.1.1](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A331%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C371%5D) -- SELECT
+//! - [3GPP TS 31.102 V19.4.0 clause 4](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A56%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C263%5D) -- USIM file system
+//! - [GSM 11.11 v4.21.1 (ETSI TS 151 011 V4.15.0) clause 10](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A105%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C727%5D) -- SIM file system
 //!
 //! # `no_std`
 //! This crate is `no_std`. The filesystem can be defined as `const` statics.
@@ -74,7 +74,7 @@ extern crate std;
 
 /// Two-byte file identifier.
 ///
-/// Per [ETSI TS 102 221 V18.0.0 clause 8.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A263%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C489%5D).
+/// Per [ETSI TS 102 221 V18.3.0 clause 8.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A265%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C489%5D).
 /// Wraps a `u16` to prevent mixing file identifiers with arbitrary integers.
 ///
 /// # Well-known FIDs
@@ -167,7 +167,7 @@ impl core::fmt::UpperHex for Fid {
 
 /// Short File Identifier (SFI).
 ///
-/// Per [ETSI TS 102 221 V18.0.0 clause 8.4.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A269%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+/// Per [ETSI TS 102 221 V18.3.0 clause 8.4.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A271%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 /// A 5-bit identifier (1--30) enabling direct file access without SELECT.
 ///
 /// ```
@@ -226,7 +226,7 @@ impl core::fmt::Display for Sfi {
 
 /// Elementary file internal structure.
 ///
-/// Per [ETSI TS 102 221 V18.0.0 clause 8.2.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A261%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C701%5D).
+/// Per [ETSI TS 102 221 V18.3.0 clause 8.2.2](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A263%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C701%5D).
 ///
 /// # Example
 ///
@@ -255,7 +255,7 @@ pub enum EfStructure {
     },
     /// BER-TLV structured EF.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 8.2.2.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A263%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C549%5D).
+    /// Per [ETSI TS 102 221 V18.3.0 clause 8.2.2.4](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A265%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C549%5D).
     /// Data is accessed by tag rather than byte offset or record number.
     /// For basic filesystem operations (read/write binary), this behaves
     /// like a transparent EF over the raw data buffer.
@@ -313,7 +313,7 @@ impl EfStructure {
         }
     }
 
-    /// UICC FCP file descriptor byte per ETSI TS 102 221.
+    /// UICC FCP file descriptor byte per ETSI TS 102 221 V18.3.0.
     pub const fn fcp_descriptor_byte(&self) -> u8 {
         match self {
             Self::Transparent => 0x41,
@@ -698,10 +698,10 @@ pub const fn assert_fids_unique(fids: &[u16]) {
 ///
 /// # Standards
 ///
-/// - [ETSI TS 102 221 V18.0.0 clause 11.1.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A359%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C413%5D) -- READ BINARY
-/// - [ETSI TS 102 221 V18.0.0 clause 11.1.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A361%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C620%5D) -- UPDATE BINARY
-/// - [ETSI TS 102 221 V18.0.0 clause 11.1.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A361%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C255%5D) -- READ RECORD
-/// - [ETSI TS 102 221 V18.0.0 clause 11.1.6](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A365%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- UPDATE RECORD
+/// - [ETSI TS 102 221 V18.3.0 clause 11.1.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A361%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C413%5D) -- READ BINARY
+/// - [ETSI TS 102 221 V18.3.0 clause 11.1.4](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A363%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C620%5D) -- UPDATE BINARY
+/// - [ETSI TS 102 221 V18.3.0 clause 11.1.5](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A363%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C255%5D) -- READ RECORD
+/// - [ETSI TS 102 221 V18.3.0 clause 11.1.6](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A367%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- UPDATE RECORD
 ///
 /// # Example
 ///
@@ -903,7 +903,7 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
 
     /// Write binary data to a transparent EF.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.1.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A361%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C620%5D), the data replaces existing content
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.1.4](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A363%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C620%5D), the data replaces existing content
     /// starting at `offset`.
     ///
     /// # Errors
@@ -933,7 +933,7 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
 
     /// Write a full record to a linear-fixed or cyclic EF.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.1.6](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A365%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D), the data must be exactly
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.1.6](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A367%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D), the data must be exactly
     /// `record_size` bytes and replaces the entire record.
     ///
     /// # Errors
@@ -967,7 +967,7 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
 
     /// Increase a cyclic EF's most-recent record value by an addend.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.1.8](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A370%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C478%5D), INCREASE reads record 1 (the most
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.1.8](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A372%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C478%5D), INCREASE reads record 1 (the most
     /// recent in a cyclic EF), interprets it as a big-endian unsigned integer,
     /// adds the supplied big-endian `value`, writes the result back to record 1,
     /// and returns the updated record content.
@@ -1143,7 +1143,7 @@ impl<'a> SnapReader<'a> {
 
 /// Virtual selection context tracking the current MF, DF, ADF, and EF.
 ///
-/// Mirrors the UICC file selection state per [ETSI TS 102 221 V18.0.0 clause 8.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A263%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C220%5D).
+/// Mirrors the UICC file selection state per [ETSI TS 102 221 V18.3.0 clause 8.4](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A265%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C220%5D).
 /// Constructed with a reference to the MF root; initial DF is MF.
 ///
 /// # Example
@@ -1509,7 +1509,7 @@ fn contains_pattern(haystack: &[u8], needle: &[u8]) -> bool {
 /// # Persistence
 ///
 /// On real UICC hardware, file deactivation state is stored in EEPROM and
-/// persists across card resets ([ETSI TS 102 221 V18.0.0 clause 11.1.14](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A387%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C545%5D)). This
+/// persists across card resets ([ETSI TS 102 221 V18.3.0 clause 11.1.14](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A389%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C574%5D)). This
 /// tracker models that persistent state and is intentionally **not** cleared
 /// by [`ResetEffects`](crate::ResetEffects) or session-level resets.
 pub struct DeactivationTracker {

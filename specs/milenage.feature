@@ -3,10 +3,10 @@
 # BDD specification for Milenage UMTS authentication algorithm set (f1-f5, f1*, f5*).
 #
 # Standards:
-#   - ETSI TS 135 206 V17.0.0 -- Algorithm specification
-#   - ETSI TS 135 208 V17.0.0 -- Test data (6 test sets)
-#   - ETSI TS 133 102 V14.1.0 clause 6 -- 3GPP security architecture
-#   - 3GPP TS 31.102 V17.5.0 clause 7.1.2.1 -- AUTHENTICATE response
+#   - ETSI TS 135 206 V19.0.0 -- Algorithm specification
+#   - ETSI TS 135 208 V19.0.0 -- Test data (6 test sets)
+#   - ETSI TS 133 102 V19.1.0 clause 6 -- 3GPP security architecture
+#   - 3GPP TS 31.102 V19.4.0 clause 7.1.2.1 -- AUTHENTICATE response
 
 Feature: Milenage UMTS Authentication
   The Milenage algorithm set produces MAC-A, RES, CK, IK, and AK from a
@@ -20,7 +20,7 @@ Feature: Milenage UMTS Authentication
 
   @reference @etsi_ts_135_208
   Scenario: Test Set 1 -- f1 produces correct MAC-A
-    Per ETSI TS 135 208 V17.0.0 clause 5.1.
+    Per ETSI TS 135 208 V19.0.0 clause 5.1.
 
     Given K is "465B5CE8B199B49FAA5F0A2EE238A6BC"
     And OPc is "CD63CB71954A9F4E48A5994E37A02BAF"
@@ -84,7 +84,7 @@ Feature: Milenage UMTS Authentication
 
   @opc
   Scenario: OP and pre-computed OPc produce identical results
-    Per ETSI TS 135 206 V17.0.0 Annex 1: OPc = E_K[OP] XOR OP.
+    Per ETSI TS 135 206 V19.0.0 Annex 1: OPc = E_K[OP] XOR OP.
     Using OP with runtime OPc derivation must produce the same f2 output
     as using pre-computed OPc directly.
 
@@ -142,7 +142,7 @@ Feature: Milenage UMTS Authentication
 
   @params
   Scenario: Duplicate (ci, ri) pairs are rejected
-    Per ETSI TS 135 206 V17.0.0 clause 5.3: all (ci, ri) pairs must be distinct.
+    Per ETSI TS 135 206 V19.0.0 clause 5.3: all (ci, ri) pairs must be distinct.
 
     Given K is "00000000000000000000000000000000"
     And OPc is "00000000000000000000000000000000"

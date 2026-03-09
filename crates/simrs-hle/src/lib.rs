@@ -15,8 +15,8 @@
 //! # Authentication algorithms
 //!
 //! Two algorithms are supported:
-//! - **Milenage** ([3GPP TS 35.206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf)): initialized via [`hle_init`]
-//! - **TUAK** ([3GPP TS 35.231 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf)): initialized via [`hle_init_tuak`]
+//! - **Milenage** ([3GPP TS 35.206 V19.0.0](../../../docs/specs/3gpp/ts-35.206/ts_135206v190000p.pdf)): initialized via [`hle_init`]
+//! - **TUAK** ([3GPP TS 35.231 V19.0.0](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf)): initialized via [`hle_init_tuak`]
 //!
 //! All other `hle_*` functions dispatch transparently to whichever
 //! algorithm was selected at init time.
@@ -50,9 +50,9 @@ pub use simrs_gsm::Ki;
 
 /// Runtime-selected authentication algorithm.
 enum SimInstance {
-    /// Milenage ([3GPP TS 35.206 V16.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf)).
+    /// Milenage ([3GPP TS 35.206 V19.0.0](../../../docs/specs/3gpp/ts-35.206/ts_135206v190000p.pdf)).
     Milenage(Sim<MilenageParams, 256>),
-    /// TUAK ([3GPP TS 35.231 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135231/17.00.00_60/ts_135231v170000p.pdf)).
+    /// TUAK ([3GPP TS 35.231 V19.0.0](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf)).
     Tuak(Sim<TuakParams, 256>),
 }
 

@@ -23,9 +23,9 @@ simrs-auth verify --xres <hex> --res <hex>
 
 | Spec | Coverage |
 |------|----------|
-| ETSI TS 135 206 | Milenage f1-f5 (via simrs-milenage) |
-| ETSI TS 135 208 | Test Set 1 validated in unit tests |
-| ETSI TS 133 102 | AKA procedure, AUTN construction |
+| ETSI TS 135 206 V19.0.0 | Milenage f1-f5 (via simrs-milenage) |
+| ETSI TS 135 208 V19.0.0 | Test Set 1 validated in unit tests |
+| ETSI TS 133 102 V19.1.0 | AKA procedure, AUTN construction |
 
 ## Dependencies
 

@@ -1,3 +1,11 @@
+# specs/usim.feature
+#
+# BDD specification for 3GPP USIM application layer.
+#
+# Standards:
+#   - ETSI TS 102 221 V18.3.0 (UICC-terminal interface)
+#   - 3GPP TS 31.102 V19.4.0 (USIM application)
+
 Feature: 3GPP USIM Application Layer
   As a UICC simulator
   I need to handle interindustry and ETSI-class APDUs per ETSI TS 102 221

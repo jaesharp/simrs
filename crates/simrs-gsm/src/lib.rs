@@ -5,7 +5,7 @@
 //! RUN GSM ALGORITHM (COMP128 A3/A8), VERIFY PIN, CHANGE REFERENCE DATA,
 //! DISABLE PIN, ENABLE PIN, and UNBLOCK PIN.
 //!
-//! Constructs [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D) SELECT responses:
+//! Constructs [ETSI TS 151 011 V4.15.0 clause 9.2.1](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D) SELECT responses:
 //! - MF/DF: 23 bytes
 //! - EF: 15 bytes
 //!
@@ -20,8 +20,8 @@
 //! buffer.
 //!
 //! # Standards
-//! - [GSM 11.11 (ETSI TS 151 011 V4.15.0)](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf) -- ME-SIM interface
-//! - [3GPP TS 51.011 V4.15.0](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf) -- SIM-ME interface
+//! - [GSM 11.11 (ETSI TS 151 011 V4.15.0)](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf) -- ME-SIM interface
+//! - [3GPP TS 51.011 V4.15.0](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf) -- SIM-ME interface
 //!
 //! # `no_std`
 //! This crate is `no_std`.
@@ -142,10 +142,10 @@ impl core::fmt::Display for Ki {
 /// GSM CLA byte.
 const CLA_GSM: u8 = 0xA0;
 
-/// DF/MF SELECT response length per [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
+/// DF/MF SELECT response length per [ETSI TS 151 011 V4.15.0 clause 9.2.1](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
 const DF_RSP_LEN: usize = 23;
 
-/// EF SELECT response length per [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
+/// EF SELECT response length per [ETSI TS 151 011 V4.15.0 clause 9.2.1](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
 const EF_RSP_LEN: usize = 15;
 
 // GSM 11.11 status words (proprietary, not reused from simrs-iso7816).
@@ -191,7 +191,7 @@ const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
 // GsmApp
 // ---------------------------------------------------------------------------
 
-/// GSM 11.11 SIM application.
+/// GSM 11.11 / [3GPP TS 51.011 V4.15.0](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf) SIM application.
 ///
 /// Handles CLA=`0xA0` APDUs. Owns filesystem context, PIN manager,
 /// COMP128 key, and the response queue for GET RESPONSE.
@@ -755,7 +755,7 @@ impl GsmApp {
 // GSM 11.11 SELECT response builders
 // ---------------------------------------------------------------------------
 
-/// Build a 23-byte DF/MF SELECT response per [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
+/// Build a 23-byte DF/MF SELECT response per [ETSI TS 151 011 V4.15.0 clause 9.2.1](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
 fn build_df_response(df: &DfDef, out: &mut [u8; 23]) {
     out.fill(0x00);
 
@@ -804,7 +804,7 @@ fn build_df_response(df: &DfDef, out: &mut [u8; 23]) {
     // Byte 22: RFU.
 }
 
-/// Build a 15-byte EF SELECT response per [ETSI TS 151 011 V4.15.0 clause 9.2.1](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
+/// Build a 15-byte EF SELECT response per [ETSI TS 151 011 V4.15.0 clause 9.2.1](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
 #[allow(clippy::cast_possible_truncation)]
 fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
     out.fill(0x00);
@@ -2112,7 +2112,7 @@ mod tests {
     // PIN exhaustion sequence -- APDU-level integration test
     // -----------------------------------------------------------------------
 
-    /// Full APDU-level PIN exhaustion sequence per GSM 11.11.
+    /// Full APDU-level PIN exhaustion sequence per [3GPP TS 51.011 V4.15.0](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf).
     ///
     /// Sends 3 wrong VERIFY PINs, checking remaining tries decrement from
     /// 3 -> 2 -> 1 -> blocked. Then verifies that a correct PIN is also

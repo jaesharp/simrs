@@ -3,11 +3,11 @@
 # Security regression: OTA / ENVELOPE injection attacks.
 #
 # Standards:
-#   ETSI TS 102 225 V16.0.0  (secured packet structure for UICC)
-#   ETSI TS 102 226 V16.1.0  (remote APDU structure for UICC)
-#   3GPP TS 23.048 V16.0.0   (security mechanisms for SIM application toolkit)
-#   ETSI TS 102 221 V18.0.0  clause 11.2 (ENVELOPE, TERMINAL PROFILE)
-#   ETSI TS 102 223 V16.2.0  clause 6   (Card Application Toolkit -- CAT)
+#   ETSI TS 102 225 V19.0.0  (secured packet structure for UICC)
+#   ETSI TS 102 226 V19.0.0  (remote APDU structure for UICC)
+#   3GPP TS 23.048 V5.9.0    (security mechanisms for SIM application toolkit)
+#   ETSI TS 102 221 V18.3.0  clause 11.2 (ENVELOPE, TERMINAL PROFILE)
+#   ETSI TS 102 223 V18.2.0  clause 6   (Card Application Toolkit -- CAT)
 #   GSM 03.48 / 3GPP TS 23.048 (OTA security, MSL -- minimum security level)
 #
 # CVE / research references:

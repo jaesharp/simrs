@@ -1,7 +1,7 @@
 Feature: PIN/PUK Management State Machine
   As a UICC simulator
   I need to manage PIN verification, change, enable/disable, and PUK unblock
-  Per ETSI TS 102 221 V18.0.0 clauses 11.1.9 through 11.1.12
+  Per ETSI TS 102 221 V18.3.0 clauses 11.1.9 through 11.1.12
 
   Background:
     Given a PinManager with capacity for 5 slots

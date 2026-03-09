@@ -34,8 +34,8 @@ graph LR
 
 | Spec | Coverage |
 |------|----------|
-| ETSI TS 102 225 | Secured packet structure (SPI, KIc, KID, command/response packets) |
-| ETSI TS 102 226 | Remote APDU structure for UICC-based applications |
+| ETSI TS 102 225 V19.0.0 | Secured packet structure (SPI, KIc, KID, command/response packets) |
+| ETSI TS 102 226 V19.0.0 | Remote APDU structure for UICC-based applications |
 | NIST SP 800-38A | AES-CBC-MAC (F.1.1 test vector validated) |
 
 ## Dependencies

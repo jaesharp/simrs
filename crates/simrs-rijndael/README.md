@@ -9,7 +9,7 @@ AES-128 (Rijndael) block cipher -- encryption only, `const fn`.
 | Spec | Clause | Coverage |
 |------|--------|----------|
 | NIST FIPS 197 | all | AES-128 encrypt |
-| ETSI TS 135 206 V17.0.0 | Annex 3 | Rijndael for Milenage |
+| ETSI TS 135 206 V19.0.0 | Annex 3 | Rijndael for Milenage |
 
 ## Dependencies
 

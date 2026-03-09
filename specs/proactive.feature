@@ -1,3 +1,11 @@
+# specs/proactive.feature
+#
+# BDD specification for proactive UICC command encoding and state machine.
+#
+# Standards:
+#   - ETSI TS 102 223 V18.2.0 (Card Application Toolkit)
+#   - 3GPP TS 31.111 V19.3.0 (USIM Application Toolkit)
+
 Feature: Proactive UICC Command Encoding & State Machine
   As a UICC simulator
   I need to encode proactive commands as BER-TLV and manage the FETCH cycle

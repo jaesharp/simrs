@@ -9,7 +9,7 @@ ISO/IEC 7816 APDU types, CLA parsing, status words, instruction constants.
 | Spec | Clause | Coverage |
 |------|--------|----------|
 | ISO/IEC 7816-4:2020 | 5 | APDU structure, status words |
-| ETSI TS 102 221 V18.0.0 | 10.1.1 | CLA byte, command set |
+| ETSI TS 102 221 V18.3.0 | 10.1.1 | CLA byte, command set |
 | GSM 11.11 v4.21.1 | 9 | GSM CLA=A0 |
 
 ## Dependencies

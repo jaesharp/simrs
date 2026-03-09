@@ -20,9 +20,9 @@ stateDiagram-v2
 
 | Spec | Coverage |
 |------|----------|
-| ETSI TS 102 221 V18.0.0 clause 11.1.9 | VERIFY PIN |
-| ETSI TS 102 221 V18.0.0 clause 11.1.12 | RESET RETRY COUNTER |
-| 3GPP TS 31.102 V17.5.0 clause 6.2 | PIN management |
+| ETSI TS 102 221 V18.3.0 clause 11.1.9 | VERIFY PIN |
+| ETSI TS 102 221 V18.3.0 clause 11.1.12 | RESET RETRY COUNTER |
+| 3GPP TS 31.102 V19.4.0 clause 6.2 | PIN management |
 
 ## Dependencies
 

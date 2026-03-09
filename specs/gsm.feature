@@ -1,3 +1,11 @@
+# specs/gsm.feature
+#
+# BDD specification for GSM 11.11 SIM application layer.
+#
+# Standards:
+#   - 3GPP TS 51.011 V4.15.0 (GSM 11.11)
+#   - ETSI TS 102 221 V18.3.0 (UICC-terminal interface)
+
 Feature: GSM 11.11 SIM Application Layer
   As a UICC simulator
   I need to handle GSM-class (CLA=0xA0) APDUs per GSM 11.11 / 3GPP TS 51.011

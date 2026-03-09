@@ -23,8 +23,8 @@
 //! for legacy GSM testing.
 //!
 //! # Standards
-//! - [ETSI TS 151 011 V4.15.0 clause 11](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A327%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C689%5D) -- A3/A8 algorithm interface
-//! - [ETSI TS 151 011 V4.15.0 clause 11](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A327%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C689%5D) -- RUN GSM ALGORITHM command
+//! - [ETSI TS 151 011 V4.15.0 clause 11](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A327%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C689%5D) -- A3/A8 algorithm interface
+//! - [ETSI TS 151 011 V4.15.0 clause 11](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A327%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C689%5D) -- RUN GSM ALGORITHM command
 //!
 //! # `no_std`, `no_alloc`
 //! This crate uses no heap. All computation is done in-place on stack buffers.
@@ -60,7 +60,7 @@ use simrs_consttime::ct_select_n;
 ///
 /// # Layout
 ///
-/// Per [ETSI TS 151 011 V4.15.0 clause 11](https://www.etsi.org/deliver/etsi_ts/151000_151099/151011/04.15.00_60/ts_151011v041500p.pdf#%5B%7B%22num%22%3A327%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C689%5D):
+/// Per [ETSI TS 151 011 V4.15.0 clause 11](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A327%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C689%5D):
 /// - SRES: 4 bytes (32 bits) -- sent to the network as the authentication response
 /// - Kc: 8 bytes (64 bits) -- used as the A5 ciphering key
 ///

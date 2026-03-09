@@ -20,10 +20,10 @@ graph LR
 
 | Spec | Coverage |
 |------|----------|
-| ETSI TS 135 206 V17.0.0 | f1-f5, f1\*, f5\*, OPc, constants |
-| ETSI TS 135 208 V17.0.0 | 6 test sets (all intermediate values) |
-| ETSI TS 133 102 V14.1.0 | AKA procedure, C3 Kc conversion |
-| 3GPP TS 31.102 V17.5.0 | AUTHENTICATE response (tag DB/DC) |
+| ETSI TS 135 206 V19.0.0 | f1-f5, f1\*, f5\*, OPc, constants |
+| ETSI TS 135 208 V19.0.0 | 6 test sets (all intermediate values) |
+| ETSI TS 133 102 V19.1.0 | AKA procedure, C3 Kc conversion |
+| 3GPP TS 31.102 V19.4.0 | AUTHENTICATE response (tag DB/DC) |
 
 ## Dependencies
 

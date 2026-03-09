@@ -11,7 +11,7 @@
 #
 # Standards:
 #   ISO/IEC 7816-4:2020 clause 5 (APDU structure)
-#   ETSI TS 102 221 V18.0.0 clauses 10, 11
+#   ETSI TS 102 221 V18.3.0 clauses 10, 11
 #   GSM 11.11 v4.21.1 clause 9
 #
 # Research background:

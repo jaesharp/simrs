@@ -71,8 +71,8 @@
 //! ```
 //!
 //! # Standards
-//! - [ETSI TS 102 223 V17.2.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf) -- Card Application Toolkit (CAT)
-//! - 3GPP TS 31.111 V17.0.0 -- USIM Application Toolkit (USAT)
+//! - [ETSI TS 102 223 V18.2.0](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf) -- Card Application Toolkit (CAT)
+//! - [3GPP TS 31.111 V19.3.0](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf) -- USIM Application Toolkit (USAT)
 //!
 //! # `no_std`
 //! This crate is `no_std`. All buffers are caller-supplied.
@@ -116,64 +116,64 @@ use simrs_bertlv::{BER_LONG_FORM_1, BER_LONG_FORM_2, BER_SHORT_FORM_MAX, Decoder
 
 /// BER-TLV tag for proactive command envelope.
 const TAG_PROACTIVE_CMD: u8 = 0xD0;
-/// Command Details ([ETSI TS 102 223 V17.2.0 clause 8.6](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A389%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C282%5D)).
+/// Command Details ([ETSI TS 102 223 V18.2.0 clause 8.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A388%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C322%5D)).
 const TAG_CMD_DETAILS: u8 = 0x81;
-/// Device Identities ([ETSI TS 102 223 V17.2.0 clause 8.7](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A404%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C675%5D)).
+/// Device Identities ([ETSI TS 102 223 V18.2.0 clause 8.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A403%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C655%5D)).
 const TAG_DEVICE_ID: u8 = 0x82;
-/// Alpha Identifier ([ETSI TS 102 223 V17.2.0 clause 8.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A389%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C755%5D)).
+/// Alpha Identifier ([ETSI TS 102 223 V18.2.0 clause 8.2](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A388%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
 const TAG_ALPHA_ID: u8 = 0x85;
-/// Duration ([ETSI TS 102 223 V17.2.0 clause 8.8](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A406%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Duration ([ETSI TS 102 223 V18.2.0 clause 8.8](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A405%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
 const TAG_DURATION: u8 = 0x84;
-/// Text String ([ETSI TS 102 223 V17.2.0 clause 8.15](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A418%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C285%5D)).
+/// Text String ([ETSI TS 102 223 V18.2.0 clause 8.15](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A418%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C248%5D)).
 const TAG_TEXT_STRING: u8 = 0x8D;
-/// Tone ([ETSI TS 102 223 V17.2.0 clause 8.16](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A421%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C301%5D)).
+/// Tone ([ETSI TS 102 223 V18.2.0 clause 8.16](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A421%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C283%5D)).
 const TAG_TONE: u8 = 0x8E;
-/// Item ([ETSI TS 102 223 V17.2.0 clause 8.9](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A406%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C309%5D)).
+/// Item ([ETSI TS 102 223 V18.2.0 clause 8.9](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A405%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C309%5D)).
 const TAG_ITEM: u8 = 0x8F;
-/// SMS TPDU ([ETSI TS 102 223 V17.2.0 clause 8.13](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A418%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C379%5D)).
+/// SMS TPDU ([ETSI TS 102 223 V18.2.0 clause 8.13](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A418%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C341%5D)).
 const TAG_SMS_TPDU: u8 = 0x8B;
-/// Browser Identity ([ETSI TS 102 223 V17.2.0 clause 8.61](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A469%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C644%5D)).
+/// Browser Identity ([ETSI TS 102 223 V18.2.0 clause 8.61](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A468%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C532%5D)).
 const TAG_BROWSER_ID: u8 = 0xB0;
-/// URL ([ETSI TS 102 223 V17.2.0 clause 8.48](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A453%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C160%5D)).
+/// URL ([ETSI TS 102 223 V18.2.0 clause 8.48](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A453%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C163%5D)).
 const TAG_URL: u8 = 0xB1;
-/// Response Length ([ETSI TS 102 223 V17.2.0 clause 8.11](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A408%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C654%5D)).
+/// Response Length ([ETSI TS 102 223 V18.2.0 clause 8.11](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A407%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C654%5D)).
 const TAG_RESPONSE_LENGTH: u8 = 0x91;
-/// Result ([ETSI TS 102 223 V17.2.0 clause 8.12](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A408%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C467%5D)).
+/// Result ([ETSI TS 102 223 V18.2.0 clause 8.12](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A407%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C467%5D)).
 const TAG_RESULT: u8 = 0x83;
 
-/// BER-TLV tag for Menu Selection envelope ([ETSI TS 102 223 V17.2.0 clause 7.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A295%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C516%5D)).
+/// BER-TLV tag for Menu Selection envelope ([ETSI TS 102 223 V18.2.0 clause 7.1](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A294%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C516%5D)).
 const TAG_MENU_SELECTION: u8 = 0xD3;
-/// BER-TLV tag for Event Download envelope ([ETSI TS 102 223 V17.2.0 clause 7.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A310%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C502%5D)).
+/// BER-TLV tag for Event Download envelope ([ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D)).
 const TAG_EVENT_DOWNLOAD: u8 = 0xD6;
-/// Item Identifier tag ([ETSI TS 102 223 V17.2.0 clause 8.10](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A408%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Item Identifier tag ([ETSI TS 102 223 V18.2.0 clause 8.10](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A407%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
 const TAG_ITEM_ID: u8 = 0x90;
 
-/// File List ([ETSI TS 102 223 V17.2.0 clause 8.18](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A426%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C680%5D)).
+/// File List ([ETSI TS 102 223 V18.2.0 clause 8.18](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A426%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C680%5D)).
 const TAG_FILE_LIST: u8 = 0x92;
-/// Event List ([ETSI TS 102 223 V17.2.0 clause 8.25](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C725%5D)).
+/// Event List ([ETSI TS 102 223 V18.2.0 clause 8.25](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C726%5D)).
 const TAG_EVENT_LIST: u8 = 0x99;
-/// Address ([ETSI TS 102 223 V17.2.0 clause 8.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A386%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Address ([ETSI TS 102 223 V18.2.0 clause 8.1](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A385%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
 const TAG_ADDRESS: u8 = 0x86;
-/// USSD String ([ETSI TS 102 223 V17.2.0 clause 8.17](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A426%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C716%5D)).
+/// USSD String ([ETSI TS 102 223 V18.2.0 clause 8.17](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A426%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C717%5D)).
 const TAG_USSD_STRING: u8 = 0x8A;
-/// DTMF String ([ETSI TS 102 223 V17.2.0 clause 8.44](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A453%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// DTMF String ([ETSI TS 102 223 V18.2.0 clause 8.44](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A453%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
 const TAG_DTMF_STRING: u8 = 0xAC;
-/// Timer Identifier ([ETSI TS 102 223 V17.2.0 clause 8.38](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A447%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C695%5D)).
+/// Timer Identifier ([ETSI TS 102 223 V18.2.0 clause 8.38](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A447%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C696%5D)).
 const TAG_TIMER_ID: u8 = 0xA4;
-/// Timer Value ([ETSI TS 102 223 V17.2.0 clause 8.39](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A447%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C416%5D)).
+/// Timer Value ([ETSI TS 102 223 V18.2.0 clause 8.39](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A447%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C416%5D)).
 const TAG_TIMER_VALUE: u8 = 0xA5;
-/// Language ([ETSI TS 102 223 V17.2.0 clause 8.45](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A453%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C607%5D)).
+/// Language ([ETSI TS 102 223 V18.2.0 clause 8.45](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A453%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C610%5D)).
 const TAG_LANGUAGE: u8 = 0xAD;
-/// Bearer Description ([ETSI TS 102 223 V17.2.0 clause 8.52](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A459%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Bearer Description ([ETSI TS 102 223 V18.2.0 clause 8.52](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A459%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
 const TAG_BEARER_DESCRIPTION: u8 = 0xB5;
-/// Buffer Size ([ETSI TS 102 223 V17.2.0 clause 8.55](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A462%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C497%5D)).
+/// Buffer Size ([ETSI TS 102 223 V18.2.0 clause 8.55](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A462%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C405%5D)).
 const TAG_BUFFER_SIZE: u8 = 0xB9;
-/// Transport Level ([ETSI TS 102 223 V17.2.0 clause 8.59](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A466%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C440%5D)).
+/// Transport Level ([ETSI TS 102 223 V18.2.0 clause 8.59](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A466%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C328%5D)).
 const TAG_TRANSPORT_LEVEL: u8 = 0xBC;
-/// Other Address ([ETSI TS 102 223 V17.2.0 clause 8.58](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A466%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Other Address ([ETSI TS 102 223 V18.2.0 clause 8.58](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A466%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C674%5D)).
 const TAG_OTHER_ADDRESS: u8 = 0xBE;
 
-// -- Command type values (ETSI TS 102 223 V17.2.0 clause 9.4) --
+// -- Command type values (ETSI TS 102 223 V18.2.0 clause 9.4) --
 
 /// SEND SHORT MESSAGE (type `0x13`).
 const CMD_TYPE_SEND_SMS: u8 = 0x13;
@@ -269,7 +269,7 @@ const CMD_TYPE_LSI_COMMAND: u8 = 0x79;
 /// END OF PROACTIVE UICC SESSION (type `0x81`).
 const CMD_TYPE_END_PROACTIVE_SESSION: u8 = 0x81;
 
-// -- Device identity values (ETSI TS 102 223 V17.2.0 clause 8.7) --
+// -- Device identity values (ETSI TS 102 223 V18.2.0 clause 8.7) --
 
 /// Keypad device identity.
 pub const DEV_KEYPAD: u8 = 0x01;
@@ -285,12 +285,12 @@ pub const DEV_TERMINAL: u8 = 0x82;
 pub const DEV_NETWORK: u8 = 0x83;
 
 // ---------------------------------------------------------------------------
-// Event ID constants (ETSI TS 102 223 V17.2.0 clause 8.25)
+// Event ID constants (ETSI TS 102 223 V18.2.0 clause 8.25)
 // ---------------------------------------------------------------------------
 
 /// Event type identifiers for SET UP EVENT LIST and Event Download.
 ///
-/// Per [ETSI TS 102 223 V17.2.0 clause 8.25](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C725%5D). These are the event ID bytes
+/// Per [ETSI TS 102 223 V18.2.0 clause 8.25](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C726%5D). These are the event ID bytes
 /// carried in the Event List TLV (tag 0x99).
 pub mod event_id {
     /// MT call event.
@@ -319,7 +319,7 @@ pub mod event_id {
 
 /// ENVELOPE event parsed from terminal.
 ///
-/// Per [ETSI TS 102 223 V17.2.0 clause 7](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A295%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D).
+/// Per [ETSI TS 102 223 V18.2.0 clause 7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A294%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnvelopeEvent {
     /// Terminal user selected a menu item (tag D3).
@@ -329,7 +329,7 @@ pub enum EnvelopeEvent {
     },
     /// Terminal reports an event (tag D6).
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 7.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A310%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C502%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D).
     EventDownload {
         /// Event type byte (see [`event_id`] constants).
         event_type: u8,
@@ -342,7 +342,7 @@ pub enum EnvelopeEvent {
 
 /// Text encoding scheme for text strings.
 ///
-/// Per [ETSI TS 102 223 V17.2.0 clause 8.15](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A418%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C285%5D), the first byte of a text string
+/// Per [ETSI TS 102 223 V18.2.0 clause 8.15](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A418%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C248%5D), the first byte of a text string
 /// TLV value is the Data Coding Scheme (DCS).
 ///
 /// # Example
@@ -363,7 +363,7 @@ pub enum TextCoding {
 }
 
 impl TextCoding {
-    /// Data Coding Scheme byte per [3GPP TS 23.038 V17.0.0 clause 4](https://www.etsi.org/deliver/etsi_ts/123000_123099/123038/17.00.00_60/ts_123038v170000p.pdf#%5B%7B%22num%22%3A17%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Data Coding Scheme byte per [3GPP TS 23.038 V19.0.0 clause 4](../../../docs/specs/3gpp/ts-23.038/ts_123038v190000p.pdf#%5B%7B%22num%22%3A23%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const fn dcs_byte(self) -> u8 {
         match self {
             Self::Gsm7Bit => 0x00,
@@ -390,7 +390,7 @@ pub struct MenuItem<'a> {
     pub text: &'a [u8],
 }
 
-/// Duration time unit per [ETSI TS 102 223 V17.2.0 clause 8.8](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A406%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
+/// Duration time unit per [ETSI TS 102 223 V18.2.0 clause 8.8](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A405%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 ///
 /// # Example
 ///
@@ -437,7 +437,7 @@ impl TimeUnit {
 pub enum ProactiveCommand<'a> {
     /// DISPLAY TEXT (type `0x21`): show text on the terminal display.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A128%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C473%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.1](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A127%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C751%5D).
     DisplayText {
         /// Text content.
         text: &'a [u8],
@@ -449,7 +449,7 @@ pub enum ProactiveCommand<'a> {
 
     /// SET UP MENU (type `0x25`): install a persistent menu.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.7](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A225%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C605%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A226%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     SetUpMenu {
         /// Menu title (alpha identifier).
         title: &'a [u8],
@@ -459,7 +459,7 @@ pub enum ProactiveCommand<'a> {
 
     /// LAUNCH BROWSER (type `0x15`): open a URL.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.26](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A173%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C608%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.26](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A170%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C652%5D).
     LaunchBrowser {
         /// URL to open.
         url: &'a [u8],
@@ -469,9 +469,9 @@ pub enum ProactiveCommand<'a> {
 
     /// PLAY TONE (type `0x20`): audio feedback.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A139%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C202%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A136%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C451%5D).
     PlayTone {
-        /// Tone type (per [ETSI TS 102 223 V17.2.0 clause 8.16](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A421%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C301%5D)).
+        /// Tone type (per [ETSI TS 102 223 V18.2.0 clause 8.16](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A421%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C283%5D)).
         tone: u8,
         /// Duration time unit.
         unit: TimeUnit,
@@ -481,7 +481,7 @@ pub enum ProactiveCommand<'a> {
 
     /// SEND SHORT MESSAGE (type `0x13`): send an SMS.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.10](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A155%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.10](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A149%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C341%5D).
     SendSms {
         /// Raw SMS TPDU.
         tpdu: &'a [u8],
@@ -489,7 +489,7 @@ pub enum ProactiveCommand<'a> {
 
     /// GET INKEY (type `0x22`): prompt for single character.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.2](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A133%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.2](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A129%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C372%5D).
     GetInkey {
         /// Prompt text.
         text: &'a [u8],
@@ -501,7 +501,7 @@ pub enum ProactiveCommand<'a> {
 
     /// GET INPUT (type `0x23`): prompt for text string.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.3](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A136%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C478%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.3](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A134%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C747%5D).
     GetInput {
         /// Prompt text.
         text: &'a [u8],
@@ -517,7 +517,7 @@ pub enum ProactiveCommand<'a> {
 
     /// SELECT ITEM (type `0x24`): present list of items.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.9](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A153%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C651%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.9](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A147%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C220%5D).
     SelectItem {
         /// Menu title (alpha identifier).
         title: &'a [u8],
@@ -527,7 +527,7 @@ pub enum ProactiveCommand<'a> {
 
     /// SET UP IDLE MODE TEXT (type `0x28`): persistent idle screen text.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.22](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A169%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C735%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.22](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A166%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     SetUpIdleModeText {
         /// Text to display on idle screen.
         text: &'a [u8],
@@ -536,20 +536,20 @@ pub enum ProactiveCommand<'a> {
     },
 
     /// REFRESH (type `0x01`): card lifecycle management.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.7](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A145%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C747%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A139%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C354%5D).
     Refresh {
-        /// Refresh qualifier (0x00-0x07 per [ETSI TS 102 223 V17.2.0 clause 8.6](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A389%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C282%5D)).
+        /// Refresh qualifier (0x00-0x07 per [ETSI TS 102 223 V18.2.0 clause 8.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A388%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C322%5D)).
         qualifier: u8,
         /// File list (raw bytes for File List TLV value).
         file_list: &'a [u8],
     },
 
     /// MORE TIME (type `0x02`): request additional processing time.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.4](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A223%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C549%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.4](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A222%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C289%5D).
     MoreTime,
 
     /// POLL INTERVAL (type `0x03`): set polling interval.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A223%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C442%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A224%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     PollInterval {
         /// Duration time unit.
         unit: TimeUnit,
@@ -558,50 +558,50 @@ pub enum ProactiveCommand<'a> {
     },
 
     /// POLLING OFF (type `0x04`): disable polling.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.6](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A225%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A224%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C399%5D).
     PollingOff,
 
     /// SET UP EVENT LIST (type `0x05`): subscribe to terminal events.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.16](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A162%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C683%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.16](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A156%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C178%5D).
     SetUpEventList {
-        /// Event ID bytes per [ETSI TS 102 223 V17.2.0 clause 8.25](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C725%5D).
+        /// Event ID bytes per [ETSI TS 102 223 V18.2.0 clause 8.25](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C726%5D).
         events: &'a [u8],
     },
 
     /// SET UP CALL (type `0x10`): initiate a voice call.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.12](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A229%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C723%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.12](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A228%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C386%5D).
     SetUpCall {
         /// Address (TON/NPI prefix byte + dialing number).
         address: &'a [u8],
-        /// Call qualifier per [ETSI TS 102 223 V17.2.0 clause 8.6](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A389%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C282%5D).
+        /// Call qualifier per [ETSI TS 102 223 V18.2.0 clause 8.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A388%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C322%5D).
         qualifier: u8,
         /// Alpha identifier for user confirmation.
         alpha_id: &'a [u8],
     },
 
     /// SEND USSD (type `0x12`): send a USSD string.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.8](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A227%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.8](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A226%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C410%5D).
     SendUssd {
         /// USSD string (DCS byte + string data).
         ussd_string: &'a [u8],
     },
 
     /// SEND DTMF (type `0x14`): send DTMF tones during a call.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.24](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A235%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C604%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.24](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A234%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C259%5D).
     SendDtmf {
         /// DTMF string (BCD encoded digits).
         dtmf: &'a [u8],
     },
 
     /// PROVIDE LOCAL INFORMATION (type `0x26`): request terminal info.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.15](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A159%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C354%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.15](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A156%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C550%5D).
     ProvideLocalInformation {
         /// Information subtype (qualifier byte).
         qualifier: u8,
     },
 
     /// TIMER MANAGEMENT (type `0x27`): start/stop/query timers.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.21](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A233%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C572%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.21](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A232%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C199%5D).
     TimerManagement {
         /// Timer identifier (1-8).
         timer_id: u8,
@@ -613,7 +613,7 @@ pub enum ProactiveCommand<'a> {
     },
 
     /// LANGUAGE NOTIFICATION (type `0x35`): language change.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.25](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A171%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C196%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.25](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A168%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C258%5D).
     LanguageNotification {
         /// If true, specific language notification.
         specific: bool,
@@ -622,50 +622,50 @@ pub enum ProactiveCommand<'a> {
     },
 
     /// SEND SS (type `0x11`): send supplementary service request.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.10](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A155%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.10](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A149%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C341%5D).
     SendSs {
         /// SS qualifier.
         qualifier: u8,
     },
 
     /// GEOGRAPHICAL LOCATION REQUEST (type `0x16`).
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.28](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A192%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C376%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.28](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A189%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C376%5D).
     GeographicalLocationRequest,
 
     /// PERFORM CARD APDU (type `0x30`): proxy APDU to another card.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.17](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A162%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C457%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.17](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A159%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C616%5D).
     PerformCardApdu {
         /// Card reader qualifier.
         qualifier: u8,
     },
 
     /// POWER ON CARD (type `0x31`): power on additional card.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.18](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A164%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C627%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.18](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A161%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     PowerOnCard {
         /// Card reader qualifier.
         qualifier: u8,
     },
 
     /// POWER OFF CARD (type `0x32`): power off additional card.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.19](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A164%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C351%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.19](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A161%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C509%5D).
     PowerOffCard {
         /// Card reader qualifier.
         qualifier: u8,
     },
 
     /// GET READER STATUS (type `0x33`): query card reader state.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.20](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A167%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C715%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.20](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A164%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     GetReaderStatus {
         /// Card reader qualifier.
         qualifier: u8,
     },
 
     /// RUN AT COMMAND (type `0x34`): execute modem AT command.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.28](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A249%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C438%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.28](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A248%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C438%5D).
     RunAtCommand,
 
     /// OPEN CHANNEL (type `0x40`): establish BIP connection.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.27](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A175%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.27](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A170%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C148%5D).
     OpenChannel {
         /// Bearer description bytes (type + parameters).
         bearer: &'a [u8],
@@ -682,90 +682,90 @@ pub enum ProactiveCommand<'a> {
     },
 
     /// CLOSE CHANNEL (type `0x41`): terminate BIP channel.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.28](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A192%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C376%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.28](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A189%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C376%5D).
     CloseChannel {
         /// Channel qualifier.
         qualifier: u8,
     },
 
     /// RECEIVE DATA (type `0x42`): receive data from BIP channel.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.29](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A194%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C494%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.29](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A191%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C494%5D).
     ReceiveData {
         /// Channel qualifier.
         qualifier: u8,
     },
 
     /// SEND DATA (type `0x43`): send data on BIP channel.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.30](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A196%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C516%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.30](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A193%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C517%5D).
     SendDataCmd {
         /// Channel qualifier.
         qualifier: u8,
     },
 
     /// GET CHANNEL STATUS (type `0x44`): query BIP channel state.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.31](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A198%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C165%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.31](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A195%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C165%5D).
     GetChannelStatus,
 
     /// SERVICE SEARCH (type `0x45`): search for local services.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.32](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A200%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.32](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A197%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     ServiceSearch,
 
     /// GET SERVICE INFORMATION (type `0x46`): get service details.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.33](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A200%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C378%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.33](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A197%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C378%5D).
     GetServiceInformation,
 
     /// DECLARE SERVICE (type `0x47`): declare a local service.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.34](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A202%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C715%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.34](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A199%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C715%5D).
     DeclareService {
         /// Service qualifier.
         qualifier: u8,
     },
 
     /// SET FRAMES (type `0x50`): configure display frames.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.35](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A202%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C297%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.35](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A199%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C297%5D).
     SetFrames,
 
     /// GET FRAMES STATUS (type `0x51`): query frame layout.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.36](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A204%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C296%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.36](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A201%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C296%5D).
     GetFramesStatus,
 
     /// RETRIEVE MULTIMEDIA MESSAGE (type `0x60`).
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.37](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A204%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C183%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.37](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A201%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C183%5D).
     RetrieveMultimediaMessage,
 
     /// SUBMIT MULTIMEDIA MESSAGE (type `0x61`).
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.38](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A206%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C398%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.38](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A203%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C398%5D).
     SubmitMultimediaMessage,
 
     /// DISPLAY MULTIMEDIA MESSAGE (type `0x62`).
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.39](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A208%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C628%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.39](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A205%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C628%5D).
     DisplayMultimediaMessage,
 
     /// ACTIVATE (type `0x70`): profile activation.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.40](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C519%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.40](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A208%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C519%5D).
     Activate {
         /// Activation qualifier.
         qualifier: u8,
     },
 
     /// CONTACTLESS STATE CHANGED (type `0x71`): NFC state notification.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.41](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C326%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.41](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A208%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C239%5D).
     ContactlessStateChanged,
 
     /// COMMAND CONTAINER (type `0x72`): grouped commands.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.42](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A213%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.42](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C613%5D).
     CommandContainer,
 
     /// ENCAPSULATED SESSION CONTROL (type `0x73`): secure session.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.43](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A213%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C623%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.43](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C451%5D).
     EncapsulatedSessionControl,
 
     /// LSI COMMAND (type `0x79`): Locally Supplied Information.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.4.44](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A213%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C464%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.44](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C292%5D).
     LsiCommand,
 
     /// END OF PROACTIVE UICC SESSION (type `0x81`): session termination.
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.14](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A231%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C715%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.14](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A230%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C357%5D).
     EndOfProactiveUiccSession,
 }
 
@@ -794,7 +794,7 @@ impl core::fmt::Display for ProactiveError {
 
 /// Parsed result from a TERMINAL RESPONSE APDU.
 ///
-/// Per [ETSI TS 102 223 V17.2.0 clause 6.8](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A264%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C380%5D), the terminal sends this in response
+/// Per [ETSI TS 102 223 V18.2.0 clause 6.8](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A263%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C380%5D), the terminal sends this in response
 /// to a proactive command. Contains the command details and general result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TerminalResult {
@@ -802,7 +802,7 @@ pub struct TerminalResult {
     pub cmd_number: u8,
     /// Command type echoed from the original proactive command.
     pub cmd_type: u8,
-    /// General result byte ([ETSI TS 102 223 V17.2.0 clause 8.12](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A408%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C467%5D)).
+    /// General result byte ([ETSI TS 102 223 V18.2.0 clause 8.12](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A407%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C467%5D)).
     ///
     /// Common values:
     /// - `0x00`: command performed successfully
@@ -1125,7 +1125,7 @@ impl ProactiveCommand<'_> {
     const fn header_fields(&self) -> (u8, u8, u8) {
         match self {
             Self::DisplayText { high_priority, .. } => {
-                // Per ETSI TS 102 223 V17.2.0 clause 8.6 (DISPLAY TEXT qualifier):
+                // Per ETSI TS 102 223 V18.2.0 clause 8.6 (DISPLAY TEXT qualifier):
                 // bit 0: 1 = high priority (display immediately)
                 // bit 7: 1 = wait for user to clear, 0 = clear after delay
                 let qual = if *high_priority { 0x01 } else { 0x00 };
@@ -1136,14 +1136,14 @@ impl ProactiveCommand<'_> {
             Self::PlayTone { .. } => (CMD_TYPE_PLAY_TONE, 0x00, DEV_EARPIECE),
             Self::SendSms { .. } => (CMD_TYPE_SEND_SMS, 0x00, DEV_NETWORK),
             Self::GetInkey { digits_only, .. } => {
-                // Per ETSI TS 102 223 V17.2.0 clause 8.6 (GET INKEY qualifier):
+                // Per ETSI TS 102 223 V18.2.0 clause 8.6 (GET INKEY qualifier):
                 // bit 0: 0 = digits (0-9, *, #, +) only
                 //         1 = SMS default alphabet set
                 let qual = if *digits_only { 0x00 } else { 0x01 };
                 (CMD_TYPE_GET_INKEY, qual, DEV_TERMINAL)
             }
             Self::GetInput { digits_only, .. } => {
-                // Per ETSI TS 102 223 V17.2.0 clause 8.6 (GET INPUT qualifier):
+                // Per ETSI TS 102 223 V18.2.0 clause 8.6 (GET INPUT qualifier):
                 // bit 0: 0 = digits (0-9, *, #, +) only
                 //         1 = SMS default alphabet set
                 let qual = if *digits_only { 0x00 } else { 0x01 };
@@ -1311,12 +1311,12 @@ pub struct ProactiveState {
     /// Set via SET UP EVENT LIST proactive command.
     subscribed_events: u32,
     /// 8 concurrent timers (IDs 1-8, indexed 0-7).
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.21](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A233%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C572%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.21](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A232%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C199%5D).
     timers: [TimerSlot; 8],
     /// Bitmask of expired timer IDs (bits 0-7 for timers 1-8).
     expired_timers: u8,
     /// 7 BIP channel slots (IDs 1-7, indexed 0-6).
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.6.27](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A239%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.27](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A238%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     channels: [ChannelSlot; 7],
     /// General result byte from the most recent TERMINAL RESPONSE.
     /// 0xFF means no response received yet.
@@ -1329,7 +1329,7 @@ pub struct ProactiveState {
 
 /// A single timer slot (1 of 8).
 ///
-/// Per [ETSI TS 102 223 V17.2.0 clause 6.6.21](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A233%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C572%5D), the UICC can manage up to 8
+/// Per [ETSI TS 102 223 V18.2.0 clause 6.6.21](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A232%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C199%5D), the UICC can manage up to 8
 /// concurrent timers. Each timer counts down in seconds.
 #[derive(Clone, Copy)]
 struct TimerSlot {
@@ -1354,7 +1354,7 @@ impl TimerSlot {
 
 /// A single BIP channel slot.
 ///
-/// Per [ETSI TS 102 223 V17.2.0 clause 6.6.27](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A239%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D), the terminal can manage up to 7
+/// Per [ETSI TS 102 223 V18.2.0 clause 6.6.27](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A238%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D), the terminal can manage up to 7
 /// Bearer Independent Protocol channels (IDs 1-7).
 #[derive(Clone, Copy)]
 struct ChannelSlot {
@@ -1394,7 +1394,7 @@ const fn dec_to_bcd_byte(v: u8) -> u8 {
 
 /// Convert BCD timer value [HH, MM, SS] to total seconds.
 ///
-/// Per [ETSI TS 102 223 V17.2.0 clause 8.39](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A447%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C416%5D).
+/// Per [ETSI TS 102 223 V18.2.0 clause 8.39](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A447%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C416%5D).
 const fn bcd_to_seconds(bcd: [u8; 3]) -> u32 {
     let hours = bcd_byte_to_dec(bcd[0]) as u32;
     let minutes = bcd_byte_to_dec(bcd[1]) as u32;
@@ -1552,7 +1552,7 @@ impl ProactiveState {
 
     /// Override the status word if a proactive command is pending.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 6.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A116%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C305%5D): if a proactive command is pending
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.1](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A115%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C590%5D): if a proactive command is pending
     /// and the original status would be `90 00`, replace it with `91 XX`
     /// where XX is the pending command length.
     ///
@@ -1601,8 +1601,8 @@ impl ProactiveState {
     ///
     /// Parses the outer tag to identify the envelope type, then extracts
     /// relevant inner TLVs. Supports:
-    /// - Menu Selection (tag D3, [ETSI TS 102 223 V17.2.0 clause 7.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A295%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C516%5D))
-    /// - Event Download (tag D6, [ETSI TS 102 223 V17.2.0 clause 7.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A310%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C502%5D))
+    /// - Menu Selection (tag D3, [ETSI TS 102 223 V18.2.0 clause 7.1](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A294%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C516%5D))
+    /// - Event Download (tag D6, [ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D))
     ///
     /// For Event Download, the event must be in the subscribed set
     /// (see [`subscribe_events`](Self::subscribe_events)).
@@ -1639,7 +1639,7 @@ impl ProactiveState {
 
     /// Parse Event Download (D6) inner TLVs.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 7.5](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A310%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C502%5D), the inner TLVs include:
+    /// Per [ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D), the inner TLVs include:
     /// - Event List (tag 0x99): single event type byte
     /// - Timer Identifier (tag 0xA4): for Timer Expiry events
     /// - Timer Value (tag 0xA5): for Timer Expiry events
@@ -1711,7 +1711,7 @@ impl ProactiveState {
 
     /// Subscribe to a set of event IDs.
     ///
-    /// Per [ETSI TS 102 223 V17.2.0 clause 8.25](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C725%5D). Replaces any existing subscriptions.
+    /// Per [ETSI TS 102 223 V18.2.0 clause 8.25](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C726%5D). Replaces any existing subscriptions.
     /// Each byte in `events` is an event ID (0-31). IDs >= 32 are ignored.
     pub fn subscribe_events(&mut self, events: &[u8]) {
         self.subscribed_events = 0;
@@ -1739,7 +1739,7 @@ impl ProactiveState {
 
     /// Start a timer.
     ///
-    /// `timer_id` must be 1-8 (per [ETSI TS 102 223 V17.2.0 clause 6.6.21](https://www.etsi.org/deliver/etsi_ts/102200_102299/102223/17.02.00_60/ts_102223v170200p.pdf#%5B%7B%22num%22%3A233%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C572%5D)).
+    /// `timer_id` must be 1-8 (per [ETSI TS 102 223 V18.2.0 clause 6.6.21](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A232%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C199%5D)).
     /// `timer_value` is BCD-encoded [hours, minutes, seconds].
     ///
     /// Returns `true` on success, `false` for invalid `timer_id`.
@@ -1827,7 +1827,7 @@ impl ProactiveState {
 
     /// Store terminal profile data.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.2.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A465%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C751%5D), the terminal sends its capability
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.2.1](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A467%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C751%5D), the terminal sends its capability
     /// profile at power-up. Up to 32 bytes are stored; excess is truncated.
     #[allow(clippy::cast_possible_truncation)] // len capped at 32
     pub fn set_terminal_profile(&mut self, data: &[u8]) {
@@ -1848,7 +1848,7 @@ impl ProactiveState {
 
     /// Clear transient session state on card reset.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.2.1](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A465%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C751%5D), the terminal must re-send
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.2.1](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A467%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C751%5D), the terminal must re-send
     /// TERMINAL PROFILE after every card reset. Clears the stored profile
     /// and any pending envelope event. Timers and BIP channels are *not*
     /// cleared here -- timer management is via `tick()`/`take_expired_timer()`

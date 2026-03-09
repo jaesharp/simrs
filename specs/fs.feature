@@ -1,3 +1,10 @@
+# specs/fs.feature
+#
+# BDD specification for ICC filesystem model.
+#
+# Standards:
+#   - ETSI TS 102 221 V18.3.0 clause 8 (file system)
+
 Feature: ICC Filesystem Model
   As a UICC simulator
   I need a hierarchical read-only filesystem with EF/DF/ADF nodes

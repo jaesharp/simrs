@@ -1,6 +1,6 @@
 //! PIN/PUK management state machine.
 //!
-//! Implements the PIN lifecycle per [ETSI TS 102 221 V18.0.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf): verify, change,
+//! Implements the PIN lifecycle per [ETSI TS 102 221 V18.3.0](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf): verify, change,
 //! disable, enable, and unblock (reset retry counter). Each PIN slot
 //! tracks its value, retry counter, enabled/disabled flag, and session
 //! verification state. Each slot also holds an associated PUK with its
@@ -28,12 +28,12 @@
 //! ```
 //!
 //! # Standards
-//! - [ETSI TS 102 221 V18.0.0 clause 11.1.9](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A373%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C454%5D) -- VERIFY PIN
-//! - [ETSI TS 102 221 V18.0.0 clause 11.1.10](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A377%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- CHANGE PIN
-//! - [ETSI TS 102 221 V18.0.0 clause 11.1.11](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A377%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C217%5D) -- DISABLE PIN
-//! - [ETSI TS 102 221 V18.0.0 clause 11.1.12](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A383%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- ENABLE PIN
-//! - [ETSI TS 102 221 V18.0.0 clause 11.1.13](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A385%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- UNBLOCK PIN
-//! - [3GPP TS 31.102 V17.5.0 clause 6.2](https://www.etsi.org/deliver/etsi_ts/131100_131199/131102/17.05.00_60/ts_131102v170500p.pdf#%5B%7B%22num%22%3A579%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C592%5D) -- PIN management
+//! - [ETSI TS 102 221 V18.3.0 clause 11.1.9](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A375%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C454%5D) -- VERIFY PIN
+//! - [ETSI TS 102 221 V18.3.0 clause 11.1.10](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A379%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- CHANGE PIN
+//! - [ETSI TS 102 221 V18.3.0 clause 11.1.11](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A379%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C217%5D) -- DISABLE PIN
+//! - [ETSI TS 102 221 V18.3.0 clause 11.1.12](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A385%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- ENABLE PIN
+//! - [ETSI TS 102 221 V18.3.0 clause 11.1.13](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A387%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- UNBLOCK PIN
+//! - [3GPP TS 31.102 V19.4.0 clause 6.2](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A699%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C202%5D) -- PIN management
 //!
 //! # `no_std`, `no_alloc`
 //! This crate uses no heap.
@@ -72,7 +72,7 @@ use simrs_consttime::ct_eq;
 // Public types
 // ---------------------------------------------------------------------------
 
-/// PIN key reference per [ETSI TS 102 221 V18.0.0](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf) Table 9.3.
+/// PIN key reference per [ETSI TS 102 221 V18.3.0](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf) Table 9.3.
 ///
 /// Common values:
 /// - `0x01`: PIN Appl 1 (global)
@@ -94,15 +94,15 @@ use simrs_consttime::ct_eq;
 pub struct PinKey(pub u8);
 
 impl PinKey {
-    /// PIN Application 1 (global). ETSI TS 102 221 V18.0.0 Table 9.3.
+    /// PIN Application 1 (global). [ETSI TS 102 221 V18.3.0 Table 9.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A298%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C529%5D).
     pub const PIN1: Self = Self(0x01);
-    /// PIN Application 1 (local/second). ETSI TS 102 221 V18.0.0 Table 9.3.
+    /// PIN Application 1 (local/second). [ETSI TS 102 221 V18.3.0 Table 9.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A298%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C529%5D).
     pub const PIN2: Self = Self(0x81);
-    /// Administrative key 1. ETSI TS 102 221 V18.0.0 Table 9.3.
+    /// Administrative key 1. [ETSI TS 102 221 V18.3.0 Table 9.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A298%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C529%5D).
     pub const ADM1: Self = Self(0x0A);
-    /// Administrative key 2. ETSI TS 102 221 V18.0.0 Table 9.3.
+    /// Administrative key 2. [ETSI TS 102 221 V18.3.0 Table 9.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A298%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C529%5D).
     pub const ADM2: Self = Self(0x0B);
-    /// Universal PIN. ETSI TS 102 221 V18.0.0 Table 9.3.
+    /// Universal PIN. [ETSI TS 102 221 V18.3.0 Table 9.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A298%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C529%5D).
     pub const UNIVERSAL: Self = Self(0x11);
 
     /// Return the raw `u8` key identifier.
@@ -325,7 +325,7 @@ struct PinSlot {
     ///
     /// Access externally via [`PinManager::is_verified`], which also returns
     /// `true` when `enabled == false` (disabled PINs satisfy the security
-    /// condition automatically per [ETSI TS 102 221 V18.0.0 clause 11.1.11](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A377%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C217%5D)).
+    /// condition automatically per [ETSI TS 102 221 V18.3.0 clause 11.1.11](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A379%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C217%5D)).
     verified: bool,
 }
 
@@ -447,7 +447,7 @@ impl<const N: usize> PinManager<N> {
 
     /// Verify a PIN value.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.1.9](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A373%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C454%5D):
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.1.9](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A375%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C454%5D):
     /// - Correct PIN: counter reset to max, verified flag set.
     /// - Wrong PIN: counter decremented; returns remaining retries.
     /// - Already blocked (counter = 0): returns [`PinResult::Blocked`].
@@ -492,7 +492,7 @@ impl<const N: usize> PinManager<N> {
 
     /// Change a PIN value.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.1.10](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A377%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D): old PIN must be correct.
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.1.10](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A379%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D): old PIN must be correct.
     /// On success the PIN value is replaced and the retry counter is reset.
     /// The verified flag is **not** set (CHANGE does not satisfy the
     /// security condition).
@@ -516,7 +516,7 @@ impl<const N: usize> PinManager<N> {
             return PinResult::NotFound;
         };
         let slot = &mut self.slots[idx];
-        // CHANGE is permitted on disabled PINs per ETSI TS 102 221 V18.0.0 clause 11.1.10
+        // CHANGE is permitted on disabled PINs per ETSI TS 102 221 V18.3.0 clause 11.1.10
         // (no explicit restriction on disabled state). This allows administrative
         // value rotation without re-enabling the PIN.
         if slot.pin_retries == 0 {
@@ -536,7 +536,7 @@ impl<const N: usize> PinManager<N> {
 
     /// Disable PIN verification requirement.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.1.11](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A377%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C217%5D): current PIN must be correct.
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.1.11](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A379%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C217%5D): current PIN must be correct.
     /// After disabling, the security condition is automatically satisfied.
     ///
     /// # Example
@@ -578,7 +578,7 @@ impl<const N: usize> PinManager<N> {
 
     /// Enable PIN verification requirement.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.1.12](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A383%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D): current PIN must be correct.
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.1.12](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A385%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D): current PIN must be correct.
     /// After enabling, the PIN is in the unverified state.
     ///
     /// # Example
@@ -620,7 +620,7 @@ impl<const N: usize> PinManager<N> {
 
     /// Unblock a PIN using the associated PUK.
     ///
-    /// Per [ETSI TS 102 221 V18.0.0 clause 11.1.13](https://www.etsi.org/deliver/etsi_ts/102200_102299/102221/18.00.00_60/ts_102221v180000p.pdf#%5B%7B%22num%22%3A385%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D): verifies the PUK, sets a new
+    /// Per [ETSI TS 102 221 V18.3.0 clause 11.1.13](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A387%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D): verifies the PUK, sets a new
     /// PIN value, and resets the PIN retry counter. The PUK counter is
     /// **not** reset on success (per spec). On PUK failure the PUK counter
     /// is decremented; when exhausted the PIN is permanently blocked.

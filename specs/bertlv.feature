@@ -3,9 +3,9 @@
 # BDD specification for BER-TLV encoding and decoding.
 #
 # Standards:
-#   - ETSI TS 101 220 V17.1.0 -- BER-TLV tag assignments
+#   - ETSI TS 101 220 V19.0.0 -- BER-TLV tag assignments
 #   - ISO/IEC 8825-1 -- Basic Encoding Rules
-#   - ETSI TS 102 221 V18.0.0 clause 11.1 -- FCP BER-TLV structures
+#   - ETSI TS 102 221 V18.3.0 clause 11.1 -- FCP BER-TLV structures
 
 Feature: BER-TLV Encoding and Decoding
   The BER-TLV codec encodes Tag-Length-Value objects into byte buffers

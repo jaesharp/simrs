@@ -1,4 +1,4 @@
-//! GSM 7-bit default alphabet pack/unpack per [3GPP TS 23.038 V17.0.0](https://www.etsi.org/deliver/etsi_ts/123000_123099/123038/17.00.00_60/ts_123038v170000p.pdf).
+//! GSM 7-bit default alphabet pack/unpack per [3GPP TS 23.038 V19.0.0](../../../docs/specs/3gpp/ts-23.038/ts_123038v190000p.pdf).
 //!
 //! The GSM 7-bit default alphabet maps common ASCII-range characters to
 //! 7-bit codes. Packing compresses 7-bit codes into 8-bit octets by
@@ -7,15 +7,15 @@
 //! into bits 0--5 of the second byte, etc.
 //!
 //! # Standards
-//! - [3GPP TS 23.038 V17.0.0 clause 6.1.2](https://www.etsi.org/deliver/etsi_ts/123000_123099/123038/17.00.00_60/ts_123038v170000p.pdf#%5B%7B%22num%22%3A31%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C443%5D) -- GSM 7 bit Default Alphabet
-//! - [3GPP TS 23.038 V17.0.0 clause 6.1.2.1](https://www.etsi.org/deliver/etsi_ts/123000_123099/123038/17.00.00_60/ts_123038v170000p.pdf#%5B%7B%22num%22%3A31%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C410%5D) -- Packing of 7-bit characters
+//! - [3GPP TS 23.038 V19.0.0 clause 6.1.2](../../../docs/specs/3gpp/ts-23.038/ts_123038v190000p.pdf#%5B%7B%22num%22%3A37%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C443%5D) -- GSM 7 bit Default Alphabet
+//! - [3GPP TS 23.038 V19.0.0 clause 6.1.2.1](../../../docs/specs/3gpp/ts-23.038/ts_123038v190000p.pdf#%5B%7B%22num%22%3A37%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C410%5D) -- Packing of 7-bit characters
 
 /// GSM 7-bit default alphabet to ASCII mapping table.
 ///
 /// Index = GSM 7-bit code (0x00..0x7F), value = ASCII equivalent.
 /// Characters with no clean ASCII equivalent map to `b'?'`.
 ///
-/// Per [3GPP TS 23.038 V17.0.0 clause 6.2.1](https://www.etsi.org/deliver/etsi_ts/123000_123099/123038/17.00.00_60/ts_123038v170000p.pdf#%5B%7B%22num%22%3A41%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C697%5D), Table 6.2.1.
+/// Per [3GPP TS 23.038 V19.0.0 clause 6.2.1](../../../docs/specs/3gpp/ts-23.038/ts_123038v190000p.pdf#%5B%7B%22num%22%3A47%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C673%5D), Table 6.2.1.
 const GSM7_TO_ASCII_TABLE: [u8; 128] = [
     b'@',  // 0x00
     0xA3,  // 0x01  pound sign (not pure ASCII, mapped to 0xA3 Latin-1)
@@ -151,7 +151,7 @@ const GSM7_TO_ASCII_TABLE: [u8; 128] = [
 ///
 /// Returns `None` if the character has no direct GSM 7-bit mapping.
 ///
-/// Per [3GPP TS 23.038 V17.0.0 Table 6.2.1](https://www.etsi.org/deliver/etsi_ts/123000_123099/123038/17.00.00_60/ts_123038v170000p.pdf#%5B%7B%22num%22%3A41%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C697%5D). Note that `@` maps to GSM code `0x00`.
+/// Per [3GPP TS 23.038 V19.0.0 Table 6.2.1](../../../docs/specs/3gpp/ts-23.038/ts_123038v190000p.pdf#%5B%7B%22num%22%3A47%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C673%5D). Note that `@` maps to GSM code `0x00`.
 ///
 /// # Example
 ///
@@ -175,7 +175,7 @@ pub const fn ascii_to_gsm7(ch: u8) -> Option<u8> {
 
 /// Convert a single GSM 7-bit code to its ASCII/Latin-1 equivalent.
 ///
-/// Codes 0x00--0x7F are mapped per [3GPP TS 23.038 V17.0.0 Table 6.2.1](https://www.etsi.org/deliver/etsi_ts/123000_123099/123038/17.00.00_60/ts_123038v170000p.pdf#%5B%7B%22num%22%3A41%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C697%5D).
+/// Codes 0x00--0x7F are mapped per [3GPP TS 23.038 V19.0.0 Table 6.2.1](../../../docs/specs/3gpp/ts-23.038/ts_123038v190000p.pdf#%5B%7B%22num%22%3A47%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C673%5D).
 /// Codes >= 0x80 return `b'?'`.
 ///
 /// # Example
@@ -198,7 +198,7 @@ pub const fn gsm7_to_ascii(code: u8) -> u8 {
 ///
 /// Each input byte is converted to its GSM 7-bit code via [`ascii_to_gsm7`].
 /// Characters without a mapping are replaced with `b'?'` (GSM code `0x3F`).
-/// The 7-bit codes are then packed into octets per [3GPP TS 23.038 V17.0.0 clause 6.1.2.1](https://www.etsi.org/deliver/etsi_ts/123000_123099/123038/17.00.00_60/ts_123038v170000p.pdf#%5B%7B%22num%22%3A31%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C410%5D).
+/// The 7-bit codes are then packed into octets per [3GPP TS 23.038 V19.0.0 clause 6.1.2.1](../../../docs/specs/3gpp/ts-23.038/ts_123038v190000p.pdf#%5B%7B%22num%22%3A37%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C410%5D).
 ///
 /// Returns the number of bytes written to `output`.
 ///
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn ascii_to_gsm7_at_sign() {
-        // @ = GSM code 0x00 per 3GPP TS 23.038 V17.0.0
+        // @ = GSM code 0x00 per 3GPP TS 23.038 V19.0.0
         assert_eq!(ascii_to_gsm7(b'@'), Some(0x00));
     }
 

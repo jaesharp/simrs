@@ -193,7 +193,7 @@ pub fn ct_select_n(table: &[u8], index: usize) -> u8 {
 /// Branchless multiplication by {02} in GF(2^8).
 ///
 /// Uses the irreducible polynomial `x^8 + x^4 + x^3 + x + 1` (`0x11B`),
-/// which is the AES field polynomial ([NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 4.2.1).
+/// which is the AES field polynomial ([NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 4.2.1).
 ///
 /// Equivalent to a left-shift with conditional XOR of `0x1B`, but computed
 /// without branches or table lookups.
@@ -211,7 +211,7 @@ pub fn ct_select_n(table: &[u8], index: usize) -> u8 {
 /// ```
 /// use simrs_consttime::ct_xtime;
 ///
-/// // {02} * {57} = {AE} ([NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 4.2.1 example)
+/// // {02} * {57} = {AE} ([NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 4.2.1 example)
 /// assert_eq!(ct_xtime(0x57), 0xAE);
 /// // {02} * {AE} = {47} (high bit set, reduction applies)
 /// assert_eq!(ct_xtime(0xAE), 0x47);

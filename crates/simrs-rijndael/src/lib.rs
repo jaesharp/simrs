@@ -16,8 +16,8 @@
 //!   branchless arithmetic computation with no table lookup.
 //!
 //! # Standards
-//! - [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) -- Advanced Encryption Standard (AES)
-//! - [ETSI TS 135 206 V16.0.0 Annex 3](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#page=18) -- Rijndael as used in Milenage
+//! - [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) -- Advanced Encryption Standard (AES)
+//! - [ETSI TS 135 206 V19.0.0 Annex 3](../../../docs/specs/3gpp/ts-35.206/ts_135206v190000p.pdf#page=19) -- Rijndael as used in Milenage
 //!
 //! # `no_std`, `no_alloc`
 //! This crate uses no heap. All state lives in a fixed-size [`Rijndael`] struct.
@@ -54,7 +54,7 @@ extern crate std;
 use simrs_consttime::{ct_select, ct_xtime};
 
 /// AES S-box substitution table.
-/// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.1.1, Figure 7.
+/// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.1.1, Figure 7.
 const SBOX: [u8; 256] = [
     0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB,
     0x76, 0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4,
@@ -77,7 +77,7 @@ const SBOX: [u8; 256] = [
 ];
 
 /// AES inverse S-box substitution table.
-/// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.3.2, Figure 14.
+/// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.3.2, Figure 14.
 /// Computed as the functional inverse of SBOX: for all i, `INV_SBOX[SBOX[i]] = i`.
 #[allow(clippy::cast_possible_truncation)]
 const INV_SBOX: [u8; 256] = {
@@ -96,8 +96,8 @@ const INV_SBOX: [u8; 256] = {
 /// Supports both encryption and decryption.
 ///
 /// # Standards
-/// - [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5 -- Algorithm specification
-/// - [ETSI TS 135 206 V16.0.0 Annex 3](https://www.etsi.org/deliver/etsi_ts/135200_135299/135206/16.00.00_60/ts_135206v160000p.pdf#page=18) -- Rijndael for Milenage
+/// - [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5 -- Algorithm specification
+/// - [ETSI TS 135 206 V19.0.0 Annex 3](../../../docs/specs/3gpp/ts-35.206/ts_135206v190000p.pdf#page=19) -- Rijndael for Milenage
 ///
 /// # Size
 /// 176 bytes (11 round keys x 16 bytes each).
@@ -110,7 +110,7 @@ pub struct Rijndael {
 impl Rijndael {
     /// Create a new Rijndael cipher from a 128-bit key.
     ///
-    /// Performs the AES-128 key expansion ([NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.2).
+    /// Performs the AES-128 key expansion ([NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.2).
     ///
     /// # Example
     /// ```
@@ -159,7 +159,7 @@ impl Rijndael {
     /// Encrypt a single 128-bit block.
     ///
     /// Performs 10 rounds of `ByteSub` + `ShiftRow` + `MixColumn` + `KeyAdd`
-    /// (last round omits `MixColumn`) per [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.1.
+    /// (last round omits `MixColumn`) per [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.1.
     ///
     /// # Example
     /// ```
@@ -209,7 +209,7 @@ impl Rijndael {
 
     /// Decrypt a single 128-bit block.
     ///
-    /// Performs the AES-128 inverse cipher ([NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.3):
+    /// Performs the AES-128 inverse cipher ([NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.3):
     /// `AddRoundKey(10)`, then for rounds 9..=1: `InvShiftRows` +
     /// `InvSubBytes` + `AddRoundKey` + `InvMixColumns`, then final
     /// `InvShiftRows` + `InvSubBytes` + `AddRoundKey(0)`.
@@ -260,7 +260,7 @@ impl Rijndael {
     }
 
     /// `AddRoundKey`: XOR state with round key.
-    /// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.1.4.
+    /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.1.4.
     #[inline]
     const fn key_add(state: &mut [[u8; 4]; 4], round_key: &[[u8; 4]; 4]) {
         let mut i = 0;
@@ -275,7 +275,7 @@ impl Rijndael {
     }
 
     /// `SubBytes`: apply S-box to every byte of state (constant-time).
-    /// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.1.1.
+    /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.1.1.
     #[inline]
     const fn byte_sub(state: &mut [[u8; 4]; 4]) {
         let mut i = 0;
@@ -290,7 +290,7 @@ impl Rijndael {
     }
 
     /// `ShiftRows`: cyclically left-shift rows by 0, 1, 2, 3 positions.
-    /// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.1.2.
+    /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.1.2.
     #[inline]
     const fn shift_rows(state: &mut [[u8; 4]; 4]) {
         // Row 0: no shift
@@ -318,7 +318,7 @@ impl Rijndael {
     }
 
     /// `MixColumns`: multiply each column by the MDS matrix in GF(2^8).
-    /// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.1.3.
+    /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.1.3.
     #[inline]
     const fn mix_columns(state: &mut [[u8; 4]; 4]) {
         let mut col = 0;
@@ -339,7 +339,7 @@ impl Rijndael {
     }
 
     /// `InvSubBytes`: apply inverse S-box to every byte of state (constant-time).
-    /// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.3.2.
+    /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.3.2.
     #[inline]
     const fn inv_sub_bytes(state: &mut [[u8; 4]; 4]) {
         let mut i = 0;
@@ -354,7 +354,7 @@ impl Rijndael {
     }
 
     /// `InvShiftRows`: cyclically right-shift rows by 0, 1, 2, 3 positions.
-    /// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.3.1.
+    /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.3.1.
     #[inline]
     const fn inv_shift_rows(state: &mut [[u8; 4]; 4]) {
         // Row 0: no shift
@@ -422,7 +422,7 @@ impl Rijndael {
     }
 
     /// `InvMixColumns`: multiply each column by the inverse MDS matrix in GF(2^8).
-    /// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 5.3.3.
+    /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.3.3.
     ///
     /// The inverse MDS matrix is:
     /// ```text
@@ -466,7 +466,7 @@ impl core::fmt::Debug for Rijndael {
 mod tests {
     use super::*;
 
-    /// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) Appendix B: AES-128 test vector.
+    /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) Appendix B: AES-128 test vector.
     /// This is the single canonical test vector from the AES standard itself.
     #[test]
     fn fips197_appendix_b() {
@@ -487,7 +487,7 @@ mod tests {
         assert_eq!(rij.encrypt(&input), expected);
     }
 
-    /// [NIST SP 800-38A](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf) Section F.1.1: AES-128 ECB test vector.
+    /// [NIST SP 800-38A](../../../docs/specs/nist/sp-800-38a/NIST.SP.800-38A.pdf) Section F.1.1: AES-128 ECB test vector.
     /// Verifies a different key/plaintext/ciphertext triple.
     #[test]
     fn nist_sp800_38a_ecb_block1() {
@@ -558,7 +558,7 @@ mod tests {
     }
 
     /// Verify `ct_xtime` matches the GF(2^8) xtime formula for all 256 inputs.
-    /// xtime(b) = (b << 1) XOR 0x1B if high bit set, per [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) clause 4.2.1.
+    /// xtime(b) = (b << 1) XOR 0x1B if high bit set, per [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 4.2.1.
     #[test]
     #[allow(clippy::cast_possible_truncation)]
     fn ct_xtime_all_values() {
@@ -608,7 +608,7 @@ mod tests {
         }
     }
 
-    /// [NIST FIPS 197](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf) Appendix B decryption: decrypt the known ciphertext
+    /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) Appendix B decryption: decrypt the known ciphertext
     /// and verify it matches the original plaintext.
     #[test]
     fn fips197_appendix_b_decrypt() {
@@ -629,7 +629,7 @@ mod tests {
         assert_eq!(rij.decrypt(&ciphertext), plaintext);
     }
 
-    /// [NIST SP 800-38A](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf) Section F.1.2: AES-128 ECB decryption test vector.
+    /// [NIST SP 800-38A](../../../docs/specs/nist/sp-800-38a/NIST.SP.800-38A.pdf) Section F.1.2: AES-128 ECB decryption test vector.
     /// Uses the same key/plaintext/ciphertext as the encryption test.
     #[test]
     fn nist_sp800_38a_ecb_block1_decrypt() {

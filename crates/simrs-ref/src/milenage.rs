@@ -1,4 +1,4 @@
-//! Milenage reference test vectors per [ETSI TS 135 208 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135208/17.00.00_60/ts_135208v170000p.pdf).
+//! Milenage reference test vectors per [ETSI TS 135 208 V19.0.0](../../../docs/specs/3gpp/ts-35.208/ts_135208v190000p.pdf).
 //!
 //! These vectors are from the official ETSI test specification.
 
@@ -35,15 +35,15 @@ pub struct MilenageVector {
     pub source: ReferenceSource,
 }
 
-/// Returns all [ETSI TS 135 208 V17.0.0](https://www.etsi.org/deliver/etsi_ts/135200_135299/135208/17.00.00_60/ts_135208v170000p.pdf) test vectors.
+/// Returns all [ETSI TS 135 208 V19.0.0](../../../docs/specs/3gpp/ts-35.208/ts_135208v190000p.pdf) test vectors.
 #[inline]
 pub fn vectors() -> &'static [MilenageVector] {
     &VECTORS
 }
 
-/// [ETSI TS 135 208 V17.0.0 clause 4.3](https://www.etsi.org/deliver/etsi_ts/135200_135299/135208/17.00.00_60/ts_135208v170000p.pdf#%5B%7B%22num%22%3A28%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D) Test Sets 1--6.
+/// [ETSI TS 135 208 V19.0.0 clause 4.3](../../../docs/specs/3gpp/ts-35.208/ts_135208v190000p.pdf#%5B%7B%22num%22%3A34%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D) Test Sets 1--6.
 static VECTORS: [MilenageVector; 6] = [
-    // Test Set 1 (3GPP TS 35.208 V17.0.0 clause 4.3.1)
+    // Test Set 1 (3GPP TS 35.208 V19.0.0 clause 4.3.1)
     MilenageVector {
         k: [
             0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
@@ -74,7 +74,7 @@ static VECTORS: [MilenageVector; 6] = [
         expected_f5_star: [0x45, 0x1E, 0x8B, 0xEC, 0xA4, 0x3B],
         source: ReferenceSource::Standards("ETSI TS 135 208"),
     },
-    // Test Set 2 (3GPP TS 35.208 V17.0.0 clause 4.3.2)
+    // Test Set 2 (3GPP TS 35.208 V19.0.0 clause 4.3.2)
     MilenageVector {
         k: [
             0x03, 0x96, 0xEB, 0x31, 0x7B, 0x6D, 0x1C, 0x36,
@@ -105,7 +105,7 @@ static VECTORS: [MilenageVector; 6] = [
         expected_f5_star: [0x30, 0xF1, 0x19, 0x70, 0x61, 0xC1],
         source: ReferenceSource::Standards("ETSI TS 135 208"),
     },
-    // Test Set 3 (3GPP TS 35.208 V17.0.0 clause 4.3.3)
+    // Test Set 3 (3GPP TS 35.208 V19.0.0 clause 4.3.3)
     MilenageVector {
         k: [
             0xFE, 0xC8, 0x6B, 0xA6, 0xEB, 0x70, 0x7E, 0xD0,
@@ -136,7 +136,7 @@ static VECTORS: [MilenageVector; 6] = [
         expected_f5_star: [0xDE, 0xAC, 0xDD, 0x84, 0x8C, 0xC6],
         source: ReferenceSource::Standards("ETSI TS 135 208"),
     },
-    // Test Set 4 (3GPP TS 35.208 V17.0.0 clause 4.3.4)
+    // Test Set 4 (3GPP TS 35.208 V19.0.0 clause 4.3.4)
     MilenageVector {
         k: [
             0x9E, 0x59, 0x44, 0xAE, 0xA9, 0x4B, 0x81, 0x16,
@@ -167,7 +167,7 @@ static VECTORS: [MilenageVector; 6] = [
         expected_f5_star: [0x60, 0x85, 0xA8, 0x6C, 0x6F, 0x63],
         source: ReferenceSource::Standards("ETSI TS 135 208"),
     },
-    // Test Set 5 (3GPP TS 35.208 V17.0.0 clause 4.3.5)
+    // Test Set 5 (3GPP TS 35.208 V19.0.0 clause 4.3.5)
     MilenageVector {
         k: [
             0x4A, 0xB1, 0xDE, 0xB0, 0x5C, 0xA6, 0xCE, 0xB0,
@@ -198,7 +198,7 @@ static VECTORS: [MilenageVector; 6] = [
         expected_f5_star: [0xFE, 0x25, 0x55, 0xE5, 0x4A, 0xA9],
         source: ReferenceSource::Standards("ETSI TS 135 208"),
     },
-    // Test Set 6 (3GPP TS 35.208 V17.0.0 clause 4.3.6)
+    // Test Set 6 (3GPP TS 35.208 V19.0.0 clause 4.3.6)
     MilenageVector {
         k: [
             0x6C, 0x38, 0xA1, 0x16, 0xAC, 0x28, 0x0C, 0x45,
