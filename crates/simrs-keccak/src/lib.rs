@@ -475,3 +475,114 @@ mod tests {
             "non-zero input must produce non-zero output via byte interface");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Property-based tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        // Determinism: same input must always produce the same output.
+        #[test]
+        fn deterministic(state_bytes in any::<[u8; 200]>()) {
+            let mut s1 = state_bytes;
+            let mut s2 = state_bytes;
+            keccak_f1600_bytes(&mut s1);
+            keccak_f1600_bytes(&mut s2);
+            prop_assert_eq!(s1, s2);
+        }
+    }
+
+    proptest! {
+        // Different input produces different output: flipping a single byte
+        // in the state should change the permutation result.
+        #[test]
+        fn different_input_different_output(
+            state_bytes in any::<[u8; 200]>(),
+            byte_idx in 0usize..200,
+        ) {
+            let mut s1 = state_bytes;
+            keccak_f1600_bytes(&mut s1);
+
+            let mut s2 = state_bytes;
+            s2[byte_idx] ^= 0x01; // flip one bit
+            keccak_f1600_bytes(&mut s2);
+
+            prop_assert_ne!(s1, s2, "flipping byte {} should change permutation output", byte_idx);
+        }
+    }
+
+    proptest! {
+        // Lane/byte equivalence: keccak_f1600 on lanes must agree with
+        // keccak_f1600_bytes on the LE byte representation.
+        #[test]
+        fn lane_byte_equivalence(state_bytes in any::<[u8; 200]>()) {
+            // Approach via byte interface.
+            let mut bytes = state_bytes;
+            keccak_f1600_bytes(&mut bytes);
+
+            // Approach via lane interface.
+            let mut lanes = [0u64; 25];
+            for (i, chunk) in state_bytes.chunks_exact(8).enumerate() {
+                lanes[i] = u64::from_le_bytes(chunk.try_into().unwrap());
+            }
+            keccak_f1600(&mut lanes);
+
+            // Convert lanes back to bytes and compare.
+            let mut lane_bytes = [0u8; 200];
+            for (i, lane) in lanes.iter().enumerate() {
+                lane_bytes[i * 8..(i + 1) * 8].copy_from_slice(&lane.to_le_bytes());
+            }
+            prop_assert_eq!(bytes, lane_bytes);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (DudeCT)
+//
+//   cargo test -p simrs-keccak --features ct-validation --release
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{dudect_test, Rng};
+
+    const SAMPLES: u64 = 10_000;
+
+    /// Keccak-f[1600] timing must be independent of state content.
+    /// Class 0: all-zero state.
+    /// Class 1: random state.
+    #[test]
+    fn test_keccak_f1600_ct() {
+        let mut rng = Rng::from_seed(0xF160_0001);
+        let result = dudect_test(
+            "keccak_f1600 (zero state vs random state)",
+            SAMPLES,
+            &mut rng,
+            |_rng| [0u64; 25],
+            |rng| {
+                let mut state = [0u64; 25];
+                for lane in &mut state {
+                    let mut buf = [0u8; 8];
+                    rng.fill_bytes(&mut buf);
+                    *lane = u64::from_le_bytes(buf);
+                }
+                state
+            },
+            |state| {
+                let mut s = *state;
+                keccak_f1600(&mut s);
+                black_box(s);
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+}

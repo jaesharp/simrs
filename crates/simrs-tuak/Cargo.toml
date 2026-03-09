@@ -15,6 +15,7 @@ simrs-keccak    = { workspace = true }
 simrs-milenage  = { workspace = true }
 
 [dev-dependencies]
+proptest = { workspace = true }
 simrs-consttime-validation = { workspace = true }
 
 [lints]

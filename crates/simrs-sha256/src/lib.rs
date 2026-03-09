@@ -1,4 +1,4 @@
-//! SHA-256 cryptographic hash function per [NIST FIPS 180-4](https://csrc.nist.gov/pubs/fips/180-4/upd1/final).
+//! SHA-256 cryptographic hash function per [NIST FIPS 180-4](../../../docs/specs/nist/fips-180-4/NIST.FIPS.180-4.pdf).
 //!
 //! Provides both a streaming [`Sha256`] hasher and a one-shot [`sha256`] function.
 //!
@@ -22,11 +22,6 @@
 //! );
 //! ```
 #![no_std]
-#![forbid(unsafe_code)]
-#![warn(missing_docs)]
-#![deny(clippy::all, clippy::pedantic)]
-#![allow(clippy::must_use_candidate)]
-#![allow(clippy::module_name_repetitions)]
 #![allow(clippy::many_single_char_names)]
 #![allow(clippy::unreadable_literal)]
 
@@ -474,5 +469,122 @@ mod tests {
         // 56 bytes: padding requires an extra block (56 + 1 + 8 = 65 > 64).
         let data = [0xEF; 56];
         let _ = sha256(&data);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Property-based tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        // Streaming equivalence: sha256(a||b) must equal update(a)+update(b)+finalize.
+        // Uses fixed-size arrays to stay no_std compatible.
+        #[test]
+        fn streaming_equivalence(
+            a in any::<[u8; 64]>(),
+            a_len in 0usize..=64,
+            b in any::<[u8; 64]>(),
+            b_len in 0usize..=64,
+        ) {
+            let a = &a[..a_len];
+            let b = &b[..b_len];
+
+            // One-shot: hash the concatenation.
+            let mut combined = [0u8; 128];
+            combined[..a.len()].copy_from_slice(a);
+            combined[a.len()..a.len() + b.len()].copy_from_slice(b);
+            let one_shot = sha256(&combined[..a.len() + b.len()]);
+
+            // Streaming: update(a) then update(b).
+            let mut hasher = Sha256::new();
+            hasher.update(a);
+            hasher.update(b);
+            let streamed = hasher.finalize();
+
+            prop_assert_eq!(one_shot, streamed);
+        }
+    }
+
+    proptest! {
+        // Non-zero output: SHA-256 of any input must not be all-zeros.
+        #[test]
+        fn non_zero_output(data in any::<[u8; 64]>(), len in 0usize..=64) {
+            let digest = sha256(&data[..len]);
+            prop_assert_ne!(digest, [0u8; 32]);
+        }
+    }
+
+    proptest! {
+        // Collision resistance (probabilistic): different inputs should produce
+        // different digests. Not guaranteed but practically certain for random data.
+        #[test]
+        fn different_inputs_different_digests(
+            a in any::<[u8; 32]>(),
+            b in any::<[u8; 32]>(),
+        ) {
+            prop_assume!(a != b);
+            let da = sha256(&a);
+            let db = sha256(&b);
+            prop_assert_ne!(da, db, "distinct inputs should produce distinct digests");
+        }
+    }
+
+    proptest! {
+        // Single-bit flip changes the digest.
+        #[test]
+        fn bit_flip_changes_digest(
+            data in any::<[u8; 32]>(),
+            bit_idx in 0usize..256,
+        ) {
+            let d1 = sha256(&data);
+            let mut flipped = data;
+            flipped[bit_idx / 8] ^= 1 << (bit_idx % 8);
+            let d2 = sha256(&flipped);
+            prop_assert_ne!(d1, d2, "flipping bit {} should change digest", bit_idx);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (DudeCT)
+//
+//   cargo test -p simrs-sha256 --features ct-validation --release
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{dudect_test, Rng};
+
+    /// SHA-256 timing must be independent of input content for fixed-length
+    /// inputs. Class 0: all-zero block. Class 1: random block.
+    #[test]
+    fn test_sha256_ct() {
+        let mut rng = Rng::from_seed(0x5A25_6C17);
+        let result = dudect_test(
+            "SHA-256 (zero vs random 64-byte input)",
+            10_000,
+            &mut rng,
+            |rng| {
+                let _ = rng;
+                [0u8; 64]
+            },
+            |rng| {
+                let mut buf = [0u8; 64];
+                rng.fill_bytes(&mut buf);
+                buf
+            },
+            |input| {
+                black_box(sha256(input));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
     }
 }

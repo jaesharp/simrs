@@ -531,6 +531,21 @@ mod proptests {
             prop_assert_ne!(r1, r2, "flipping bit {} in RAND should change output", bit_idx);
         }
     }
+
+    proptest! {
+        // Different Ki with same RAND must produce different output.
+        #[test]
+        fn different_ki_different_output(
+            ki1 in any::<[u8; 16]>(),
+            ki2 in any::<[u8; 16]>(),
+            rand in any::<[u8; 16]>(),
+        ) {
+            prop_assume!(ki1 != ki2);
+            let r1 = comp128(&ki1, &rand);
+            let r2 = comp128(&ki2, &rand);
+            prop_assert_ne!(r1, r2, "different Ki must produce different outputs");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -726,6 +726,59 @@ mod tests {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Property-based tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        // Encrypt/decrypt roundtrip: decrypt(encrypt(pt, key), key) == pt.
+        #[test]
+        fn encrypt_decrypt_roundtrip(key in any::<[u8; 16]>(), pt in any::<[u8; 16]>()) {
+            let cipher = Rijndael::new(&key);
+            let ct = cipher.encrypt(&pt);
+            let recovered = cipher.decrypt(&ct);
+            prop_assert_eq!(recovered, pt);
+        }
+    }
+
+    proptest! {
+        // Different keys must produce different ciphertext.
+        #[test]
+        fn different_keys_different_ciphertext(
+            k1 in any::<[u8; 16]>(),
+            k2 in any::<[u8; 16]>(),
+            pt in any::<[u8; 16]>(),
+        ) {
+            prop_assume!(k1 != k2);
+            let c1 = Rijndael::new(&k1).encrypt(&pt);
+            let c2 = Rijndael::new(&k2).encrypt(&pt);
+            prop_assert_ne!(c1, c2, "different keys must produce different ciphertext");
+        }
+    }
+
+    proptest! {
+        // Permutation: encrypt is a bijection -- two distinct plaintexts under
+        // the same key must produce distinct ciphertexts.
+        #[test]
+        fn encrypt_is_bijection(
+            key in any::<[u8; 16]>(),
+            pt1 in any::<[u8; 16]>(),
+            pt2 in any::<[u8; 16]>(),
+        ) {
+            prop_assume!(pt1 != pt2);
+            let cipher = Rijndael::new(&key);
+            let c1 = cipher.encrypt(&pt1);
+            let c2 = cipher.encrypt(&pt2);
+            prop_assert_ne!(c1, c2, "encrypt must be a bijection: different plaintexts => different ciphertexts");
+        }
+    }
+}
+
 #[cfg(all(test, feature = "ct-validation"))]
 mod ct_validation {
     use super::*;

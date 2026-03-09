@@ -1144,6 +1144,94 @@ mod tests {
 }
 
 // ---------------------------------------------------------------------------
+// Property-based tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn make_params(key: [u8; 16]) -> TuakParams {
+        TuakParams::new(key, OperatorVariant::TopC([0x83u8; 32]))
+    }
+
+    proptest! {
+        // Different keys must produce different (RES, CK, IK, AK).
+        #[test]
+        fn different_keys_different_output(
+            k1 in any::<[u8; 16]>(),
+            k2 in any::<[u8; 16]>(),
+            rand in any::<[u8; 16]>(),
+        ) {
+            prop_assume!(k1 != k2);
+            let p1 = make_params(k1);
+            let p2 = make_params(k2);
+
+            let res1 = p1.compute_response(&rand);
+            let res2 = p2.compute_response(&rand);
+            let ck1 = p1.compute_cipher_key(&rand);
+            let ck2 = p2.compute_cipher_key(&rand);
+            let ik1 = p1.compute_integrity_key(&rand);
+            let ik2 = p2.compute_integrity_key(&rand);
+            let ak1 = p1.compute_anonymity_key(&rand);
+            let ak2 = p2.compute_anonymity_key(&rand);
+
+            // At least one of the four outputs must differ.
+            let any_differ = res1 != res2 || ck1 != ck2 || ik1 != ik2 || ak1 != ak2;
+            prop_assert!(any_differ, "different keys must produce different output tuples");
+        }
+    }
+
+    proptest! {
+        // f1 (auth MAC) != f1* (resync MAC) for the same inputs.
+        #[test]
+        fn f1_neq_f1_star(
+            key in any::<[u8; 16]>(),
+            rand in any::<[u8; 16]>(),
+            sqn in any::<[u8; 6]>(),
+            amf in any::<[u8; 2]>(),
+        ) {
+            let p = make_params(key);
+            let mac_a = p.compute_auth_mac(&rand, &sqn, &amf);
+            let mac_s = p.compute_resync_mac(&rand, &sqn, &amf);
+            prop_assert_ne!(mac_a, mac_s, "f1 (MAC-A) must differ from f1* (MAC-S)");
+        }
+    }
+
+    proptest! {
+        // Output determinism: same inputs always produce identical outputs.
+        #[test]
+        fn output_deterministic(key in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
+            let p = make_params(key);
+            let res1 = p.compute_response(&rand);
+            let res2 = p.compute_response(&rand);
+            prop_assert_eq!(res1, res2);
+
+            let ck1 = p.compute_cipher_key(&rand);
+            let ck2 = p.compute_cipher_key(&rand);
+            prop_assert_eq!(ck1, ck2);
+        }
+    }
+
+    proptest! {
+        // Different RAND values with the same key produce different RES.
+        #[test]
+        fn different_rand_different_res(
+            key in any::<[u8; 16]>(),
+            r1 in any::<[u8; 16]>(),
+            r2 in any::<[u8; 16]>(),
+        ) {
+            prop_assume!(r1 != r2);
+            let p = make_params(key);
+            let res1 = p.compute_response(&r1);
+            let res2 = p.compute_response(&r2);
+            prop_assert_ne!(res1, res2, "different RAND must produce different RES");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Constant-time validation (DudeCT)
 //
 //   cargo test -p simrs-tuak --features ct-validation --release

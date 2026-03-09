@@ -1779,6 +1779,40 @@ mod proptests {
             prop_assert_ne!(p.compute_response(&challenge1), p.compute_response(&challenge2));
         }
     }
+
+    proptest! {
+        // f1 (MAC-A) must differ from f1* (MAC-S) for the same inputs.
+        // These use different internal constants (c1 vs c6, r1 vs r6) so their
+        // outputs must always be distinct.
+        #[test]
+        fn f1_neq_f1_star(
+            k in any::<[u8; 16]>(),
+            challenge in any::<[u8; 16]>(),
+            sqn in any::<[u8; 6]>(),
+            amf in any::<[u8; 2]>(),
+        ) {
+            let p = MilenageParams::with_defaults(k, OperatorVariant::Opc([0u8; 16]));
+            let mac_a = p.compute_auth_mac(&challenge, &sqn, &amf);
+            let mac_s = p.compute_resync_mac(&challenge, &sqn, &amf);
+            prop_assert_ne!(mac_a, mac_s, "f1 (MAC-A) must differ from f1* (MAC-S)");
+        }
+    }
+
+    proptest! {
+        // Output determinism: identical inputs always yield identical outputs.
+        #[test]
+        fn output_deterministic(k in any::<[u8; 16]>(), challenge in any::<[u8; 16]>()) {
+            let p = MilenageParams::with_defaults(k, OperatorVariant::Opc([0u8; 16]));
+            prop_assert_eq!(
+                p.compute_response(&challenge),
+                p.compute_response(&challenge)
+            );
+            prop_assert_eq!(
+                p.compute_cipher_key(&challenge),
+                p.compute_cipher_key(&challenge)
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

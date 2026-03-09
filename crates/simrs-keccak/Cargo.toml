@@ -8,10 +8,13 @@ description = "Keccak-f[1600] permutation per NIST FIPS 202 -- no_std, no_alloc"
 [features]
 default = []
 std     = []
+ct-validation = []
 
 [dependencies]
 
 [dev-dependencies]
+proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

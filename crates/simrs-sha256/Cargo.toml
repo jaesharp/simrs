@@ -8,10 +8,13 @@ description = "SHA-256 hash per NIST FIPS 180-4 -- no_std, no_alloc"
 [features]
 default = []
 std     = []
+ct-validation = []
 
 [dependencies]
 
 [dev-dependencies]
+proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

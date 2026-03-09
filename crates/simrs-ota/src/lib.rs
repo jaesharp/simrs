@@ -1212,3 +1212,49 @@ mod tests {
         assert_eq!(mac, expected_mac);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (DudeCT)
+//
+//   cargo test -p simrs-ota --features ct-validation --release
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{dudect_test, Rng};
+
+    const SAMPLES: u64 = 10_000;
+
+    /// AES-CBC-MAC timing must be independent of key content.
+    /// Class 0: fixed key, random 2-block data.
+    /// Class 1: random key, random 2-block data.
+    #[test]
+    fn test_aes_cbc_mac_ct() {
+        let mut rng = Rng::from_seed(0x07A_CBC0);
+        let result = dudect_test(
+            "aes_cbc_mac (fixed key vs random key)",
+            SAMPLES,
+            &mut rng,
+            |rng| {
+                let key = [0xAAu8; 16];
+                let mut data = [0u8; 32];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 32];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                black_box(aes_cbc_mac(key, data));
+            },
+        );
+        result.report();
+        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+    }
+}
