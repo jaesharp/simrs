@@ -878,7 +878,11 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         }
 
         match self.data.write_binary(ef, offset, cmd.data()) {
-            Ok(()) => write_sw(buf, StatusWord::Success),
+            Ok(()) => {
+                #[cfg(feature = "profile-full")]
+                self.increment_phonebook_counters(ef.fid());
+                write_sw(buf, StatusWord::Success)
+            }
             Err(FsError::NotTransparent) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
             Err(FsError::OffsetOutOfRange) => write_sw(buf, StatusWord::WrongLength),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
@@ -905,7 +909,11 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         }
         match self.data.write_record(ef, rec_num, cmd.data()) {
-            Ok(()) => write_sw(buf, StatusWord::Success),
+            Ok(()) => {
+                #[cfg(feature = "profile-full")]
+                self.increment_phonebook_counters(ef.fid());
+                write_sw(buf, StatusWord::Success)
+            }
             Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
             Err(FsError::RecordOutOfRange) => write_sw(buf, StatusWord::wrong_params(sw2::RECORD_NOT_FOUND)),
             Err(FsError::DataTooLarge) => write_sw(buf, StatusWord::WrongLength),
@@ -929,6 +937,60 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
             Err(FsError::IncreaseOverflow) => write_sw(buf, StatusWord::Other(0x98, 0x50)),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        }
+    }
+
+    // -- DF_PHONEBOOK synchronization counters --
+
+    /// Increment phonebook synchronization counters after a successful write.
+    ///
+    /// Per [3GPP TS 31.102 V19.4.0 clause 4.4.2.12](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A315%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D):
+    /// - EF_PSC (4F22): 32-bit BE, incremented on ANY phonebook child write
+    /// - EF_CC  (4F23): 16-bit BE, incremented on EF_ADN (4F31) write only
+    ///
+    /// EF_PUID (4F24) is NOT auto-incremented by the UICC.  It stores the
+    /// highest UID value previously assigned and is managed by the ME, which
+    /// writes the current maximum UID value directly.
+    ///
+    /// Counter EFs themselves (4F22/4F23/4F24) do NOT trigger increments.
+    #[cfg(feature = "profile-full")]
+    fn increment_phonebook_counters(&mut self, target_fid: Fid) {
+        // Only act when current DF is DF_PHONEBOOK (5F3A).
+        if self.fs.current_df().fid != Fid::new(0x5F3A) {
+            return;
+        }
+        // Counter EFs themselves must not trigger recursive increments.
+        let fid = target_fid.value();
+        if fid == 0x4F22 || fid == 0x4F23 || fid == 0x4F24 {
+            return;
+        }
+        // PSC: always increment for any phonebook child write.
+        Self::increment_counter(&mut self.data, &profile::PB_EF_PSC, 4);
+        // CC: increment only for ADN writes.
+        if fid == 0x4F31 {
+            Self::increment_counter(&mut self.data, &profile::PB_EF_CC, 2);
+        }
+    }
+
+    /// Increment a big-endian unsigned integer stored in a transparent EF by 1.
+    /// Wraps on overflow.
+    #[cfg(feature = "profile-full")]
+    fn increment_counter(
+        data: &mut FsData<FS_CAP, FS_MAX_EFS>,
+        ef: &'static EfDef,
+        size: usize,
+    ) {
+        if let Ok(current) = data.read_binary(ef, 0, size as u16) {
+            let mut val = [0u8; 4];
+            let start = 4 - size;
+            val[start..4].copy_from_slice(current);
+            let mut carry = 1u16;
+            for i in (start..4).rev() {
+                let sum = u16::from(val[i]) + carry;
+                val[i] = sum as u8;
+                carry = sum >> 8;
+            }
+            let _ = data.write_binary(ef, 0, &val[start..4]);
         }
     }
 
@@ -5430,6 +5492,284 @@ mod tests {
             assert_eq!(len, *size as usize + 2,
                 "EF {hi:#04X}{lo:02X} data length mismatch");
         }
+    }
+
+    // -- DF_PHONEBOOK sync counter tests --
+
+    /// Helper: select ADF.USIM by AID, then select DF_PHONEBOOK (5F3A).
+    #[cfg(feature = "profile-full")]
+    fn select_phonebook(app: &mut UsimApp) {
+        // SELECT ADF.USIM
+        send(app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        // SELECT DF_PHONEBOOK (5F3A)
+        send(app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x5F, 0x3A]);
+    }
+
+    /// Helper: select an EF by FID within current DF.
+    #[cfg(feature = "profile-full")]
+    fn select_ef(app: &mut UsimApp, fid_hi: u8, fid_lo: u8) {
+        send(app, &[0x00, 0xA4, 0x00, 0x04, 0x02, fid_hi, fid_lo]);
+    }
+
+    /// Helper: read a transparent EF and return its data bytes (up to 8 bytes).
+    #[cfg(feature = "profile-full")]
+    fn read_transparent(app: &mut UsimApp, fid_hi: u8, fid_lo: u8, size: u8) -> [u8; 8] {
+        select_ef(app, fid_hi, fid_lo);
+        let (buf, len) = send(app, &[0x00, 0xB0, 0x00, 0x00, size]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00), "READ BINARY failed for {fid_hi:#04X}{fid_lo:02X}");
+        let mut out = [0u8; 8];
+        out[..size as usize].copy_from_slice(&buf[..size as usize]);
+        out
+    }
+
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_phonebook_psc_increments_on_adn_update() {
+        let mut app = ref_app();
+        select_phonebook(&mut app);
+
+        // PSC starts at 0.
+        let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
+        assert_eq!(&psc[..4], [0, 0, 0, 0], "PSC must start at 0");
+
+        // UPDATE RECORD on EF_ADN (4F31), record 1, 28 bytes.
+        select_ef(&mut app, 0x4F, 0x31);
+        let mut apdu = [0xA5u8; 5 + 28];
+        apdu[0] = 0x00; apdu[1] = 0xDC; // UPDATE RECORD
+        apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 28; // rec 1, absolute
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00), "UPDATE RECORD ADN must succeed");
+
+        // PSC must be 1.
+        let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
+        assert_eq!(&psc[..4], [0, 0, 0, 1], "PSC must be 1 after one ADN update");
+
+        // Second update.
+        select_ef(&mut app, 0x4F, 0x31);
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
+        assert_eq!(&psc[..4], [0, 0, 0, 2], "PSC must be 2 after two ADN updates");
+    }
+
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_phonebook_cc_increments_only_on_adn() {
+        let mut app = ref_app();
+        select_phonebook(&mut app);
+
+        // CC starts at 0.
+        let cc = read_transparent(&mut app, 0x4F, 0x23, 2);
+        assert_eq!(&cc[..2], [0, 0], "CC must start at 0");
+
+        // UPDATE RECORD on EF_ADN (4F31) -> CC must increment.
+        select_ef(&mut app, 0x4F, 0x31);
+        let mut apdu = [0xA5u8; 5 + 28];
+        apdu[0] = 0x00; apdu[1] = 0xDC;
+        apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 28;
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        let cc = read_transparent(&mut app, 0x4F, 0x23, 2);
+        assert_eq!(&cc[..2], [0, 1], "CC must be 1 after ADN update");
+
+        // UPDATE RECORD on EF_SNE (4F36) -> CC must NOT increment.
+        select_ef(&mut app, 0x4F, 0x36);
+        let mut apdu2 = [0xA5u8; 5 + 18];
+        apdu2[0] = 0x00; apdu2[1] = 0xDC;
+        apdu2[2] = 0x01; apdu2[3] = 0x04; apdu2[4] = 18;
+        let (buf, len) = send(&mut app, &apdu2);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        let cc = read_transparent(&mut app, 0x4F, 0x23, 2);
+        assert_eq!(&cc[..2], [0, 1], "CC must still be 1 after SNE update (not ADN)");
+
+        // PSC must be 2 (both writes incremented it).
+        let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
+        assert_eq!(&psc[..4], [0, 0, 0, 2], "PSC must be 2 after two phonebook writes");
+    }
+
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_phonebook_puid_not_auto_incremented() {
+        // Per 3GPP TS 31.102 clause 4.4.2.12.4, EF_PUID stores the highest
+        // UID value previously assigned and is managed by the ME, not the
+        // UICC.  Writing to EF_UID must NOT auto-increment PUID.
+        let mut app = ref_app();
+        select_phonebook(&mut app);
+
+        // PUID starts at 0.
+        let puid = read_transparent(&mut app, 0x4F, 0x24, 2);
+        assert_eq!(&puid[..2], [0, 0], "PUID must start at 0");
+
+        // UPDATE RECORD on EF_UID (4F3B), record 1, 2 bytes.
+        select_ef(&mut app, 0x4F, 0x3B);
+        let (buf, len) = send(&mut app, &[0x00, 0xDC, 0x01, 0x04, 0x02, 0x00, 0x01]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // PUID must remain at 0 -- the UICC does not auto-increment it.
+        let puid = read_transparent(&mut app, 0x4F, 0x24, 2);
+        assert_eq!(&puid[..2], [0, 0], "PUID must NOT be auto-incremented by UICC");
+
+        // PSC must still increment (it tracks any phonebook child write).
+        let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
+        assert_eq!(&psc[..4], [0, 0, 0, 1], "PSC must be 1 after UID update");
+    }
+
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_phonebook_counter_write_no_self_trigger() {
+        let mut app = ref_app();
+        select_phonebook(&mut app);
+
+        // Write directly to EF_PSC (4F22) with value 0x10.
+        select_ef(&mut app, 0x4F, 0x22);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x04,
+            0x00, 0x00, 0x00, 0x10]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Read back -- must be exactly what we wrote, no auto-increment.
+        let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
+        assert_eq!(&psc[..4], [0x00, 0x00, 0x00, 0x10],
+            "Writing to PSC directly must not trigger auto-increment");
+    }
+
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_phonebook_psc_wraps_at_overflow() {
+        let mut app = ref_app();
+        select_phonebook(&mut app);
+
+        // Seed PSC to 0xFFFF_FFFE directly.
+        select_ef(&mut app, 0x4F, 0x22);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x04,
+            0xFF, 0xFF, 0xFF, 0xFE]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // One ADN write: PSC -> 0xFFFF_FFFF.
+        select_ef(&mut app, 0x4F, 0x31);
+        let mut apdu = [0xFFu8; 5 + 28];
+        apdu[0] = 0x00; apdu[1] = 0xDC; apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 28;
+        for b in &mut apdu[5..] { *b = 0xA5; }
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
+        assert_eq!(&psc[..4], [0xFF, 0xFF, 0xFF, 0xFF]);
+
+        // Second ADN write: PSC wraps to 0x0000_0000.
+        select_ef(&mut app, 0x4F, 0x31);
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
+        assert_eq!(&psc[..4], [0x00, 0x00, 0x00, 0x00],
+            "PSC must wrap to 0 on overflow");
+    }
+
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_phonebook_cc_wraps_at_overflow() {
+        let mut app = ref_app();
+        select_phonebook(&mut app);
+
+        // Seed CC to 0xFFFE directly.
+        select_ef(&mut app, 0x4F, 0x23);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x02,
+            0xFF, 0xFE]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // One ADN write: CC -> 0xFFFF.
+        select_ef(&mut app, 0x4F, 0x31);
+        let mut apdu = [0xFFu8; 5 + 28];
+        apdu[0] = 0x00; apdu[1] = 0xDC; apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 28;
+        for b in &mut apdu[5..] { *b = 0xA5; }
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let cc = read_transparent(&mut app, 0x4F, 0x23, 2);
+        assert_eq!(&cc[..2], [0xFF, 0xFF]);
+
+        // Second ADN write: CC wraps to 0x0000.
+        select_ef(&mut app, 0x4F, 0x31);
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        let cc = read_transparent(&mut app, 0x4F, 0x23, 2);
+        assert_eq!(&cc[..2], [0x00, 0x00],
+            "CC must wrap to 0 on overflow");
+    }
+
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_phonebook_update_outside_phonebook_no_counters() {
+        let mut app = ref_app();
+        // Select ADF.USIM
+        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+
+        // UPDATE BINARY on EF.AD (6FAD, 4 bytes) under ADF.USIM root.
+        select_ef(&mut app, 0x6F, 0xAD);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x04,
+            0x00, 0x00, 0x00, 0x02]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Now navigate to DF_PHONEBOOK and check PSC -- must be unchanged.
+        select_ef(&mut app, 0x5F, 0x3A);
+        let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
+        assert_eq!(&psc[..4], [0, 0, 0, 0],
+            "Updates outside DF_PHONEBOOK must not affect PSC");
+    }
+
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_phonebook_pbr_read_returns_tlv() {
+        let mut app = ref_app();
+        select_phonebook(&mut app);
+
+        // READ RECORD on EF_PBR (4F30), record 1, 64 bytes.
+        select_ef(&mut app, 0x4F, 0x30);
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x40]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        // PBR record must start with A8 (Type 1 mandatory tag).
+        assert_eq!(buf[0], 0xA8, "PBR record 1 must start with Type 1 tag A8");
+        // Inside A8 construct, first TLV must be C0 (EF_ADN reference).
+        let a8_len = buf[1] as usize;
+        assert!(a8_len >= 4, "A8 must contain at least one file reference");
+        assert_eq!(buf[2], 0xC0, "First Type 1 file ref must be C0 (ADN)");
+    }
+
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn ref_phonebook_ext1_record_structure() {
+        let mut app = ref_app();
+        select_phonebook(&mut app);
+
+        // Read EF_EXT1 (4F32), record 1 -- 13 bytes, all 0xFF by default.
+        select_ef(&mut app, 0x4F, 0x32);
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x0D]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(len, 13 + 2, "EXT1 record must be 13 bytes + SW");
+        // Default is all 0xFF.
+        assert!(buf[..13].iter().all(|&b| b == 0xFF),
+            "Default EXT1 record must be all 0xFF");
+
+        // Write a valid EXT1 extension record.
+        // Type=0x02 (called party subaddress), 11 bytes data, next=0xFF (no chain).
+        let mut ext1 = [0xFFu8; 13];
+        ext1[0] = 0x02; // type: called party subaddress
+        ext1[1..12].copy_from_slice(&[0x91, 0x55, 0x55, 0x55, 0x55, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        ext1[12] = 0xFF; // no next record
+
+        let mut apdu = [0u8; 5 + 13];
+        apdu[0] = 0x00; apdu[1] = 0xDC; apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 13;
+        apdu[5..18].copy_from_slice(&ext1);
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+
+        // Read back and verify.
+        let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x0D]);
+        assert_eq!(sw(&buf, len), (0x90, 0x00));
+        assert_eq!(buf[0], 0x02, "EXT1 type byte must be 0x02");
+        assert_eq!(buf[12], 0xFF, "EXT1 next record must be 0xFF");
     }
 }
 
