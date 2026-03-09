@@ -17,7 +17,7 @@ What 4G-LTE and 5G-NR support means for each simrs crate.
 | [simrs-milenage](../../crates/simrs-milenage/) | Used identically | Used identically | Used identically | P0 |
 | [simrs-fs](../../crates/simrs-fs/) | EPS EFs (6FE3, 6FE4) | +DF_5GS (5FC0, 4F01-4F11) -- implemented | No change | Done |
 | [simrs-pin](../../crates/simrs-pin/) | No change | No change | No change | -- |
-| [simrs-proactive](../../crates/simrs-proactive/) | No change | +5G events (Rel-16) | No change | P2 |
+| [simrs-proactive](../../crates/simrs-proactive/) | No change | +5G events (Rel-16) -- implemented | No change | Done |
 | [simrs-gsm](../../crates/simrs-gsm/) | No change (2G compat) | No change | No change | -- |
 | [simrs-usim](../../crates/simrs-usim/) | AUTHENTICATE, EPS EFs | +DF_5GS EFs, SUCI info | No change | Done |
 | [simrs-sim](../../crates/simrs-sim/) | No change | No change | No change | -- |
@@ -76,12 +76,12 @@ Full catalog: 115 ADF EFs + 19 DF_5GS + 11 sub-DFs + ISIM + HPSIM.
 
 ### `simrs-proactive`
 
-**Changes needed (P2):**
-- Add 5G-specific event download types:
-  - Network Rejection (0x13)
-  - Data Connection Status Change (0x14)
-- Add 5G-specific PROVIDE LOCAL INFORMATION values (serving NSSAI, etc.)
-- These are additive; existing command encoding is unaffected.
+**Implemented:**
+- 5G event download types added: Network Rejection (0x12), Data Connection Status Change (0x1D), Slices Status Change (0x1F)
+- 5G PROVIDE LOCAL INFORMATION qualifiers: slices information (0x15), rejected slices information (0x17)
+- Full event_id module (30 events, 0x00-0x1F) and pli_qualifier module (22 qualifiers)
+- Timer Expiration refactored to use correct D7 envelope (was incorrectly handled as D6 Event Download)
+- Event subscription bitmask widened from u32 to u64
 
 Note: many proactive commands are already implemented (DISPLAY TEXT, GET INPUT, SET UP MENU, SEND SMS, PLAY TONE, PROVIDE LOCAL INFORMATION, etc.).
 

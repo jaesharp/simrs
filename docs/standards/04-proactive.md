@@ -153,9 +153,9 @@ Sent by the terminal to the UICC (INS=0xC2, CLA=0x80). BER-TLV with tags:
 | D6 | Event Download | Terminal reports registered events |
 | D7 | Timer Expiration | Timer managed by UICC expired |
 
-### Event Download Types (TS 102 223 clause 9.7)
+### Event Download Types (TS 102 223 clause 8.25)
 
-32 defined event types. Key ones for Shannon fuzzing:
+35 defined event types (0x00-0x22). Key ones for Shannon fuzzing:
 
 | ID | Event | Relevance |
 |----|-------|-----------|
@@ -168,8 +168,9 @@ Sent by the terminal to the UICC (INS=0xC2, CLA=0x80). BER-TLV with tags:
 | 0x09 | Data Available | BIP channel has data |
 | 0x0A | Channel Status | BIP channel state change |
 | 0x0F | Browsing Status | Browser state change |
-| 0x13 | Network Rejection | Registration rejected (5G) |
-| 0x14 | Data Connection Status | PDU session change (5G, Rel-16) |
+| 0x12 | Network Rejection | Registration rejected (5G, Rel-16+) |
+| 0x1D | Data Connection Status Change | PDU session change (5G, Rel-16+) |
+| 0x1F | Slices Status Change | Network slicing (5G, Rel-16+) |
 
 ---
 

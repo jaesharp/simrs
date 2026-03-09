@@ -145,6 +145,10 @@ const TAG_RESULT: u8 = 0x83;
 const TAG_MENU_SELECTION: u8 = 0xD3;
 /// BER-TLV tag for Event Download envelope ([ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D)).
 const TAG_EVENT_DOWNLOAD: u8 = 0xD6;
+/// BER-TLV tag for Timer Expiration envelope ([ETSI TS 102 223 V18.2.0 clause 7.5.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D)).
+/// Same byte value as [`TAG_REJECTED_SLICES_W_MAPPING`] but different context
+/// (outer envelope tag vs inner comprehension-TLV).
+const TAG_TIMER_EXPIRATION: u8 = 0xD7;
 /// Item Identifier tag ([ETSI TS 102 223 V18.2.0 clause 8.10](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A407%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
 const TAG_ITEM_ID: u8 = 0x90;
 
@@ -333,27 +337,137 @@ pub const DEV_NETWORK: u8 = 0x83;
 
 /// Event type identifiers for SET UP EVENT LIST and Event Download.
 ///
-/// Per [ETSI TS 102 223 V18.2.0 clause 8.25](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C726%5D). These are the event ID bytes
-/// carried in the Event List TLV (tag 0x99).
+/// Per [ETSI TS 102 223 V18.2.0 clause 8.25](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C0%5D),
+/// with 3GPP extensions per [3GPP TS 31.111 V19.3.0 clause 8.25](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A743%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C0%5D).
+/// These are the event ID bytes carried in the Event List TLV (tag 0x99).
 pub mod event_id {
-    /// MT call event.
+    /// MT call event ('00').
     pub const MT_CALL: u8 = 0x00;
-    /// Call connected event.
+    /// Call connected event ('01').
     pub const CALL_CONNECTED: u8 = 0x01;
-    /// Call disconnected event.
+    /// Call disconnected event ('02').
     pub const CALL_DISCONNECTED: u8 = 0x02;
-    /// Location status event.
+    /// Location status event ('03').
     pub const LOCATION_STATUS: u8 = 0x03;
-    /// User activity event.
+    /// User activity event ('04').
     pub const USER_ACTIVITY: u8 = 0x04;
-    /// Idle screen available event.
+    /// Idle screen available event ('05').
     pub const IDLE_SCREEN_AVAILABLE: u8 = 0x05;
-    /// Timer expiry event.
-    pub const TIMER_EXPIRY: u8 = 0x07;
-    /// Language selection event.
-    pub const LANGUAGE_SELECTION: u8 = 0x09;
-    /// Browser termination event.
-    pub const BROWSER_TERMINATION: u8 = 0x0B;
+    /// Card reader status event ('06').
+    pub const CARD_READER_STATUS: u8 = 0x06;
+    /// Language selection event ('07').
+    pub const LANGUAGE_SELECTION: u8 = 0x07;
+    /// Browser termination event ('08').
+    pub const BROWSER_TERMINATION: u8 = 0x08;
+    /// Data available (BIP channel) event ('09').
+    pub const DATA_AVAILABLE: u8 = 0x09;
+    /// Channel status (BIP) event ('0A').
+    pub const CHANNEL_STATUS: u8 = 0x0A;
+    /// Access Technology Change (single access technology) event ('0B').
+    pub const ACCESS_TECHNOLOGY_CHANGE: u8 = 0x0B;
+    /// Display parameters changed event ('0C').
+    pub const DISPLAY_PARAMS_CHANGED: u8 = 0x0C;
+    /// Local connection event ('0D').
+    pub const LOCAL_CONNECTION: u8 = 0x0D;
+    /// Network Search Mode Change event ('0E').
+    pub const NETWORK_SEARCH_MODE_CHANGE: u8 = 0x0E;
+    /// Browsing status event ('0F').
+    pub const BROWSING_STATUS: u8 = 0x0F;
+    /// Frames Information Change event ('10').
+    pub const FRAMES_INFO_CHANGE: u8 = 0x10;
+    /// (I-)WLAN Access Status event ('11'). 3GPP TS 31.111.
+    pub const IWLAN_ACCESS_STATUS: u8 = 0x11;
+    /// Network Rejection event ('12'). 3GPP TS 31.111, 5G (Rel-16+).
+    pub const NETWORK_REJECTION: u8 = 0x12;
+    /// HCI connectivity event ('13').
+    pub const HCI_CONNECTIVITY: u8 = 0x13;
+    /// Access Technology Change (multiple access technologies) event ('14').
+    pub const ACCESS_TECHNOLOGY_CHANGE_MULTI: u8 = 0x14;
+    /// CSG cell selection event ('15'). 3GPP TS 31.111.
+    pub const CSG_CELL_SELECTION: u8 = 0x15;
+    /// Contactless state request event ('16').
+    pub const CONTACTLESS_STATE_REQUEST: u8 = 0x16;
+    /// IMS Registration event ('17'). 3GPP TS 31.111.
+    pub const IMS_REGISTRATION: u8 = 0x17;
+    /// IMS Incoming data event ('18'). 3GPP TS 31.111.
+    pub const IMS_INCOMING_DATA: u8 = 0x18;
+    /// Profile Container event ('19').
+    pub const PROFILE_CONTAINER: u8 = 0x19;
+    // 0x1A = Void
+    /// Secured Profile Container event ('1B').
+    pub const SECURED_PROFILE_CONTAINER: u8 = 0x1B;
+    /// Poll Interval Negotiation event ('1C').
+    pub const POLL_INTERVAL_NEGOTIATION: u8 = 0x1C;
+    /// Data Connection Status Change event ('1D'). 3GPP TS 31.111, 5G (Rel-16+).
+    pub const DATA_CONNECTION_STATUS_CHANGE: u8 = 0x1D;
+    /// CAG cell selection event ('1E'). 3GPP TS 31.111.
+    pub const CAG_CELL_SELECTION: u8 = 0x1E;
+    /// Slices Status Change event ('1F'). 3GPP TS 31.111, 5G (Rel-16+).
+    pub const SLICES_STATUS_CHANGE: u8 = 0x1F;
+}
+
+// ---------------------------------------------------------------------------
+// PROVIDE LOCAL INFORMATION qualifier constants (ETSI TS 102 223 V18.2.0 clause 8.6)
+// ---------------------------------------------------------------------------
+
+/// PROVIDE LOCAL INFORMATION command qualifier values.
+///
+/// Per [ETSI TS 102 223 V18.2.0 clause 8.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A388%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C0%5D),
+/// with 3GPP extensions per [3GPP TS 31.111 V19.3.0 clause 8.6](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A721%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C0%5D).
+/// These are the qualifier byte in Command Details for PROVIDE LOCAL INFORMATION
+/// (type 0x26).
+pub mod pli_qualifier {
+    /// Location Information according to current NAA ('00').
+    pub const LOCATION_INFORMATION: u8 = 0x00;
+    /// IMEI of the terminal ('01').
+    pub const IMEI: u8 = 0x01;
+    /// Network Measurement results according to current NAA ('02').
+    pub const NETWORK_MEASUREMENT: u8 = 0x02;
+    /// Date, time and time zone ('03').
+    pub const DATE_TIME_TIMEZONE: u8 = 0x03;
+    /// Language setting ('04').
+    pub const LANGUAGE_SETTING: u8 = 0x04;
+    /// Timing Advance ('05'). 3GPP TS 31.111 (reserved in ETSI).
+    pub const TIMING_ADVANCE: u8 = 0x05;
+    /// Access Technology (single access technology) ('06').
+    pub const ACCESS_TECHNOLOGY: u8 = 0x06;
+    /// ESN of the terminal ('07'). Does not apply in 3GPP.
+    pub const ESN: u8 = 0x07;
+    /// IMEISV of the terminal ('08').
+    pub const IMEISV: u8 = 0x08;
+    /// Search Mode ('09').
+    pub const SEARCH_MODE: u8 = 0x09;
+    /// Charge State of the Battery ('0A').
+    pub const BATTERY_STATE: u8 = 0x0A;
+    /// MEID of the terminal ('0B'). Does not apply in 3GPP.
+    pub const MEID: u8 = 0x0B;
+    /// Current WSID ('0C'). 3GPP TS 31.111.
+    pub const CURRENT_WSID: u8 = 0x0C;
+    /// Broadcast Network information ('0D').
+    pub const BROADCAST_NETWORK_INFO: u8 = 0x0D;
+    /// Multiple Access Technologies ('0E').
+    pub const MULTIPLE_ACCESS_TECHNOLOGIES: u8 = 0x0E;
+    /// Location Information for multiple access technologies ('0F').
+    pub const LOCATION_MULTI_ACCESS: u8 = 0x0F;
+    /// Network Measurement results for multiple access technologies ('10').
+    pub const NMR_MULTI_ACCESS: u8 = 0x10;
+    /// CSG ID list and corresponding HNB name ('11'). 3GPP TS 31.111.
+    pub const CSG_ID_LIST: u8 = 0x11;
+    /// H(e)NB IP address ('12'). 3GPP TS 31.111.
+    pub const HENB_IP_ADDRESS: u8 = 0x12;
+    /// H(e)NB surrounding macrocells ('13'). 3GPP TS 31.111.
+    pub const HENB_SURROUNDING_MACROCELLS: u8 = 0x13;
+    /// Current WLAN identifier ('14'). 3GPP TS 31.111.
+    pub const CURRENT_WLAN_ID: u8 = 0x14;
+    /// Slices information ('15'). 3GPP TS 31.111, 5G (Rel-16+).
+    pub const SLICES_INFORMATION: u8 = 0x15;
+    /// CAG information list ('16'). 3GPP TS 31.111.
+    pub const CAG_INFORMATION: u8 = 0x16;
+    /// Rejected slices information ('17'). 3GPP TS 31.111, 5G (Rel-16+).
+    pub const REJECTED_SLICES_INFORMATION: u8 = 0x17;
+    // 0x18-0x19: not defined in current spec versions.
+    /// Supported Radio Access Technologies ('1A').
+    pub const SUPPORTED_RAT: u8 = 0x1A;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,13 +486,18 @@ pub enum EnvelopeEvent {
     },
     /// Terminal reports an event (tag D6).
     ///
-    /// Per [ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D).
+    /// Per [ETSI TS 102 223 V18.2.0 clause 7.5.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D).
     EventDownload {
         /// Event type byte (see [`event_id`] constants).
         event_type: u8,
-        /// Timer ID (1-8) for Timer Expiry events, 0 otherwise.
+    },
+    /// Timer managed by the UICC has expired (tag D7).
+    ///
+    /// Per [ETSI TS 102 223 V18.2.0 clause 7.5.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D).
+    TimerExpiration {
+        /// Timer identifier (1-8).
         timer_id: u8,
-        /// BCD timer value [hours, minutes, seconds] for Timer Expiry.
+        /// BCD timer value [hours, minutes, seconds].
         timer_value: [u8; 3],
     },
 }
@@ -1282,6 +1401,9 @@ impl<'a> SnapWriter<'a> {
     pub(crate) fn put_u32_le(&mut self, v: u32) {
         self.put_bytes(&v.to_le_bytes());
     }
+    pub(crate) fn put_u64_le(&mut self, v: u64) {
+        self.put_bytes(&v.to_le_bytes());
+    }
     pub(crate) const fn finish(self) -> usize {
         self.pos
     }
@@ -1320,6 +1442,20 @@ impl<'a> SnapReader<'a> {
         self.pos += 4;
         u32::from_le_bytes(b)
     }
+    pub(crate) fn get_u64_le(&mut self) -> u64 {
+        let b = [
+            self.buf[self.pos],
+            self.buf[self.pos + 1],
+            self.buf[self.pos + 2],
+            self.buf[self.pos + 3],
+            self.buf[self.pos + 4],
+            self.buf[self.pos + 5],
+            self.buf[self.pos + 6],
+            self.buf[self.pos + 7],
+        ];
+        self.pos += 8;
+        u64::from_le_bytes(b)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1353,7 +1489,7 @@ pub struct ProactiveState {
     buf: [u8; 256],
     len: usize,
     seq: u8,
-    /// Envelope event tag (0 = none, 0xD3 = menu selection, 0xD6 = event download).
+    /// Envelope event tag (0 = none, 0xD3 = menu selection, 0xD6 = event download, 0xD7 = timer expiration).
     event_tag: u8,
     /// Envelope event item identifier (for Menu Selection).
     event_item_id: u8,
@@ -1363,13 +1499,13 @@ pub struct ProactiveState {
     profile_len: u8,
     /// Event type byte from Event Download envelope.
     event_type: u8,
-    /// Timer ID from Timer Expiry event download (1-8, 0 = none).
+    /// Timer identifier from Timer Expiration (D7) envelope (1-8, 0 = none).
     event_timer_id: u8,
-    /// BCD timer value from Timer Expiry event download [HH, MM, SS].
+    /// BCD timer value from Timer Expiration (D7) envelope [HH, MM, SS].
     event_timer_value: [u8; 3],
-    /// Bitmask of subscribed event IDs (bits 0..31).
+    /// Bitmask of subscribed event IDs (bits 0..63).
     /// Set via SET UP EVENT LIST proactive command.
-    subscribed_events: u32,
+    subscribed_events: u64,
     /// 8 concurrent timers (IDs 1-8, indexed 0-7).
     /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.21](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A232%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C199%5D).
     timers: [TimerSlot; 8],
@@ -1662,7 +1798,8 @@ impl ProactiveState {
     /// Parses the outer tag to identify the envelope type, then extracts
     /// relevant inner TLVs. Supports:
     /// - Menu Selection (tag D3, [ETSI TS 102 223 V18.2.0 clause 7.1](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A294%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C516%5D))
-    /// - Event Download (tag D6, [ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D))
+    /// - Event Download (tag D6, [ETSI TS 102 223 V18.2.0 clause 7.5.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D))
+    /// - Timer Expiration (tag D7, [ETSI TS 102 223 V18.2.0 clause 7.5.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D))
     ///
     /// For Event Download, the event must be in the subscribed set
     /// (see [`subscribe_events`](Self::subscribe_events)).
@@ -1694,37 +1831,26 @@ impl ProactiveState {
             return self.process_event_download(tlv.value);
         }
 
+        if tlv.tag == TAG_TIMER_EXPIRATION {
+            return self.process_timer_expiration(tlv.value);
+        }
+
         false
     }
 
     /// Parse Event Download (D6) inner TLVs.
     ///
-    /// Per [ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D), the inner TLVs include:
+    /// Per [ETSI TS 102 223 V18.2.0 clause 7.5.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D), the inner TLVs include:
     /// - Event List (tag 0x99): single event type byte
-    /// - Timer Identifier (tag 0xA4): for Timer Expiry events
-    /// - Timer Value (tag 0xA5): for Timer Expiry events
     fn process_event_download(&mut self, value: &[u8]) -> bool {
         let mut inner = Decoder::new(value);
         let mut found_event = false;
         let mut evt_type: u8 = 0;
-        let mut tmr_id: u8 = 0;
-        let mut tmr_val: [u8; 3] = [0; 3];
 
         while let Some(Ok(inner_tlv)) = inner.next() {
-            match inner_tlv.tag {
-                TAG_EVENT_LIST if !inner_tlv.value.is_empty() => {
-                    evt_type = inner_tlv.value[0];
-                    found_event = true;
-                }
-                TAG_TIMER_ID if !inner_tlv.value.is_empty() => {
-                    tmr_id = inner_tlv.value[0];
-                }
-                TAG_TIMER_VALUE if inner_tlv.value.len() >= 3 => {
-                    tmr_val[0] = inner_tlv.value[0];
-                    tmr_val[1] = inner_tlv.value[1];
-                    tmr_val[2] = inner_tlv.value[2];
-                }
-                _ => {}
+            if inner_tlv.tag == TAG_EVENT_LIST && !inner_tlv.value.is_empty() {
+                evt_type = inner_tlv.value[0];
+                found_event = true;
             }
         }
 
@@ -1739,6 +1865,41 @@ impl ProactiveState {
 
         self.event_tag = TAG_EVENT_DOWNLOAD;
         self.event_type = evt_type;
+        true
+    }
+
+    /// Parse Timer Expiration (D7) inner TLVs.
+    ///
+    /// Per [ETSI TS 102 223 V18.2.0 clause 7.5.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D), the inner TLVs include:
+    /// - Timer Identifier (tag 0xA4)
+    /// - Timer Value (tag 0xA5)
+    fn process_timer_expiration(&mut self, value: &[u8]) -> bool {
+        let mut inner = Decoder::new(value);
+        let mut tmr_id: u8 = 0;
+        let mut found_timer_id = false;
+        let mut tmr_val: [u8; 3] = [0; 3];
+
+        while let Some(Ok(inner_tlv)) = inner.next() {
+            match inner_tlv.tag {
+                TAG_TIMER_ID if !inner_tlv.value.is_empty() => {
+                    tmr_id = inner_tlv.value[0];
+                    found_timer_id = true;
+                }
+                TAG_TIMER_VALUE if inner_tlv.value.len() >= 3 => {
+                    tmr_val[0] = inner_tlv.value[0];
+                    tmr_val[1] = inner_tlv.value[1];
+                    tmr_val[2] = inner_tlv.value[2];
+                }
+                _ => {}
+            }
+        }
+
+        // Timer Identifier is mandatory (TS 102 223 clause 7.5.7) and must be 1-8.
+        if !found_timer_id || tmr_id == 0 || tmr_id > 8 {
+            return false;
+        }
+
+        self.event_tag = TAG_TIMER_EXPIRATION;
         self.event_timer_id = tmr_id;
         self.event_timer_value = tmr_val;
         true
@@ -1752,16 +1913,17 @@ impl ProactiveState {
             self.event_item_id = 0;
             Some(EnvelopeEvent::MenuSelection { item_id })
         } else if self.event_tag == TAG_EVENT_DOWNLOAD {
-            let event = EnvelopeEvent::EventDownload {
-                event_type: self.event_type,
-                timer_id: self.event_timer_id,
-                timer_value: self.event_timer_value,
-            };
+            let event_type = self.event_type;
             self.event_tag = 0;
             self.event_type = 0;
+            Some(EnvelopeEvent::EventDownload { event_type })
+        } else if self.event_tag == TAG_TIMER_EXPIRATION {
+            let timer_id = self.event_timer_id;
+            let timer_value = self.event_timer_value;
+            self.event_tag = 0;
             self.event_timer_id = 0;
             self.event_timer_value = [0; 3];
-            Some(event)
+            Some(EnvelopeEvent::TimerExpiration { timer_id, timer_value })
         } else {
             None
         }
@@ -1772,22 +1934,22 @@ impl ProactiveState {
     /// Subscribe to a set of event IDs.
     ///
     /// Per [ETSI TS 102 223 V18.2.0 clause 8.25](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A431%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C726%5D). Replaces any existing subscriptions.
-    /// Each byte in `events` is an event ID (0-31). IDs >= 32 are ignored.
+    /// Each byte in `events` is an event ID (0-63). IDs >= 64 are ignored.
     pub fn subscribe_events(&mut self, events: &[u8]) {
         self.subscribed_events = 0;
         for &ev in events {
-            if ev < 32 {
-                self.subscribed_events |= 1 << ev;
+            if ev < 64 {
+                self.subscribed_events |= 1u64 << ev;
             }
         }
     }
 
     /// Check if a specific event type is in the subscribed set.
     pub const fn is_event_subscribed(&self, event_type: u8) -> bool {
-        if event_type >= 32 {
+        if event_type >= 64 {
             return false;
         }
-        self.subscribed_events & (1 << event_type) != 0
+        self.subscribed_events & (1u64 << event_type) != 0
     }
 
     /// Clear all event subscriptions.
@@ -1870,7 +2032,7 @@ impl ProactiveState {
 
     /// Take the next expired timer ID (1-8), or 0 if none.
     ///
-    /// The caller should generate a Timer Expiry Event Download envelope
+    /// The caller should generate a Timer Expiration (tag D7) envelope
     /// for each expired timer returned.
     pub const fn take_expired_timer(&mut self) -> u8 {
         if self.expired_timers == 0 {
@@ -2007,9 +2169,9 @@ impl ProactiveState {
     /// Layout: `buf`(256) + `len`(2 LE) + `seq`(1) + `event_tag`(1)
     /// + `event_item_id`(1) + `profile`(32) + `profile_len`(1)
     /// + `event_type`(1) + `event_timer_id`(1) + `event_timer_value`(3)
-    /// + `subscribed_events`(4) + `timers`(8 x 5 = 40)
-    /// + `expired_timers`(1) + `channels`(7 x 4 = 28) + `last_result`(1) = 373.
-    pub const SNAPSHOT_SIZE: usize = 256 + 2 + 1 + 1 + 1 + 32 + 1 + 1 + 1 + 3 + 4 + 40 + 1 + 28 + 1;
+    /// + `subscribed_events`(8) + `timers`(8 x 5 = 40)
+    /// + `expired_timers`(1) + `channels`(7 x 4 = 28) + `last_result`(1) = 377.
+    pub const SNAPSHOT_SIZE: usize = 256 + 2 + 1 + 1 + 1 + 32 + 1 + 1 + 1 + 3 + 8 + 40 + 1 + 28 + 1;
 
     /// Serialize the proactive state into `buf` as flat bytes.
     ///
@@ -2031,7 +2193,7 @@ impl ProactiveState {
         w.put_u8(self.event_type);
         w.put_u8(self.event_timer_id);
         w.put_bytes(&self.event_timer_value);
-        w.put_u32_le(self.subscribed_events);
+        w.put_u64_le(self.subscribed_events);
         // Timers: 8 slots x (1 byte active + 4 bytes remaining_secs LE) = 40 bytes.
         let mut i = 0;
         while i < 8 {
@@ -2071,7 +2233,7 @@ impl ProactiveState {
         self.event_type = r.get_u8();
         self.event_timer_id = r.get_u8();
         r.get_bytes(&mut self.event_timer_value);
-        self.subscribed_events = r.get_u32_le();
+        self.subscribed_events = r.get_u64_le();
         // Timers: 8 slots.
         let mut i = 0;
         while i < 8 {
@@ -3304,7 +3466,7 @@ mod tests {
 
     #[test]
     fn snapshot_size_correct() {
-        assert_eq!(ProactiveState::SNAPSHOT_SIZE, 373);
+        assert_eq!(ProactiveState::SNAPSHOT_SIZE, 377);
     }
 
     #[test]
@@ -3431,20 +3593,19 @@ mod tests {
         (buf, len)
     }
 
-    /// Build a Timer Expiry Event Download envelope.
-    fn build_timer_expiry_envelope(
+    /// Build a Timer Expiration envelope (outer tag D7).
+    fn build_timer_expiration_envelope(
         timer_id: u8,
         timer_value: [u8; 3],
     ) -> ([u8; 32], usize) {
         let mut buf = [0u8; 32];
         let mut enc = Encoder::new(&mut buf);
         let inner = [
-            TAG_EVENT_LIST, 0x01, event_id::TIMER_EXPIRY,
             TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC,
             TAG_TIMER_ID, 0x01, timer_id,
             TAG_TIMER_VALUE, 0x03, timer_value[0], timer_value[1], timer_value[2],
         ];
-        enc.tag_length_value(TAG_EVENT_DOWNLOAD, &inner).unwrap();
+        enc.tag_length_value(TAG_TIMER_EXPIRATION, &inner).unwrap();
         let len = enc.len();
         (buf, len)
     }
@@ -3462,26 +3623,22 @@ mod tests {
             event,
             Some(EnvelopeEvent::EventDownload {
                 event_type: event_id::LOCATION_STATUS,
-                timer_id: 0,
-                timer_value: [0, 0, 0],
             })
         );
     }
 
     #[test]
-    fn event_download_timer_expiry() {
+    fn envelope_timer_expiration() {
         let mut state = ProactiveState::new();
-        state.subscribe_events(&[event_id::TIMER_EXPIRY]);
-
+        // Timer Expiration (D7) does not require event subscription.
         let timer_val = [0x01, 0x30, 0x00]; // 01h 30m 00s BCD
-        let (buf, len) = build_timer_expiry_envelope(0x03, timer_val);
+        let (buf, len) = build_timer_expiration_envelope(0x03, timer_val);
         assert!(state.process_envelope(&buf[..len]));
 
         let event = state.take_event();
         assert_eq!(
             event,
-            Some(EnvelopeEvent::EventDownload {
-                event_type: event_id::TIMER_EXPIRY,
+            Some(EnvelopeEvent::TimerExpiration {
                 timer_id: 0x03,
                 timer_value: timer_val,
             })
@@ -3507,6 +3664,33 @@ mod tests {
     }
 
     #[test]
+    fn timer_expiration_malformed_no_timer_id() {
+        let mut state = ProactiveState::new();
+        // D7 envelope with no Timer Identifier TLV inside.
+        let data = [TAG_TIMER_EXPIRATION, 0x04, TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC];
+        assert!(!state.process_envelope(&data));
+        assert_eq!(state.take_event(), None);
+    }
+
+    #[test]
+    fn timer_expiration_malformed_timer_id_zero() {
+        let mut state = ProactiveState::new();
+        // D7 envelope with timer_id = 0 (invalid: must be 1-8).
+        let (buf, len) = build_timer_expiration_envelope(0x00, [0x00, 0x00, 0x00]);
+        assert!(!state.process_envelope(&buf[..len]));
+        assert_eq!(state.take_event(), None);
+    }
+
+    #[test]
+    fn timer_expiration_malformed_timer_id_out_of_range() {
+        let mut state = ProactiveState::new();
+        // D7 envelope with timer_id = 9 (invalid: must be 1-8).
+        let (buf, len) = build_timer_expiration_envelope(0x09, [0x00, 0x00, 0x00]);
+        assert!(!state.process_envelope(&buf[..len]));
+        assert_eq!(state.take_event(), None);
+    }
+
+    #[test]
     fn event_download_take_clears() {
         let mut state = ProactiveState::new();
         state.subscribe_events(&[event_id::USER_ACTIVITY]);
@@ -3514,6 +3698,143 @@ mod tests {
         state.process_envelope(&buf[..len]);
         assert!(state.take_event().is_some());
         assert_eq!(state.take_event(), None);
+    }
+
+    // -- 5G Event Download tests --
+
+    #[test]
+    fn event_download_network_rejection() {
+        let mut state = ProactiveState::new();
+        state.subscribe_events(&[event_id::NETWORK_REJECTION]);
+
+        let (buf, len) = build_event_download_envelope(event_id::NETWORK_REJECTION);
+        assert!(state.process_envelope(&buf[..len]));
+
+        let event = state.take_event();
+        assert_eq!(
+            event,
+            Some(EnvelopeEvent::EventDownload {
+                event_type: event_id::NETWORK_REJECTION,
+            })
+        );
+    }
+
+    #[test]
+    fn event_download_data_connection_status_change() {
+        let mut state = ProactiveState::new();
+        state.subscribe_events(&[event_id::DATA_CONNECTION_STATUS_CHANGE]);
+
+        let (buf, len) = build_event_download_envelope(event_id::DATA_CONNECTION_STATUS_CHANGE);
+        assert!(state.process_envelope(&buf[..len]));
+
+        let event = state.take_event();
+        assert_eq!(
+            event,
+            Some(EnvelopeEvent::EventDownload {
+                event_type: event_id::DATA_CONNECTION_STATUS_CHANGE,
+            })
+        );
+    }
+
+    #[test]
+    fn event_download_slices_status_change() {
+        let mut state = ProactiveState::new();
+        state.subscribe_events(&[event_id::SLICES_STATUS_CHANGE]);
+
+        let (buf, len) = build_event_download_envelope(event_id::SLICES_STATUS_CHANGE);
+        assert!(state.process_envelope(&buf[..len]));
+
+        let event = state.take_event();
+        assert_eq!(
+            event,
+            Some(EnvelopeEvent::EventDownload {
+                event_type: event_id::SLICES_STATUS_CHANGE,
+            })
+        );
+    }
+
+    #[test]
+    fn event_id_constants_match_spec() {
+        // ETSI TS 102 223 V18.2.0 clause 8.25 + 3GPP TS 31.111 V19.3.0.
+        assert_eq!(event_id::MT_CALL, 0x00);
+        assert_eq!(event_id::CALL_CONNECTED, 0x01);
+        assert_eq!(event_id::CALL_DISCONNECTED, 0x02);
+        assert_eq!(event_id::LOCATION_STATUS, 0x03);
+        assert_eq!(event_id::USER_ACTIVITY, 0x04);
+        assert_eq!(event_id::IDLE_SCREEN_AVAILABLE, 0x05);
+        assert_eq!(event_id::CARD_READER_STATUS, 0x06);
+        assert_eq!(event_id::LANGUAGE_SELECTION, 0x07);
+        assert_eq!(event_id::BROWSER_TERMINATION, 0x08);
+        assert_eq!(event_id::DATA_AVAILABLE, 0x09);
+        assert_eq!(event_id::CHANNEL_STATUS, 0x0A);
+        assert_eq!(event_id::ACCESS_TECHNOLOGY_CHANGE, 0x0B);
+        assert_eq!(event_id::DISPLAY_PARAMS_CHANGED, 0x0C);
+        assert_eq!(event_id::LOCAL_CONNECTION, 0x0D);
+        assert_eq!(event_id::NETWORK_SEARCH_MODE_CHANGE, 0x0E);
+        assert_eq!(event_id::BROWSING_STATUS, 0x0F);
+        assert_eq!(event_id::FRAMES_INFO_CHANGE, 0x10);
+        assert_eq!(event_id::IWLAN_ACCESS_STATUS, 0x11);
+        assert_eq!(event_id::NETWORK_REJECTION, 0x12);
+        assert_eq!(event_id::HCI_CONNECTIVITY, 0x13);
+        assert_eq!(event_id::ACCESS_TECHNOLOGY_CHANGE_MULTI, 0x14);
+        assert_eq!(event_id::CSG_CELL_SELECTION, 0x15);
+        assert_eq!(event_id::CONTACTLESS_STATE_REQUEST, 0x16);
+        assert_eq!(event_id::IMS_REGISTRATION, 0x17);
+        assert_eq!(event_id::IMS_INCOMING_DATA, 0x18);
+        assert_eq!(event_id::PROFILE_CONTAINER, 0x19);
+        assert_eq!(event_id::SECURED_PROFILE_CONTAINER, 0x1B);
+        assert_eq!(event_id::POLL_INTERVAL_NEGOTIATION, 0x1C);
+        assert_eq!(event_id::DATA_CONNECTION_STATUS_CHANGE, 0x1D);
+        assert_eq!(event_id::CAG_CELL_SELECTION, 0x1E);
+        assert_eq!(event_id::SLICES_STATUS_CHANGE, 0x1F);
+    }
+
+    #[test]
+    fn pli_qualifier_constants_match_spec() {
+        // ETSI TS 102 223 V18.2.0 clause 8.6 + 3GPP TS 31.111 V19.3.0.
+        assert_eq!(pli_qualifier::LOCATION_INFORMATION, 0x00);
+        assert_eq!(pli_qualifier::IMEI, 0x01);
+        assert_eq!(pli_qualifier::NETWORK_MEASUREMENT, 0x02);
+        assert_eq!(pli_qualifier::DATE_TIME_TIMEZONE, 0x03);
+        assert_eq!(pli_qualifier::LANGUAGE_SETTING, 0x04);
+        assert_eq!(pli_qualifier::TIMING_ADVANCE, 0x05);
+        assert_eq!(pli_qualifier::ACCESS_TECHNOLOGY, 0x06);
+        assert_eq!(pli_qualifier::ESN, 0x07);
+        assert_eq!(pli_qualifier::IMEISV, 0x08);
+        assert_eq!(pli_qualifier::SEARCH_MODE, 0x09);
+        assert_eq!(pli_qualifier::BATTERY_STATE, 0x0A);
+        assert_eq!(pli_qualifier::MEID, 0x0B);
+        assert_eq!(pli_qualifier::CURRENT_WSID, 0x0C);
+        assert_eq!(pli_qualifier::BROADCAST_NETWORK_INFO, 0x0D);
+        assert_eq!(pli_qualifier::MULTIPLE_ACCESS_TECHNOLOGIES, 0x0E);
+        assert_eq!(pli_qualifier::LOCATION_MULTI_ACCESS, 0x0F);
+        assert_eq!(pli_qualifier::NMR_MULTI_ACCESS, 0x10);
+        assert_eq!(pli_qualifier::CSG_ID_LIST, 0x11);
+        assert_eq!(pli_qualifier::HENB_IP_ADDRESS, 0x12);
+        assert_eq!(pli_qualifier::HENB_SURROUNDING_MACROCELLS, 0x13);
+        assert_eq!(pli_qualifier::CURRENT_WLAN_ID, 0x14);
+        assert_eq!(pli_qualifier::SLICES_INFORMATION, 0x15);
+        assert_eq!(pli_qualifier::CAG_INFORMATION, 0x16);
+        assert_eq!(pli_qualifier::REJECTED_SLICES_INFORMATION, 0x17);
+        assert_eq!(pli_qualifier::SUPPORTED_RAT, 0x1A);
+    }
+
+    #[test]
+    fn subscribe_5g_events_bitmask() {
+        let mut state = ProactiveState::new();
+        state.subscribe_events(&[
+            event_id::NETWORK_REJECTION,
+            event_id::DATA_CONNECTION_STATUS_CHANGE,
+            event_id::SLICES_STATUS_CHANGE,
+        ]);
+        assert!(state.is_event_subscribed(event_id::NETWORK_REJECTION));
+        assert!(state.is_event_subscribed(event_id::DATA_CONNECTION_STATUS_CHANGE));
+        assert!(state.is_event_subscribed(event_id::SLICES_STATUS_CHANGE));
+        assert!(!state.is_event_subscribed(event_id::MT_CALL));
+        // All three 5G events are < 64 so they fit in the u64 bitmask.
+        assert!(event_id::NETWORK_REJECTION < 64);
+        assert!(event_id::DATA_CONNECTION_STATUS_CHANGE < 64);
+        assert!(event_id::SLICES_STATUS_CHANGE < 64);
     }
 
     // -- Event subscription tests --
@@ -3524,11 +3845,11 @@ mod tests {
         state.subscribe_events(&[
             event_id::LOCATION_STATUS,
             event_id::IDLE_SCREEN_AVAILABLE,
-            event_id::TIMER_EXPIRY,
+            event_id::LANGUAGE_SELECTION,
         ]);
         assert!(state.is_event_subscribed(event_id::LOCATION_STATUS));
         assert!(state.is_event_subscribed(event_id::IDLE_SCREEN_AVAILABLE));
-        assert!(state.is_event_subscribed(event_id::TIMER_EXPIRY));
+        assert!(state.is_event_subscribed(event_id::LANGUAGE_SELECTION));
         assert!(!state.is_event_subscribed(event_id::MT_CALL));
         assert!(!state.is_event_subscribed(event_id::USER_ACTIVITY));
     }
@@ -3540,27 +3861,27 @@ mod tests {
         assert!(state.is_event_subscribed(event_id::MT_CALL));
 
         // Subscribe to different events -- replaces.
-        state.subscribe_events(&[event_id::TIMER_EXPIRY]);
+        state.subscribe_events(&[event_id::LANGUAGE_SELECTION]);
         assert!(!state.is_event_subscribed(event_id::MT_CALL));
-        assert!(state.is_event_subscribed(event_id::TIMER_EXPIRY));
+        assert!(state.is_event_subscribed(event_id::LANGUAGE_SELECTION));
     }
 
     #[test]
     fn clear_subscriptions() {
         let mut state = ProactiveState::new();
-        state.subscribe_events(&[event_id::MT_CALL, event_id::TIMER_EXPIRY]);
+        state.subscribe_events(&[event_id::MT_CALL, event_id::LANGUAGE_SELECTION]);
         assert!(state.is_event_subscribed(event_id::MT_CALL));
 
         state.clear_event_subscriptions();
         assert!(!state.is_event_subscribed(event_id::MT_CALL));
-        assert!(!state.is_event_subscribed(event_id::TIMER_EXPIRY));
+        assert!(!state.is_event_subscribed(event_id::LANGUAGE_SELECTION));
     }
 
     #[test]
     fn subscribe_ignores_out_of_range() {
         let mut state = ProactiveState::new();
-        state.subscribe_events(&[32, 33, 255]);
-        assert!(!state.is_event_subscribed(32));
+        state.subscribe_events(&[64, 65, 255]);
+        assert!(!state.is_event_subscribed(64));
         assert!(!state.is_event_subscribed(255));
     }
 
@@ -3576,7 +3897,7 @@ mod tests {
         // Subscriptions should be activated by the queue call.
         assert!(state.is_event_subscribed(event_id::LOCATION_STATUS));
         assert!(state.is_event_subscribed(event_id::USER_ACTIVITY));
-        assert!(!state.is_event_subscribed(event_id::TIMER_EXPIRY));
+        assert!(!state.is_event_subscribed(event_id::LANGUAGE_SELECTION));
 
         // Simulate the terminal sending a matching event.
         let (buf, len) = build_event_download_envelope(event_id::LOCATION_STATUS);
@@ -4100,12 +4421,12 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_roundtrip_with_event_download() {
+    fn snapshot_roundtrip_with_timer_expiration() {
         let mut state = ProactiveState::new();
-        state.subscribe_events(&[event_id::TIMER_EXPIRY, event_id::LOCATION_STATUS]);
+        state.subscribe_events(&[event_id::LANGUAGE_SELECTION, event_id::LOCATION_STATUS]);
 
         let timer_val = [0x02, 0x15, 0x30]; // 02h 15m 30s
-        let (buf, len) = build_timer_expiry_envelope(0x05, timer_val);
+        let (buf, len) = build_timer_expiration_envelope(0x05, timer_val);
         state.process_envelope(&buf[..len]);
 
         let mut snap = [0u8; ProactiveState::SNAPSHOT_SIZE];
@@ -4115,19 +4436,18 @@ mod tests {
         let mut restored = ProactiveState::new();
         assert!(restored.restore_state(&snap));
 
-        // Event should be preserved.
+        // Timer expiration event should be preserved.
         let event = restored.take_event();
         assert_eq!(
             event,
-            Some(EnvelopeEvent::EventDownload {
-                event_type: event_id::TIMER_EXPIRY,
+            Some(EnvelopeEvent::TimerExpiration {
                 timer_id: 0x05,
                 timer_value: timer_val,
             })
         );
 
         // Subscriptions should be preserved.
-        assert!(restored.is_event_subscribed(event_id::TIMER_EXPIRY));
+        assert!(restored.is_event_subscribed(event_id::LANGUAGE_SELECTION));
         assert!(restored.is_event_subscribed(event_id::LOCATION_STATUS));
         assert!(!restored.is_event_subscribed(event_id::MT_CALL));
     }
@@ -4139,7 +4459,7 @@ mod tests {
             event_id::MT_CALL,
             event_id::CALL_CONNECTED,
             event_id::USER_ACTIVITY,
-            event_id::BROWSER_TERMINATION,
+            event_id::ACCESS_TECHNOLOGY_CHANGE,
         ]);
 
         let mut snap = [0u8; ProactiveState::SNAPSHOT_SIZE];
@@ -4151,8 +4471,8 @@ mod tests {
         assert!(restored.is_event_subscribed(event_id::MT_CALL));
         assert!(restored.is_event_subscribed(event_id::CALL_CONNECTED));
         assert!(restored.is_event_subscribed(event_id::USER_ACTIVITY));
-        assert!(restored.is_event_subscribed(event_id::BROWSER_TERMINATION));
-        assert!(!restored.is_event_subscribed(event_id::TIMER_EXPIRY));
+        assert!(restored.is_event_subscribed(event_id::ACCESS_TECHNOLOGY_CHANGE));
+        assert!(!restored.is_event_subscribed(event_id::LANGUAGE_SELECTION));
     }
 
     #[test]
