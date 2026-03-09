@@ -114,8 +114,12 @@ use simrs_bertlv::{BER_LONG_FORM_1, BER_LONG_FORM_2, BER_SHORT_FORM_MAX, Decoder
 // Constants per ETSI TS 102 223
 // ---------------------------------------------------------------------------
 
-/// BER-TLV tag for proactive command envelope.
-const TAG_PROACTIVE_CMD: u8 = 0xD0;
+/// BER-TLV outer envelope tag for proactive command (0xD0).
+const ENVELOPE_TAG_PROACTIVE_CMD: u8 = 0xD0;
+
+#[deprecated(note = "use ENVELOPE_TAG_PROACTIVE_CMD -- 0xD0 is an outer envelope tag, not a comprehension-TLV")]
+#[allow(dead_code)]
+const TAG_PROACTIVE_CMD: u8 = ENVELOPE_TAG_PROACTIVE_CMD;
 /// Command Details ([ETSI TS 102 223 V18.2.0 clause 8.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A388%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C322%5D)).
 const TAG_CMD_DETAILS: u8 = 0x81;
 /// Device Identities ([ETSI TS 102 223 V18.2.0 clause 8.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A403%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C655%5D)).
@@ -141,14 +145,24 @@ const TAG_RESPONSE_LENGTH: u8 = 0x91;
 /// Result ([ETSI TS 102 223 V18.2.0 clause 8.12](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A407%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C467%5D)).
 const TAG_RESULT: u8 = 0x83;
 
-/// BER-TLV tag for Menu Selection envelope ([ETSI TS 102 223 V18.2.0 clause 7.1](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A294%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C516%5D)).
-const TAG_MENU_SELECTION: u8 = 0xD3;
-/// BER-TLV tag for Event Download envelope ([ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D)).
-const TAG_EVENT_DOWNLOAD: u8 = 0xD6;
-/// BER-TLV tag for Timer Expiration envelope ([ETSI TS 102 223 V18.2.0 clause 7.5.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D)).
-/// Same byte value as [`TAG_REJECTED_SLICES_W_MAPPING`] but different context
-/// (outer envelope tag vs inner comprehension-TLV).
-const TAG_TIMER_EXPIRATION: u8 = 0xD7;
+/// BER-TLV outer envelope tag for Menu Selection (0xD3, [ETSI TS 102 223 V18.2.0 clause 7.1](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A294%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C516%5D)).
+const ENVELOPE_TAG_MENU_SELECTION: u8 = 0xD3;
+/// BER-TLV outer envelope tag for Event Download (0xD6, [ETSI TS 102 223 V18.2.0 clause 7.5](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D)).
+/// Same byte value as comprehension-TLV [`TAG_SLICES_INFORMATION`].
+const ENVELOPE_TAG_EVENT_DOWNLOAD: u8 = 0xD6;
+/// BER-TLV outer envelope tag for Timer Expiration (0xD7, [ETSI TS 102 223 V18.2.0 clause 7.5.7](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C503%5D)).
+/// Same byte value as comprehension-TLV [`TAG_REJECTED_SLICES_W_MAPPING`].
+const ENVELOPE_TAG_TIMER_EXPIRATION: u8 = 0xD7;
+
+#[deprecated(note = "use ENVELOPE_TAG_MENU_SELECTION -- 0xD3 is an outer envelope tag, not a comprehension-TLV")]
+#[allow(dead_code)]
+const TAG_MENU_SELECTION: u8 = ENVELOPE_TAG_MENU_SELECTION;
+#[deprecated(note = "use ENVELOPE_TAG_EVENT_DOWNLOAD -- 0xD6 is shared with comprehension-TLV TAG_SLICES_INFORMATION")]
+#[allow(dead_code)]
+const TAG_EVENT_DOWNLOAD: u8 = ENVELOPE_TAG_EVENT_DOWNLOAD;
+#[deprecated(note = "use ENVELOPE_TAG_TIMER_EXPIRATION -- 0xD7 is shared with comprehension-TLV TAG_REJECTED_SLICES_W_MAPPING")]
+#[allow(dead_code)]
+const TAG_TIMER_EXPIRATION: u8 = ENVELOPE_TAG_TIMER_EXPIRATION;
 /// Item Identifier tag ([ETSI TS 102 223 V18.2.0 clause 8.10](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A407%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
 const TAG_ITEM_ID: u8 = 0x90;
 
@@ -1057,7 +1071,7 @@ fn encode_inner(
     };
 
     // Outer envelope: D0 [inner_len] [inner...]
-    enc.tag_length_value_split(TAG_PROACTIVE_CMD, inner_len, |enc_inner| {
+    enc.tag_length_value_split(ENVELOPE_TAG_PROACTIVE_CMD, inner_len, |enc_inner| {
         encode_common(enc_inner, cmd, cmd_number)?;
         encode_payload(enc_inner, cmd)
     })
@@ -1811,27 +1825,27 @@ impl ProactiveState {
             return false;
         };
 
-        if tlv.tag == TAG_MENU_SELECTION {
+        if tlv.tag == ENVELOPE_TAG_MENU_SELECTION {
             // Parse inner TLVs to find Item Identifier (tag 0x90).
             let mut inner = Decoder::new(tlv.value);
             while let Some(Ok(inner_tlv)) = inner.next() {
                 if inner_tlv.tag == TAG_ITEM_ID && !inner_tlv.value.is_empty() {
-                    self.event_tag = TAG_MENU_SELECTION;
+                    self.event_tag = ENVELOPE_TAG_MENU_SELECTION;
                     self.event_item_id = inner_tlv.value[0];
                     return true;
                 }
             }
             // Menu Selection without Item Identifier -- still recognized.
-            self.event_tag = TAG_MENU_SELECTION;
+            self.event_tag = ENVELOPE_TAG_MENU_SELECTION;
             self.event_item_id = 0;
             return true;
         }
 
-        if tlv.tag == TAG_EVENT_DOWNLOAD {
+        if tlv.tag == ENVELOPE_TAG_EVENT_DOWNLOAD {
             return self.process_event_download(tlv.value);
         }
 
-        if tlv.tag == TAG_TIMER_EXPIRATION {
+        if tlv.tag == ENVELOPE_TAG_TIMER_EXPIRATION {
             return self.process_timer_expiration(tlv.value);
         }
 
@@ -1863,7 +1877,7 @@ impl ProactiveState {
             return false;
         }
 
-        self.event_tag = TAG_EVENT_DOWNLOAD;
+        self.event_tag = ENVELOPE_TAG_EVENT_DOWNLOAD;
         self.event_type = evt_type;
         true
     }
@@ -1899,7 +1913,7 @@ impl ProactiveState {
             return false;
         }
 
-        self.event_tag = TAG_TIMER_EXPIRATION;
+        self.event_tag = ENVELOPE_TAG_TIMER_EXPIRATION;
         self.event_timer_id = tmr_id;
         self.event_timer_value = tmr_val;
         true
@@ -1907,17 +1921,17 @@ impl ProactiveState {
 
     /// Retrieve the last envelope event, clearing it.
     pub const fn take_event(&mut self) -> Option<EnvelopeEvent> {
-        if self.event_tag == TAG_MENU_SELECTION {
+        if self.event_tag == ENVELOPE_TAG_MENU_SELECTION {
             let item_id = self.event_item_id;
             self.event_tag = 0;
             self.event_item_id = 0;
             Some(EnvelopeEvent::MenuSelection { item_id })
-        } else if self.event_tag == TAG_EVENT_DOWNLOAD {
+        } else if self.event_tag == ENVELOPE_TAG_EVENT_DOWNLOAD {
             let event_type = self.event_type;
             self.event_tag = 0;
             self.event_type = 0;
             Some(EnvelopeEvent::EventDownload { event_type })
-        } else if self.event_tag == TAG_TIMER_EXPIRATION {
+        } else if self.event_tag == ENVELOPE_TAG_TIMER_EXPIRATION {
             let timer_id = self.event_timer_id;
             let timer_value = self.event_timer_value;
             self.event_tag = 0;
@@ -3531,7 +3545,7 @@ mod tests {
         // Inner: Item Identifier TLV: tag 0x90, length 1, value = item_id
         let inner = [TAG_ITEM_ID, 0x01, item_id];
         // Outer: Menu Selection envelope: tag D3, length = inner.len()
-        enc.tag_length_value(TAG_MENU_SELECTION, &inner).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_MENU_SELECTION, &inner).unwrap();
         let len = enc.len();
         (buf, len)
     }
@@ -3588,7 +3602,7 @@ mod tests {
             TAG_EVENT_LIST, 0x01, event_type,
             TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC,
         ];
-        enc.tag_length_value(TAG_EVENT_DOWNLOAD, &inner).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner).unwrap();
         let len = enc.len();
         (buf, len)
     }
@@ -3605,7 +3619,7 @@ mod tests {
             TAG_TIMER_ID, 0x01, timer_id,
             TAG_TIMER_VALUE, 0x03, timer_value[0], timer_value[1], timer_value[2],
         ];
-        enc.tag_length_value(TAG_TIMER_EXPIRATION, &inner).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner).unwrap();
         let len = enc.len();
         (buf, len)
     }
@@ -3659,7 +3673,7 @@ mod tests {
         let mut state = ProactiveState::new();
         state.subscribe_events(&[0x03]);
         // D6 envelope with no Event List TLV inside.
-        let data = [TAG_EVENT_DOWNLOAD, 0x04, TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC];
+        let data = [ENVELOPE_TAG_EVENT_DOWNLOAD, 0x04, TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC];
         assert!(!state.process_envelope(&data));
     }
 
@@ -3667,7 +3681,7 @@ mod tests {
     fn timer_expiration_malformed_no_timer_id() {
         let mut state = ProactiveState::new();
         // D7 envelope with no Timer Identifier TLV inside.
-        let data = [TAG_TIMER_EXPIRATION, 0x04, TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC];
+        let data = [ENVELOPE_TAG_TIMER_EXPIRATION, 0x04, TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC];
         assert!(!state.process_envelope(&data));
         assert_eq!(state.take_event(), None);
     }
