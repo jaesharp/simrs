@@ -173,6 +173,49 @@ const TAG_TRANSPORT_LEVEL: u8 = 0xBC;
 /// Other Address ([ETSI TS 102 223 V18.2.0 clause 8.58](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A466%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C674%5D)).
 const TAG_OTHER_ADDRESS: u8 = 0xBE;
 
+// -- LSI / Network Slicing tags ([3GPP TS 31.111 V19.3.0 section 9.3](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A827%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)) --
+//
+// Per Release 10+ comprehension-TLV rules, tag bytes are context-specific:
+// the same byte value means different things in different command contexts.
+// Tag values below are CR form (bit 8 set) from the section 9.3 assignment
+// table.  Group primaries noted in comments.
+
+/// LSI Numbers ([ETSI TS 102 223 V18.2.0 clause 8.108](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A534%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// CR tag 0x92 (group '12', shared with File List).
+pub const TAG_LSI_NUMBERS: u8 = 0x92;
+
+/// Slices information -- served S-NSSAI list ([3GPP TS 31.111 V19.3.0 clause 8.145](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A809%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// CR tag 0xD6 (group '56', shared with CSG ID).
+pub const TAG_SLICES_INFORMATION: u8 = 0xD6;
+
+/// Slices status bitmap ([3GPP TS 31.111 V19.3.0 clause 8.150](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A813%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// CR tag 0xD5 (group '55', shared with CSG cell selection status).
+pub const TAG_SLICES_STATUS: u8 = 0xD5;
+
+/// Rejected slices information with S-NSSAI mapping ([3GPP TS 31.111 V19.3.0 clause 8.151](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A815%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// CR tag 0xD7 (group '57', shared with HNB name).
+pub const TAG_REJECTED_SLICES_W_MAPPING: u8 = 0xD7;
+
+/// Allowed Slices Information with S-NSSAI mapping ([3GPP TS 31.111 V19.3.0 clause 8.152](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A817%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// CR tag 0xF7 (group '77', shared with GAD shapes).
+pub const TAG_ALLOWED_SLICES_W_MAPPING: u8 = 0xF7;
+
+/// Rejected slices information ([3GPP TS 31.111 V19.3.0 clause 8.153](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A817%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// CR tag 0xB1 (group '31', shared with IMS URI).
+pub const TAG_REJECTED_SLICES_INFO: u8 = 0xB1;
+
+/// Partial NSSAI ([3GPP TS 31.111 V19.3.0 clause 8.154](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A819%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// CR tag 0xF9 (group '79', shared with PLMN List).
+pub const TAG_PARTIAL_NSSAI: u8 = 0xF9;
+
+/// Allowed Slices Information ([3GPP TS 31.111 V19.3.0 clause 8.156](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A821%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// CR tag 0xF8 (group '78', shared with NMEA sentence).
+pub const TAG_ALLOWED_SLICES_INFO: u8 = 0xF8;
+
+/// DNN List ([3GPP TS 31.111 V19.3.0 clause 8.159](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A823%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// CR tag 0xFC (group '7C', shared with EPS PDN connection activation).
+pub const TAG_DNN_LIST: u8 = 0xFC;
+
 // -- Command type values (ETSI TS 102 223 V18.2.0 clause 9.4) --
 
 /// SEND SHORT MESSAGE (type `0x13`).
@@ -761,8 +804,17 @@ pub enum ProactiveCommand<'a> {
     EncapsulatedSessionControl,
 
     /// LSI COMMAND (type `0x79`): Locally Supplied Information.
-    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.44](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C292%5D).
-    LsiCommand,
+    /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.45](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
+    ///
+    /// Qualifier byte per ETSI TS 102 223 clause 6.4.45:
+    /// - `0x00`: Proactive Session Request (bit b8 = 0)
+    /// - `0x80`: UICC Platform Reset (bit b8 = 1)
+    LsiCommand {
+        /// Command qualifier (0x00 = session request, 0x80 = platform reset).
+        qualifier: u8,
+        /// LSI numbers payload (empty = no LSI TLV emitted).
+        lsi_numbers: &'a [u8],
+    },
 
     /// END OF PROACTIVE UICC SESSION (type `0x81`): session termination.
     /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.14](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A230%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C357%5D).
@@ -1027,9 +1079,17 @@ fn encode_payload(
         | ProactiveCommand::ContactlessStateChanged
         | ProactiveCommand::CommandContainer
         | ProactiveCommand::EncapsulatedSessionControl
-        | ProactiveCommand::LsiCommand
         | ProactiveCommand::EndOfProactiveUiccSession => {
             // Header-only commands: no payload TLVs.
+        }
+
+        ProactiveCommand::LsiCommand { qualifier, lsi_numbers } => {
+            // For session request (qualifier bit 8 = 0), emit LSI numbers TLV
+            // if non-empty.  Platform reset (0x80) has no payload.
+            if *qualifier & 0x80 == 0 && !lsi_numbers.is_empty() {
+                enc.tag_length_value(TAG_LSI_NUMBERS, lsi_numbers)
+                    .map_err(|_| ProactiveError::BufferTooSmall)?;
+            }
         }
 
         ProactiveCommand::PollInterval { unit, interval } => {
@@ -1189,7 +1249,7 @@ impl ProactiveCommand<'_> {
             Self::ContactlessStateChanged => (CMD_TYPE_CONTACTLESS_STATE_CHANGED, 0x00, DEV_TERMINAL),
             Self::CommandContainer => (CMD_TYPE_COMMAND_CONTAINER, 0x00, DEV_TERMINAL),
             Self::EncapsulatedSessionControl => (CMD_TYPE_ENCAP_SESSION_CTRL, 0x00, DEV_TERMINAL),
-            Self::LsiCommand => (CMD_TYPE_LSI_COMMAND, 0x00, DEV_TERMINAL),
+            Self::LsiCommand { qualifier, .. } => (CMD_TYPE_LSI_COMMAND, *qualifier, DEV_TERMINAL),
             Self::EndOfProactiveUiccSession => (CMD_TYPE_END_PROACTIVE_SESSION, 0x00, DEV_TERMINAL),
         }
     }
@@ -3229,7 +3289,7 @@ mod tests {
             ProactiveCommand::ContactlessStateChanged,
             ProactiveCommand::CommandContainer,
             ProactiveCommand::EncapsulatedSessionControl,
-            ProactiveCommand::LsiCommand,
+            ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &[] },
             ProactiveCommand::EndOfProactiveUiccSession,
         ];
         for cmd in commands {
@@ -4514,7 +4574,7 @@ mod tests {
 
     #[test]
     fn lsi_command_encoding() {
-        let cmd = ProactiveCommand::LsiCommand;
+        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &[] };
         let mut buf = [0u8; 256];
         let n = encode(&cmd, 1, &mut buf).unwrap();
         assert_eq!(buf[0], 0xD0);
@@ -4522,9 +4582,13 @@ mod tests {
         let details = dec.next().unwrap().unwrap();
         assert_eq!(details.tag, 0x81);
         assert_eq!(details.value[1], CMD_TYPE_LSI_COMMAND);
+        // Qualifier byte for session request is 0x00.
+        assert_eq!(details.value[2], 0x00);
         let devid = dec.next().unwrap().unwrap();
         assert_eq!(devid.tag, 0x82);
         assert_eq!(devid.value, &[DEV_UICC, DEV_TERMINAL]);
+        // No LSI TLV when lsi_numbers is empty.
+        assert!(dec.next().is_none());
     }
 
     #[test]
@@ -4708,7 +4772,7 @@ mod tests {
             ProactiveCommand::ContactlessStateChanged,
             ProactiveCommand::CommandContainer,
             ProactiveCommand::EncapsulatedSessionControl,
-            ProactiveCommand::LsiCommand,
+            ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &[] },
             ProactiveCommand::EndOfProactiveUiccSession,
         ];
         for cmd in commands {
@@ -4725,6 +4789,131 @@ mod tests {
         let e = ProactiveError::BufferTooSmall;
         let s = alloc::format!("{e}");
         assert!(!s.is_empty(), "Display for ProactiveError must produce non-empty string");
+    }
+
+    // -- LSI COMMAND + Network Slicing tests --
+
+    #[test]
+    fn lsi_session_request_with_lsi_numbers() {
+        let lsi = [0x01, 0x02, 0x03];
+        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &lsi };
+        let mut buf = [0u8; 256];
+        let n = encode(&cmd, 1, &mut buf).unwrap();
+        let mut dec = Decoder::new(&buf[2..n]);
+        let details = dec.next().unwrap().unwrap();
+        assert_eq!(details.value[1], CMD_TYPE_LSI_COMMAND);
+        assert_eq!(details.value[2], 0x00); // qualifier
+        let _devid = dec.next().unwrap().unwrap();
+        // LSI Numbers TLV must be present (tag 0x92).
+        let lsi_tlv = dec.next().unwrap().unwrap();
+        assert_eq!(lsi_tlv.tag, TAG_LSI_NUMBERS);
+        assert_eq!(lsi_tlv.value, &[0x01, 0x02, 0x03]);
+    }
+
+    #[test]
+    fn lsi_platform_reset_ignores_lsi_numbers() {
+        let lsi = [0x01];
+        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x80, lsi_numbers: &lsi };
+        let mut buf = [0u8; 256];
+        let n = encode(&cmd, 1, &mut buf).unwrap();
+        let mut dec = Decoder::new(&buf[2..n]);
+        let details = dec.next().unwrap().unwrap();
+        assert_eq!(details.value[1], CMD_TYPE_LSI_COMMAND);
+        assert_eq!(details.value[2], 0x80); // qualifier = platform reset
+        let _devid = dec.next().unwrap().unwrap();
+        // No LSI TLV for platform reset.
+        assert!(dec.next().is_none());
+    }
+
+    #[test]
+    fn lsi_session_request_no_lsi_no_tlv() {
+        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &[] };
+        let mut buf = [0u8; 256];
+        let n = encode(&cmd, 1, &mut buf).unwrap();
+        let mut dec = Decoder::new(&buf[2..n]);
+        let _details = dec.next().unwrap().unwrap();
+        let _devid = dec.next().unwrap().unwrap();
+        // Empty lsi_numbers -> no TLV.
+        assert!(dec.next().is_none());
+    }
+
+    #[test]
+    fn lsi_dryrun_matches_encode() {
+        let lsi = [0xAA, 0xBB];
+        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &lsi };
+        let dry = encoded_len(&cmd, 1);
+        let mut buf = [0u8; 256];
+        let real = encode(&cmd, 1, &mut buf).unwrap();
+        assert_eq!(dry, real, "dry-run must match real encoding for LSI with payload");
+    }
+
+    #[test]
+    fn network_slicing_tag_constants() {
+        // Verify tag constants match TS 31.111 V19.3.0 section 9.3 CR tag values.
+        assert_eq!(TAG_LSI_NUMBERS, 0x92);          // group '12'
+        assert_eq!(TAG_SLICES_INFORMATION, 0xD6);    // group '56'
+        assert_eq!(TAG_SLICES_STATUS, 0xD5);         // group '55'
+        assert_eq!(TAG_REJECTED_SLICES_W_MAPPING, 0xD7); // group '57'
+        assert_eq!(TAG_ALLOWED_SLICES_W_MAPPING, 0xF7);  // group '77'
+        assert_eq!(TAG_REJECTED_SLICES_INFO, 0xB1);      // group '31'
+        assert_eq!(TAG_PARTIAL_NSSAI, 0xF9);              // group '79'
+        assert_eq!(TAG_ALLOWED_SLICES_INFO, 0xF8);        // group '78'
+        assert_eq!(TAG_DNN_LIST, 0xFC);                   // group '7C'
+    }
+
+    #[test]
+    fn network_slicing_tlv_roundtrip() {
+        // Encode all network slicing TLVs into a buffer and decode them
+        // to verify correct tag + value roundtrip.  Each tag is unique
+        // so decoding must recover the exact sequence.
+        let mut buf = [0u8; 128];
+        let mut enc = Encoder::new(&mut buf);
+
+        enc.tag_length_value(TAG_SLICES_STATUS, &[0x03]).unwrap();
+        enc.tag_length_value(TAG_SLICES_INFORMATION, &[0x01, 0x02, 0x03, 0x04]).unwrap();
+        enc.tag_length_value(TAG_REJECTED_SLICES_W_MAPPING, &[0x05, 0x06]).unwrap();
+        enc.tag_length_value(TAG_ALLOWED_SLICES_W_MAPPING, &[0x0A]).unwrap();
+        enc.tag_length_value(TAG_REJECTED_SLICES_INFO, &[0x0B, 0x0C]).unwrap();
+        enc.tag_length_value(TAG_PARTIAL_NSSAI, &[0x0D]).unwrap();
+        enc.tag_length_value(TAG_ALLOWED_SLICES_INFO, &[0x0E, 0x0F]).unwrap();
+        enc.tag_length_value(TAG_DNN_LIST, &[0x10, 0x11, 0x12]).unwrap();
+
+        let len = enc.len();
+        let mut dec = Decoder::new(&buf[..len]);
+
+        let t1 = dec.next().unwrap().unwrap();
+        assert_eq!(t1.tag, 0xD5);
+        assert_eq!(t1.value, &[0x03]);
+
+        let t2 = dec.next().unwrap().unwrap();
+        assert_eq!(t2.tag, 0xD6);
+        assert_eq!(t2.value, &[0x01, 0x02, 0x03, 0x04]);
+
+        let t3 = dec.next().unwrap().unwrap();
+        assert_eq!(t3.tag, 0xD7);
+        assert_eq!(t3.value, &[0x05, 0x06]);
+
+        let t4 = dec.next().unwrap().unwrap();
+        assert_eq!(t4.tag, 0xF7);
+        assert_eq!(t4.value, &[0x0A]);
+
+        let t5 = dec.next().unwrap().unwrap();
+        assert_eq!(t5.tag, 0xB1);
+        assert_eq!(t5.value, &[0x0B, 0x0C]);
+
+        let t6 = dec.next().unwrap().unwrap();
+        assert_eq!(t6.tag, 0xF9);
+        assert_eq!(t6.value, &[0x0D]);
+
+        let t7 = dec.next().unwrap().unwrap();
+        assert_eq!(t7.tag, 0xF8);
+        assert_eq!(t7.value, &[0x0E, 0x0F]);
+
+        let t8 = dec.next().unwrap().unwrap();
+        assert_eq!(t8.tag, 0xFC);
+        assert_eq!(t8.value, &[0x10, 0x11, 0x12]);
+
+        assert!(dec.next().is_none());
     }
 }
 
