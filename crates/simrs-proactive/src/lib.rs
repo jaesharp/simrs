@@ -3540,12 +3540,14 @@ mod tests {
 
     /// Build a BER-TLV envelope: outer tag D3 containing item ID (tag 0x90).
     fn build_menu_selection_envelope(item_id: u8) -> ([u8; 32], usize) {
+        let mut inner = [0u8; 8];
+        let mut ie = Encoder::new(&mut inner);
+        ie.tag_length_value(TAG_ITEM_ID, &[item_id]).unwrap();
+        let ilen = ie.len();
+
         let mut buf = [0u8; 32];
         let mut enc = Encoder::new(&mut buf);
-        // Inner: Item Identifier TLV: tag 0x90, length 1, value = item_id
-        let inner = [TAG_ITEM_ID, 0x01, item_id];
-        // Outer: Menu Selection envelope: tag D3, length = inner.len()
-        enc.tag_length_value(ENVELOPE_TAG_MENU_SELECTION, &inner).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_MENU_SELECTION, &inner[..ilen]).unwrap();
         let len = enc.len();
         (buf, len)
     }
@@ -3565,9 +3567,12 @@ mod tests {
     #[test]
     fn envelope_unknown_tag() {
         let mut state = ProactiveState::new();
-        // Construct a TLV with tag 0xE0 (not D3).
-        let data = [0xE0, 0x01, 0x00];
-        assert!(!state.process_envelope(&data));
+        // Construct a TLV with unrecognized outer tag 0xE0.
+        let mut buf = [0u8; 8];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag_length_value(0xE0, &[0x00]).unwrap();
+        let len = enc.len();
+        assert!(!state.process_envelope(&buf[..len]));
         assert_eq!(state.take_event(), None);
     }
 
@@ -3594,15 +3599,15 @@ mod tests {
 
     /// Build a BER-TLV Event Download envelope (outer tag D6).
     fn build_event_download_envelope(event_type: u8) -> ([u8; 32], usize) {
+        let mut inner = [0u8; 16];
+        let mut ie = Encoder::new(&mut inner);
+        ie.tag_length_value(TAG_EVENT_LIST, &[event_type]).unwrap();
+        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC]).unwrap();
+        let ilen = ie.len();
+
         let mut buf = [0u8; 32];
         let mut enc = Encoder::new(&mut buf);
-        // Inner: Event List TLV (tag 0x99, length 1, event_type)
-        //      + Device Identities TLV (tag 0x82, length 2, terminal->UICC)
-        let inner = [
-            TAG_EVENT_LIST, 0x01, event_type,
-            TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC,
-        ];
-        enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner[..ilen]).unwrap();
         let len = enc.len();
         (buf, len)
     }
@@ -3612,14 +3617,16 @@ mod tests {
         timer_id: u8,
         timer_value: [u8; 3],
     ) -> ([u8; 32], usize) {
+        let mut inner = [0u8; 16];
+        let mut ie = Encoder::new(&mut inner);
+        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC]).unwrap();
+        ie.tag_length_value(TAG_TIMER_ID, &[timer_id]).unwrap();
+        ie.tag_length_value(TAG_TIMER_VALUE, &timer_value).unwrap();
+        let ilen = ie.len();
+
         let mut buf = [0u8; 32];
         let mut enc = Encoder::new(&mut buf);
-        let inner = [
-            TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC,
-            TAG_TIMER_ID, 0x01, timer_id,
-            TAG_TIMER_VALUE, 0x03, timer_value[0], timer_value[1], timer_value[2],
-        ];
-        enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner[..ilen]).unwrap();
         let len = enc.len();
         (buf, len)
     }
@@ -3672,17 +3679,31 @@ mod tests {
     fn event_download_malformed_no_event_list() {
         let mut state = ProactiveState::new();
         state.subscribe_events(&[0x03]);
-        // D6 envelope with no Event List TLV inside.
-        let data = [ENVELOPE_TAG_EVENT_DOWNLOAD, 0x04, TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC];
-        assert!(!state.process_envelope(&data));
+        // D6 envelope with only Device Identities, no Event List TLV.
+        let mut inner = [0u8; 8];
+        let mut ie = Encoder::new(&mut inner);
+        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC]).unwrap();
+        let ilen = ie.len();
+        let mut buf = [0u8; 16];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner[..ilen]).unwrap();
+        let len = enc.len();
+        assert!(!state.process_envelope(&buf[..len]));
     }
 
     #[test]
     fn timer_expiration_malformed_no_timer_id() {
         let mut state = ProactiveState::new();
-        // D7 envelope with no Timer Identifier TLV inside.
-        let data = [ENVELOPE_TAG_TIMER_EXPIRATION, 0x04, TAG_DEVICE_ID, 0x02, DEV_TERMINAL, DEV_UICC];
-        assert!(!state.process_envelope(&data));
+        // D7 envelope with only Device Identities, no Timer Identifier TLV.
+        let mut inner = [0u8; 8];
+        let mut ie = Encoder::new(&mut inner);
+        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC]).unwrap();
+        let ilen = ie.len();
+        let mut buf = [0u8; 16];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner[..ilen]).unwrap();
+        let len = enc.len();
+        assert!(!state.process_envelope(&buf[..len]));
         assert_eq!(state.take_event(), None);
     }
 
