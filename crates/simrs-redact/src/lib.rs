@@ -1,20 +1,44 @@
 //! Feature-gated Debug/Display redaction for secret byte arrays.
 //!
 //! `Redact` wraps a reference to a value and controls its `Debug` and
-//! `Display` output via feature flags:
+//! `Display` output via compile-time feature flags. Three profiles cover
+//! the full lifecycle:
 //!
-//! | Feature                        | Debug / Display output            |
-//! |--------------------------------|-----------------------------------|
-//! | `redact-secrets-in-logs` (default) | `[REDACTED]`                  |
-//! | `fingerprint-secrets-in-logs`  | `[masked:a7b3c2d1]` (salted FNV) |
-//! | Neither                        | Pass-through to inner type        |
+//! | Profile       | Feature                            | Output                      | Rationale                                        |
+//! |---------------|------------------------------------|-----------------------------|--------------------------------------------------|
+//! | **Production**  | `redact-secrets-in-logs` (default) | `[REDACTED]`                | Zero information leakage in production logs.     |
+//! | **Development** | `fingerprint-secrets-in-logs`      | `[masked:a7b3c2d1]`        | Log correlation without exposing key material -- engineers sometimes reuse production credentials. |
+//! | **Testing**     | Neither                            | Pass-through to inner type  | Test values carry no secrecy requirement.         |
 //!
 //! When both features are enabled, `fingerprint-secrets-in-logs` takes
 //! priority (the fingerprint is strictly more useful than a static string).
 //!
-//! The fingerprint is a salted FNV-1a hash truncated to 32 bits. It is
-//! deterministic (same input produces the same fingerprint within a build)
-//! but non-reversible for cryptographic key lengths (>= 128 bits).
+//! # Usage
+//!
+//! ```text
+//! # Production (default -- safe by default, nothing to remember):
+//! cargo build
+//!
+//! # Development (masked fingerprints for log correlation):
+//! cargo build --features fingerprint-secrets-in-logs
+//!
+//! # Testing (raw values visible -- test vectors only):
+//! cargo test -p simrs-milenage --no-default-features
+//! ```
+//!
+//! # Fingerprint
+//!
+//! The development-mode fingerprint is a salted FNV-1a hash truncated to
+//! 32 bits. It is deterministic (same input produces the same fingerprint
+//! within a build) but non-reversible for cryptographic key lengths
+//! (>= 128 bits).
+//!
+//! # Integration
+//!
+//! [`Secret<T>`](https://docs.rs/simrs-secret) delegates its `Debug` and
+//! `Display` impls to `Redact`, so all secret-wrapped values automatically
+//! follow the active redaction profile. Raw byte-array fields (e.g. OPc,
+//! TOPc) that aren't wrapped in `Secret` can use `Redact` directly.
 //!
 //! # `no_std`, `no_alloc`
 //! This crate uses no heap. All operations are performed on stack values.
@@ -31,9 +55,9 @@
 ///
 /// let key = [0xABu8; 16];
 /// let dbg = format!("{:?}", Redact(&key));
-/// // With default features: "[REDACTED]"
-/// // With fingerprint-secrets-in-logs: "[masked:...]"
-/// // With no features: raw byte array
+/// // Production (default):  "[REDACTED]"
+/// // Development:           "[masked:a7b3c2d1]"
+/// // Testing (no features): raw byte array
 /// ```
 pub struct Redact<'a, T: AsBytes + core::fmt::Debug + ?Sized>(pub &'a T);
 
@@ -76,10 +100,10 @@ const fn fingerprint(data: &[u8]) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// Debug impl -- three-way cfg
+// Debug impl -- production / development / testing
 // ---------------------------------------------------------------------------
 
-// Fingerprint mode takes priority when both features are enabled.
+// Development: fingerprint mode takes priority when both features are enabled.
 #[cfg(feature = "fingerprint-secrets-in-logs")]
 impl<T: AsBytes + core::fmt::Debug + ?Sized> core::fmt::Debug for Redact<'_, T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -88,7 +112,7 @@ impl<T: AsBytes + core::fmt::Debug + ?Sized> core::fmt::Debug for Redact<'_, T> 
     }
 }
 
-// Plain redaction when fingerprint feature is not enabled.
+// Production: full redaction (default).
 #[cfg(all(
     feature = "redact-secrets-in-logs",
     not(feature = "fingerprint-secrets-in-logs")
@@ -99,7 +123,7 @@ impl<T: AsBytes + core::fmt::Debug + ?Sized> core::fmt::Debug for Redact<'_, T> 
     }
 }
 
-// Raw pass-through when no redaction features are enabled.
+// Testing: raw pass-through (test vectors carry no secrecy).
 #[cfg(not(any(
     feature = "redact-secrets-in-logs",
     feature = "fingerprint-secrets-in-logs"
@@ -111,7 +135,7 @@ impl<T: AsBytes + core::fmt::Debug + ?Sized> core::fmt::Debug for Redact<'_, T> 
 }
 
 // ---------------------------------------------------------------------------
-// Display impl -- mirrors Debug behaviour
+// Display impl -- same production / development / testing behaviour
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "fingerprint-secrets-in-logs")]
