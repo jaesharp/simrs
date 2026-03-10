@@ -55,6 +55,7 @@ extern crate std;
 
 use simrs_keccak::keccak_f1600_bytes;
 use simrs_milenage::{AuthenticationAlgorithm, CipherKey, IntegrityKey, SubscriberKey};
+use simrs_redact::Redact;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -173,8 +174,8 @@ pub enum OperatorVariant {
 impl core::fmt::Debug for OperatorVariant {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::TopC(_) => f.write_str("OperatorVariant::TopC([REDACTED])"),
-            Self::Top(_) => f.write_str("OperatorVariant::Top([REDACTED])"),
+            Self::TopC(v) => f.debug_tuple("OperatorVariant::TopC").field(&Redact(v)).finish(),
+            Self::Top(v) => f.debug_tuple("OperatorVariant::Top").field(&Redact(v)).finish(),
         }
     }
 }
@@ -219,8 +220,8 @@ pub struct TuakParams {
 impl core::fmt::Debug for TuakParams {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TuakParams")
-            .field("key", &"[REDACTED]")
-            .field("top_c", &"[REDACTED]")
+            .field("key", &self.key)
+            .field("top_c", &Redact(&self.top_c))
             .field("expected_sequence_number", &self.expected_sequence_number)
             .finish()
     }

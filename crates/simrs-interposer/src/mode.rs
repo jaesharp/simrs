@@ -1,6 +1,7 @@
 //! Interposer mode, configuration, and hex-parsing utilities.
 
 use simrs_pcap::LinkType;
+use simrs_redact::Redact;
 
 /// Operating mode for the APDU interposer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,7 +17,6 @@ pub enum InterposerMode {
 }
 
 /// Authentication credentials for the shadow/replace SIM.
-#[derive(Debug)]
 pub struct AuthConfig {
     /// GSM Ki (128 bits).
     pub ki: [u8; 16],
@@ -24,6 +24,16 @@ pub struct AuthConfig {
     pub k: [u8; 16],
     /// UMTS `OPc` (128 bits).
     pub opc: [u8; 16],
+}
+
+impl core::fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("ki", &Redact(&self.ki))
+            .field("k", &Redact(&self.k))
+            .field("opc", &Redact(&self.opc))
+            .finish()
+    }
 }
 
 /// Full configuration for the interposer proxy.

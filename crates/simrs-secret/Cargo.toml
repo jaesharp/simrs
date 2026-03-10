@@ -6,8 +6,7 @@ license.workspace = true
 description = "Secret<T> and CtOption<T> -- zero-cost compile-time CT boundary enforcement -- no_std, no_alloc"
 
 [features]
-default = []
-std     = []
+std = []
 
 [dependencies]
 simrs-consttime = { workspace = true }

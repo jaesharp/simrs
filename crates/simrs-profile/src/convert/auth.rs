@@ -2,9 +2,10 @@
 
 use crate::error::ProfileError;
 use crate::pe::aka::{AlgoConfig, PeAkaParameter};
+use simrs_redact::Redact;
 
 /// Extracted authentication configuration.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum AuthConfig {
     /// Milenage ([3GPP TS 35.206 V19.0.0](../../../../docs/specs/3gpp/ts-35.206/ts_135206v190000p.pdf)) authentication.
     Milenage {
@@ -22,6 +23,22 @@ pub enum AuthConfig {
     },
     /// No authentication parameters present.
     None,
+}
+
+impl core::fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Milenage { k, opc } => f.debug_struct("AuthConfig::Milenage")
+                .field("k", &Redact(k))
+                .field("opc", &Redact(opc))
+                .finish(),
+            Self::Tuak { k, topc } => f.debug_struct("AuthConfig::Tuak")
+                .field("k", &Redact(k))
+                .field("topc", &Redact(topc))
+                .finish(),
+            Self::None => f.write_str("AuthConfig::None"),
+        }
+    }
 }
 
 /// Extract authentication configuration from a PE-AKAParameter.

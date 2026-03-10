@@ -9,7 +9,12 @@ description = "APDU interposer/proxy/shadow SIM with PCAP capture"
 name = "simrs-interposer"
 path = "src/main.rs"
 
+[features]
+default = ["redact-secrets-in-logs"]
+redact-secrets-in-logs = ["simrs-redact/redact-secrets-in-logs"]
+
 [dependencies]
+simrs-redact        = { workspace = true }
 simrs-pcap          = { workspace = true }
 simrs-transport     = { workspace = true }
 simrs-transport-tcp = { workspace = true }

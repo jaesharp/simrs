@@ -1,0 +1,14 @@
+[package]
+name        = "simrs-redact"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Feature-gated Debug/Display redaction for secret byte arrays -- no_std, no_alloc"
+
+[features]
+default = ["redact-secrets-in-logs"]
+redact-secrets-in-logs = []
+fingerprint-secrets-in-logs = []
+
+[lints]
+workspace = true

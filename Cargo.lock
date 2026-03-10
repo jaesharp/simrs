@@ -1537,6 +1537,7 @@ dependencies = [
  "simrs-gsm",
  "simrs-milenage",
  "simrs-pcap",
+ "simrs-redact",
  "simrs-sim",
  "simrs-transport",
  "simrs-transport-tcp",
@@ -1574,6 +1575,7 @@ dependencies = [
  "proptest",
  "simrs-consttime",
  "simrs-consttime-validation",
+ "simrs-redact",
  "simrs-rijndael",
  "simrs-secret",
 ]
@@ -1633,6 +1635,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-fs",
+ "simrs-redact",
 ]
 
 [[package]]
@@ -1650,6 +1653,10 @@ dependencies = [
  "simrs-transport-shmem",
  "simrs-usim",
 ]
+
+[[package]]
+name = "simrs-redact"
+version = "0.1.0"
 
 [[package]]
 name = "simrs-ref"
@@ -1758,6 +1765,7 @@ dependencies = [
  "simrs-consttime-validation",
  "simrs-keccak",
  "simrs-milenage",
+ "simrs-redact",
 ]
 
 [[package]]

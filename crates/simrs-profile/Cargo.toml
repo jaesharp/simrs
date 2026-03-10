@@ -5,8 +5,13 @@ edition.workspace = true
 license.workspace = true
 description = "TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem)"
 
+[features]
+default = ["redact-secrets-in-logs"]
+redact-secrets-in-logs = ["simrs-redact/redact-secrets-in-logs"]
+
 [dependencies]
 simrs-fs       = { workspace = true }
+simrs-redact   = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

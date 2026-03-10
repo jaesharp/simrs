@@ -2,6 +2,7 @@
 
 use crate::der_util;
 use crate::error::ProfileError;
+use simrs_redact::Redact;
 
 /// PE-AKAParameter: authentication algorithm configuration (tag 4).
 #[derive(Clone, Debug)]
@@ -17,7 +18,7 @@ pub struct PeAkaParameter {
 }
 
 /// Algorithm configuration from PE-AKAParameter.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum AlgoConfig {
     /// Direct algorithm parameters.
     Algo {
@@ -35,6 +36,22 @@ pub enum AlgoConfig {
         /// Source application AID.
         source_aid: Vec<u8>,
     },
+}
+
+impl core::fmt::Debug for AlgoConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Algo { algorithm_id, key, opc } => f.debug_struct("AlgoConfig::Algo")
+                .field("algorithm_id", algorithm_id)
+                .field("key", &Redact(key.as_slice()))
+                .field("opc", &Redact(opc.as_slice()))
+                .finish(),
+            Self::Mapping { options, source_aid } => f.debug_struct("AlgoConfig::Mapping")
+                .field("options", options)
+                .field("source_aid", source_aid)
+                .finish(),
+        }
+    }
 }
 
 impl PeAkaParameter {

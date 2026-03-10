@@ -33,6 +33,7 @@ members = [
     "crates/simrs-pcap",
     "crates/simrs-interposer",
     "crates/simrs-auth-cli",
+    "crates/simrs-redact",
     "crates/simrs-secret",
     "crates/simrs-consttime-validation",
     "crates/simrs-profile",
@@ -81,6 +82,7 @@ simrs-fuzz                = { path = "crates/simrs-fuzz" }
 simrs-ota                 = { path = "crates/simrs-ota",                 default-features = false }
 simrs-pcap                = { path = "crates/simrs-pcap",                default-features = false }
 simrs-interposer          = { path = "crates/simrs-interposer" }
+simrs-redact               = { path = "crates/simrs-redact",               default-features = false }
 simrs-secret               = { path = "crates/simrs-secret",               default-features = false }
 simrs-consttime-validation = { path = "crates/simrs-consttime-validation" }
 simrs-profile              = { path = "crates/simrs-profile" }

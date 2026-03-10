@@ -127,6 +127,7 @@ pub use types::{CipherKey, GsmCipherKey, IntegrityKey, SubscriberKey};
 // Both MilenageParams and TuakParams inherit this through the trait default.
 use simrs_consttime::ct_eq;
 use simrs_rijndael::Rijndael;
+use simrs_redact::Redact;
 
 /// Operator variant: either raw OP (computed to OPc on-card) or pre-computed OPc.
 ///
@@ -154,8 +155,8 @@ pub enum OperatorVariant {
 impl core::fmt::Debug for OperatorVariant {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Opc(_) => f.write_str("OperatorVariant::Opc([REDACTED])"),
-            Self::Op(_) => f.write_str("OperatorVariant::Op([REDACTED])"),
+            Self::Opc(v) => f.debug_tuple("OperatorVariant::Opc").field(&Redact(v)).finish(),
+            Self::Op(v) => f.debug_tuple("OperatorVariant::Op").field(&Redact(v)).finish(),
         }
     }
 }
@@ -199,8 +200,8 @@ pub struct MilenageParams {
 impl core::fmt::Debug for MilenageParams {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("MilenageParams")
-            .field("k", &self.k) // SubscriberKey::Debug prints [REDACTED]
-            .field("opc", &"[REDACTED]")
+            .field("k", &self.k) // SubscriberKey::Debug always prints [REDACTED]
+            .field("opc", &Redact(&self.opc))
             .field("ci", &self.ci)
             .field("ri", &self.ri)
             .field("expected_sequence_number", &self.expected_sequence_number)

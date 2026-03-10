@@ -6,13 +6,15 @@ license.workspace = true
 description = "TUAK authentication algorithm (3GPP TS 35.231) -- no_std, no_alloc"
 
 [features]
-default = []
+default = ["redact-secrets-in-logs"]
 std     = []
 ct-validation = []
+redact-secrets-in-logs = ["simrs-redact/redact-secrets-in-logs"]
 
 [dependencies]
 simrs-keccak    = { workspace = true }
 simrs-milenage  = { workspace = true }
+simrs-redact    = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -6,13 +6,15 @@ license.workspace = true
 description = "Milenage UMTS authentication (f1--f5 functions) per ETSI TS 135 206 -- no_std"
 
 [features]
-default = []
+default = ["redact-secrets-in-logs"]
 std     = []
 ct-validation = []
+redact-secrets-in-logs = ["simrs-redact/redact-secrets-in-logs"]
 
 [dependencies]
 simrs-consttime = { workspace = true }
 simrs-rijndael = { workspace = true }
+simrs-redact   = { workspace = true }
 simrs-secret   = { workspace = true }
 
 [dev-dependencies]
