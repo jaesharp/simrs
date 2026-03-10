@@ -6,10 +6,14 @@ license.workspace = true
 description = "Secret<T> and CtOption<T> -- zero-cost compile-time CT boundary enforcement -- no_std, no_alloc"
 
 [features]
+default = ["redact-secrets-in-logs"]
 std = []
+redact-secrets-in-logs      = ["simrs-redact/redact-secrets-in-logs"]
+fingerprint-secrets-in-logs = ["simrs-redact/fingerprint-secrets-in-logs"]
 
 [dependencies]
 simrs-consttime = { workspace = true }
+simrs-redact    = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

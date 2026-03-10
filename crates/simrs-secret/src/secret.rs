@@ -25,6 +25,7 @@
 //! ```
 
 use simrs_consttime::{CtBool, CtEq, CtSelect, CtSwap, CtZero};
+use simrs_redact::{AsBytes, Redact};
 
 /// Zero-cost wrapper restricting a value to constant-time operations.
 ///
@@ -105,12 +106,18 @@ impl<T: CtZero> CtZero for Secret<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Debug (redacted)
+// Debug / Display (redacted via simrs-redact)
 // ---------------------------------------------------------------------------
 
-impl<T> core::fmt::Debug for Secret<T> {
+impl<T: AsBytes + core::fmt::Debug> core::fmt::Debug for Secret<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("Secret([REDACTED])")
+        f.debug_tuple("Secret").field(&Redact(&self.0)).finish()
+    }
+}
+
+impl<T: AsBytes + core::fmt::Debug> core::fmt::Display for Secret<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Secret({})", Redact(&self.0))
     }
 }
 
