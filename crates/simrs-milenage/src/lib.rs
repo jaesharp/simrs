@@ -143,12 +143,21 @@ use simrs_rijndael::Rijndael;
 /// // Raw OP (OPc computed at runtime from K and OP)
 /// let _op = OperatorVariant::Op([0xAB; 16]);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub enum OperatorVariant {
     /// Pre-computed OPc (128 bits). Preferred -- avoids runtime AES call.
     Opc([u8; 16]),
     /// Raw OP. OPc will be derived as `E_K[OP] XOR OP` when needed.
     Op([u8; 16]),
+}
+
+impl core::fmt::Debug for OperatorVariant {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Opc(_) => f.write_str("OperatorVariant::Opc([REDACTED])"),
+            Self::Op(_) => f.write_str("OperatorVariant::Op([REDACTED])"),
+        }
+    }
 }
 
 /// Milenage algorithm parameters.
@@ -191,7 +200,7 @@ impl core::fmt::Debug for MilenageParams {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("MilenageParams")
             .field("k", &self.k) // SubscriberKey::Debug prints [REDACTED]
-            .field("opc", &self.opc)
+            .field("opc", &"[REDACTED]")
             .field("ci", &self.ci)
             .field("ri", &self.ri)
             .field("expected_sequence_number", &self.expected_sequence_number)

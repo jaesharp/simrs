@@ -162,12 +162,21 @@ impl<'a> SnapReader<'a> {
 /// // Raw TOP (TOPc computed at runtime from K and TOP)
 /// let _top = OperatorVariant::Top([0xBB; 32]);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub enum OperatorVariant {
     /// Pre-computed TOPc (256 bits). Preferred -- avoids runtime Keccak call.
     TopC([u8; 32]),
     /// Raw TOP. TOPc will be derived as per [3GPP TS 35.231 V19.0.0 clause 6.1](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A39%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D).
     Top([u8; 32]),
+}
+
+impl core::fmt::Debug for OperatorVariant {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TopC(_) => f.write_str("OperatorVariant::TopC([REDACTED])"),
+            Self::Top(_) => f.write_str("OperatorVariant::Top([REDACTED])"),
+        }
+    }
 }
 
 /// Deprecated: use [`OperatorVariant`].
@@ -211,7 +220,7 @@ impl core::fmt::Debug for TuakParams {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TuakParams")
             .field("key", &"[REDACTED]")
-            .field("top_c", &self.top_c)
+            .field("top_c", &"[REDACTED]")
             .field("expected_sequence_number", &self.expected_sequence_number)
             .finish()
     }
