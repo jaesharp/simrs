@@ -16,11 +16,29 @@
 //!
 //! Scalar multiplication uses the double-and-always-add method with
 //! conditional swap, making the operation sequence independent of the
-//! scalar value. Point addition and doubling contain identity checks
-//! that may leak timing for pathological inputs (identity or same-point
-//! addition), but these cases do not arise during ECDH with valid keys:
-//! the accumulator leaves identity after the first '1' bit and never
-//! returns.
+//! scalar value. Point addition and doubling use constant-time
+//! conditional moves to handle all exceptional cases (identity inputs,
+//! point doubling, inverse points) without data-dependent branches.
+//!
+//! # Side-channel hardening
+//!
+//! To defend against Zero-Value Register Attacks (ZRA / Goubin 2003) and
+//! Refined Power Analysis (RPA), scalar multiplication applies two
+//! countermeasures before the Montgomery ladder:
+//!
+//! 1. **Projective coordinate randomization**: the input point (X:Y:Z) is
+//!    replaced with (lambda^2 X : lambda^3 Y : lambda Z) for a non-zero
+//!    lambda derived from the scalar via HMAC-SHA-256. This ensures no
+//!    intermediate Z coordinate is algebraically zero.
+//!
+//! 2. **Scalar blinding**: the scalar k is replaced with k' = k + r*n
+//!    (128-bit r, also HMAC-derived) so the ladder processes 384 bits with
+//!    a near-uniform Hamming weight distribution.
+//!
+//! Both values are deterministically derived from the scalar itself using
+//! domain-separated HMAC. In the SUCI/ECIES use case, each ephemeral key
+//! is used exactly once, so deterministic derivation is equivalent to
+//! fresh randomness for power-analysis purposes.
 //!
 //! # Abstraction
 //!
@@ -28,6 +46,9 @@
 //! from point-level logic. This allows future replacement of the software
 //! field backend with hardware accelerators (e.g. ARM CryptoCell, hardware
 //! PKA) without changing the point or ECDH layer.
+
+use simrs_consttime::{CtBool, CtEq, CtSelect, CtSwap, CtZero};
+use simrs_kdf::hmac_sha256;
 
 // ---------------------------------------------------------------------------
 // Field element: GF(p) where p = 2^256 - 2^224 + 2^192 + 2^96 - 1
@@ -140,8 +161,8 @@ impl Fe {
 
         // Use sum if borrow (sum < p), else use d (sum >= p).
         // c3 means the addition overflowed 256 bits, so sum >= p for sure.
-        let use_d = c3 as u64 | (1 - borrow as u64);
-        Self(cmov(sum.0, d, use_d))
+        let use_d = CtBool::from_u64_bit(c3 as u64 | (1 - borrow as u64));
+        Self(<[u64; 4]>::ct_select(use_d, &d, &sum.0))
     }
 
     /// Subtraction mod p.
@@ -167,9 +188,11 @@ impl Fe {
         reduce(t)
     }
 
-    /// Squaring mod p (alias for `mul(self, self)`).
+    /// Squaring mod p using dedicated Comba squaring (10 multiplications
+    /// vs 16 for generic mul).
     fn square(self) -> Self {
-        self.mul(self)
+        let t = sqr_wide(self.0);
+        reduce(t)
     }
 
     /// Repeated squaring: compute self^(2^n).
@@ -245,31 +268,43 @@ impl Fe {
         let candidate = e.square_n(94);                // 94 trailing zeros
 
         // Verify: candidate^2 == self
-        if fe_eq(candidate.square(), self) {
+        if candidate.square().ct_eq(&self).into_bool() {
             Some(candidate)
         } else {
             None
         }
     }
 
-    /// Constant-time conditional swap.
-    /// If swap == 1, swap self and other. If swap == 0, no-op.
-    fn cswap(&mut self, other: &mut Self, swap: u64) {
-        let mask = 0u64.wrapping_sub(swap);
-        let mut i = 0;
-        while i < 4 {
-            let t = mask & (self.0[i] ^ other.0[i]);
-            self.0[i] ^= t;
-            other.0[i] ^= t;
-            i += 1;
-        }
+}
+
+// Constant-time trait implementations for Fe.
+
+impl CtZero for Fe {
+    #[inline]
+    fn ct_is_zero(&self) -> CtBool {
+        self.0.ct_is_zero()
     }
 }
 
-/// Constant-time equality check for field elements.
-fn fe_eq(a: Fe, b: Fe) -> bool {
-    let x = (a.0[0] ^ b.0[0]) | (a.0[1] ^ b.0[1]) | (a.0[2] ^ b.0[2]) | (a.0[3] ^ b.0[3]);
-    x == 0
+impl CtEq for Fe {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> CtBool {
+        self.0.ct_eq(&other.0)
+    }
+}
+
+impl CtSelect for Fe {
+    #[inline]
+    fn ct_select(cond: CtBool, a: &Self, b: &Self) -> Self {
+        Self(<[u64; 4]>::ct_select(cond, &a.0, &b.0))
+    }
+}
+
+impl CtSwap for Fe {
+    #[inline]
+    fn ct_swap(a: &mut Self, b: &mut Self, cond: CtBool) {
+        <[u64; 4]>::ct_swap(&mut a.0, &mut b.0, cond);
+    }
 }
 
 // -- Wide multiplication and NIST reduction --------------------------------
@@ -294,6 +329,112 @@ fn mul_wide(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
         r[i + 4] = carry as u64;
         i += 1;
     }
+
+    r
+}
+
+/// Comba squaring: compute a^2 as an 8-limb (512-bit) result.
+///
+/// Exploits the symmetry a[i]*a[j] == a[j]*a[i] to use only 10
+/// u64*u64 multiplications (4 diagonal + 6 cross) instead of 16.
+///
+/// Uses a 192-bit triple-register accumulator (c0, c1, c2) because
+/// column sums can exceed 128 bits (column k=3 reaches ~2^130).
+/// Cross-products are added to the accumulator twice (not pre-doubled
+/// in u128, as 2*(2^64-1)^2 > 2^128).
+///
+/// Column sums (before carries):
+///   w0 = a0*a0
+///   w1 = 2*a0*a1
+///   w2 = 2*a0*a2 + a1*a1
+///   w3 = 2*a0*a3 + 2*a1*a2
+///   w4 = 2*a1*a3 + a2*a2
+///   w5 = 2*a2*a3
+///   w6 = a3*a3
+#[allow(clippy::cast_possible_truncation)]
+fn sqr_wide(a: [u64; 4]) -> [u64; 8] {
+    // Compute the 10 distinct products.
+    let a0a0 = (a[0] as u128) * (a[0] as u128);
+    let a0a1 = (a[0] as u128) * (a[1] as u128);
+    let a0a2 = (a[0] as u128) * (a[2] as u128);
+    let a0a3 = (a[0] as u128) * (a[3] as u128);
+    let a1a1 = (a[1] as u128) * (a[1] as u128);
+    let a1a2 = (a[1] as u128) * (a[2] as u128);
+    let a1a3 = (a[1] as u128) * (a[3] as u128);
+    let a2a2 = (a[2] as u128) * (a[2] as u128);
+    let a2a3 = (a[2] as u128) * (a[3] as u128);
+    let a3a3 = (a[3] as u128) * (a[3] as u128);
+
+    // 192-bit triple-register Comba accumulator.
+    // True value = c0 + c1*2^64 + c2*2^128.
+    let mut c0: u64 = 0;
+    let mut c1: u64 = 0;
+    let mut c2: u64 = 0;
+
+    // Helper: add a u128 product (lo, hi) to the accumulator.
+    macro_rules! acc_add {
+        ($prod:expr) => {
+            let lo = $prod as u64;
+            let hi = ($prod >> 64) as u64;
+            let (new_c0, carry0) = c0.overflowing_add(lo);
+            c0 = new_c0;
+            let (new_c1, carry1) = c1.overflowing_add(hi);
+            c1 = new_c1;
+            let (new_c1, carry2) = c1.overflowing_add(carry0 as u64);
+            c1 = new_c1;
+            c2 += carry1 as u64 + carry2 as u64;
+        };
+    }
+
+    let mut r = [0u64; 8];
+
+    // Column 0: a0*a0
+    acc_add!(a0a0);
+    r[0] = c0; c0 = c1; c1 = c2; c2 = 0;
+
+    // Column 1: 2*a0*a1
+    acc_add!(a0a1);
+    acc_add!(a0a1);
+    r[1] = c0; c0 = c1; c1 = c2; c2 = 0;
+
+    // Column 2: 2*a0*a2 + a1*a1
+    acc_add!(a0a2);
+    acc_add!(a0a2);
+    acc_add!(a1a1);
+    r[2] = c0; c0 = c1; c1 = c2; c2 = 0;
+
+    // Column 3: 2*a0*a3 + 2*a1*a2
+    acc_add!(a0a3);
+    acc_add!(a0a3);
+    acc_add!(a1a2);
+    acc_add!(a1a2);
+    r[3] = c0; c0 = c1; c1 = c2; c2 = 0;
+
+    // Column 4: 2*a1*a3 + a2*a2
+    acc_add!(a1a3);
+    acc_add!(a1a3);
+    acc_add!(a2a2);
+    r[4] = c0; c0 = c1; c1 = c2; c2 = 0;
+
+    // Column 5: 2*a2*a3
+    acc_add!(a2a3);
+    acc_add!(a2a3);
+    r[5] = c0; c0 = c1; c1 = c2;
+
+    // Column 6: a3*a3 (last column -- inline to avoid unused c2 warning).
+    {
+        let lo = a3a3 as u64;
+        let hi = (a3a3 >> 64) as u64;
+        let (new_c0, carry0) = c0.overflowing_add(lo);
+        c0 = new_c0;
+        let (new_c1, _) = c1.overflowing_add(hi);
+        c1 = new_c1;
+        let (new_c1, _) = c1.overflowing_add(carry0 as u64);
+        c1 = new_c1;
+        // c2 carry is always 0 for the last column of a 4-limb square.
+    }
+    r[6] = c0;
+    r[7] = c1;
 
     r
 }
@@ -439,8 +580,8 @@ fn normalize_acc(mut acc: [i128; 5]) -> Fe {
 
     // One constant-time conditional subtraction: if r >= p, return r - p.
     let (d, borrow) = sub_inner(r, P);
-    let use_d = 1 - borrow as u64; // 1 if r >= p, 0 if r < p
-    Fe(cmov(r, d, use_d))
+    let use_d = CtBool::from_u64_bit(1 - borrow as u64); // TRUE if r >= p
+    Fe(<[u64; 4]>::ct_select(use_d, &d, &r))
 }
 
 /// Propagate signed carries through a 5-limb accumulator.
@@ -482,16 +623,6 @@ fn sub_inner(a: [u64; 4], b: [u64; 4]) -> ([u64; 4], bool) {
     ([r0, r1, r2, r3], b3)
 }
 
-/// Constant-time conditional move: returns b if select == 1, a if select == 0.
-fn cmov(a: [u64; 4], b: [u64; 4], select: u64) -> [u64; 4] {
-    let mask = 0u64.wrapping_sub(select);
-    [
-        a[0] ^ (mask & (a[0] ^ b[0])),
-        a[1] ^ (mask & (a[1] ^ b[1])),
-        a[2] ^ (mask & (a[2] ^ b[2])),
-        a[3] ^ (mask & (a[3] ^ b[3])),
-    ]
-}
 
 // ---------------------------------------------------------------------------
 // Point operations: Jacobian projective coordinates
@@ -530,18 +661,15 @@ impl Point {
         self.z.is_zero()
     }
 
-    /// Point doubling in Jacobian coordinates.
+    /// Point doubling in Jacobian coordinates (branchless).
     ///
     /// Uses the "dbl-2001-b" formula from
     /// <https://hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-3.html>
-    /// (optimized for a = -3).
+    /// (optimized for a = -3). Handles identity input without branching:
+    /// when Z=0 the formula naturally produces Z3=0.
     ///
     /// Cost: 4M + 4S + 1*half (+ adds)
     fn double(self) -> Self {
-        if self.is_identity() {
-            return Self::IDENTITY;
-        }
-
         let x = self.x;
         let y = self.y;
         let z = self.z;
@@ -578,17 +706,15 @@ impl Point {
         Self { x: x3, y: y3, z: z3 }
     }
 
-    /// Point addition (full Jacobian + Jacobian).
+    /// Point addition (full Jacobian + Jacobian, branchless).
     ///
-    /// Uses the "add-2007-bl" formula.
+    /// Uses the "add-2007-bl" formula for the generic case, with
+    /// constant-time conditional moves to handle all exceptional cases
+    /// (identity inputs, point doubling, inverse points) without
+    /// data-dependent branches.
+    ///
+    /// Cost: ~16M + ~5S + 1 doubling (always computed) + 4 cmov.
     fn add(self, rhs: Self) -> Self {
-        if self.is_identity() {
-            return rhs;
-        }
-        if rhs.is_identity() {
-            return self;
-        }
-
         let z1sq = self.z.square();
         let z2sq = rhs.z.square();
 
@@ -597,13 +723,6 @@ impl Point {
 
         let s1 = self.y.mul(z2sq.mul(rhs.z));
         let s2 = rhs.y.mul(z1sq.mul(self.z));
-
-        if fe_eq(u1, u2) {
-            if fe_eq(s1, s2) {
-                return self.double();
-            }
-            return Self::IDENTITY;
-        }
 
         let h = u2.sub(u1);
         let i = h.add(h).square(); // i = (2*h)^2
@@ -615,7 +734,28 @@ impl Point {
         let y3 = r.mul(v.sub(x3)).sub(s1.mul(j).add(s1.mul(j)));
         let z3 = self.z.add(rhs.z).square().sub(z1sq).sub(z2sq).mul(h);
 
-        Self { x: x3, y: y3, z: z3 }
+        let mut result = Self { x: x3, y: y3, z: z3 };
+
+        // Handle exceptional cases with constant-time conditional moves.
+        let self_is_id = self.z.ct_is_zero();
+        let rhs_is_id = rhs.z.ct_is_zero();
+        let u_eq = u1.ct_eq(&u2);
+        let s_eq = s1.ct_eq(&s2);
+
+        // When u1 == u2 and s1 == s2: points are equal, use doubling.
+        let doubled = self.double();
+        result.ct_assign(&doubled, u_eq.and(s_eq));
+
+        // When u1 == u2 and s1 != s2: points are inverses, result is identity.
+        result.ct_assign(&Self::IDENTITY, u_eq.and(s_eq.not()));
+
+        // When rhs is identity, result is self.
+        result.ct_assign(&self, rhs_is_id);
+
+        // When self is identity, result is rhs (highest priority).
+        result.ct_assign(&rhs, self_is_id);
+
+        result
     }
 
     /// Convert from Jacobian to affine coordinates.
@@ -635,40 +775,162 @@ impl Point {
     fn is_on_curve_affine(x: Fe, y: Fe) -> bool {
         let lhs = y.square();
         let rhs = x.square().mul(x).add(A.mul(x)).add(B);
-        fe_eq(lhs, rhs)
+        lhs.ct_eq(&rhs).into_bool()
     }
 
-    /// Constant-time conditional swap of two points.
-    fn cswap(a: &mut Self, b: &mut Self, swap: u64) {
-        Fe::cswap(&mut a.x, &mut b.x, swap);
-        Fe::cswap(&mut a.y, &mut b.y, swap);
-        Fe::cswap(&mut a.z, &mut b.z, swap);
+}
+
+impl CtSelect for Point {
+    #[inline]
+    fn ct_select(cond: CtBool, a: &Self, b: &Self) -> Self {
+        Self {
+            x: Fe::ct_select(cond, &a.x, &b.x),
+            y: Fe::ct_select(cond, &a.y, &b.y),
+            z: Fe::ct_select(cond, &a.z, &b.z),
+        }
     }
+}
+
+impl CtSwap for Point {
+    #[inline]
+    fn ct_swap(a: &mut Self, b: &mut Self, cond: CtBool) {
+        Fe::ct_swap(&mut a.x, &mut b.x, cond);
+        Fe::ct_swap(&mut a.y, &mut b.y, cond);
+        Fe::ct_swap(&mut a.z, &mut b.z, cond);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scalar blinding and coordinate randomization (ZRA countermeasures)
+// ---------------------------------------------------------------------------
+
+/// Reduce a 256-bit value mod p (constant-time).
+///
+/// Tries subtracting p; keeps the result if no borrow. Since the input
+/// is at most 2^256 - 1 and p > 2^255, at most one subtraction is needed.
+fn fe_reduce(raw: [u64; 4]) -> Fe {
+    let (d, borrow) = sub_inner(raw, P);
+    // borrow == true means raw < p, so keep raw; else keep d.
+    Fe(<[u64; 4]>::ct_select(CtBool::from_u64_bit(borrow as u64), &raw, &d))
+}
+
+/// Derive a non-zero field element from a 32-byte HMAC output.
+///
+/// Reduces mod p, then replaces zero with 1 (constant-time).
+fn fe_from_hmac(h: &[u8; 32]) -> Fe {
+    let raw = [
+        u64::from_be_bytes([h[24], h[25], h[26], h[27], h[28], h[29], h[30], h[31]]),
+        u64::from_be_bytes([h[16], h[17], h[18], h[19], h[20], h[21], h[22], h[23]]),
+        u64::from_be_bytes([h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15]]),
+        u64::from_be_bytes([h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]]),
+    ];
+    let fe = fe_reduce(raw);
+    // If zero (probability ~2^-256), use 1 instead.
+    let is_zero = fe.ct_is_zero().as_u64_mask();
+    Fe([
+        fe.0[0] | (is_zero & 1),
+        fe.0[1],
+        fe.0[2],
+        fe.0[3],
+    ])
+}
+
+/// Randomize projective coordinates: (X:Y:Z) -> (lam^2*X : lam^3*Y : lam*Z).
+///
+/// The resulting point represents the same affine point but with a
+/// non-trivial Z coordinate, defeating Zero-Value Register Attacks.
+/// Cost: 1S + 4M.
+fn randomize_projective(p: Point, lam: Fe) -> Point {
+    let lam2 = lam.square();
+    let lam3 = lam2.mul(lam);
+    Point {
+        x: p.x.mul(lam2),
+        y: p.y.mul(lam3),
+        z: p.z.mul(lam),
+    }
+}
+
+/// Compute k' = k + r*n as a 384-bit (48-byte) big-endian scalar.
+///
+/// k: 32-byte big-endian scalar in [1, n-1].
+/// r: 16-byte blinding factor (used as 128-bit little-endian integer).
+///
+/// The result fits in exactly 384 bits (proven: max = n*2^128 - 1 < 2^384).
+#[allow(clippy::cast_possible_truncation)]
+fn blind_scalar(k: &[u8; 32], r: &[u8; 16]) -> [u8; 48] {
+    // Decode r as 2 little-endian u64 limbs.
+    let r0 = u64::from_le_bytes([r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]]);
+    let r1 = u64::from_le_bytes([r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15]]);
+    let r_limbs = [r0, r1];
+
+    // Phase A: multiply r (2 limbs) * N (4 limbs) -> temp (6 limbs, LE).
+    let mut temp = [0u64; 6];
+    let mut i = 0;
+    while i < 2 {
+        let mut carry: u128 = 0;
+        let mut j = 0;
+        while j < 4 {
+            let wide = (r_limbs[i] as u128) * (N[j] as u128)
+                + (temp[i + j] as u128)
+                + carry;
+            temp[i + j] = wide as u64;
+            carry = wide >> 64;
+            j += 1;
+        }
+        temp[i + 4] = carry as u64;
+        i += 1;
+    }
+
+    // Decode k as 4 little-endian u64 limbs (from big-endian bytes).
+    let k_limbs: [u64; 4] = [
+        u64::from_be_bytes([k[24], k[25], k[26], k[27], k[28], k[29], k[30], k[31]]),
+        u64::from_be_bytes([k[16], k[17], k[18], k[19], k[20], k[21], k[22], k[23]]),
+        u64::from_be_bytes([k[8], k[9], k[10], k[11], k[12], k[13], k[14], k[15]]),
+        u64::from_be_bytes([k[0], k[1], k[2], k[3], k[4], k[5], k[6], k[7]]),
+    ];
+
+    // Phase B: add k to temp.
+    let mut carry: u128 = 0;
+    i = 0;
+    while i < 6 {
+        let kv = if i < 4 { k_limbs[i] } else { 0 };
+        let sum = (temp[i] as u128) + (kv as u128) + carry;
+        temp[i] = sum as u64;
+        carry = sum >> 64;
+        i += 1;
+    }
+    debug_assert!(carry as u64 == 0, "k + r*n must fit in 384 bits");
+
+    // Phase C: serialize to 48-byte big-endian.
+    let mut out = [0u8; 48];
+    out[0..8].copy_from_slice(&temp[5].to_be_bytes());
+    out[8..16].copy_from_slice(&temp[4].to_be_bytes());
+    out[16..24].copy_from_slice(&temp[3].to_be_bytes());
+    out[24..32].copy_from_slice(&temp[2].to_be_bytes());
+    out[32..40].copy_from_slice(&temp[1].to_be_bytes());
+    out[40..48].copy_from_slice(&temp[0].to_be_bytes());
+    out
 }
 
 // ---------------------------------------------------------------------------
 // Scalar operations
 // ---------------------------------------------------------------------------
 
-/// Constant-time scalar multiplication: compute k * P.
-///
-/// Uses the double-and-always-add method with conditional swap for
-/// constant-time execution. The scalar k is a 256-bit big-endian byte array.
-fn scalar_mul(k: &[u8; 32], p: Point) -> Point {
+/// Montgomery ladder over a 384-bit scalar (48-byte big-endian).
+fn scalar_mul_wide(k: &[u8; 48], p: Point) -> Point {
     let mut r0 = Point::IDENTITY;
     let mut r1 = p;
 
-    // Process bits from MSB to LSB.
     let mut byte_idx: usize = 0;
-    while byte_idx < 32 {
+    while byte_idx < 48 {
         let mut bit: i8 = 7;
         while bit >= 0 {
             let ki = ((k[byte_idx] >> bit as u32) & 1) as u64;
 
-            Point::cswap(&mut r0, &mut r1, ki);
+            Point::ct_swap(&mut r0, &mut r1, CtBool::from_u64_bit(ki));
             r1 = r0.add(r1);
             r0 = r0.double();
-            Point::cswap(&mut r0, &mut r1, ki);
+            Point::ct_swap(&mut r0, &mut r1, CtBool::from_u64_bit(ki));
 
             bit -= 1;
         }
@@ -676,6 +938,30 @@ fn scalar_mul(k: &[u8; 32], p: Point) -> Point {
     }
 
     r0
+}
+
+/// Constant-time scalar multiplication with ZRA countermeasures: k * P.
+///
+/// Applies projective coordinate randomization and scalar blinding before
+/// the Montgomery ladder. The blinding values are derived deterministically
+/// from k via domain-separated HMAC-SHA-256.
+fn scalar_mul(k: &[u8; 32], p: Point) -> Point {
+    // Derive blinding material from the scalar.
+    let lam_bytes = hmac_sha256(b"p256-coord-blind", k);
+    let r_bytes = hmac_sha256(b"p256-scalar-blind", k);
+
+    // Projective coordinate randomization: (X:Y:Z) -> (lam^2*X:lam^3*Y:lam*Z).
+    let lam = fe_from_hmac(&lam_bytes);
+    let p_rand = randomize_projective(p, lam);
+
+    // Scalar blinding: k' = k + r*n (384 bits).
+    let k_blind = blind_scalar(k, &{
+        let mut buf = [0u8; 16];
+        buf.copy_from_slice(&r_bytes[..16]);
+        buf
+    });
+
+    scalar_mul_wide(&k_blind, p_rand)
 }
 
 /// Scalar multiplication with the generator: k * G.
@@ -697,7 +983,10 @@ fn scalar_mul_base(k: &[u8; 32]) -> Point {
 pub fn p256_ecdh(scalar: &[u8; 32], peer_pubkey: &[u8; 65]) -> Option<[u8; 32]> {
     let q = decode_point_uncompressed(peer_pubkey)?;
     let shared = scalar_mul(scalar, q);
-    if shared.is_identity() {
+    // Use constant-time zero check on Z coordinate to detect identity.
+    // For valid inputs (scalar in [1,n-1], Q on curve), this never triggers.
+    let is_id = shared.z.ct_is_zero();
+    if is_id.into_bool() {
         return None;
     }
     let (x, _) = shared.to_affine();
@@ -991,6 +1280,40 @@ mod tests {
         assert_eq!(a.square().to_bytes(), a.mul(a).to_bytes());
     }
 
+    /// Verify sqr_wide produces identical output to mul_wide(a, a) at the
+    /// 512-bit level, using adversarial inputs that maximize carry pressure.
+    #[test]
+    fn sqr_wide_vs_mul_wide() {
+        // Max-limb input: all limbs = u64::MAX.
+        let max = [u64::MAX; 4];
+        assert_eq!(sqr_wide(max), mul_wide(max, max));
+
+        // Alternating zero/max limbs (tests cross-term carry propagation).
+        let alt1 = [u64::MAX, 0, u64::MAX, 0];
+        assert_eq!(sqr_wide(alt1), mul_wide(alt1, alt1));
+        let alt2 = [0, u64::MAX, 0, u64::MAX];
+        assert_eq!(sqr_wide(alt2), mul_wide(alt2, alt2));
+
+        // Half-word boundary: all limbs = 2^63 (maximizes doubling carry).
+        let half = [1u64 << 63; 4];
+        assert_eq!(sqr_wide(half), mul_wide(half, half));
+
+        // Single limb set (exercises each diagonal independently).
+        let mut i = 0;
+        while i < 4 {
+            let mut a = [0u64; 4];
+            a[i] = u64::MAX;
+            assert_eq!(sqr_wide(a), mul_wide(a, a));
+            i += 1;
+        }
+
+        // P-256 prime limbs (realistic field element values).
+        assert_eq!(sqr_wide(P), mul_wide(P, P));
+
+        // Group order limbs.
+        assert_eq!(sqr_wide(N), mul_wide(N, N));
+    }
+
     #[test]
     fn fe_sub_add_roundtrip() {
         let a = Fe::from_bytes(&hex32("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"));
@@ -1209,6 +1532,161 @@ mod tests {
         let expected = hex33("039aab8376597021e855679a9778ea0b67396e68c66df32c0f41e9acca2da9b9d1");
         assert_eq!(compressed, expected);
     }
+
+    // -- fe_reduce tests ----------------------------------------------------
+
+    #[test]
+    fn fe_reduce_below_p_is_identity() {
+        let val = [1u64, 0, 0, 0];
+        let fe = fe_reduce(val);
+        assert_eq!(fe.0, val);
+    }
+
+    #[test]
+    fn fe_reduce_p_gives_zero() {
+        let fe = fe_reduce(P);
+        assert_eq!(fe.0, [0u64; 4]);
+    }
+
+    #[test]
+    fn fe_reduce_p_plus_one() {
+        // p + 1 via multi-precision addition.
+        let mut val = P;
+        let mut carry = 1u64;
+        let mut i = 0;
+        while i < 4 {
+            let (s, c) = val[i].overflowing_add(carry);
+            val[i] = s;
+            carry = c as u64;
+            i += 1;
+        }
+        let fe = fe_reduce(val);
+        assert_eq!(fe.0, [1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn fe_reduce_max_u256() {
+        let val = [u64::MAX; 4];
+        let fe = fe_reduce(val);
+        let (expected, _) = sub_inner(val, P);
+        assert_eq!(fe.0, expected);
+    }
+
+    // -- fe_from_hmac tests -------------------------------------------------
+
+    #[test]
+    fn fe_from_hmac_zero_input_gives_one() {
+        let fe = fe_from_hmac(&[0u8; 32]);
+        assert_eq!(fe.0, [1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn fe_from_hmac_p_in_be_gives_one() {
+        // p encoded as big-endian bytes reduces to zero; must return 1.
+        let mut b = [0u8; 32];
+        b[0..8].copy_from_slice(&P[3].to_be_bytes());
+        b[8..16].copy_from_slice(&P[2].to_be_bytes());
+        b[16..24].copy_from_slice(&P[1].to_be_bytes());
+        b[24..32].copy_from_slice(&P[0].to_be_bytes());
+        let fe = fe_from_hmac(&b);
+        assert_eq!(fe.0, [1, 0, 0, 0], "zero mod p must map to 1");
+    }
+
+    #[test]
+    fn fe_from_hmac_one() {
+        let mut h = [0u8; 32];
+        h[31] = 1;
+        let fe = fe_from_hmac(&h);
+        assert_eq!(fe.0, [1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn fe_from_hmac_above_p_reduces() {
+        let fe = fe_from_hmac(&[0xFF; 32]);
+        let raw = [u64::MAX; 4];
+        let expected = fe_reduce(raw);
+        assert_eq!(fe.0, expected.0);
+        assert_ne!(fe.0, [0u64; 4]);
+    }
+
+    // -- randomize_projective tests -----------------------------------------
+
+    #[test]
+    fn randomize_projective_preserves_affine() {
+        // (lam^2*X : lam^3*Y : lam*Z) represents the same affine point.
+        // Verify: rp.x == g.x * rp.z^2 and rp.y == g.y * rp.z^3
+        // (since g.z = 1).
+        let g = Point { x: GX, y: GY, z: Fe::ONE };
+        let lam = Fe([7, 0, 0, 0]);
+        let rp = randomize_projective(g, lam);
+        let rz2 = rp.z.mul(rp.z);
+        let rz3 = rz2.mul(rp.z);
+        assert_eq!(rp.x.to_bytes(), g.x.mul(rz2).to_bytes());
+        assert_eq!(rp.y.to_bytes(), g.y.mul(rz3).to_bytes());
+    }
+
+    #[test]
+    fn randomize_projective_with_one_is_identity() {
+        let g = Point { x: GX, y: GY, z: Fe::ONE };
+        let rp = randomize_projective(g, Fe::ONE);
+        assert_eq!(rp.x.to_bytes(), g.x.to_bytes());
+        assert_eq!(rp.y.to_bytes(), g.y.to_bytes());
+        assert_eq!(rp.z.to_bytes(), g.z.to_bytes());
+    }
+
+    // -- blind_scalar tests -------------------------------------------------
+
+    #[test]
+    fn blind_scalar_zero_r_returns_k_padded() {
+        let mut k = [0u8; 32];
+        k[0] = 0x42;
+        let r = [0u8; 16];
+        let result = blind_scalar(&k, &r);
+        assert_eq!(&result[..16], &[0u8; 16]);
+        assert_eq!(&result[16..], &k[..]);
+    }
+
+    #[test]
+    fn blind_scalar_r_one_adds_n() {
+        // k=1, r=1 (LE) => k' = 1 + n.
+        let mut k = [0u8; 32];
+        k[31] = 1;
+        let mut r = [0u8; 16];
+        r[0] = 1;
+        let result = blind_scalar(&k, &r);
+        // n+1 ends with 0x52 (since n ends with 0x51).
+        assert_eq!(result[47], 0x52);
+        // First 16 bytes are zero (n+1 fits in 256 bits).
+        assert_eq!(&result[..16], &[0u8; 16]);
+    }
+
+    #[test]
+    fn blind_scalar_max_r_no_panic() {
+        // r = 2^128 - 1, k = max 32-byte value. Must not panic.
+        let k = [0xFFu8; 32];
+        let r = [0xFFu8; 16];
+        let result = blind_scalar(&k, &r);
+        assert_eq!(result.len(), 48);
+        assert!(result.iter().any(|&b| b != 0));
+    }
+
+    #[test]
+    fn blind_scalar_algebraic_identity() {
+        // For any k and r: (k + r*n) mod n == k mod n.
+        // Since k < 2^256 and n ~ 2^256, k mod n is just k (for small k).
+        // Verify via scalar_mul_wide: scalar_mul_wide(blind(k, r), G) == k*G.
+        let mut k = [0u8; 32];
+        k[31] = 7; // k = 7
+        let mut r = [0u8; 16];
+        r[0] = 42; // r = 42 (LE)
+        let blinded = blind_scalar(&k, &r);
+        let result = scalar_mul_wide(&blinded, Point::generator());
+        let direct = scalar_mul_base(&k);
+        let (rx, ry) = result.to_affine();
+        let (dx, dy) = direct.to_affine();
+        assert_eq!(rx.to_bytes(), dx.to_bytes());
+        assert_eq!(ry.to_bytes(), dy.to_bytes());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1271,6 +1749,26 @@ mod proptests {
             let pk_a = p256_pubkey(&a);
             let pk_b = p256_pubkey(&b);
             prop_assert_ne!(pk_a, pk_b, "different scalars must give different public keys");
+        }
+    }
+
+    proptest! {
+        // sqr_wide(a) == mul_wide(a, a) for random 4-limb inputs.
+        // Tests the Comba squaring against the known-good schoolbook multiply
+        // at the 512-bit level before NIST reduction.
+        #[test]
+        fn sqr_wide_matches_mul_wide(a in any::<[u64; 4]>()) {
+            prop_assert_eq!(sqr_wide(a), mul_wide(a, a));
+        }
+    }
+
+    proptest! {
+        // Fe::square(a) == Fe::mul(a, a) for random field elements.
+        // Exercises both the Comba squaring and the NIST reduction together.
+        #[test]
+        fn fe_square_matches_mul(bytes in any::<[u8; 32]>()) {
+            let a = Fe::from_bytes(&bytes);
+            prop_assert_eq!(a.square().to_bytes(), a.mul(a).to_bytes());
         }
     }
 }

@@ -11,9 +11,10 @@ std     = []
 ct-validation = []
 
 [dependencies]
-simrs-rijndael = { workspace = true }
-simrs-iso7816  = { workspace = true }
+simrs-rijndael  = { workspace = true }
+simrs-iso7816   = { workspace = true }
 simrs-consttime = { workspace = true }
+simrs-secret    = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

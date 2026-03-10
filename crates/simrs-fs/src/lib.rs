@@ -850,6 +850,15 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
         self.count
     }
 
+    /// Returns `true` if the given EF was registered during initialization.
+    ///
+    /// Uses pointer identity ([`core::ptr::eq`]) -- the reference must point
+    /// to the exact same `&'static EfDef` that was part of the tree passed to
+    /// [`init`](Self::init) or [`init_with_adfs`](Self::init_with_adfs).
+    pub fn contains_ef(&self, ef: &EfDef) -> bool {
+        self.find_entry(ef).is_some()
+    }
+
     // -- Read operations ---------------------------------------------------
 
     /// Read binary data from a transparent EF.

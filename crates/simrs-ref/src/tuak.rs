@@ -92,6 +92,7 @@ static VECTORS: [TuakVector; 1] = [TuakVector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use simrs_milenage::SubscriberKey;
     use simrs_tuak::{TuakParams, OperatorVariant};
 
     /// Validate f1 and f1* which use INSTANCE bytes independent of RES size.
@@ -108,7 +109,7 @@ mod tests {
             } else {
                 OperatorVariant::Top(v.top)
             };
-            let p = TuakParams::new(k16, top_variant);
+            let p = TuakParams::new(SubscriberKey::new(k16), top_variant);
             assert_eq!(
                 p.compute_auth_mac(&v.rand, &v.sqn, &v.amf), v.expected_f1,
                 "Vector {} f1 mismatch", i
@@ -134,7 +135,7 @@ mod tests {
             } else {
                 OperatorVariant::Top(v.top)
             };
-            let p = TuakParams::new(k16, top_variant);
+            let p = TuakParams::new(SubscriberKey::new(k16), top_variant);
             assert_eq!(
                 p.compute_resync_anonymity_key(&v.rand), v.expected_f5_star,
                 "Vector {} f5* mismatch", i

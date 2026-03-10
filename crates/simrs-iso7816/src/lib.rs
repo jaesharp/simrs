@@ -136,6 +136,9 @@ pub mod ins {
     pub const ACTIVATE_FILE: u8 = 0x44;
     /// TERMINAL CAPABILITY. [ETSI TS 102 221 V18.3.0 clause 11.1.19](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A402%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C538%5D).
     pub const TERMINAL_CAPABILITY: u8 = 0xAA;
+    /// GET IDENTITY. [ETSI TS 102 221 V18.3.0 clause 11.1.20](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf) /
+    /// [3GPP TS 31.102 V19.4.0 clause 7.5](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf).
+    pub const GET_IDENTITY: u8 = 0x78;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +222,15 @@ pub mod sw2 {
     /// Security status not satisfied. Used with `CommandNotAllowed` (69 82).
     /// ISO/IEC 7816-4:2020 Table 6.
     pub const SECURITY_NOT_SATISFIED: u8 = 0x82;
+    /// Conditions of use not satisfied. Used with `CommandNotAllowed` (69 85).
+    /// ISO/IEC 7816-4:2020 Table 6.
+    pub const CONDITIONS_NOT_SATISFIED: u8 = 0x85;
+    /// Incorrect parameters in the command data field. Used with `WrongParams` (6A 80).
+    /// ISO/IEC 7816-4:2020 Table 6.
+    pub const INCORRECT_DATA: u8 = 0x80;
+    /// Referenced data or reference data not found. Used with `WrongParams` (6A 88).
+    /// Alias for cases where data (not a file) is missing.
+    pub const DATA_NOT_FOUND: u8 = 0x88;
 }
 
 // ---------------------------------------------------------------------------

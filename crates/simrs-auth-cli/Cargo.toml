@@ -10,9 +10,10 @@ name = "simrs-auth"
 path = "src/main.rs"
 
 [dependencies]
-simrs-milenage = { workspace = true, features = ["std"] }
-clap           = { workspace = true }
-getrandom      = { workspace = true }
+simrs-consttime = { workspace = true }
+simrs-milenage  = { workspace = true, features = ["std"] }
+clap            = { workspace = true }
+getrandom       = { workspace = true }
 
 [lints]
 workspace = true

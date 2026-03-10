@@ -107,12 +107,12 @@ fn then_fcp_no_opc(world: &mut SimWorld) {
     );
 }
 
-#[then(regex = r"^the response data does not contain the raw ICCID bytes \[.*\]$")]
+#[then("the FCP does not contain the raw EF.ICCID file content")]
 fn then_no_raw_iccid(world: &mut SimWorld) {
-    let iccid = [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
+    let iccid = simrs_usim::profile::EF_ICCID.data();
     assert!(
-        !contains_subseq(world.last_data(), &iccid),
-        "FCP contains raw ICCID data"
+        !contains_subseq(world.last_data(), iccid),
+        "FCP contains raw ICCID data ({iccid:02X?})"
     );
 }
 

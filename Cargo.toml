@@ -33,9 +33,11 @@ members = [
     "crates/simrs-pcap",
     "crates/simrs-interposer",
     "crates/simrs-auth-cli",
+    "crates/simrs-secret",
     "crates/simrs-consttime-validation",
     "crates/simrs-profile",
     "crates/simrs-ref",
+    "tools/simrs-security-tests",
 ]
 resolver = "2"
 
@@ -79,6 +81,7 @@ simrs-fuzz                = { path = "crates/simrs-fuzz" }
 simrs-ota                 = { path = "crates/simrs-ota",                 default-features = false }
 simrs-pcap                = { path = "crates/simrs-pcap",                default-features = false }
 simrs-interposer          = { path = "crates/simrs-interposer" }
+simrs-secret               = { path = "crates/simrs-secret",               default-features = false }
 simrs-consttime-validation = { path = "crates/simrs-consttime-validation" }
 simrs-profile              = { path = "crates/simrs-profile" }
 simrs-ref                  = { path = "crates/simrs-ref" }
@@ -91,6 +94,10 @@ getrandom  = "0.2"
 
 # External test/dev dependencies -- tests run on host (std always available)
 proptest = "1"
+tacet    = "0.4"
+cucumber = "0.21"
+tokio    = { version = "1", features = ["macros", "rt-multi-thread"] }
+futures  = "0.3"
 
 [workspace.lints.rust]
 unsafe_code      = "forbid"

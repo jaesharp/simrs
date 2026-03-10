@@ -406,6 +406,25 @@ pub fn authenticate_gsm(challenge: &[u8; 16]) -> ApduCmd {
 }
 
 // ---------------------------------------------------------------------------
+// GET IDENTITY command constructors (3GPP TS 31.102 clause 7.5)
+// ---------------------------------------------------------------------------
+
+/// GET IDENTITY for SUCI context (INS=0x78, P1=0x00, P2=0x01).
+///
+/// Per TS 31.102 V19.4.0 clause 7.5: the ME sends GET IDENTITY to request
+/// SUCI computation by the USIM. P2=0x01 selects the SUCI context.
+pub const fn get_identity_suci() -> ApduCmd {
+    ApduCmd {
+        cla: 0x00,
+        ins: ins::GET_IDENTITY,
+        p1: 0x00,
+        p2: 0x01,
+        data: vec![],
+        le: None,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // OTA / proactive command constructors (CLA=0x80)
 // ---------------------------------------------------------------------------
 

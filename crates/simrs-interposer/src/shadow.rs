@@ -4,7 +4,7 @@
 //! for use in Diff mode with N-way comparison.
 
 use simrs_fs::DfDef;
-use simrs_milenage::{MilenageParams, OperatorVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_transport::{Transport, TransportError};
 
@@ -41,7 +41,7 @@ impl SimTerminal {
         // Configure USIM app with K/OPc.
         {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(config.k, OperatorVariant::Opc(config.opc));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::Opc(config.opc));
             let usim = sim.usim_app_mut();
             *usim = UsimApp::new(mf, &[], mil);
         }
@@ -150,7 +150,7 @@ impl ShadowSim {
         // Configure USIM app with K/OPc.
         {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(config.k, OperatorVariant::Opc(config.opc));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::Opc(config.opc));
             let usim = sim.usim_app_mut();
             *usim = UsimApp::new(mf, &[], mil);
         }

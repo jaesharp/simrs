@@ -29,9 +29,13 @@ Feature: Filesystem Access Control Bypass
     And the SIM is powered on (SimEvent::PowerOn sent, ATR received)
     And the MF filesystem contains:
       """
-      MF (3F00)
-      +-- EF.ICCID (2FE2) transparent, 10 bytes [98 10 14 80 00 00 00 00 00 F0]
-      +-- EF.DIR  (2F00) linear-fixed, record_size=32, num_records=1
+      MF (3F00) -- REFERENCE_MF + ADF_TABLE (full USIM profile)
+      +-- EF.ICCID (2FE2) transparent, 10 bytes
+      +-- EF.DIR   (2F00) linear-fixed
+      +-- EF.ARR   (2F06)
+      +-- EF.PL    (2F05)
+      +-- DF.TELECOM (7F10)
+      ADF.USIM (via ADF_TABLE) -- includes DF_5GS, EF.IMSI, etc.
       """
 
   # ---------------------------------------------------------------------------
@@ -160,7 +164,7 @@ Feature: Filesystem Access Control Bypass
     And I have consumed the FCP via GET RESPONSE
     When I send READ BINARY at offset 9 length 1
     Then the command succeeds
-    And the response data is [F0] (last byte of ICCID)
+    And the response data matches the last byte of provisioned EF.ICCID
 
   # ---------------------------------------------------------------------------
   # GET RESPONSE without any prior data-returning command
@@ -239,4 +243,4 @@ Feature: Filesystem Access Control Bypass
     # Step 5: READ BINARY -- all 10 bytes
     When I send READ BINARY at offset 0 length 10
     Then the command succeeds
-    And the response data is [98 10 14 80 00 00 00 00 00 F0] (EF.ICCID content)
+    And the response data matches the provisioned EF.ICCID content

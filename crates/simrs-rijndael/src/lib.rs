@@ -783,9 +783,9 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{dudect_test, Rng};
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
 
-    /// `DudeCT` timing test for AES-128 encryption.
+    /// Timing test for AES-128 encryption.
     ///
     /// Class 0: fixed key [0u8; 16], random plaintext.
     /// Class 1: random key, random plaintext.
@@ -795,11 +795,7 @@ mod ct_validation {
     /// time.
     #[test]
     fn test_aes_encrypt_ct() {
-        let mut rng = Rng::from_seed(0xAE5E_0CC7);
-        let result = dudect_test(
-            "AES-128 encrypt (fixed vs random key)",
-            10_000,
-            &mut rng,
+        let outcome = ct_test(0xAE5E_0CC7,
             |rng| {
                 let key = [0u8; 16];
                 let mut plaintext = [0u8; 16];
@@ -819,11 +815,10 @@ mod ct_validation {
                 black_box(ct);
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
-    /// `DudeCT` timing test for AES-128 decryption.
+    /// Timing test for AES-128 decryption.
     ///
     /// Class 0: fixed key [0u8; 16], random ciphertext.
     /// Class 1: random key, random ciphertext.
@@ -832,11 +827,7 @@ mod ct_validation {
     /// `InvMixColumns`, and key schedule must not leak through timing.
     #[test]
     fn test_aes_decrypt_ct() {
-        let mut rng = Rng::from_seed(0xAE5D_ECC7);
-        let result = dudect_test(
-            "AES-128 decrypt (fixed vs random key)",
-            10_000,
-            &mut rng,
+        let outcome = ct_test(0xAE5D_ECC7,
             |rng| {
                 let key = [0u8; 16];
                 let mut ciphertext = [0u8; 16];
@@ -856,7 +847,6 @@ mod ct_validation {
                 black_box(pt);
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 }

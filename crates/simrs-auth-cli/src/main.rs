@@ -13,7 +13,7 @@
 use std::process;
 
 use clap::{Parser, Subcommand};
-use simrs_milenage::{MilenageParams, OperatorVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 
 #[derive(Parser)]
 #[command(name = "simrs-auth")]
@@ -97,7 +97,7 @@ fn cmd_gen_vector(k_hex: &str, opc_hex: &str, sqn_hex: &str, amf_hex: &str, rand
     );
 
     // Standard ETSI TS 135 206 clause 4 operator constants (c1..c5, r1..r5).
-    let params = MilenageParams::with_defaults(k, OperatorVariant::Opc(opc));
+    let params = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc(opc));
 
     // MME-side auth vector computation:
     // anonymity_key  = f5(RAND)
@@ -119,8 +119,8 @@ fn cmd_gen_vector(k_hex: &str, opc_hex: &str, sqn_hex: &str, amf_hex: &str, rand
         hex_encode(&rand_bytes),
         hex_encode(&auth_token),
         hex_encode(&expected_response),
-        hex_encode(&cipher_key),
-        hex_encode(&integrity_key),
+        hex_encode(cipher_key.declassify()),
+        hex_encode(integrity_key.declassify()),
     );
 }
 
@@ -128,7 +128,7 @@ fn cmd_verify(xres_hex: &str, res_hex: &str) {
     let expected_response: [u8; 8] = parse_hex_or_exit(xres_hex, "XRES");
     let res: [u8; 8] = parse_hex_or_exit(res_hex, "RES");
 
-    if constant_time_eq(expected_response, res) {
+    if simrs_consttime::ct_eq(&expected_response, &res).into_bool() {
         println!("{{\"match\": true}}");
     } else {
         println!("{{\"match\": false}}");
@@ -159,15 +159,6 @@ fn build_auth_token(
     auth_token
 }
 
-/// Constant-time equality for authentication tokens.
-/// XOR-folds all bytes unconditionally to avoid timing side-channels.
-fn constant_time_eq(a: [u8; 8], b: [u8; 8]) -> bool {
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
 
 // ---------------------------------------------------------------------------
 // Hex helpers
@@ -230,7 +221,7 @@ mod tests {
         let management_field: [u8; 2] = parse_hex(TS1_AMF, "AMF").unwrap();
         let rand_bytes: [u8; 16] = parse_hex(TS1_RAND, "RAND").unwrap();
 
-        let params = MilenageParams::with_defaults(k, OperatorVariant::Opc(opc));
+        let params = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc(opc));
         let anonymity_key = params.compute_anonymity_key(&rand_bytes);
         let auth_mac = params.compute_auth_mac(&rand_bytes, &sequence_number, &management_field);
         let expected_response = params.compute_response(&rand_bytes);
@@ -239,8 +230,8 @@ mod tests {
         let auth_token = build_auth_token(sequence_number, anonymity_key, management_field, auth_mac);
 
         assert_eq!(hex_encode(&expected_response), TS1_XRES);
-        assert_eq!(hex_encode(&cipher_key), TS1_CK);
-        assert_eq!(hex_encode(&integrity_key), TS1_IK);
+        assert_eq!(hex_encode(cipher_key.declassify()), TS1_CK);
+        assert_eq!(hex_encode(integrity_key.declassify()), TS1_IK);
         assert_eq!(hex_encode(&auth_token), TS1_AUTN);
     }
 
@@ -269,13 +260,17 @@ mod tests {
     }
 
     #[test]
-    fn constant_time_eq_match() {
-        assert!(constant_time_eq([1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 8]));
+    fn ct_eq_match() {
+        let a: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+        let b: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+        assert!(simrs_consttime::ct_eq(&a, &b).into_bool());
     }
 
     #[test]
-    fn constant_time_eq_mismatch() {
-        assert!(!constant_time_eq([1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 9]));
+    fn ct_eq_mismatch() {
+        let a: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+        let b: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 9];
+        assert!(!simrs_consttime::ct_eq(&a, &b).into_bool());
     }
 
     #[test]

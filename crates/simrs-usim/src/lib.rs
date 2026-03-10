@@ -3,9 +3,9 @@
 //! Handles interindustry (CLA=`0x00`) and ETSI-class (CLA=`0x80`) APDUs:
 //! SELECT (with FCP BER-TLV response), GET RESPONSE, READ BINARY,
 //! READ RECORD, UPDATE BINARY, UPDATE RECORD, INCREASE, STATUS,
-//! AUTHENTICATE (Milenage), VERIFY PIN, CHANGE REFERENCE DATA,
-//! DISABLE PIN, ENABLE PIN, UNBLOCK PIN, TERMINAL PROFILE, FETCH,
-//! TERMINAL RESPONSE, and ENVELOPE.
+//! AUTHENTICATE (Milenage), GET IDENTITY (SUCI), VERIFY PIN,
+//! CHANGE REFERENCE DATA, DISABLE PIN, ENABLE PIN, UNBLOCK PIN,
+//! TERMINAL PROFILE, FETCH, TERMINAL RESPONSE, and ENVELOPE.
 //!
 //! Constructs FCP BER-TLV per [ETSI TS 102 221 V18.3.0 clause 11.1.1.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A335%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D) using a
 //! dry-run/real-run pattern for buffer-size determination.
@@ -29,7 +29,7 @@
 //! use simrs_usim::UsimApp;
 //! use simrs_iso7816::Command;
 //! use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
-//! use simrs_milenage::{MilenageParams, OperatorVariant};
+//! use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 //!
 //! static EF: EfDef = EfDef::transparent(
 //!     Fid::new(0x2FE2),
@@ -38,7 +38,7 @@
 //! );
 //! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[FileRef::Ef(&EF)] };
 //!
-//! let milenage = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+//! let milenage = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
 //! let mut app = UsimApp::new(&MF, &[], milenage);
 //!
 //! // SELECT MF (interindustry CLA)
@@ -61,9 +61,11 @@ use simrs_fs::{
     SelectionCtx, SelectedFile, Sfi,
 };
 use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
-use simrs_milenage::{AuthenticationAlgorithm, AuthenticationError, MilenageParams};
+use simrs_kdf::HmacSha256;
+use simrs_milenage::{AuthenticationAlgorithm, AuthenticationError, CipherKey, IntegrityKey, MilenageParams};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
 use simrs_proactive::ProactiveState;
+use simrs_secret::Secret;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -140,6 +142,75 @@ const GSM_KC_LEN: u8 = 0x08;
 #[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const GSM_AUTH_RSP_LEN: usize = 1 + 4 + 1 + 8;
 
+// 3GPP TS 31.102 V19.4.0 clause 7.5: GET IDENTITY protocol constants.
+const P2_SUCI_CONTEXT: u8 = 0x01;
+
+// SUCI response TLV tag (TS 31.102 V19.4.0 clause 7.5.2.1).
+const SUCI_TLV_TAG: u8 = 0xA1;
+// SUPI type: IMSI (TS 24.501 Table 9.11.3.4.1).
+const SUPI_TYPE_IMSI: u8 = 0x01;
+
+// Protection scheme identifiers (TS 33.501 Annex C).
+const SCHEME_NULL: u8 = 0x00;
+const SCHEME_PROFILE_A: u8 = 0x01;
+const SCHEME_PROFILE_B: u8 = 0x02;
+
+// EF_SUCI_CALC_INFO TLV tags (TS 31.102 V19.4.0 clause 4.4.11.8).
+const SUCI_CALC_INFO_SCHEME_LIST_TAG: u8 = 0xA0;
+#[allow(dead_code)] // Used in GET IDENTITY handler.
+const SUCI_CALC_INFO_HN_KEY_LIST_TAG: u8 = 0xA1;
+#[allow(dead_code)] // Skipped during TLV iteration (parse_hn_public_key looks for KEY_TAG).
+const SUCI_CALC_INFO_KEY_ID_TAG: u8 = 0x80;
+const SUCI_CALC_INFO_KEY_TAG: u8 = 0x81;
+
+// ---------------------------------------------------------------------------
+// SuciSeed / SuciState
+// ---------------------------------------------------------------------------
+
+/// DRBG seed for SUCI ephemeral key generation.
+///
+/// Must be unique per card (e.g., derived from the subscriber key K or a
+/// separately provisioned secret). Used as an HMAC-SHA-256 key to derive
+/// fresh ephemeral private keys for each GET IDENTITY SUCI computation.
+///
+/// Per [3GPP TS 31.102 V19.4.0 clause 7.5.1.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf):
+/// "The freshness and randomness of SUCI returned upon each call of the
+/// command depends on the protection scheme configured."
+#[derive(Clone, Copy)]
+pub struct SuciSeed(pub [u8; 32]);
+
+/// SUCI on-card computation state.
+///
+/// Tracks the DRBG seed and a monotonic counter for ephemeral key derivation.
+/// Provision on a [`UsimApp`] via [`suci_mut`](UsimApp::suci_mut):
+///
+/// ```ignore
+/// *app.suci_mut() = Some(SuciState::new(seed));
+/// ```
+pub struct SuciState {
+    seed: SuciSeed,
+    counter: u64,
+}
+
+impl SuciState {
+    /// Create a new SUCI computation state with the given DRBG seed.
+    ///
+    /// The counter starts at zero and advances with each GET IDENTITY call.
+    pub fn new(seed: SuciSeed) -> Self {
+        Self { seed, counter: 0 }
+    }
+
+    /// Derive the next ephemeral key via HMAC-SHA-256(seed, counter_be).
+    fn next_ephemeral_key(&mut self) -> [u8; 32] {
+        let ctr_bytes = self.counter.to_be_bytes();
+        let mut hmac = HmacSha256::new(&self.seed.0);
+        hmac.update(&ctr_bytes);
+        let key = hmac.finalize();
+        self.counter += 1;
+        key
+    }
+}
+
 // ---------------------------------------------------------------------------
 // AuthenticationResult
 // ---------------------------------------------------------------------------
@@ -150,7 +221,7 @@ const GSM_AUTH_RSP_LEN: usize = 1 + 4 + 1 + 8;
 /// - Success: RES, CK, IK returned in tag 0xDB
 /// - Sync failure: AUTS returned in tag 0xDC for resynchronization
 /// - MAC failure: SW 98 62
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub enum AuthenticationResult {
     /// Successful authentication. Contains RES (8 bytes), CK (16 bytes),
     /// IK (16 bytes). Encoded as tag 0xDB with nested TLV.
@@ -158,9 +229,9 @@ pub enum AuthenticationResult {
         /// Authentication response (f2 output).
         response: [u8; 8],
         /// Ciphering key (f3 output).
-        cipher_key: [u8; 16],
+        cipher_key: CipherKey,
         /// Integrity key (f4 output).
-        integrity_key: [u8; 16],
+        integrity_key: IntegrityKey,
     },
     /// SQN synchronization failure. Contains AUTS (14 bytes).
     /// Encoded as tag 0xDC.
@@ -206,12 +277,12 @@ impl AuthenticationResult {
                 // CK
                 buf[pos] = AUTH_KEY_LEN;
                 pos += 1;
-                buf[pos..pos + 16].copy_from_slice(cipher_key);
+                buf[pos..pos + 16].copy_from_slice(cipher_key.declassify());
                 pos += 16;
                 // IK
                 buf[pos] = AUTH_KEY_LEN;
                 pos += 1;
-                buf[pos..pos + 16].copy_from_slice(integrity_key);
+                buf[pos..pos + 16].copy_from_slice(integrity_key.declassify());
                 pos += 16;
                 pos
             }
@@ -232,6 +303,134 @@ const PIN_DATA_LEN: usize = 8;
 const PUK_NEW_PIN_LEN: usize = PIN_DATA_LEN * 2;
 /// Old PIN(8) + new PIN(8) for CHANGE REFERENCE DATA.
 const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
+
+// ---------------------------------------------------------------------------
+// SUCI helpers (GET IDENTITY, TS 31.102 V19.4.0 clause 7.5)
+// ---------------------------------------------------------------------------
+
+/// Maximum packed MSIN length in bytes (10 BCD digits = 5 bytes).
+///
+/// A 15-digit IMSI with 2-digit MNC has 10 MSIN digits. With 3-digit
+/// MNC the MSIN is 9 digits. Both pack into at most 5 bytes.
+const MSIN_FIXED_LEN: usize = 5;
+
+/// Extract MSIN from BCD-encoded EF.IMSI data as a fixed-size packed BCD buffer.
+///
+/// IMSI layout ([3GPP TS 31.102 V19.4.0 clause 4.2.2](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf)):
+/// byte 0 = IMSI length (typically 0x08), bytes 1..9 = nibble-swapped BCD digits.
+///
+/// Returns a fixed [`MSIN_FIXED_LEN`]-byte buffer with packed BCD MSIN
+/// (high nibble first, padded with 0xF). The fixed size prevents MSIN
+/// length from leaking through response TLV sizes.
+///
+/// # Constant-Time
+///
+/// All 15 IMSI digit positions are always decoded. Digit count is derived
+/// structurally from the IMSI length byte and parity indicator, not by
+/// scanning digit values. No data-dependent branches on secret MSIN content.
+fn extract_msin(imsi_data: &[u8], mnc_len: u8) -> [u8; MSIN_FIXED_LEN] {
+    // Always decode all 15 possible IMSI digit positions.
+    // Positions beyond the actual digit count keep their 0xF filler.
+    let mut digits = [0x0Fu8; 15];
+
+    // Byte 1 high nibble = first IMSI digit.
+    digits[0] = (imsi_data[1] >> 4) & 0x0F;
+
+    // Bytes 2..=8: low nibble = even-position digit, high nibble = odd-position digit.
+    let mut i = 2usize;
+    while i <= 8 {
+        let pos = 2 * (i - 2) + 1;
+        digits[pos] = imsi_data[i] & 0x0F;
+        digits[pos + 1] = (imsi_data[i] >> 4) & 0x0F;
+        i += 1;
+    }
+
+    // MSIN starts after MCC (3 digits) + MNC (mnc_len digits).
+    // Always pack exactly MSIN_FIXED_LEN bytes (10 digit positions).
+    let skip = 3 + mnc_len as usize;
+    let mut msin = [0xFFu8; MSIN_FIXED_LEN];
+    let mut b = 0usize;
+    while b < MSIN_FIXED_LEN {
+        let hi_pos = skip + 2 * b;
+        let lo_pos = skip + 2 * b + 1;
+        let hi = if hi_pos < 15 { digits[hi_pos] } else { 0x0F };
+        let lo = if lo_pos < 15 { digits[lo_pos] } else { 0x0F };
+        msin[b] = (hi << 4) | lo;
+        b += 1;
+    }
+
+    msin
+}
+
+/// Extract MCC+MNC from IMSI as 3 BCD-encoded bytes for the SUCI TLV.
+///
+/// Returns 3 bytes: MCC digit1+digit2, MCC digit3 + MNC digit1, MNC digit2 (+ digit3 or 0xF).
+///
+/// # Constant-Time
+///
+/// All digit positions are decoded unconditionally. No data-dependent
+/// branches on IMSI digit values.
+fn extract_mcc_mnc(imsi_data: &[u8], mnc_len: u8) -> [u8; 3] {
+    // Decode the first 6 IMSI digit positions (MCC + MNC at most 6 digits).
+    let mut digits = [0x0Fu8; 6];
+
+    digits[0] = (imsi_data[1] >> 4) & 0x0F;
+    // Bytes 2 and 3 provide digits 1-4 (enough for MCC3 + MNC of up to 3).
+    digits[1] = imsi_data[2] & 0x0F;
+    digits[2] = (imsi_data[2] >> 4) & 0x0F;
+    digits[3] = imsi_data[3] & 0x0F;
+    digits[4] = (imsi_data[3] >> 4) & 0x0F;
+    // Digit 5 (MNC digit 3) from byte 4, only used when mnc_len >= 3.
+    digits[5] = imsi_data[4] & 0x0F;
+
+    // Pack: byte0 = MCC1|MCC2, byte1 = MCC3|MNC1, byte2 = MNC2|MNC3_or_F
+    let mnc3 = if mnc_len >= 3 { digits[5] } else { 0x0F };
+    [
+        (digits[0] << 4) | digits[1],
+        (digits[2] << 4) | digits[3],
+        (digits[4] << 4) | mnc3,
+    ]
+}
+
+/// Parse the Home Network Public Key from EF_SUCI_CALC_INFO TLV data.
+///
+/// Starts searching at `offset` for tag 0xA1 (HN Public Key List), then
+/// extracts the first key (tag 0x81) from within the list.
+///
+/// Returns a slice of the key bytes, or `None` if not found.
+fn parse_hn_public_key(data: &[u8], offset: usize) -> Option<&[u8]> {
+    if offset >= data.len() {
+        return None;
+    }
+    // Expect tag 0xA1 (HN Public Key List).
+    if data[offset] != SUCI_CALC_INFO_HN_KEY_LIST_TAG {
+        return None;
+    }
+    if offset + 1 >= data.len() {
+        return None;
+    }
+    let list_len = data[offset + 1] as usize;
+    let list_start = offset + 2;
+    if list_start + list_len > data.len() {
+        return None;
+    }
+
+    // Walk the list looking for tag 0x81 (Key).
+    let mut pos = list_start;
+    while pos + 1 < list_start + list_len {
+        let tag = data[pos];
+        let len = data[pos + 1] as usize;
+        if pos + 2 + len > list_start + list_len {
+            return None;
+        }
+        if tag == SUCI_CALC_INFO_KEY_TAG {
+            return Some(&data[pos + 2..pos + 2 + len]);
+        }
+        // Skip this TLV (could be tag 0x80 = Key Identifier).
+        pos += 2 + len;
+    }
+    None
+}
 
 // ---------------------------------------------------------------------------
 // UsimApp
@@ -274,10 +473,19 @@ pub struct UsimApp<A: AuthenticationAlgorithm = MilenageParams> {
     /// received with a success result. Not persisted in snapshots
     /// (transient session state).
     proactive_session_active: bool,
+    /// SUCI on-card computation state (GET IDENTITY, INS=0x78).
+    ///
+    /// `None` when SUCI computation is not provisioned. When present,
+    /// GET IDENTITY with P2=0x01 uses this state to derive fresh ephemeral
+    /// keys for ECIES encryption.
+    suci: Option<SuciState>,
 }
 
 impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Create a new USIM application.
+    ///
+    /// GET IDENTITY (INS=0x78) will return `6985` (conditions not satisfied)
+    /// until SUCI is enabled via [`suci_mut`](Self::suci_mut).
     ///
     /// # Panics
     ///
@@ -289,13 +497,21 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// ```
     /// use simrs_usim::UsimApp;
     /// use simrs_fs::{DfDef, Fid, AdfSlot};
-    /// use simrs_milenage::{MilenageParams, OperatorVariant};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
     ///
     /// static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
-    /// let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+    /// let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
     /// let app = UsimApp::new(&MF, &[], mil);
     /// ```
     pub fn new(
+        mf: &'static DfDef,
+        adfs: &'static [AdfSlot],
+        auth: A,
+    ) -> Self {
+        Self::build(mf, adfs, auth)
+    }
+
+    fn build(
         mf: &'static DfDef,
         adfs: &'static [AdfSlot],
         auth: A,
@@ -305,6 +521,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         if let Err(e) = data.init_with_adfs(mf, adfs) {
             panic!("FsData init failed: {}", e);
         }
+
         Self {
             fs: SelectionCtx::new(mf),
             data,
@@ -320,6 +537,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             channels: [None, None, None, None],
             last_aid_match: false,
             proactive_session_active: false,
+            suci: None,
         }
     }
 
@@ -331,6 +549,17 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Access the proactive state for queuing commands.
     pub const fn proactive_state(&mut self) -> &mut ProactiveState {
         &mut self.proactive
+    }
+
+    /// Access the SUCI computation state.
+    ///
+    /// Set to `Some` to enable GET IDENTITY (INS=0x78, P2=0x01) per
+    /// [3GPP TS 31.102 V19.4.0 clause 7.5](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf).
+    /// The filesystem must contain `EF_SUCI_CALC_INFO`, `EF_IMSI`, `EF_AD`,
+    /// and `EF_ROUTING_INDICATOR`; if any are missing, GET IDENTITY returns
+    /// SW 69 85 (conditions not satisfied) at runtime.
+    pub fn suci_mut(&mut self) -> &mut Option<SuciState> {
+        &mut self.suci
     }
 
     /// Clear the response queue (pending GET RESPONSE data).
@@ -592,6 +821,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 ins::SEARCH_RECORD => self.handle_search_record(cmd, buf),
                 ins::STATUS => self.handle_status(cmd, buf),
                 ins::AUTHENTICATE => self.handle_authenticate(cmd, buf),
+                ins::GET_IDENTITY => self.handle_get_identity(cmd, buf),
                 ins::VERIFY => self.handle_verify(cmd, buf),
                 ins::CHANGE_REF_DATA => self.handle_change_ref_data(cmd, buf),
                 ins::DISABLE_PIN => self.handle_disable_pin(cmd, buf),
@@ -1113,7 +1343,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             }
         };
 
-        if auth_result == AuthenticationResult::MacFailure {
+        if matches!(auth_result, AuthenticationResult::MacFailure) {
             write_sw(buf, StatusWord::AuthenticationError)
         } else {
             let q = self.rsp_queue.buf_mut();
@@ -1159,9 +1389,11 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // where CK = CK1(8) || CK2(8), IK = IK1(8) || IK2(8).
         let cipher_key = self.auth.compute_cipher_key(&challenge);
         let integrity_key = self.auth.compute_integrity_key(&challenge);
+        let ck = cipher_key.declassify();
+        let ik = integrity_key.declassify();
         let mut gsm_cipher_key = [0u8; 8];
         for i in 0..8 {
-            gsm_cipher_key[i] = cipher_key[i] ^ cipher_key[i + 8] ^ integrity_key[i] ^ integrity_key[i + 8];
+            gsm_cipher_key[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
         }
 
         // Encode response: 0x04 || SRES(4) || 0x08 || Kc(8).
@@ -1172,6 +1404,200 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         q[6..14].copy_from_slice(&gsm_cipher_key);
         self.rsp_queue.set_len(GSM_AUTH_RSP_LEN);
         write_sw(buf, StatusWord::bytes_available(GSM_AUTH_RSP_LEN as u8))
+    }
+
+    // -- GET IDENTITY (SUCI computation, TS 31.102 V19.4.0 clause 7.5) --
+
+    /// GET IDENTITY handler: computes SUCI on-card per
+    /// [3GPP TS 31.102 V19.4.0 clause 7.5](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf).
+    ///
+    /// P2=0x01 is the SUCI context. Returns the SUCI as a TLV data object
+    /// (tag 0xA1) via GET RESPONSE.
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_get_identity<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if cmd.p1() != 0x00 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+        if cmd.p2() != P2_SUCI_CONTEXT {
+            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        }
+
+        // SUCI computation requires provisioned DRBG seed.
+        let suci = match &mut self.suci {
+            Some(s) => s,
+            None => return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED)),
+        };
+
+        // Read EF_SUCI_CALC_INFO to determine protection scheme and HN public key.
+        let calc_info_len = profile::EF_SUCI_CALC_INFO.data().len() as u16;
+        let calc_info = match self.data.read_binary(&profile::EF_SUCI_CALC_INFO, 0, calc_info_len) {
+            Ok(d) => d,
+            Err(_) => return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED)),
+        };
+
+        // Parse Protection Scheme Identifier List (tag 0xA0).
+        if calc_info.len() < 4 || calc_info[0] != SUCI_CALC_INFO_SCHEME_LIST_TAG {
+            return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND));
+        }
+        let scheme_list_len = calc_info[1] as usize;
+        if calc_info.len() < 2 + scheme_list_len || scheme_list_len < 2 {
+            return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND));
+        }
+        let protection_scheme = calc_info[2];
+        let key_index = calc_info[3];
+
+        // Read EF_IMSI for MSIN extraction.
+        let imsi_data = match self.data.read_binary(&profile::EF_IMSI, 0, 9) {
+            Ok(d) => d,
+            Err(_) => return write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        };
+
+        // Read EF_AD byte 3 for MNC length.
+        let ad_data = match self.data.read_binary(&profile::EF_AD, 0, 4) {
+            Ok(d) => d,
+            Err(_) => return write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        };
+        let mnc_len = if ad_data.len() >= 4 && (ad_data[3] == 2 || ad_data[3] == 3) {
+            ad_data[3]
+        } else {
+            2 // default to 2-digit MNC
+        };
+
+        let msin = extract_msin(imsi_data, mnc_len);
+
+        // Read Routing Indicator (EF 4F0A, 4 bytes BCD).
+        let routing_ind = match self.data.read_binary(&profile::EF_ROUTING_INDICATOR, 0, 4) {
+            Ok(d) => d,
+            Err(_) => return write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        };
+
+        // Extract MCC+MNC from IMSI for the home network identifier.
+        let mcc_mnc = extract_mcc_mnc(imsi_data, mnc_len);
+
+        // Encode SUCI TLV response per TS 31.102 V19.4.0 clause 7.5.2.1.
+        // MSIN is always MSIN_FIXED_LEN bytes to prevent length leakage via SW2.
+        let q = self.rsp_queue.buf_mut();
+        match protection_scheme {
+            SCHEME_NULL => {
+                // Null scheme: MSIN in clear (no encryption).
+                // SUCI = A1 <len> 01 <MCC+MNC:3> <RoutingInd:2> 00 <key_index> <MSIN_BCD:5>
+                let inner_len = 1 + 3 + 2 + 1 + 1 + MSIN_FIXED_LEN;
+                let mut pos = 0usize;
+                q[pos] = SUCI_TLV_TAG; pos += 1;
+                q[pos] = inner_len as u8; pos += 1;
+                q[pos] = SUPI_TYPE_IMSI; pos += 1;
+                q[pos..pos + 3].copy_from_slice(&mcc_mnc); pos += 3;
+                q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]); pos += 2;
+                q[pos] = SCHEME_NULL; pos += 1;
+                q[pos] = key_index; pos += 1;
+                q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&msin); pos += MSIN_FIXED_LEN;
+                self.rsp_queue.set_len(pos);
+                write_sw(buf, StatusWord::bytes_available(pos as u8))
+            }
+            SCHEME_PROFILE_A => {
+                // Profile A: X25519 ECIES.
+                let hn_key = match parse_hn_public_key(calc_info, 2 + scheme_list_len) {
+                    Some(k) => k,
+                    None => return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND)),
+                };
+                if hn_key.len() != 32 {
+                    return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND));
+                }
+                let mut pk = [0u8; 32];
+                pk.copy_from_slice(hn_key);
+
+                let eph_sk = Secret::new(suci.next_ephemeral_key());
+                let result = simrs_ecies::ecies_profile_a_encrypt(&pk, &msin, &eph_sk);
+
+                // Scheme output: ephemeral_pk(32) || ciphertext(MSIN_FIXED_LEN) || mac(8)
+                let scheme_output_len = 32 + MSIN_FIXED_LEN + 8;
+                let inner_len = 1 + 3 + 2 + 1 + 1 + scheme_output_len;
+                let mut pos = 0usize;
+                q[pos] = SUCI_TLV_TAG; pos += 1;
+                q[pos] = inner_len as u8; pos += 1;
+                q[pos] = SUPI_TYPE_IMSI; pos += 1;
+                q[pos..pos + 3].copy_from_slice(&mcc_mnc); pos += 3;
+                q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]); pos += 2;
+                q[pos] = SCHEME_PROFILE_A; pos += 1;
+                q[pos] = key_index; pos += 1;
+                q[pos..pos + 32].copy_from_slice(&result.ephemeral_pk); pos += 32;
+                q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&result.ciphertext[..MSIN_FIXED_LEN]); pos += MSIN_FIXED_LEN;
+                q[pos..pos + 8].copy_from_slice(&result.mac); pos += 8;
+                self.rsp_queue.set_len(pos);
+                write_sw(buf, StatusWord::bytes_available(pos as u8))
+            }
+            SCHEME_PROFILE_B => {
+                // Profile B: P-256 ECIES.
+                let hn_key = match parse_hn_public_key(calc_info, 2 + scheme_list_len) {
+                    Some(k) => k,
+                    None => return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND)),
+                };
+                if hn_key.len() != 65 {
+                    return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND));
+                }
+                let mut pk = [0u8; 65];
+                pk.copy_from_slice(hn_key);
+
+                // Generate 4 ephemeral key candidates and select the first valid
+                // one using constant-time masks, preventing timing leaks from
+                // the rejection sampling loop.
+                let c0 = suci.next_ephemeral_key();
+                let c1 = suci.next_ephemeral_key();
+                let c2 = suci.next_ephemeral_key();
+                let c3 = suci.next_ephemeral_key();
+
+                let v0 = simrs_ecies::p256::validate_scalar(&c0);
+                let v1 = simrs_ecies::p256::validate_scalar(&c1);
+                let v2 = simrs_ecies::p256::validate_scalar(&c2);
+                let v3 = simrs_ecies::p256::validate_scalar(&c3);
+
+                // Build selection masks: pick the first (lowest index) valid candidate.
+                // m_i is all-ones if candidate i is selected, all-zeros otherwise.
+                let m0 = (v0 as u8).wrapping_neg(); // 0xFF if v0, else 0x00
+                let found0 = m0;
+                let m1 = (v1 as u8).wrapping_neg() & !found0;
+                let found1 = found0 | (v1 as u8).wrapping_neg();
+                let m2 = (v2 as u8).wrapping_neg() & !found1;
+                let found2 = found1 | (v2 as u8).wrapping_neg();
+                let m3 = (v3 as u8).wrapping_neg() & !found2;
+                let any_valid = found2 | (v3 as u8).wrapping_neg();
+
+                if any_valid == 0 {
+                    return write_sw(buf, StatusWord::NoPreciseDiagnosis);
+                }
+
+                let mut eph_sk = [0u8; 32];
+                let mut j = 0;
+                while j < 32 {
+                    eph_sk[j] = (c0[j] & m0) | (c1[j] & m1) | (c2[j] & m2) | (c3[j] & m3);
+                    j += 1;
+                }
+
+                let result = simrs_ecies::ecies_profile_b_encrypt(&pk, &msin, &Secret::new(eph_sk));
+
+                // Scheme output: ephemeral_pk(33) || ciphertext(MSIN_FIXED_LEN) || mac(8)
+                let scheme_output_len = 33 + MSIN_FIXED_LEN + 8;
+                let inner_len = 1 + 3 + 2 + 1 + 1 + scheme_output_len;
+                let mut pos = 0usize;
+                q[pos] = SUCI_TLV_TAG; pos += 1;
+                q[pos] = inner_len as u8; pos += 1;
+                q[pos] = SUPI_TYPE_IMSI; pos += 1;
+                q[pos..pos + 3].copy_from_slice(&mcc_mnc); pos += 3;
+                q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]); pos += 2;
+                q[pos] = SCHEME_PROFILE_B; pos += 1;
+                q[pos] = key_index; pos += 1;
+                q[pos..pos + 33].copy_from_slice(&result.ephemeral_pk); pos += 33;
+                q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&result.ciphertext[..MSIN_FIXED_LEN]); pos += MSIN_FIXED_LEN;
+                q[pos..pos + 8].copy_from_slice(&result.mac); pos += 8;
+                self.rsp_queue.set_len(pos);
+                write_sw(buf, StatusWord::bytes_available(pos as u8))
+            }
+            _ => write_sw(buf, StatusWord::wrong_params(sw2::INCORRECT_DATA)),
+        }
     }
 
     // -- VERIFY PIN --
@@ -1833,7 +2259,7 @@ fn write_ber_len(
 mod tests {
     use super::*;
     use simrs_fs::{AdfSlot, EfDef, Fid, FileRef, Sfi};
-    use simrs_milenage::OperatorVariant;
+    use simrs_milenage::{OperatorVariant, SubscriberKey};
     use simrs_proactive::ProactiveCommand;
 
     // -- Test filesystem --
@@ -1919,10 +2345,10 @@ mod tests {
     };
 
     // ETSI TS 135 208 Test Set 1 values.
-    static K: [u8; 16] = [
+    static K: SubscriberKey = SubscriberKey::new([
         0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
         0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC,
-    ];
+    ]);
     static OPC: [u8; 16] = [
         0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E,
         0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B, 0xAF,
@@ -2298,9 +2724,9 @@ mod tests {
         // RES at offset 3 (after 0xDB, len, 0x08).
         assert_eq!(&buf[3..11], &expected.response);
         // CK at offset 12 (after 0x10).
-        assert_eq!(&buf[12..28], &expected.cipher_key);
+        assert_eq!(&buf[12..28], expected.cipher_key.declassify().as_slice());
         // IK at offset 29 (after 0x10).
-        assert_eq!(&buf[29..45], &expected.integrity_key);
+        assert_eq!(&buf[29..45], expected.integrity_key.declassify().as_slice());
     }
 
     #[test]
@@ -2371,9 +2797,11 @@ mod tests {
         // Verify Kc = CK1 xor CK2 xor IK1 xor IK2.
         let cipher_key = params.compute_cipher_key(&rand_val);
         let integrity_key = params.compute_integrity_key(&rand_val);
+        let ck = cipher_key.declassify();
+        let ik = integrity_key.declassify();
         let mut expected_kc = [0u8; 8];
         for i in 0..8 {
-            expected_kc[i] = cipher_key[i] ^ cipher_key[i + 8] ^ integrity_key[i] ^ integrity_key[i + 8];
+            expected_kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
         }
         assert_eq!(&buf[6..14], &expected_kc);
     }
@@ -2443,9 +2871,9 @@ mod tests {
         assert_eq!(buf[2], 0x08); // RES length prefix
         assert_eq!(&buf[3..11], &output.response);
         assert_eq!(buf[11], 0x10); // CK length prefix
-        assert_eq!(&buf[12..28], &output.cipher_key);
+        assert_eq!(&buf[12..28], output.cipher_key.declassify().as_slice());
         assert_eq!(buf[28], 0x10); // IK length prefix
-        assert_eq!(&buf[29..45], &output.integrity_key);
+        assert_eq!(&buf[29..45], output.integrity_key.declassify().as_slice());
     }
 
     #[test]
@@ -3317,7 +3745,7 @@ mod tests {
         assert_eq!(written, UsimApp::<MilenageParams>::SNAPSHOT_SIZE);
 
         // Restore into fresh app (same adfs).
-        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -3359,7 +3787,7 @@ mod tests {
         // Save and restore.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -3394,7 +3822,7 @@ mod tests {
         // Save and restore.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -3409,7 +3837,7 @@ mod tests {
         let mut small = [0u8; 10];
         assert_eq!(src.save_state(&mut small), 0);
 
-        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&small));
     }
@@ -3430,7 +3858,7 @@ mod tests {
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
         snap[RSP_QUEUE_LEN_OFFSET] = u8::MAX;
-        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&snap));
     }
@@ -4303,7 +4731,7 @@ mod tests {
         // Verify snapshot roundtrip preserves the new data.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = app.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
     }
@@ -4702,17 +5130,17 @@ mod tests {
             "RES must match Milenage f2 output");
 
         // Verify CK (16 bytes at offset 12).
-        assert_eq!(&buf[12..28], &expected.cipher_key,
+        assert_eq!(&buf[12..28], expected.cipher_key.declassify().as_slice(),
             "CK must match Milenage f3 output");
 
         // Verify IK (16 bytes at offset 29).
-        assert_eq!(&buf[29..45], &expected.integrity_key,
+        assert_eq!(&buf[29..45], expected.integrity_key.declassify().as_slice(),
             "IK must match Milenage f4 output");
 
         // Sanity: none of RES/CK/IK should be all-zeros (non-trivial output).
         assert_ne!(expected.response, [0u8; 8], "RES must not be all-zeros");
-        assert_ne!(expected.cipher_key, [0u8; 16], "CK must not be all-zeros");
-        assert_ne!(expected.integrity_key, [0u8; 16], "IK must not be all-zeros");
+        assert_ne!(*expected.cipher_key.declassify(), [0u8; 16], "CK must not be all-zeros");
+        assert_ne!(*expected.integrity_key.declassify(), [0u8; 16], "IK must not be all-zeros");
     }
 
     /// AUTHENTICATE with corrupted MAC in AUTN must return SW 98 62
@@ -4919,13 +5347,13 @@ mod tests {
         // Step 5: Cross-check against independent Milenage computation.
         let expected = params.authenticate(&rand_val, &auth_token).unwrap();
         assert_eq!(res_actual, &expected.response, "RES must match Milenage f2");
-        assert_eq!(ck_actual, &expected.cipher_key, "CK must match Milenage f3");
-        assert_eq!(ik_actual, &expected.integrity_key, "IK must match Milenage f4");
+        assert_eq!(ck_actual, expected.cipher_key.declassify().as_slice(), "CK must match Milenage f3");
+        assert_eq!(ik_actual, expected.integrity_key.declassify().as_slice(), "IK must match Milenage f4");
 
         // Non-triviality: none of the outputs should be all-zeros.
         assert_ne!(expected.response, [0u8; 8], "RES must not be trivial");
-        assert_ne!(expected.cipher_key, [0u8; 16], "CK must not be trivial");
-        assert_ne!(expected.integrity_key, [0u8; 16], "IK must not be trivial");
+        assert_ne!(*expected.cipher_key.declassify(), [0u8; 16], "CK must not be trivial");
+        assert_ne!(*expected.integrity_key.declassify(), [0u8; 16], "IK must not be trivial");
     }
 
     /// Multi-step sequence: SELECT ADF USIM -> AUTHENTICATE with bad AUTN ->
@@ -5781,7 +6209,7 @@ mod tests {
 mod proptests {
     use super::*;
     use simrs_fs::{EfDef, Fid, FileRef};
-    use simrs_milenage::OperatorVariant;
+    use simrs_milenage::{OperatorVariant, SubscriberKey};
     use proptest::prelude::*;
 
     static PT_EF: EfDef = EfDef::transparent(
@@ -5828,7 +6256,7 @@ mod proptests {
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
             prop_assume!(u16::from(offset) + u16::from(length) <= 8);
-            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
@@ -5848,7 +6276,7 @@ mod proptests {
         fn fcp_always_starts_with_62(idx in 0usize..2) {
             let fids: [u16; 2] = [0x3F00, 0x2FE2];
             let fid = fids[idx];
-            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let fid_be = fid.to_be_bytes();
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, fid_be[0], fid_be[1]];
@@ -5869,7 +6297,7 @@ mod proptests {
         // For any valid record number, READ RECORD succeeds.
         #[test]
         fn read_record_in_bounds(rec in 1u8..=3u8) {
-            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &PT_ADF_TABLE, mil);
             // Select ADF.USIM
             let sel_adf = [0x00, 0xA4, 0x04, 0x04, 0x07,
@@ -5895,7 +6323,7 @@ mod proptests {
         #[test]
         #[allow(clippy::cast_possible_truncation)] // data.len() is 1..=8, fits in u8
         fn update_binary_roundtrip(data in proptest::collection::vec(any::<u8>(), 1..=8)) {
-            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             // Select the 8-byte transparent EF
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
@@ -5934,7 +6362,7 @@ mod proptests {
         #[test]
         fn read_binary_out_of_bounds_fails(offset in 0u16..256, length in 1u8..=255u8) {
             prop_assume!(u32::from(offset) + u32::from(length) > 8); // beyond 8-byte EF
-            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
@@ -5950,5 +6378,289 @@ mod proptests {
             prop_assert_ne!((buf[len-2], buf[len-1]), (0x90, 0x00),
                 "out-of-bounds READ BINARY must not succeed");
         }
+    }
+
+    /// GET IDENTITY returns 69 85 when SUCI is not provisioned.
+    #[test]
+    fn get_identity_without_suci_returns_conditions_not_satisfied() {
+        let auth = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+        let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
+        assert!(app.suci_mut().is_none());
+        let cmd_bytes = [0x00, 0x78, 0x00, 0x01];
+        let cmd = Command::parse(&cmd_bytes).unwrap();
+        let mut buf = [0u8; 256];
+        let rsp = app.handle(&cmd, &mut buf);
+        let len = rsp.len();
+        assert_eq!((buf[len - 2], buf[len - 1]), (0x69, 0x85));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (DudeCT)
+//
+//   cargo test -p simrs-usim --features ct-validation --release
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
+
+    /// extract_msin timing must be independent of IMSI digit values.
+    ///
+    /// Both classes generate random IMSI data using bitwise ops (no division),
+    /// then iterate the function 100x in the timed block to amplify any
+    /// real CT violation above measurement noise.
+    ///
+    /// Class 0: random IMSI masked with 0x77 (low-value bytes).
+    /// Class 1: random IMSI OR'd with 0x88 (high-value bytes).
+    ///
+    /// A non-CT implementation that branches on digit values (e.g.,
+    /// scanning for 0xF terminators) would show timing differences.
+    #[test]
+    fn test_extract_msin_ct() {
+        let outcome = ct_test(0x0051_0001,
+            |rng| {
+                // Class 0: random data AND 0x77 -> bytes in [0x00, 0x77].
+                let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
+                let mut rand_bytes = [0u8; 7];
+                rng.fill_bytes(&mut rand_bytes);
+                let mut i = 0;
+                while i < 7 { imsi[i + 2] = rand_bytes[i] & 0x77; i += 1; }
+                (imsi, 2u8)
+            },
+            |rng| {
+                // Class 1: random data OR 0x88 -> bytes in [0x88, 0xFF].
+                let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
+                let mut rand_bytes = [0u8; 7];
+                rng.fill_bytes(&mut rand_bytes);
+                let mut i = 0;
+                while i < 7 { imsi[i + 2] = rand_bytes[i] | 0x88; i += 1; }
+                (imsi, 2u8)
+            },
+            |(imsi, mnc_len)| {
+                // Iterate 100x to amplify signal above measurement noise.
+                let mut acc = [0u8; MSIN_FIXED_LEN];
+                let mut i = 0;
+                while i < 100 {
+                    let r = extract_msin(imsi, *mnc_len);
+                    let mut j = 0;
+                    while j < MSIN_FIXED_LEN { acc[j] ^= r[j]; j += 1; }
+                    i += 1;
+                }
+                black_box(acc);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// extract_msin timing must be independent of MNC length parameter.
+    ///
+    /// Class 0: mnc_len = 2 (2-digit MNC, more MSIN digits).
+    /// Class 1: mnc_len = 3 (3-digit MNC, fewer MSIN digits).
+    ///
+    /// The skip offset changes, but the function always decodes all 15
+    /// positions and packs exactly MSIN_FIXED_LEN bytes. Iterated 100x
+    /// to amplify any real timing difference above measurement noise.
+    #[test]
+    fn test_extract_msin_mnc_length_ct() {
+        let outcome = ct_test(0x0051_0002,
+            |rng| {
+                let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
+                let mut rand_bytes = [0u8; 7];
+                rng.fill_bytes(&mut rand_bytes);
+                imsi[2..9].copy_from_slice(&rand_bytes);
+                (imsi, 2u8)
+            },
+            |rng| {
+                let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
+                let mut rand_bytes = [0u8; 7];
+                rng.fill_bytes(&mut rand_bytes);
+                imsi[2..9].copy_from_slice(&rand_bytes);
+                (imsi, 3u8)
+            },
+            |(imsi, mnc_len)| {
+                let mut acc = [0u8; MSIN_FIXED_LEN];
+                let mut i = 0;
+                while i < 100 {
+                    let r = extract_msin(imsi, *mnc_len);
+                    let mut j = 0;
+                    while j < MSIN_FIXED_LEN { acc[j] ^= r[j]; j += 1; }
+                    i += 1;
+                }
+                black_box(acc);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// extract_mcc_mnc timing must be independent of IMSI digit values.
+    ///
+    /// Both classes generate random IMSI data identically, then XOR with
+    /// different constant masks (single AND instruction, no variable-time
+    /// division). The timed block iterates 100x to amplify any real CT
+    /// violation above measurement noise (function runs in ~3ns).
+    ///
+    /// Class 0: random IMSI masked with 0x44 (low nibbles).
+    /// Class 1: random IMSI OR'd with 0x88 (high nibbles).
+    #[test]
+    fn test_extract_mcc_mnc_ct() {
+        let outcome = ct_test(0x0051_0003,
+            |rng| {
+                // Class 0: random data AND 0x77 -> bytes in [0x00, 0x77].
+                let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
+                let mut rand_bytes = [0u8; 7];
+                rng.fill_bytes(&mut rand_bytes);
+                let mut i = 0;
+                while i < 7 { imsi[i + 2] = rand_bytes[i] & 0x77; i += 1; }
+                (imsi, 2u8)
+            },
+            |rng| {
+                // Class 1: random data OR 0x88 -> bytes in [0x88, 0xFF].
+                let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
+                let mut rand_bytes = [0u8; 7];
+                rng.fill_bytes(&mut rand_bytes);
+                let mut i = 0;
+                while i < 7 { imsi[i + 2] = rand_bytes[i] | 0x88; i += 1; }
+                (imsi, 2u8)
+            },
+            |(imsi, mnc_len)| {
+                // Iterate 100x to amplify signal above measurement noise.
+                let mut acc = [0u8; 3];
+                let mut i = 0;
+                while i < 100 {
+                    let r = extract_mcc_mnc(imsi, *mnc_len);
+                    acc[0] ^= r[0]; acc[1] ^= r[1]; acc[2] ^= r[2];
+                    i += 1;
+                }
+                black_box(acc);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// Profile B constant-time scalar selection: mask arithmetic timing must
+    /// be independent of which byte values flow through the OR combination.
+    ///
+    /// All candidates are valid P-256 scalars (matching production behavior
+    /// where P(invalid) ~ 2^-128). Both classes always select candidate 0
+    /// via the mask logic. The classes differ in candidate byte content:
+    /// Class 0: c0 has low-byte values (0x01..0x20).
+    /// Class 1: c0 has high-byte values (0xA0..0xBF).
+    ///
+    /// The mask AND+OR over all 32 bytes takes the same time regardless of
+    /// the byte values involved. A branching implementation that iterated
+    /// candidates and broke early would not exhibit this property.
+    #[test]
+    fn test_profile_b_scalar_selection_ct() {
+        let outcome = ct_test(0x0051_0004,
+            |rng| {
+                // Class 0: all-valid candidates with low-byte c0.
+                let mut c0 = [0u8; 32]; rng.fill_bytes(&mut c0);
+                let mut c1 = [0u8; 32]; rng.fill_bytes(&mut c1);
+                let mut c2 = [0u8; 32]; rng.fill_bytes(&mut c2);
+                let mut c3 = [0u8; 32]; rng.fill_bytes(&mut c3);
+                // Clamp c0 to low range [0x01..0x20].
+                let mut i = 0;
+                while i < 32 { c0[i] = (c0[i] % 0x20) + 0x01; i += 1; }
+                // Ensure all are valid (mid-range values always are).
+                c0[0] = 0x01; c1[0] = 0x10; c2[0] = 0x20; c3[0] = 0x30;
+                (c0, c1, c2, c3)
+            },
+            |rng| {
+                // Class 1: all-valid candidates with high-byte c0.
+                let mut c0 = [0u8; 32]; rng.fill_bytes(&mut c0);
+                let mut c1 = [0u8; 32]; rng.fill_bytes(&mut c1);
+                let mut c2 = [0u8; 32]; rng.fill_bytes(&mut c2);
+                let mut c3 = [0u8; 32]; rng.fill_bytes(&mut c3);
+                // Clamp c0 to high range [0xA0..0xBF].
+                let mut i = 0;
+                while i < 32 { c0[i] = (c0[i] % 0x20) + 0xA0; i += 1; }
+                c0[0] = 0xA0; c1[0] = 0x10; c2[0] = 0x20; c3[0] = 0x30;
+                (c0, c1, c2, c3)
+            },
+            |(c0, c1, c2, c3)| {
+                // All candidates are valid, so v0=v1=v2=v3=true always.
+                // The mask logic always selects c0.
+                let v0 = simrs_ecies::p256::validate_scalar(c0);
+                let v1 = simrs_ecies::p256::validate_scalar(c1);
+                let v2 = simrs_ecies::p256::validate_scalar(c2);
+                let v3 = simrs_ecies::p256::validate_scalar(c3);
+
+                let m0 = (v0 as u8).wrapping_neg();
+                let found0 = m0;
+                let m1 = (v1 as u8).wrapping_neg() & !found0;
+                let found1 = found0 | (v1 as u8).wrapping_neg();
+                let m2 = (v2 as u8).wrapping_neg() & !found1;
+                let found2 = found1 | (v2 as u8).wrapping_neg();
+                let m3 = (v3 as u8).wrapping_neg() & !found2;
+                let _ = found2;
+
+                let mut eph_sk = [0u8; 32];
+                let mut j = 0;
+                while j < 32 {
+                    eph_sk[j] = (c0[j] & m0) | (c1[j] & m1) | (c2[j] & m2) | (c3[j] & m3);
+                    j += 1;
+                }
+                black_box(eph_sk);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// Integration-level test: handle_get_identity (null scheme) response
+    /// timing must be independent of IMSI/MSIN content.
+    ///
+    /// Class 0: fixed IMSI (all-zero digits).
+    /// Class 1: random IMSI (random digit patterns).
+    ///
+    /// This is the critical gap: previously only library-level primitives
+    /// were covered, not the integration path where extract_msin + TLV
+    /// encoding combine.
+    #[test]
+    fn test_get_identity_null_scheme_ct() {
+        use simrs_milenage::OperatorVariant;
+
+        // Build two apps with different IMSI data.
+        // We mutate EF_IMSI content between calls to get different MSIN values
+        // while keeping the same app structure.
+
+        let auth = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+        let seed = SuciSeed([0x42u8; 32]);
+        let mut app = UsimApp::new(
+            &profile::REFERENCE_MF, &profile::ADF_TABLE, auth,
+        );
+        *app.suci_mut() = Some(SuciState::new(seed));
+
+        // Prepare GET IDENTITY command (INS=0x78, P1=0x00, P2=0x01).
+        let cmd_bytes = [0x00, 0x78, 0x00, 0x01];
+        let cmd = Command::parse(&cmd_bytes).unwrap();
+
+        // Write fixed IMSI before test loop.
+        let fixed_imsi: [u8; 9] = [0x08, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+        let outcome = ct_test(0x0051_0005,
+            |rng| {
+                let mut _discard = [0u8; 7];
+                rng.fill_bytes(&mut _discard);
+                fixed_imsi
+            },
+            |rng| {
+                let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
+                let mut rand_bytes = [0u8; 7];
+                rng.fill_bytes(&mut rand_bytes);
+                imsi[2..9].copy_from_slice(&rand_bytes);
+                imsi
+            },
+            |imsi_data| {
+                // Write IMSI to the filesystem, then invoke GET IDENTITY.
+                app.data.write_binary(&profile::EF_IMSI, 0, imsi_data).unwrap();
+                let mut buf = [0u8; 256];
+                let rsp = app.handle(&cmd, &mut buf);
+                black_box(rsp);
+            },
+        );
+        assert_no_timing_leak!(outcome);
     }
 }

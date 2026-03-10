@@ -70,6 +70,7 @@ pub fn ins_from_name(name: &str) -> u8 {
         "AUTHENTICATE" => ins::AUTHENTICATE,
         "TERMINAL PROFILE" => ins::TERMINAL_PROFILE,
         "ENVELOPE" => ins::ENVELOPE,
+        "GET IDENTITY" => ins::GET_IDENTITY,
         _ => panic!("Unknown command name for interposer: {name:?}"),
     }
 }

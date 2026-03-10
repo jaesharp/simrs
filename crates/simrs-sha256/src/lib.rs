@@ -551,7 +551,7 @@ mod proptests {
 }
 
 // ---------------------------------------------------------------------------
-// Constant-time validation (DudeCT)
+// Constant-time validation (tacet via ct_test wrapper)
 //
 //   cargo test -p simrs-sha256 --features ct-validation --release
 // ---------------------------------------------------------------------------
@@ -560,17 +560,13 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{dudect_test, Rng};
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
 
     /// SHA-256 timing must be independent of input content for fixed-length
     /// inputs. Class 0: all-zero block. Class 1: random block.
     #[test]
     fn test_sha256_ct() {
-        let mut rng = Rng::from_seed(0x5A25_6C17);
-        let result = dudect_test(
-            "SHA-256 (zero vs random 64-byte input)",
-            10_000,
-            &mut rng,
+        let outcome = ct_test(0x5A25_6C17,
             |rng| {
                 let _ = rng;
                 [0u8; 64]
@@ -584,7 +580,6 @@ mod ct_validation {
                 black_box(sha256(input));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 }

@@ -50,9 +50,13 @@ Feature: GET RESPONSE Data Leakage Prevention
     And the SIM is powered on (SimEvent::PowerOn sent, ATR received)
     And the MF filesystem contains:
       """
-      MF (3F00)
-      +-- EF.ICCID (2FE2) transparent, 10 bytes [98 10 14 80 00 00 00 00 00 F0]
-      +-- EF.DIR  (2F00) linear-fixed, record_size=32, num_records=1
+      MF (3F00) -- REFERENCE_MF + ADF_TABLE (full USIM profile)
+      +-- EF.ICCID (2FE2) transparent, 10 bytes
+      +-- EF.DIR   (2F00) linear-fixed
+      +-- EF.ARR   (2F06)
+      +-- EF.PL    (2F05)
+      +-- DF.TELECOM (7F10)
+      ADF.USIM (via ADF_TABLE) -- includes DF_5GS, EF.IMSI, etc.
       """
 
   # ---------------------------------------------------------------------------
@@ -178,8 +182,7 @@ Feature: GET RESPONSE Data Leakage Prevention
 
   Scenario: SELECT EF.ICCID FCP does not contain EF raw data
     # SELECT EF.ICCID should return an FCP describing the file, not its content.
-    # The EF.ICCID content is [98 10 14 80 00 00 00 00 00 F0]; this must not
-    # appear in the FCP response.
+    # The raw EF data must not appear in the FCP response.
     Given I have selected MF and consumed its FCP
     When I send SELECT EF.ICCID
     Then SW1 is 61
@@ -188,7 +191,7 @@ Feature: GET RESPONSE Data Leakage Prevention
     And the response data starts with tag 62 (FCP)
     And the FCP contains tag 80 (file size = 0x000A for 10-byte EF)
     And the FCP contains tag 83 with value 2F E2 (EF.ICCID file ID)
-    And the response data does not contain the raw ICCID bytes [98 10 14 80 00 00 00 00 00 F0]
+    And the FCP does not contain the raw EF.ICCID file content
 
   # ---------------------------------------------------------------------------
   # GET RESPONSE after power cycle does not return stale data

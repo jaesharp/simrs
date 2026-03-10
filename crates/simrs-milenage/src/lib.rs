@@ -86,7 +86,7 @@
 //! # Example
 //!
 //! ```
-//! use simrs_milenage::{MilenageParams, OperatorVariant};
+//! use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 //!
 //! // ETSI TS 135 208 V19.0.0 Test Set 1 (clause 4.3.1)
 //! let k    = [0x46,0x5B,0x5C,0xE8,0xB1,0x99,0xB4,0x9F,
@@ -98,7 +98,7 @@
 //! let sqn  = [0xFF,0x9B,0xB4,0xD0,0xB6,0x07];
 //! let amf  = [0xB9,0xB9];
 //!
-//! let params = MilenageParams::with_defaults(k, OperatorVariant::Opc(opc));
+//! let params = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc(opc));
 //!
 //! assert_eq!(params.compute_auth_mac(&rand, &sqn, &amf),
 //!            [0x4A,0x9F,0xFA,0xC3,0x54,0xDF,0xAF,0xB3]);
@@ -118,6 +118,9 @@
 
 #[cfg(feature = "std")]
 extern crate std;
+
+mod types;
+pub use types::{CipherKey, GsmCipherKey, IntegrityKey, SubscriberKey};
 
 // ct_eq is used in the AuthenticationAlgorithm::authenticate default method for
 // constant-time MAC-A comparison (3GPP TS 33.102 V19.1.0 timing side-channel requirement).
@@ -159,17 +162,17 @@ pub enum OperatorVariant {
 /// or [`MilenageParams::new`] for custom operator-chosen values.
 ///
 /// ```
-/// use simrs_milenage::{MilenageParams, OperatorVariant};
+/// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 ///
 /// let params = MilenageParams::with_defaults(
-///     [0xFF; 16],                    // K
+///     SubscriberKey::new([0xFF; 16]),       // K
 ///     OperatorVariant::Opc([0xAA; 16]),    // OPc
 /// );
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MilenageParams {
     /// Subscriber key K (128 bits).
-    k: [u8; 16],
+    k: SubscriberKey,
     /// Pre-computed OPc (128 bits). Derived from OP if OperatorVariant::Op was given.
     opc: [u8; 16],
     /// Per-function XOR constants c1..c5 (128 bits each).
@@ -184,9 +187,21 @@ pub struct MilenageParams {
     expected_sequence_number: [u8; 6],
 }
 
+impl core::fmt::Debug for MilenageParams {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MilenageParams")
+            .field("k", &self.k) // SubscriberKey::Debug prints [REDACTED]
+            .field("opc", &self.opc)
+            .field("ci", &self.ci)
+            .field("ri", &self.ri)
+            .field("expected_sequence_number", &self.expected_sequence_number)
+            .finish()
+    }
+}
+
 impl Default for MilenageParams {
     fn default() -> Self {
-        Self::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]))
+        Self::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]))
     }
 }
 
@@ -196,21 +211,28 @@ impl Default for MilenageParams {
 /// response (tag `0xDB`) contains RES, CK, IK, and optionally Kc.
 ///
 /// ```
-/// use simrs_milenage::AuthenticationOutput;
+/// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthenticationAlgorithm};
 ///
-/// // AuthenticationOutput fields are fixed-size arrays
-/// let out = AuthenticationOutput {
-///     response: [0u8; 8],
-///     cipher_key:  [0u8; 16],
-///     integrity_key:  [0u8; 16],
-///     gsm_cipher_key:  [0u8; 8],
-/// };
+/// // Obtain an AuthenticationOutput from a real authentication.
+/// let mut p = MilenageParams::with_defaults(
+///     SubscriberKey::new([0u8; 16]),
+///     OperatorVariant::Opc([0u8; 16]),
+/// );
+/// let rand = [0u8; 16];
+/// let sqn = [0u8; 6];
+/// let amf = [0u8; 2];
+/// let ak = p.compute_anonymity_key(&rand);
+/// let mut autn = [0u8; 16];
+/// for i in 0..6 { autn[i] = sqn[i] ^ ak[i]; }
+/// autn[6..8].copy_from_slice(&amf);
+/// autn[8..16].copy_from_slice(&p.compute_auth_mac(&rand, &sqn, &amf));
+/// let out = p.authenticate(&rand, &autn).unwrap();
 /// assert_eq!(out.response.len(), 8);
-/// assert_eq!(out.cipher_key.len(), 16);
-/// assert_eq!(out.integrity_key.len(), 16);
-/// assert_eq!(out.gsm_cipher_key.len(), 8);
+/// assert_eq!(out.cipher_key.declassify().len(), 16);
+/// assert_eq!(out.integrity_key.declassify().len(), 16);
+/// assert_eq!(out.gsm_cipher_key.declassify().len(), 8);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct AuthenticationOutput {
     /// RES: authentication response (8 bytes, f2 output).
     /// Sent to the network to prove knowledge of K.
@@ -218,16 +240,27 @@ pub struct AuthenticationOutput {
 
     /// CK: ciphering key (16 bytes, f3 output).
     /// Used for radio bearer encryption (3G) or as input to KASME derivation (4G/5G).
-    pub cipher_key: [u8; 16],
+    pub cipher_key: CipherKey,
 
     /// IK: integrity key (16 bytes, f4 output).
     /// Used for radio bearer integrity (3G) or as input to KASME derivation (4G/5G).
-    pub integrity_key: [u8; 16],
+    pub integrity_key: IntegrityKey,
 
     /// Kc: GSM ciphering key (8 bytes, C3 conversion of CK and IK).
     /// For UMTS-GSM interworking per [3GPP TS 33.102 V19.1.0 clause 6.8.1.2](../../../docs/specs/3gpp/ts-33.102/ts_133102v190100p.pdf#%5B%7B%22num%22%3A98%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C250%5D).
     /// `Kc[i] = CK[i] XOR CK[i+8] XOR IK[i] XOR IK[i+8]` for i in 0..8.
-    pub gsm_cipher_key: [u8; 8],
+    pub gsm_cipher_key: GsmCipherKey,
+}
+
+impl core::fmt::Debug for AuthenticationOutput {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AuthenticationOutput")
+            .field("response", &self.response)
+            .field("cipher_key", &self.cipher_key)      // CipherKey::Debug prints [REDACTED]
+            .field("integrity_key", &self.integrity_key) // IntegrityKey::Debug prints [REDACTED]
+            .field("gsm_cipher_key", &self.gsm_cipher_key) // GsmCipherKey::Debug prints [REDACTED]
+            .finish()
+    }
 }
 
 /// Authentication error.
@@ -421,10 +454,10 @@ pub trait AuthenticationAlgorithm {
     fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8];
     /// Compute the ciphering key CK (16 bytes).
     /// 3GPP function designation: f3.
-    fn compute_cipher_key(&self, challenge: &[u8; 16]) -> [u8; 16];
+    fn compute_cipher_key(&self, challenge: &[u8; 16]) -> CipherKey;
     /// Compute the integrity key IK (16 bytes).
     /// 3GPP function designation: f4.
-    fn compute_integrity_key(&self, challenge: &[u8; 16]) -> [u8; 16];
+    fn compute_integrity_key(&self, challenge: &[u8; 16]) -> IntegrityKey;
     /// Compute the anonymity key AK (6 bytes).
     /// 3GPP function designation: f5.
     fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
@@ -443,7 +476,7 @@ pub trait AuthenticationAlgorithm {
     /// individually, which may duplicate shared internal computation.  Override when
     /// the algorithm can produce all three outputs from a single core invocation
     /// (e.g. TUAK's single Keccak call via `tuak_f2345_core`).
-    fn compute_response_and_keys(&self, challenge: &[u8; 16]) -> ([u8; 8], [u8; 16], [u8; 16]) {
+    fn compute_response_and_keys(&self, challenge: &[u8; 16]) -> ([u8; 8], CipherKey, IntegrityKey) {
         (
             self.compute_response(challenge),
             self.compute_cipher_key(challenge),
@@ -482,9 +515,9 @@ pub trait AuthenticationAlgorithm {
     /// Per [3GPP TS 33.102 V19.1.0 clause 6.3.3](../../../docs/specs/3gpp/ts-33.102/ts_133102v190100p.pdf#%5B%7B%22num%22%3A58%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D).
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OperatorVariant, AuthenticationError, AuthenticationAlgorithm};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthenticationError, AuthenticationAlgorithm};
     ///
-    /// let mut p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+    /// let mut p = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
     ///
     /// // Random AUTN will almost certainly fail MAC verification
     /// let result = p.authenticate(&[0u8; 16], &[0xFFu8; 16]);
@@ -512,7 +545,7 @@ pub trait AuthenticationAlgorithm {
 
         // 5. Compare with MAC-A from AUTN[8..16] (constant-time to prevent
         //    timing side-channel leakage of MAC byte positions)
-        if !ct_eq(&expected_mac, &auth_token[8..16]) {
+        if !ct_eq(&expected_mac, &auth_token[8..16]).into_bool() {
             return Err(AuthenticationError::MacFailure);
         }
 
@@ -543,12 +576,14 @@ pub trait AuthenticationAlgorithm {
         let (response, cipher_key, integrity_key) = self.compute_response_and_keys(challenge);
 
         // 7. C3 conversion: Kc[i] = CK[i] ^ CK[i+8] ^ IK[i] ^ IK[i+8]
-        let mut gsm_cipher_key = [0u8; 8];
+        let ck = cipher_key.declassify();
+        let ik = integrity_key.declassify();
+        let mut kc = [0u8; 8];
         for i in 0..8 {
-            gsm_cipher_key[i] = cipher_key[i] ^ cipher_key[i + 8] ^ integrity_key[i] ^ integrity_key[i + 8];
+            kc[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
         }
 
-        Ok(AuthenticationOutput { response, cipher_key, integrity_key, gsm_cipher_key })
+        Ok(AuthenticationOutput { response, cipher_key, integrity_key, gsm_cipher_key: GsmCipherKey::new(kc) })
     }
 
     /// Serialize algorithm state.
@@ -574,12 +609,12 @@ pub trait AuthenticationAlgorithm {
     /// Deprecated: use [`compute_cipher_key`](AuthenticationAlgorithm::compute_cipher_key).
     #[deprecated(note = "use `compute_cipher_key` -- f3 is the 3GPP designation for CK (ciphering key) computation")]
     fn f3(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        self.compute_cipher_key(challenge)
+        *self.compute_cipher_key(challenge).declassify()
     }
     /// Deprecated: use [`compute_integrity_key`](AuthenticationAlgorithm::compute_integrity_key).
     #[deprecated(note = "use `compute_integrity_key` -- f4 is the 3GPP designation for IK (integrity key) computation")]
     fn f4(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        self.compute_integrity_key(challenge)
+        *self.compute_integrity_key(challenge).declassify()
     }
     /// Deprecated: use [`compute_anonymity_key`](AuthenticationAlgorithm::compute_anonymity_key).
     #[deprecated(note = "use `compute_anonymity_key` -- f5 is the 3GPP designation for AK (anonymity key) computation")]
@@ -609,11 +644,11 @@ impl AuthenticationAlgorithm for MilenageParams {
         self.compute_response(challenge)
     }
 
-    fn compute_cipher_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
+    fn compute_cipher_key(&self, challenge: &[u8; 16]) -> CipherKey {
         self.compute_cipher_key(challenge)
     }
 
-    fn compute_integrity_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
+    fn compute_integrity_key(&self, challenge: &[u8; 16]) -> IntegrityKey {
         self.compute_integrity_key(challenge)
     }
 
@@ -670,15 +705,15 @@ impl MilenageParams {
     /// - c5=`00..08`, r5=96
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OperatorVariant};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
     ///
-    /// let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+    /// let p = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
     /// // Default params always succeed (no duplicate ci/ri pairs)
     /// ```
-    pub const fn with_defaults(k: [u8; 16], op: OperatorVariant) -> Self {
+    pub const fn with_defaults(k: SubscriberKey, op: OperatorVariant) -> Self {
         // Default constants are guaranteed distinct, so unwrap is safe.
         // But we don't call new() to avoid the O(n^2) check for a known-good set.
-        let aes = Rijndael::new(&k);
+        let aes = Rijndael::new(k.declassify());
         let opc = match op {
             OperatorVariant::Opc(opc) => opc,
             OperatorVariant::Op(op_val) => compute_opc(&aes, &op_val),
@@ -699,7 +734,7 @@ impl MilenageParams {
     /// Returns [`ParamError::DuplicateCiRi`] if any two (c_i, r_i) pairs are equal.
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OperatorVariant, ParamError};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, ParamError};
     ///
     /// // Custom constants: use default ci values so all pairs are distinct
     /// let c1 = [0u8; 16];
@@ -710,17 +745,17 @@ impl MilenageParams {
     /// let ci = [c1, c2, c3, c4, c5];
     /// let ri = [64, 0, 32, 64, 96];
     ///
-    /// let result = MilenageParams::new([0u8; 16], OperatorVariant::Opc([0u8; 16]), ci, ri);
+    /// let result = MilenageParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]), ci, ri);
     /// assert!(result.is_ok());
     ///
     /// // Duplicate (ci, ri) pair is rejected
     /// let ci_dup = [[0u8; 16]; 5]; // all zero
     /// let ri_dup = [0, 0, 32, 64, 96]; // r1==r2==0 with c1==c2
-    /// let err = MilenageParams::new([0u8; 16], OperatorVariant::Opc([0u8; 16]), ci_dup, ri_dup);
+    /// let err = MilenageParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]), ci_dup, ri_dup);
     /// assert!(matches!(err, Err(ParamError::DuplicateCiRi { first: 0, second: 1 })));
     /// ```
     pub const fn new(
-        k: [u8; 16],
+        k: SubscriberKey,
         op: OperatorVariant,
         ci: [[u8; 16]; 5],
         ri: [u8; 5],
@@ -743,7 +778,7 @@ impl MilenageParams {
             i += 1;
         }
 
-        let aes = Rijndael::new(&k);
+        let aes = Rijndael::new(k.declassify());
         let opc = match op {
             OperatorVariant::Opc(opc) => opc,
             OperatorVariant::Op(op_val) => compute_opc(&aes, &op_val),
@@ -759,9 +794,9 @@ impl MilenageParams {
     /// 3GPP function designation: f1.
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OperatorVariant};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
     ///
-    /// let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+    /// let p = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
     /// let mac_a = p.compute_auth_mac(&[0u8; 16], &[0u8; 6], &[0u8; 2]);
     /// assert_eq!(mac_a.len(), 8);
     /// ```
@@ -807,9 +842,9 @@ impl MilenageParams {
     /// 3GPP function designation: f2.
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OperatorVariant};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
     ///
-    /// let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+    /// let p = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
     /// let response = p.compute_response(&[0u8; 16]);
     /// assert_eq!(response.len(), 8);
     /// ```
@@ -832,14 +867,14 @@ impl MilenageParams {
     /// `CK = OUT3[0..16]` where OUT3 uses (c3, r3).
     ///
     /// 3GPP function designation: f3.
-    pub fn compute_cipher_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        self.compute_outi(challenge, 2) // ci[2] = c3, ri[2] = r3
+    pub fn compute_cipher_key(&self, challenge: &[u8; 16]) -> CipherKey {
+        CipherKey::new(self.compute_outi(challenge, 2)) // ci[2] = c3, ri[2] = r3
     }
 
     /// Deprecated: use [`compute_cipher_key`](MilenageParams::compute_cipher_key).
     #[deprecated(note = "use `compute_cipher_key` -- f3 is the 3GPP designation for CK (ciphering key) computation")]
     pub fn f3(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        self.compute_cipher_key(challenge)
+        *self.compute_cipher_key(challenge).declassify()
     }
 
     /// Compute the integrity key IK (16 bytes).
@@ -848,14 +883,14 @@ impl MilenageParams {
     /// `IK = OUT4[0..16]` where OUT4 uses (c4, r4).
     ///
     /// 3GPP function designation: f4.
-    pub fn compute_integrity_key(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        self.compute_outi(challenge, 3) // ci[3] = c4, ri[3] = r4
+    pub fn compute_integrity_key(&self, challenge: &[u8; 16]) -> IntegrityKey {
+        IntegrityKey::new(self.compute_outi(challenge, 3)) // ci[3] = c4, ri[3] = r4
     }
 
     /// Deprecated: use [`compute_integrity_key`](MilenageParams::compute_integrity_key).
     #[deprecated(note = "use `compute_integrity_key` -- f4 is the 3GPP designation for IK (integrity key) computation")]
     pub fn f4(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        self.compute_integrity_key(challenge)
+        *self.compute_integrity_key(challenge).declassify()
     }
 
     /// Compute the anonymity key AK (6 bytes).
@@ -904,7 +939,7 @@ impl MilenageParams {
 
     /// Compute TEMP = E_K[RAND XOR OPc] (shared by all functions).
     const fn compute_temp(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        let aes = Rijndael::new(&self.k);
+        let aes = Rijndael::new(self.k.declassify());
         aes.encrypt(&xor128(challenge, &self.opc))
     }
 
@@ -912,7 +947,7 @@ impl MilenageParams {
     ///
     /// `OUT_i = E_K[rot(TEMP XOR OPc, r_i) XOR c_i] XOR OPc`
     fn compute_outi(&self, challenge: &[u8; 16], idx: usize) -> [u8; 16] {
-        let aes = Rijndael::new(&self.k);
+        let aes = Rijndael::new(self.k.declassify());
         let temp = self.compute_temp(challenge);
 
         let temp_xor_opc = xor128(&temp, &self.opc);
@@ -936,7 +971,7 @@ impl MilenageParams {
         sequence_number: &[u8; 6],
         management_field: &[u8; 2],
     ) -> [u8; 16] {
-        let aes = Rijndael::new(&self.k);
+        let aes = Rijndael::new(self.k.declassify());
         let temp = self.compute_temp(challenge);
 
         // Build SQN || AMF || SQN || AMF (16 bytes)
@@ -976,7 +1011,7 @@ impl MilenageParams {
             return 0;
         }
         let mut w = SnapWriter::new(buf);
-        w.put_bytes(&self.k);
+        w.put_bytes(self.k.declassify());
         w.put_bytes(&self.opc);
         for c in &self.ci {
             w.put_bytes(c);
@@ -995,7 +1030,9 @@ impl MilenageParams {
             return false;
         }
         let mut r = SnapReader::new(buf);
-        r.get_bytes(&mut self.k);
+        let mut k_bytes = [0u8; 16];
+        r.get_bytes(&mut k_bytes);
+        self.k = SubscriberKey::new(k_bytes);
         r.get_bytes(&mut self.opc);
         for c in &mut self.ci {
             r.get_bytes(c);
@@ -1016,13 +1053,13 @@ impl AuthenticationOutput {
     pub const fn res(&self) -> [u8; 8] { self.response }
     /// Deprecated: use field `cipher_key` directly.
     #[deprecated(note = "use field `cipher_key` -- CK is the 3GPP abbreviation for Cipher Key")]
-    pub const fn ck(&self) -> [u8; 16] { self.cipher_key }
+    pub fn ck(&self) -> [u8; 16] { *self.cipher_key.declassify() }
     /// Deprecated: use field `integrity_key` directly.
     #[deprecated(note = "use field `integrity_key` -- IK is the 3GPP abbreviation for Integrity Key")]
-    pub const fn ik(&self) -> [u8; 16] { self.integrity_key }
+    pub fn ik(&self) -> [u8; 16] { *self.integrity_key.declassify() }
     /// Deprecated: use field `gsm_cipher_key` directly.
     #[deprecated(note = "use field `gsm_cipher_key` -- Kc is the 3GPP abbreviation for GSM Cipher Key")]
-    pub const fn kc(&self) -> [u8; 8] { self.gsm_cipher_key }
+    pub fn kc(&self) -> [u8; 8] { *self.gsm_cipher_key.declassify() }
 }
 
 impl AuthenticationError {
@@ -1288,43 +1325,43 @@ mod tests {
 
     #[test]
     fn test_set_1_f1_mac_a() {
-        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
         assert_eq!(p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF), TS1_F1_MAC_A);
     }
 
     #[test]
     fn test_set_1_f1_star_mac_s() {
-        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
         assert_eq!(p.compute_resync_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF), TS1_F1S_MAC_S);
     }
 
     #[test]
     fn test_set_1_f2_res() {
-        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
         assert_eq!(p.compute_response(&TS1_RAND), TS1_F2_RES);
     }
 
     #[test]
     fn test_set_1_f3_ck() {
-        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
-        assert_eq!(p.compute_cipher_key(&TS1_RAND), TS1_F3_CK);
+        let p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(*p.compute_cipher_key(&TS1_RAND).declassify(), TS1_F3_CK);
     }
 
     #[test]
     fn test_set_1_f4_ik() {
-        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
-        assert_eq!(p.compute_integrity_key(&TS1_RAND), TS1_F4_IK);
+        let p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
+        assert_eq!(*p.compute_integrity_key(&TS1_RAND).declassify(), TS1_F4_IK);
     }
 
     #[test]
     fn test_set_1_f5_ak() {
-        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
         assert_eq!(p.compute_anonymity_key(&TS1_RAND), TS1_F5_AK);
     }
 
     #[test]
     fn test_set_1_f5_star_ak() {
-        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
         assert_eq!(p.compute_resync_anonymity_key(&TS1_RAND), TS1_F5S_AK);
     }
 
@@ -1334,8 +1371,8 @@ mod tests {
 
     #[test]
     fn op_and_opc_produce_same_f2() {
-        let p_opc = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
-        let p_op = MilenageParams::with_defaults(TS1_K, OperatorVariant::Op(TS1_OP));
+        let p_opc = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
+        let p_op = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Op(TS1_OP));
         assert_eq!(p_opc.compute_response(&TS1_RAND), p_op.compute_response(&TS1_RAND));
     }
 
@@ -1345,7 +1382,7 @@ mod tests {
 
     #[test]
     fn authenticate_with_valid_autn() {
-        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let mut p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
 
         // Construct valid AUTN: (SQN XOR AK) || AMF || MAC-A
         let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
@@ -1362,13 +1399,13 @@ mod tests {
         assert!(result.is_ok(), "valid AUTN must authenticate successfully");
         let out = result.unwrap();
         assert_eq!(out.response, TS1_F2_RES);
-        assert_eq!(out.cipher_key, TS1_F3_CK);
-        assert_eq!(out.integrity_key, TS1_F4_IK);
+        assert_eq!(*out.cipher_key.declassify(), TS1_F3_CK);
+        assert_eq!(*out.integrity_key.declassify(), TS1_F4_IK);
     }
 
     #[test]
     fn authenticate_with_bad_mac_fails() {
-        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let mut p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
         // All-zero AUTN will have wrong MAC-A
         let result = p.authenticate(&TS1_RAND, &[0u8; 16]);
         assert!(matches!(result, Err(AuthenticationError::MacFailure)));
@@ -1376,7 +1413,7 @@ mod tests {
 
     #[test]
     fn sqn_boundary_accepts_equal_rejects_below() {
-        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let mut p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
         let amf = [0x80, 0x00];
 
         // Helper to build valid AUTN for a given SQN.
@@ -1417,7 +1454,7 @@ mod tests {
 
     #[test]
     fn kc_is_c3_conversion_of_ck_ik() {
-        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let mut p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
 
         // Construct valid AUTN
         let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
@@ -1429,15 +1466,17 @@ mod tests {
         let out = p.authenticate(&TS1_RAND, &autn).unwrap();
 
         // Verify C3 conversion: Kc[i] = CK[i]^CK[i+8]^IK[i]^IK[i+8]
+        let ck = out.cipher_key.declassify();
+        let ik = out.integrity_key.declassify();
         #[allow(clippy::needless_range_loop)] // indices into 4 arrays with offset
         let expected_gsm_cipher_key: [u8; 8] = {
             let mut gsm_cipher_key = [0u8; 8];
             for i in 0..8 {
-                gsm_cipher_key[i] = out.cipher_key[i] ^ out.cipher_key[i + 8] ^ out.integrity_key[i] ^ out.integrity_key[i + 8];
+                gsm_cipher_key[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
             }
             gsm_cipher_key
         };
-        assert_eq!(out.gsm_cipher_key, expected_gsm_cipher_key, "Kc must be C3 conversion of CK||IK");
+        assert_eq!(*out.gsm_cipher_key.declassify(), expected_gsm_cipher_key, "Kc must be C3 conversion of CK||IK");
     }
 
     // ---------------------------------------------------------------
@@ -1446,7 +1485,7 @@ mod tests {
 
     #[test]
     fn deterministic() {
-        let p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
         assert_eq!(p.compute_response(&TS1_RAND), p.compute_response(&TS1_RAND));
     }
 
@@ -1460,14 +1499,14 @@ mod tests {
         let ci = [[0u8; 16]; 5]; // all zero
         let ri = [0, 0, 32, 64, 96]; // r1==r2==0
 
-        let result = MilenageParams::new([0u8; 16], OperatorVariant::Opc([0u8; 16]), ci, ri);
+        let result = MilenageParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]), ci, ri);
         assert!(matches!(result, Err(ParamError::DuplicateCiRi { first: 0, second: 1 })));
     }
 
     #[test]
     fn defaults_always_valid() {
         // with_defaults should never fail
-        let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let p = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         let _ = p; // just verify construction succeeds
     }
 
@@ -1495,17 +1534,17 @@ mod tests {
         expected_auth_mac: &[u8; 8], expected_resync_mac: &[u8; 8], expected_response: &[u8; 8],
         expected_cipher_key: &[u8; 16], expected_integrity_key: &[u8; 16], expected_anonymity_key: &[u8; 6], expected_resync_anonymity_key: &[u8; 6],
     ) {
-        let p = MilenageParams::with_defaults(*k, OperatorVariant::Opc(*opc));
+        let p = MilenageParams::with_defaults(SubscriberKey::new(*k), OperatorVariant::Opc(*opc));
         assert_eq!(p.compute_auth_mac(challenge, sequence_number, management_field), *expected_auth_mac, "{name}: f1 mismatch");
         assert_eq!(p.compute_resync_mac(challenge, sequence_number, management_field), *expected_resync_mac, "{name}: f1* mismatch");
         assert_eq!(p.compute_response(challenge), *expected_response, "{name}: f2 mismatch");
-        assert_eq!(p.compute_cipher_key(challenge), *expected_cipher_key, "{name}: f3 mismatch");
-        assert_eq!(p.compute_integrity_key(challenge), *expected_integrity_key, "{name}: f4 mismatch");
+        assert_eq!(*p.compute_cipher_key(challenge).declassify(), *expected_cipher_key, "{name}: f3 mismatch");
+        assert_eq!(*p.compute_integrity_key(challenge).declassify(), *expected_integrity_key, "{name}: f4 mismatch");
         assert_eq!(p.compute_anonymity_key(challenge), *expected_anonymity_key, "{name}: f5 mismatch");
         assert_eq!(p.compute_resync_anonymity_key(challenge), *expected_resync_anonymity_key, "{name}: f5* mismatch");
 
         // Also verify that using OP produces the same results as OPc.
-        let p_op = MilenageParams::with_defaults(*k, OperatorVariant::Op(*op));
+        let p_op = MilenageParams::with_defaults(SubscriberKey::new(*k), OperatorVariant::Op(*op));
         assert_eq!(p_op.compute_response(challenge), *expected_response, "{name}: f2 via OP mismatch");
     }
 
@@ -1609,13 +1648,13 @@ mod tests {
 
     #[test]
     fn snapshot_roundtrip_preserves_computation() {
-        let orig = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let orig = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
 
         let mut snap = [0u8; MilenageParams::SNAPSHOT_SIZE];
         assert_eq!(orig.save_state(&mut snap), 123);
 
         // Restore into a zeroed params.
-        let mut restored = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let mut restored = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         assert!(restored.restore_state(&snap));
 
         // Restored params must produce the same output.
@@ -1625,7 +1664,7 @@ mod tests {
 
     #[test]
     fn snapshot_roundtrip_preserves_sqn_he() {
-        let mut p = MilenageParams::with_defaults(TS1_K, OperatorVariant::Opc(TS1_OPC));
+        let mut p = MilenageParams::with_defaults(SubscriberKey::new(TS1_K), OperatorVariant::Opc(TS1_OPC));
 
         // Advance expected_sequence_number by performing a successful authenticate.
         let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
@@ -1642,7 +1681,7 @@ mod tests {
         assert_eq!(p.save_state(&mut snap), MilenageParams::SNAPSHOT_SIZE);
 
         let mut restored =
-            MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+            MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         assert!(restored.restore_state(&snap));
 
         // Replaying the same SQN must trigger SyncFailure on the restored
@@ -1656,11 +1695,11 @@ mod tests {
 
     #[test]
     fn snapshot_small_buffer_returns_zero_or_false() {
-        let p = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let p = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         let mut small = [0u8; 50];
         assert_eq!(p.save_state(&mut small), 0);
 
-        let mut p2 = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+        let mut p2 = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
         assert!(!p2.restore_state(&small));
     }
 
@@ -1669,7 +1708,7 @@ mod tests {
     #[test]
     fn ct_eq_equal_slices() {
         let a = [0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3];
-        assert!(ct_eq(&a, &a));
+        assert!(ct_eq(&a, &a).into_bool());
     }
 
     #[test]
@@ -1680,7 +1719,7 @@ mod tests {
             for bit in 0..8u32 {
                 let mut b = a;
                 b[i] ^= 1 << bit;
-                assert!(!ct_eq(&a, &b), "must detect bit {bit} difference at byte {i}");
+                assert!(!ct_eq(&a, &b).into_bool(), "must detect bit {bit} difference at byte {i}");
             }
         }
     }
@@ -1689,13 +1728,13 @@ mod tests {
     fn ct_eq_different_lengths() {
         let a = [0x01, 0x02, 0x03];
         let b = [0x01, 0x02];
-        assert!(!ct_eq(&a, &b));
+        assert!(!ct_eq(&a, &b).into_bool());
     }
 
     #[test]
     fn ct_eq_empty_slices() {
         let a: [u8; 0] = [];
-        assert!(ct_eq(&a, &a));
+        assert!(ct_eq(&a, &a).into_bool());
     }
 }
 
@@ -1718,8 +1757,8 @@ mod proptests {
             challenge in any::<[u8; 16]>(),
         ) {
             prop_assume!(k1 != k2);
-            let p1 = MilenageParams::with_defaults(k1, OperatorVariant::Opc([0u8; 16]));
-            let p2 = MilenageParams::with_defaults(k2, OperatorVariant::Opc([0u8; 16]));
+            let p1 = MilenageParams::with_defaults(SubscriberKey::new(k1), OperatorVariant::Opc([0u8; 16]));
+            let p2 = MilenageParams::with_defaults(SubscriberKey::new(k2), OperatorVariant::Opc([0u8; 16]));
             prop_assert_ne!(p1.compute_response(&challenge), p2.compute_response(&challenge), "different K must produce different RES");
             prop_assert_ne!(p1.compute_anonymity_key(&challenge), p2.compute_anonymity_key(&challenge), "different K must produce different AK");
         }
@@ -1729,12 +1768,14 @@ mod proptests {
         // Kc must always be the C3 conversion of CK and IK.
         #[test]
         fn kc_is_always_c3(k in any::<[u8; 16]>(), challenge in any::<[u8; 16]>()) {
-            let mut p = MilenageParams::with_defaults(k, OperatorVariant::Opc([0u8; 16]));
-            let cipher_key = p.compute_cipher_key(&challenge);
-            let integrity_key = p.compute_integrity_key(&challenge);
+            let mut p = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc([0u8; 16]));
+            let ck = p.compute_cipher_key(&challenge);
+            let ik = p.compute_integrity_key(&challenge);
+            let ck_bytes = ck.declassify();
+            let ik_bytes = ik.declassify();
             let mut expected_gsm_cipher_key = [0u8; 8];
             for i in 0..8 {
-                expected_gsm_cipher_key[i] = cipher_key[i] ^ cipher_key[i + 8] ^ integrity_key[i] ^ integrity_key[i + 8];
+                expected_gsm_cipher_key[i] = ck_bytes[i] ^ ck_bytes[i + 8] ^ ik_bytes[i] ^ ik_bytes[i + 8];
             }
 
             // Build a valid AUTN to test authenticate()
@@ -1747,7 +1788,7 @@ mod proptests {
             autn[8..16].copy_from_slice(&p.compute_auth_mac(&challenge, &sqn, &amf));
 
             let out = p.authenticate(&challenge, &autn).unwrap();
-            prop_assert_eq!(out.gsm_cipher_key, expected_gsm_cipher_key);
+            prop_assert_eq!(*out.gsm_cipher_key.declassify(), expected_gsm_cipher_key);
         }
     }
 
@@ -1759,8 +1800,8 @@ mod proptests {
             let aes = Rijndael::new(&k);
             let opc = compute_opc(&aes, &op);
 
-            let p_op = MilenageParams::with_defaults(k, OperatorVariant::Op(op));
-            let p_opc = MilenageParams::with_defaults(k, OperatorVariant::Opc(opc));
+            let p_op = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Op(op));
+            let p_opc = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc(opc));
             prop_assert_eq!(p_op.compute_response(&challenge), p_opc.compute_response(&challenge));
         }
     }
@@ -1774,7 +1815,7 @@ mod proptests {
             challenge2 in any::<[u8; 16]>(),
         ) {
             prop_assume!(challenge1 != challenge2);
-            let p = MilenageParams::with_defaults(k, OperatorVariant::Opc([0u8; 16]));
+            let p = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc([0u8; 16]));
             // Collision is theoretically possible but astronomically unlikely
             prop_assert_ne!(p.compute_response(&challenge1), p.compute_response(&challenge2));
         }
@@ -1791,7 +1832,7 @@ mod proptests {
             sqn in any::<[u8; 6]>(),
             amf in any::<[u8; 2]>(),
         ) {
-            let p = MilenageParams::with_defaults(k, OperatorVariant::Opc([0u8; 16]));
+            let p = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc([0u8; 16]));
             let mac_a = p.compute_auth_mac(&challenge, &sqn, &amf);
             let mac_s = p.compute_resync_mac(&challenge, &sqn, &amf);
             prop_assert_ne!(mac_a, mac_s, "f1 (MAC-A) must differ from f1* (MAC-S)");
@@ -1802,30 +1843,30 @@ mod proptests {
         // Output determinism: identical inputs always yield identical outputs.
         #[test]
         fn output_deterministic(k in any::<[u8; 16]>(), challenge in any::<[u8; 16]>()) {
-            let p = MilenageParams::with_defaults(k, OperatorVariant::Opc([0u8; 16]));
+            let p = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc([0u8; 16]));
             prop_assert_eq!(
                 p.compute_response(&challenge),
                 p.compute_response(&challenge)
             );
             prop_assert_eq!(
-                p.compute_cipher_key(&challenge),
-                p.compute_cipher_key(&challenge)
+                *p.compute_cipher_key(&challenge).declassify(),
+                *p.compute_cipher_key(&challenge).declassify()
             );
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Constant-time validation (DudeCT)
+// Constant-time validation (tacet via ct_test wrapper)
 // ---------------------------------------------------------------------------
 
 #[cfg(all(test, feature = "ct-validation"))]
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{dudect_test, Rng};
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
 
-    /// DudeCT timing test for Milenage f2 (representative of f2345).
+    /// Timing test for Milenage f2 (representative of f2345).
     ///
     /// Class 0: fixed K [0x46; 16] with OPc [0x83; 16], random RAND.
     /// Class 1: random K with same OPc [0x83; 16], random RAND.
@@ -1835,12 +1876,8 @@ mod ct_validation {
     /// time.
     #[test]
     fn test_milenage_f2_ct() {
-        let mut rng = Rng::from_seed(77);
         let opc = [0x83u8; 16];
-        let result = dudect_test(
-            "Milenage f2 (fixed vs random key)",
-            10_000,
-            &mut rng,
+        let outcome = ct_test(77,
             |rng| {
                 let key = [0x46u8; 16];
                 let mut rand_bytes = [0u8; 16];
@@ -1855,12 +1892,231 @@ mod ct_validation {
                 (key, opc, rand_bytes)
             },
             |(key, opc, rand_bytes)| {
-                let params = MilenageParams::with_defaults(*key, OperatorVariant::Opc(*opc));
+                let params = MilenageParams::with_defaults(SubscriberKey::new(*key), OperatorVariant::Opc(*opc));
                 let response = params.compute_response(rand_bytes);
                 black_box(response);
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// Timing test for Milenage f1 (compute_auth_mac).
+    ///
+    /// Class 0: fixed K [0x46; 16] with OPc [0x83; 16], random RAND/SQN/AMF.
+    /// Class 1: random K with same OPc [0x83; 16], random RAND/SQN/AMF.
+    ///
+    /// A constant-time implementation must show no measurable timing
+    /// difference between classes -- the key must not influence execution
+    /// time.
+    #[test]
+    fn test_milenage_f1_ct() {
+        let opc = [0x83u8; 16];
+        let outcome = ct_test(78,
+            |rng| {
+                let key = [0x46u8; 16];
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                let mut sqn = [0u8; 6];
+                rng.fill_bytes(&mut sqn);
+                let mut amf = [0u8; 2];
+                rng.fill_bytes(&mut amf);
+                (key, opc, rand_bytes, sqn, amf)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                let mut sqn = [0u8; 6];
+                rng.fill_bytes(&mut sqn);
+                let mut amf = [0u8; 2];
+                rng.fill_bytes(&mut amf);
+                (key, opc, rand_bytes, sqn, amf)
+            },
+            |(key, opc, rand_bytes, sqn, amf)| {
+                let params = MilenageParams::with_defaults(SubscriberKey::new(*key), OperatorVariant::Opc(*opc));
+                let mac = params.compute_auth_mac(rand_bytes, sqn, amf);
+                black_box(mac);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// Timing test for Milenage f1* (compute_resync_mac).
+    ///
+    /// Class 0: fixed K [0x46; 16] with OPc [0x83; 16], random RAND/SQN/AMF.
+    /// Class 1: random K with same OPc [0x83; 16], random RAND/SQN/AMF.
+    ///
+    /// A constant-time implementation must show no measurable timing
+    /// difference between classes -- the key must not influence execution
+    /// time.
+    #[test]
+    fn test_milenage_f1star_ct() {
+        let opc = [0x83u8; 16];
+        let outcome = ct_test(79,
+            |rng| {
+                let key = [0x46u8; 16];
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                let mut sqn = [0u8; 6];
+                rng.fill_bytes(&mut sqn);
+                let mut amf = [0u8; 2];
+                rng.fill_bytes(&mut amf);
+                (key, opc, rand_bytes, sqn, amf)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                let mut sqn = [0u8; 6];
+                rng.fill_bytes(&mut sqn);
+                let mut amf = [0u8; 2];
+                rng.fill_bytes(&mut amf);
+                (key, opc, rand_bytes, sqn, amf)
+            },
+            |(key, opc, rand_bytes, sqn, amf)| {
+                let params = MilenageParams::with_defaults(SubscriberKey::new(*key), OperatorVariant::Opc(*opc));
+                let mac = params.compute_resync_mac(rand_bytes, sqn, amf);
+                black_box(mac);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// Timing test for Milenage f3 (compute_cipher_key).
+    ///
+    /// Class 0: fixed K [0x46; 16] with OPc [0x83; 16], random RAND.
+    /// Class 1: random K with same OPc [0x83; 16], random RAND.
+    ///
+    /// A constant-time implementation must show no measurable timing
+    /// difference between classes -- the key must not influence execution
+    /// time.
+    #[test]
+    fn test_milenage_f3_ct() {
+        let opc = [0x83u8; 16];
+        let outcome = ct_test(80,
+            |rng| {
+                let key = [0x46u8; 16];
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |(key, opc, rand_bytes)| {
+                let params = MilenageParams::with_defaults(SubscriberKey::new(*key), OperatorVariant::Opc(*opc));
+                let ck = params.compute_cipher_key(rand_bytes);
+                black_box(ck);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// Timing test for Milenage f4 (compute_integrity_key).
+    ///
+    /// Class 0: fixed K [0x46; 16] with OPc [0x83; 16], random RAND.
+    /// Class 1: random K with same OPc [0x83; 16], random RAND.
+    ///
+    /// A constant-time implementation must show no measurable timing
+    /// difference between classes -- the key must not influence execution
+    /// time.
+    #[test]
+    fn test_milenage_f4_ct() {
+        let opc = [0x83u8; 16];
+        let outcome = ct_test(81,
+            |rng| {
+                let key = [0x46u8; 16];
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |(key, opc, rand_bytes)| {
+                let params = MilenageParams::with_defaults(SubscriberKey::new(*key), OperatorVariant::Opc(*opc));
+                let ik = params.compute_integrity_key(rand_bytes);
+                black_box(ik);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// Timing test for Milenage f5 (compute_anonymity_key).
+    ///
+    /// Class 0: fixed K [0x46; 16] with OPc [0x83; 16], random RAND.
+    /// Class 1: random K with same OPc [0x83; 16], random RAND.
+    ///
+    /// A constant-time implementation must show no measurable timing
+    /// difference between classes -- the key must not influence execution
+    /// time.
+    #[test]
+    fn test_milenage_f5_ct() {
+        let opc = [0x83u8; 16];
+        let outcome = ct_test(82,
+            |rng| {
+                let key = [0x46u8; 16];
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |(key, opc, rand_bytes)| {
+                let params = MilenageParams::with_defaults(SubscriberKey::new(*key), OperatorVariant::Opc(*opc));
+                let ak = params.compute_anonymity_key(rand_bytes);
+                black_box(ak);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// Timing test for Milenage f5* (compute_resync_anonymity_key).
+    ///
+    /// Class 0: fixed K [0x46; 16] with OPc [0x83; 16], random RAND.
+    /// Class 1: random K with same OPc [0x83; 16], random RAND.
+    ///
+    /// A constant-time implementation must show no measurable timing
+    /// difference between classes -- the key must not influence execution
+    /// time.
+    #[test]
+    fn test_milenage_f5star_ct() {
+        let opc = [0x83u8; 16];
+        let outcome = ct_test(83,
+            |rng| {
+                let key = [0x46u8; 16];
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut rand_bytes = [0u8; 16];
+                rng.fill_bytes(&mut rand_bytes);
+                (key, opc, rand_bytes)
+            },
+            |(key, opc, rand_bytes)| {
+                let params = MilenageParams::with_defaults(SubscriberKey::new(*key), OperatorVariant::Opc(*opc));
+                let ak = params.compute_resync_anonymity_key(rand_bytes);
+                black_box(ak);
+            },
+        );
+        assert_no_timing_leak!(outcome);
     }
 }

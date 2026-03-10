@@ -313,7 +313,11 @@ pub static EF_ARR: EfDef = EfDef::linear_fixed(
 pub static EF_IMSI: EfDef = EfDef::transparent(
     Fid::new(0x6F07),
     Some(Sfi::new(7)),
-    &[0x08, 0x09, 0x10, 0x10, 0x00, 0x00, 0x00, 0x00, 0xF0],
+    // IMSI 001010000000000 (15 digits, odd parity, MCC=001, MNC=01).
+    // Nibble-swapped BCD per TS 24.008 clause 10.5.1.4:
+    //   byte 0 = 0x08 (8 data bytes), byte 1 = 0x09 (odd parity, digit1=0),
+    //   bytes 2-8 = remaining 14 digits in lo/hi nibble pairs.
+    &[0x08, 0x09, 0x10, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00],
 );
 
 /// EF.AD (6FAD) -- Administrative Data.
@@ -2506,20 +2510,27 @@ pub static EF_UAC_AIC: EfDef = EfDef::transparent(
 
 /// EF.SUCI_Calc_Info (4F07) -- SUCI Calculation Info.
 ///
-/// 34-byte transparent EF. Contains protection scheme identifier, home
-/// network public key identifier, and home network public key.
-/// Default: protection scheme 0x00 (null scheme), key ID 0x00,
-/// remaining bytes 0xFF (unprovisioned).
-static EF_SUCI_CALC_INFO_DATA: [u8; 34] = {
-    let mut d = [0xFF; 34];
-    d[0] = 0x00; // protection scheme identifier (null scheme)
-    d[1] = 0x00; // home network public key identifier
+/// TLV-structured transparent EF per TS 31.102 V19.4.0 clause 4.4.11.8.
+///
+/// Contains two data objects:
+/// - Protection Scheme Identifier List (tag 0xA0): list of (scheme_id, key_index) pairs
+/// - Home Network Public Key List (tag 0xA1, conditional): list of (key_id, key) entries
+///
+/// Default: null scheme only (scheme=0x00, key_index=0x00, no HN public key list).
+static EF_SUCI_CALC_INFO_DATA: [u8; 80] = {
+    let mut d = [0xFF; 80];
+    d[0] = 0xA0; // Protection Scheme Identifier List tag
+    d[1] = 0x02; // length
+    d[2] = 0x00; // protection scheme identifier (0x00 = null scheme)
+    d[3] = 0x00; // home network public key index (0x00 = none)
+    // Bytes 4..80 are 0xFF padding, available for Profile A/B key provisioning
+    // via UPDATE BINARY. See TS 31.102 V19.4.0 clause 4.4.11.8.
     d
 };
 
 /// EF.SUCI_Calc_Info (4F07) -- SUCI calculation info.
 ///
-/// Transparent, 34 bytes. Service 124, Rel-15.
+/// Transparent, TLV-structured. Service 124, Rel-15.
 pub static EF_SUCI_CALC_INFO: EfDef = EfDef::transparent(
     Fid::new(0x4F07),
     Some(Sfi::new(7)),
@@ -4694,7 +4705,7 @@ mod tests {
             (0x4F04, 57),  // EF5GSN3GPPNSC
             (0x4F05, 68),  // EF5GAUTHKEYS
             (0x4F06, 4),   // EFUAC_AIC
-            (0x4F07, 34),  // EFSUCI_Calc_Info
+            (0x4F07, 80),  // EFSUCI_Calc_Info (TLV: A0 02 00 00 + 0xFF padding)
             (0x4F08, 5),   // EFOPL5G
             (0x4F09, 32),  // EFSUPI_NAI
             (0x4F0A, 4),   // EFRouting_Indicator

@@ -1,55 +1,37 @@
 [package]
 name        = "simrs-security-tests"
-version     = "0.1.0"
-edition     = "2021"
-license     = "MIT OR Apache-2.0"
-description = "Security regression and PoC test suite for simrs -- restricted distribution"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Security regression and PoC test suite for simrs"
 publish     = false
-
-[workspace]
-
-# This crate lives OUTSIDE the simrs workspace because:
-# 1. Security-sensitive: may need restricted distribution
-# 2. Test-only crate with no library consumers
-#
-# Multi-version testing:
-# To test against a different version of any simrs crate, override the
-# path dependency below or use Cargo's [patch] mechanism:
-#
-#   [patch.crates-io]
-#   simrs-sim = { path = "/path/to/other/version/crates/simrs-sim" }
-#
-# Or change the `path = ...` entries below to point at a different checkout.
 
 [lib]
 crate-type = ["rlib"]
 
 [dependencies]
-simrs-sim      = { path = "../../crates/simrs-sim", features = ["usim", "gsm"] }
-simrs-usim     = { path = "../../crates/simrs-usim" }
-simrs-gsm      = { path = "../../crates/simrs-gsm" }
-simrs-fs       = { path = "../../crates/simrs-fs" }
-simrs-pin      = { path = "../../crates/simrs-pin", features = ["std"] }
-simrs-iso7816  = { path = "../../crates/simrs-iso7816" }
-simrs-milenage = { path = "../../crates/simrs-milenage" }
-simrs-comp128   = { path = "../../crates/simrs-comp128" }
-simrs-proactive = { path = "../../crates/simrs-proactive" }
-simrs-ota       = { path = "../../crates/simrs-ota" }
+simrs-sim      = { workspace = true, features = ["usim", "gsm"] }
+simrs-usim     = { workspace = true }
+simrs-gsm      = { workspace = true }
+simrs-fs       = { workspace = true }
+simrs-pin      = { workspace = true, features = ["std"] }
+simrs-iso7816  = { workspace = true }
+simrs-milenage = { workspace = true }
+simrs-comp128  = { workspace = true }
+simrs-proactive = { workspace = true }
+simrs-ota      = { workspace = true }
+simrs-ecies    = { workspace = true }
+simrs-kdf      = { workspace = true }
+simrs-secret   = { workspace = true }
 
 [dev-dependencies]
-cucumber = "0.21"
-tokio    = { version = "1", features = ["macros", "rt-multi-thread"] }
-futures  = "0.3"
+cucumber = { workspace = true }
+tokio    = { workspace = true }
+futures  = { workspace = true }
 
 [[test]]
 name    = "cucumber"
 harness = false
 
-[lints.rust]
-missing_docs = "warn"
-
-[lints.clippy]
-pedantic = { level = "warn", priority = -1 }
-nursery  = { level = "warn", priority = -1 }
-must_use_candidate = "allow"
-module_name_repetitions = "allow"
+[lints]
+workspace = true

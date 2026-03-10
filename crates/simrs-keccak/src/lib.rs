@@ -552,20 +552,14 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{dudect_test, Rng};
-
-    const SAMPLES: u64 = 10_000;
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
 
     /// Keccak-f[1600] timing must be independent of state content.
     /// Class 0: all-zero state.
     /// Class 1: random state.
     #[test]
     fn test_keccak_f1600_ct() {
-        let mut rng = Rng::from_seed(0xF160_0001);
-        let result = dudect_test(
-            "keccak_f1600 (zero state vs random state)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(0xF160_0001,
             |_rng| [0u64; 25],
             |rng| {
                 let mut state = [0u64; 25];
@@ -582,7 +576,6 @@ mod ct_validation {
                 black_box(s);
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 }

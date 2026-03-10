@@ -8,7 +8,7 @@
 //!   - ETSI TS 102 221 V18.0.0 clause 11.1.10
 
 use cucumber::{given, then, when};
-use simrs_milenage::{MilenageParams, OperatorVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_security_tests::{apdu, build_authenticate_apdu, build_valid_autn, parse_hex, TEST_K, TEST_KI, TEST_OPC};
 
 use super::snapshot::{reserve_auth, reserve_rsp_queue};
@@ -254,7 +254,7 @@ fn then_auts_content_valid(world: &mut SimWorld) {
     // The replay step uses RAND=[0xBB;16] and sqn_he should be 1 after
     // one successful auth with SQN=0.
     let challenge = [0xBB_u8; 16];
-    let p = MilenageParams::with_defaults(TEST_K, OperatorVariant::Opc(TEST_OPC));
+    let p = MilenageParams::with_defaults(SubscriberKey::new(TEST_K), OperatorVariant::Opc(TEST_OPC));
 
     // Recover SQN_MS: AUTS[0..6] = SQN_MS XOR AK*
     let resync_anonymity_key = p.compute_resync_anonymity_key(&challenge);

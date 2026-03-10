@@ -48,10 +48,8 @@ fn given_sim_not_powered_on(world: &mut SimWorld) {
 
 #[given(regex = r"^the SIM is initiali[sz]ed with an ADF table.*$")]
 fn given_adf_table(world: &mut SimWorld) {
-    // The test SIM does not implement AID routing tables (SELECT by AID
-    // returns 6A 82). AUTHENTICATE works because UsimApp is globally active
-    // without requiring explicit AID selection. When the simulator gains AID
-    // routing, this step should assert that SELECT AID succeeds.
+    // ADF table is configured in create_sim() via profile::ADF_TABLE.
+    // SELECT by AID A0000000871002 routes to ADF.USIM.
     let _ = world;
 }
 
@@ -436,6 +434,33 @@ fn then_data_is(world: &mut SimWorld, hex: String) {
     assert_eq!(
         data, &expected[..],
         "Expected data {expected:02X?}, got {data:02X?}",
+    );
+}
+
+#[then("the response data matches the provisioned EF.ICCID content")]
+fn then_data_matches_iccid(world: &mut SimWorld) {
+    let expected = simrs_usim::profile::EF_ICCID.data();
+    let data = world.last_data();
+    assert_eq!(
+        data, expected,
+        "Expected EF.ICCID content {expected:02X?}, got {data:02X?}",
+    );
+}
+
+#[then("the response data matches the last byte of provisioned EF.ICCID")]
+fn then_data_matches_iccid_last_byte(world: &mut SimWorld) {
+    let iccid = simrs_usim::profile::EF_ICCID.data();
+    let expected = iccid[iccid.len() - 1];
+    let data = world.last_data();
+    assert_eq!(
+        data.len(), 1,
+        "Expected 1 byte, got {} bytes: {data:02X?}",
+        data.len(),
+    );
+    assert_eq!(
+        data[0], expected,
+        "Expected last ICCID byte {expected:02X}, got {:02X}",
+        data[0],
     );
 }
 

@@ -10,13 +10,6 @@
 //! - Cryptographic Checksum (CC) using AES-128 CBC-MAC
 //! - AES-128 CBC encryption for ciphering
 //!
-//! # Limitations
-//!
-//! - CBC decryption requires AES decrypt, which `simrs-rijndael` does not
-//!   provide (encrypt-only). Decoding of ciphered packets is therefore not
-//!   supported. CBC-MAC verification and CBC encryption work fine with
-//!   encrypt-only.
-//!
 //! # `no_std`
 //! This crate is fully `no_std`. No heap allocation.
 #![no_std]
@@ -34,6 +27,7 @@ extern crate std;
 
 use simrs_consttime::ct_eq;
 use simrs_rijndael::Rijndael;
+use simrs_secret::Secret;
 
 /// AES block size in bytes.
 const BLOCK_SIZE: usize = 16;
@@ -424,7 +418,9 @@ fn aes_cbc_mac(key: &[u8; 16], data: &[u8]) -> [u8; 8] {
 /// `data` must be a multiple of 16 bytes. IV is all-zeros.
 fn aes_cbc_encrypt(key: &[u8; 16], data: &mut [u8]) {
     let rij = Rijndael::new(key);
-    let mut cv = [0u8; 16]; // IV = 0
+    // IV is always zero per ETSI TS 102 225 V19.0.0 clause 5.1.
+    // Replay protection is provided by the CNTR field inside the encrypted region.
+    let mut cv = [0u8; 16];
 
     let mut off = 0;
     while off + BLOCK_SIZE <= data.len() {
@@ -435,6 +431,35 @@ fn aes_cbc_encrypt(key: &[u8; 16], data: &mut [u8]) {
         }
         cv = rij.encrypt(&block);
         data[off..off + 16].copy_from_slice(&cv);
+        off += 16;
+    }
+}
+
+/// AES-128 CBC decrypt `data` in-place.
+///
+/// `data` must be a multiple of 16 bytes. IV is all-zeros.
+/// Mirrors [`aes_cbc_encrypt`]: decrypt each block with `Rijndael::decrypt`,
+/// then XOR with the previous ciphertext block (or IV for the first block).
+fn aes_cbc_decrypt(key: &[u8; 16], data: &mut [u8]) {
+    let rij = Rijndael::new(key);
+    // IV is always zero per ETSI TS 102 225 V19.0.0 clause 5.1.
+    // Replay protection is provided by the CNTR field inside the encrypted region.
+    let mut prev_ct = [0u8; 16];
+
+    let mut off = 0;
+    while off + BLOCK_SIZE <= data.len() {
+        let mut ct_block = [0u8; 16];
+        ct_block.copy_from_slice(&data[off..off + 16]);
+
+        let mut pt_block = rij.decrypt(&ct_block);
+        let mut i = 0;
+        while i < 16 {
+            pt_block[i] ^= prev_ct[i];
+            i += 1;
+        }
+
+        data[off..off + 16].copy_from_slice(&pt_block);
+        prev_ct = ct_block;
         off += 16;
     }
 }
@@ -492,8 +517,8 @@ const CC_SIZE: usize = 8;
 pub fn encode_command_packet(
     hdr: &CommandPacketHeader,
     data: &[u8],
-    key_cipher: Option<&[u8; 16]>,
-    key_mac: Option<&[u8; 16]>,
+    key_cipher: Option<&Secret<[u8; 16]>>,
+    key_mac: Option<&Secret<[u8; 16]>>,
     buf: &mut [u8],
 ) -> Result<usize, OtaError> {
     let has_cc = matches!(hdr.spi.redundancy_check(), RedundancyCheck::Cc);
@@ -584,7 +609,7 @@ pub fn encode_command_packet(
             let mac_region = &buf[3..total];
             let mut mac_buf = [0u8; 1024];
             let padded_len = apply_padding(mac_region, &mut mac_buf)?;
-            let mac = aes_cbc_mac(km, &mac_buf[..padded_len]);
+            let mac = aes_cbc_mac(km.declassify_ref(), &mac_buf[..padded_len]);
             buf[cc_offset..cc_offset + CC_SIZE].copy_from_slice(&mac);
         } else {
             return Err(OtaError::UnknownAlgorithm);
@@ -596,7 +621,7 @@ pub fn encode_command_packet(
         if let Some(kc) = key_cipher {
             let cipher_region = &mut buf[10..total];
             debug_assert!(cipher_region.len() == padded_secured_len);
-            aes_cbc_encrypt(kc, cipher_region);
+            aes_cbc_encrypt(kc.declassify_ref(), cipher_region);
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
@@ -611,24 +636,19 @@ pub fn encode_command_packet(
 
 /// Decode and verify a command packet per [ETSI TS 102 225 V19.0.0 clause 5.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A118%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
 ///
+/// Encoding order is MAC-then-encrypt, so decoding is decrypt-then-verify-MAC.
+///
 /// - `packet`: The complete received packet bytes.
-/// - `key_cipher`: AES-128 key for deciphering (if ciphered). Currently not
-///   supported since `simrs-rijndael` is encrypt-only. Pass `None` for
-///   non-ciphered packets.
-/// - `key_mac`: AES-128 key for CC verification (if CC present).
+/// - `key_cipher`: AES-128 key for deciphering (required if SPI indicates ciphering).
+/// - `key_mac`: AES-128 key for CC verification (required if SPI indicates CC).
 /// - `hdr_out`: Decoded header is written here.
 /// - `data_out`: Decoded command data is written here.
 ///
 /// Returns the number of data bytes written to `data_out`.
-///
-/// # Limitations
-///
-/// Decryption of ciphered packets is not supported (requires AES decrypt).
-/// If the packet has ciphering enabled, returns `OtaError::UnknownAlgorithm`.
 pub fn decode_command_packet(
     packet: &[u8],
-    key_cipher: Option<&[u8; 16]>,
-    key_mac: Option<&[u8; 16]>,
+    key_cipher: Option<&Secret<[u8; 16]>>,
+    key_mac: Option<&Secret<[u8; 16]>>,
     hdr_out: &mut CommandPacketHeader,
     data_out: &mut [u8],
 ) -> Result<usize, OtaError> {
@@ -655,50 +675,63 @@ pub fn decode_command_packet(
     let has_cipher = hdr_out.spi.ciphering();
     let rc_size = if has_cc { CC_SIZE } else { 0 };
 
-    // CBC decrypt is not available (simrs-rijndael is encrypt-only)
+    // The secured region (CNTR through end of packet) starts at offset 10.
+    // Copy into a working buffer so we can decrypt in-place when ciphered.
+    let secured_len = total - 10;
+    let mut work = [0u8; 1024];
+    if secured_len > work.len() {
+        return Err(OtaError::BufferTooSmall);
+    }
+    work[..secured_len].copy_from_slice(&packet[10..total]);
+
+    // Decrypt the secured region if ciphered.
+    // Encode order is MAC-then-encrypt, so decode is decrypt-then-verify-MAC.
     if has_cipher {
-        let _ = key_cipher;
-        return Err(OtaError::UnknownAlgorithm);
+        if let Some(kc) = key_cipher {
+            aes_cbc_decrypt(kc.declassify_ref(), &mut work[..secured_len]);
+        } else {
+            return Err(OtaError::UnknownAlgorithm);
+        }
     }
 
-    // Non-ciphered: all fields are in the clear
-    hdr_out.counter = [packet[10], packet[11], packet[12], packet[13], packet[14]];
-    hdr_out.padding_counter = packet[15];
-
-    let cc_offset = 16;
-    let data_offset = cc_offset + rc_size;
-
-    if total < data_offset {
+    // Parse CNTR and PCNTR from the (possibly decrypted) working buffer.
+    // Layout: CNTR(5) + PCNTR(1) + CC(8)? + data + padding
+    if secured_len < 6 + rc_size {
         return Err(OtaError::InvalidLength);
     }
+    hdr_out.counter = [work[0], work[1], work[2], work[3], work[4]];
+    hdr_out.padding_counter = work[5];
 
-    // Verify MAC if CC mode
+    let cc_offset = 6; // within work buffer
+    let data_offset = cc_offset + rc_size;
+
+    // Verify MAC if CC mode.
+    // MAC input = SPI(2) + KIc(1) + KID(1) + TAR(3) + CNTR(5) + PCNTR(1) + CC_zeros(8) + data + padding
+    // = packet[3..10] (always clear) concatenated with work[..secured_len] (CC zeroed).
     if has_cc {
         if let Some(km) = key_mac {
-            if total < cc_offset + CC_SIZE {
-                return Err(OtaError::InvalidLength);
-            }
-            // Extract the received MAC
+            // Extract the received MAC from the (decrypted) work buffer
             let mut received_mac = [0u8; CC_SIZE];
-            received_mac.copy_from_slice(&packet[cc_offset..cc_offset + CC_SIZE]);
+            received_mac.copy_from_slice(&work[cc_offset..cc_offset + CC_SIZE]);
 
-            // Re-compute MAC with CC field zeroed
-            let region_len = total - 3; // from SPI to end
+            // Re-build the MAC input: header fields (clear) + secured region (decrypted, CC zeroed)
+            let mac_input_len = 7 + secured_len;
             let mut recompute_buf = [0u8; 1024];
-            if region_len > recompute_buf.len() {
+            if mac_input_len > recompute_buf.len() {
                 return Err(OtaError::BufferTooSmall);
             }
-            recompute_buf[..region_len].copy_from_slice(&packet[3..total]);
-            // Zero the CC field within our copy (cc_offset - 3 = 13)
-            let cc_in_copy = cc_offset - 3;
-            for b in &mut recompute_buf[cc_in_copy..cc_in_copy + CC_SIZE] {
+            recompute_buf[..7].copy_from_slice(&packet[3..10]);
+            recompute_buf[7..7 + secured_len].copy_from_slice(&work[..secured_len]);
+            // Zero the CC field (at offset 7 + 6 = 13 in the recompute buffer)
+            let cc_in_buf = 7 + cc_offset;
+            for b in &mut recompute_buf[cc_in_buf..cc_in_buf + CC_SIZE] {
                 *b = 0x00;
             }
             let mut mac_padded = [0u8; 1024];
-            let padded_len = apply_padding(&recompute_buf[..region_len], &mut mac_padded)?;
-            let computed_mac = aes_cbc_mac(km, &mac_padded[..padded_len]);
+            let padded_len = apply_padding(&recompute_buf[..mac_input_len], &mut mac_padded)?;
+            let computed_mac = aes_cbc_mac(km.declassify_ref(), &mac_padded[..padded_len]);
 
-            if !ct_eq(&computed_mac, &received_mac) {
+            if !ct_eq(&computed_mac, &received_mac).into_bool() {
                 return Err(OtaError::MacVerifyFailed);
             }
         } else {
@@ -707,7 +740,7 @@ pub fn decode_command_packet(
     }
 
     // Extract data (subtract padding bytes)
-    let raw_data_len = total - data_offset;
+    let raw_data_len = secured_len - data_offset;
     let padding = hdr_out.padding_counter as usize;
     if padding > raw_data_len {
         return Err(OtaError::InvalidLength);
@@ -716,7 +749,7 @@ pub fn decode_command_packet(
     if data_out.len() < data_len {
         return Err(OtaError::BufferTooSmall);
     }
-    data_out[..data_len].copy_from_slice(&packet[data_offset..data_offset + data_len]);
+    data_out[..data_len].copy_from_slice(&work[data_offset..data_offset + data_len]);
 
     Ok(data_len)
 }
@@ -767,8 +800,8 @@ pub fn encode_response_packet(
     status_code: u8,
     data: &[u8],
     spi: &Spi,
-    key_cipher: Option<&[u8; 16]>,
-    key_mac: Option<&[u8; 16]>,
+    key_cipher: Option<&Secret<[u8; 16]>>,
+    key_mac: Option<&Secret<[u8; 16]>>,
     buf: &mut [u8],
 ) -> Result<usize, OtaError> {
     let has_cc = matches!(spi.redundancy_check(), RedundancyCheck::Cc);
@@ -837,7 +870,7 @@ pub fn encode_response_packet(
             let mac_region = &buf[3..total];
             let mut mac_buf = [0u8; 1024];
             let padded_len = apply_padding(mac_region, &mut mac_buf)?;
-            let mac = aes_cbc_mac(km, &mac_buf[..padded_len]);
+            let mac = aes_cbc_mac(km.declassify_ref(), &mac_buf[..padded_len]);
             buf[cc_offset..cc_offset + CC_SIZE].copy_from_slice(&mac);
         } else {
             return Err(OtaError::UnknownAlgorithm);
@@ -849,7 +882,7 @@ pub fn encode_response_packet(
         if let Some(kc) = key_cipher {
             let cipher_region = &mut buf[6..total];
             debug_assert!(cipher_region.len() == padded_secured_len);
-            aes_cbc_encrypt(kc, cipher_region);
+            aes_cbc_encrypt(kc.declassify_ref(), cipher_region);
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
@@ -980,7 +1013,7 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
-        let key_mac = [0x40u8; 16];
+        let key_mac = Secret::new([0x40u8; 16]);
 
         let mut buf = [0u8; 256];
         let len = encode_command_packet(&hdr, &data, None, Some(&key_mac), &mut buf).unwrap();
@@ -1035,7 +1068,7 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
-        let key_mac = [0x40u8; 16];
+        let key_mac = Secret::new([0x40u8; 16]);
 
         let mut buf = [0u8; 256];
         let enc_len = encode_command_packet(&hdr, &data, None, Some(&key_mac), &mut buf).unwrap();
@@ -1061,7 +1094,7 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
-        let key_mac = [0x40u8; 16];
+        let key_mac = Secret::new([0x40u8; 16]);
 
         let mut buf = [0u8; 256];
         let enc_len = encode_command_packet(&hdr, &data, None, Some(&key_mac), &mut buf).unwrap();
@@ -1211,10 +1244,132 @@ mod tests {
         let mac = aes_cbc_mac(&key, &plaintext);
         assert_eq!(mac, expected_mac);
     }
+
+    // 21. Encode then decode roundtrip with cipher only (no MAC)
+    #[test]
+    fn decode_command_packet_cipher_roundtrip() {
+        let hdr = CommandPacketHeader {
+            spi: Spi { spi1: 0x04, spi2: 0x00 }, // cipher, no CC
+            kic: KeyId::new(0x02),
+            kid: KeyId::new(0x00),
+            tar: [0xB0, 0x00, 0x10],
+            counter: [0x00, 0x00, 0x00, 0x00, 0x01],
+            padding_counter: 0,
+        };
+        let data = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
+        let key_cipher = Secret::new([0x11u8; 16]);
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, Some(&key_cipher), None, &mut buf,
+        ).unwrap();
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let dec_len = decode_command_packet(
+            &buf[..enc_len], Some(&key_cipher), None, &mut decoded_hdr, &mut decoded_data,
+        ).unwrap();
+
+        assert_eq!(decoded_hdr.tar, hdr.tar);
+        assert_eq!(decoded_hdr.counter, hdr.counter);
+        assert_eq!(&decoded_data[..dec_len], &data);
+    }
+
+    // 22. Encode then decode roundtrip with cipher + MAC
+    #[test]
+    fn decode_command_packet_cipher_mac_roundtrip() {
+        let hdr = CommandPacketHeader {
+            spi: Spi { spi1: 0x06, spi2: 0x00 }, // cipher + CC
+            kic: KeyId::new(0x02),
+            kid: KeyId::new(0x02),
+            tar: [0xB0, 0x00, 0x10],
+            counter: [0x00, 0x00, 0x00, 0x00, 0x01],
+            padding_counter: 0,
+        };
+        let data = [0xA0, 0xA4, 0x00, 0x00];
+        let key_cipher = Secret::new([0x11u8; 16]);
+        let key_mac = Secret::new([0x22u8; 16]);
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf,
+        ).unwrap();
+
+        // Ciphertext region should not contain plaintext counter
+        assert_ne!(&buf[10..15], &hdr.counter);
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let dec_len = decode_command_packet(
+            &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+        ).unwrap();
+
+        assert_eq!(decoded_hdr.tar, hdr.tar);
+        assert_eq!(decoded_hdr.counter, hdr.counter);
+        assert_eq!(&decoded_data[..dec_len], &data);
+    }
+
+    // 23. Tampered ciphertext causes MAC failure
+    #[test]
+    fn decode_command_packet_cipher_mac_tampered() {
+        let hdr = CommandPacketHeader {
+            spi: Spi { spi1: 0x06, spi2: 0x00 },
+            kic: KeyId::new(0x02),
+            kid: KeyId::new(0x02),
+            tar: [0xB0, 0x00, 0x10],
+            counter: [0x00; 5],
+            padding_counter: 0,
+        };
+        let data = [0xA0, 0xA4, 0x00, 0x00];
+        let key_cipher = Secret::new([0x11u8; 16]);
+        let key_mac = Secret::new([0x22u8; 16]);
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf,
+        ).unwrap();
+
+        // Tamper with ciphertext
+        buf[enc_len - 1] ^= 0xFF;
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let result = decode_command_packet(
+            &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+        );
+        assert_eq!(result, Err(OtaError::MacVerifyFailed));
+    }
+
+    // 24. Ciphered packet without key returns error
+    #[test]
+    fn decode_command_packet_cipher_no_key() {
+        let hdr = CommandPacketHeader {
+            spi: Spi { spi1: 0x04, spi2: 0x00 },
+            kic: KeyId::new(0x02),
+            kid: KeyId::new(0x00),
+            tar: [0xB0, 0x00, 0x10],
+            counter: [0x00; 5],
+            padding_counter: 0,
+        };
+        let data = [0xA0, 0xA4];
+        let key_cipher = Secret::new([0x11u8; 16]);
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, Some(&key_cipher), None, &mut buf,
+        ).unwrap();
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let result = decode_command_packet(
+            &buf[..enc_len], None, None, &mut decoded_hdr, &mut decoded_data,
+        );
+        assert_eq!(result, Err(OtaError::UnknownAlgorithm));
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Constant-time validation (DudeCT)
+// Constant-time validation (tacet via ct_test wrapper)
 //
 //   cargo test -p simrs-ota --features ct-validation --release
 // ---------------------------------------------------------------------------
@@ -1223,20 +1378,14 @@ mod tests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{dudect_test, Rng};
-
-    const SAMPLES: u64 = 10_000;
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
 
     /// AES-CBC-MAC timing must be independent of key content.
     /// Class 0: fixed key, random 2-block data.
     /// Class 1: random key, random 2-block data.
     #[test]
     fn test_aes_cbc_mac_ct() {
-        let mut rng = Rng::from_seed(0x07A_CBC0);
-        let result = dudect_test(
-            "aes_cbc_mac (fixed key vs random key)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(0x07A_CBC0,
             |rng| {
                 let key = [0xAAu8; 16];
                 let mut data = [0u8; 32];
@@ -1254,7 +1403,6 @@ mod ct_validation {
                 black_box(aes_cbc_mac(key, data));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 }

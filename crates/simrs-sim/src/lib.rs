@@ -434,7 +434,20 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
 
     /// Create a new SIM card with both GSM and USIM application layers.
     ///
-    /// Both Ki and authentication parameters are zero-initialized.
+    /// Both Ki and authentication parameters are zero-initialized with empty
+    /// filesystems.  **Replace both app layers** before activating the card:
+    ///
+    /// ```ignore
+    /// use simrs_usim::profile::{REFERENCE_MF, ADF_TABLE};
+    ///
+    /// let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &REFERENCE_MF);
+    /// *sim.usim_app_mut() = UsimApp::new(&REFERENCE_MF, &ADF_TABLE, auth);
+    /// *sim.gsm_app_mut() = GsmApp::new(&REFERENCE_MF, ki);
+    ///
+    /// // Optional: enable on-card SUCI computation (GET IDENTITY).
+    /// *sim.usim_app_mut().suci_mut() = Some(SuciState::new(seed));
+    /// ```
+    ///
     /// Use [`gsm_app_mut`](Self::gsm_app_mut) and
     /// [`usim_app_mut`](Self::usim_app_mut) to replace the app layers with
     /// properly configured credentials before activating the card.
@@ -771,7 +784,7 @@ mod tests {
     use simrs_fs::AdfSlot;
     use simrs_milenage::MilenageParams;
     #[cfg(feature = "usim")]
-    use simrs_milenage::OperatorVariant;
+    use simrs_milenage::{OperatorVariant, SubscriberKey};
     #[cfg(any(feature = "gsm", feature = "usim"))]
     use simrs_pin::{PinKey, PinValue};
 
@@ -845,7 +858,7 @@ mod tests {
         #[cfg(feature = "usim")]
         {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults([0u8; 16], OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
             let usim = sim.usim_app_mut();
             *usim = UsimApp::new(&MF, &ADF_TABLE, mil);
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);

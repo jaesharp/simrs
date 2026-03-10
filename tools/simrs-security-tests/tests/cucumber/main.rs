@@ -36,6 +36,7 @@ mod fs_access_control;
 mod ota_envelope;
 mod auth_protocol;
 mod data_leakage;
+mod ecies_suci;
 
 fn main() {
     futures::executor::block_on(world::SimWorld::run("features/"));

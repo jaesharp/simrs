@@ -14,6 +14,7 @@
 //! | `ota_envelope` | OTA/ENVELOPE injection | CVE-2019-16256, GSM 03.48 |
 //! | `auth_protocol` | AUTHENTICATE protocol attacks | 3GPP TS 31.102, TS 33.102 |
 //! | `data_leakage` | GET RESPONSE data leakage | ISO 7816-4 clause 7.6 |
+//! | `ecies_suci` | ECIES/SUCI on-card computation | 3GPP TS 31.102 clause 7.5, TS 33.501 |
 //!
 //! # Restricted Distribution
 //!
@@ -27,32 +28,15 @@
 
 pub mod apdu;
 
-use simrs_fs::{DfDef, EfDef, Fid, FileRef};
 use simrs_gsm::Ki;
-use simrs_milenage::{MilenageParams, OperatorVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
 use simrs_sim::{Sim, SimEvent, SimResponse};
+use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
+use simrs_usim::SuciSeed;
 
 /// Type alias for the SIM instance used across all security tests.
 pub type TestSim = Sim<MilenageParams, 256>;
-
-// ---- Static filesystem for tests ----
-
-/// EF.ICCID (transparent, 10 bytes) under MF.
-static EF_ICCID: EfDef = EfDef::transparent(
-    Fid::new(0x2FE2),
-    None,
-    &[0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0],
-);
-
-/// EF.DIR (linear-fixed, 1 record of 32 bytes) under MF.
-static EF_DIR: EfDef = EfDef::linear_fixed(Fid::new(0x2F00), None, 32, 1, &[0xFF; 32]);
-
-/// Minimal MF for security tests.
-pub static MF: DfDef = DfDef {
-    fid: Fid::new(0x3F00),
-    children: &[FileRef::Ef(&EF_ICCID), FileRef::Ef(&EF_DIR)],
-};
 
 /// Minimal ATR.
 pub static ATR: [u8; 2] = [0x3B, 0x00];
@@ -65,6 +49,8 @@ pub const TEST_KI: Ki = Ki([0x11; 16]);
 pub const TEST_K: [u8; 16] = [0x22; 16];
 /// Test `OPc` (all 0x33).
 pub const TEST_OPC: [u8; 16] = [0x33; 16];
+/// Test SUCI DRBG seed (all 0x44).
+pub const TEST_SUCI_SEED: SuciSeed = SuciSeed([0x44; 32]);
 
 // PIN/PUK digit-string constants live in apdu::PIN1_CORRECT etc.
 // Encoding to 8-byte ISO format is done by apdu::encode_pin().
@@ -85,10 +71,10 @@ pub const PUK_MAX_RETRIES: u8 = 10;
 ///
 /// Panics if `add_pin` fails (should not happen with valid test data).
 pub fn create_sim() -> TestSim {
-    let mut sim = TestSim::new(&ATR, &MF);
-    let mil = MilenageParams::with_defaults(TEST_K, OperatorVariant::Opc(TEST_OPC));
-    *sim.usim_app_mut() = simrs_usim::UsimApp::new(&MF, &[], mil);
-    *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(&MF, TEST_KI);
+    let mut sim = TestSim::new(&ATR, &REFERENCE_MF);
+    let mil = MilenageParams::with_defaults(SubscriberKey::new(TEST_K), OperatorVariant::Opc(TEST_OPC));
+    *sim.usim_app_mut() = simrs_usim::UsimApp::new(&REFERENCE_MF, &ADF_TABLE, mil);
+    *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(&REFERENCE_MF, TEST_KI);
 
     // Configure PIN1 with test values.
     let pin1 = PinValue::new(apdu::encode_pin(apdu::PIN1_CORRECT));
@@ -112,6 +98,23 @@ pub fn create_sim() -> TestSim {
 /// Create a configured SIM and power it on.
 pub fn create_sim_powered_on() -> TestSim {
     let mut sim = create_sim();
+    let _ = sim.process(SimEvent::PowerOn);
+    sim
+}
+
+/// Create a new SIM with SUCI service enabled.
+///
+/// Uses [`TEST_SUCI_SEED`] for the HMAC-DRBG ephemeral key derivation.
+/// The SIM is in `Off` state; call `sim.process(SimEvent::PowerOn)` to start.
+pub fn create_sim_with_suci() -> TestSim {
+    let mut sim = create_sim();
+    *sim.usim_app_mut().suci_mut() = Some(simrs_usim::SuciState::new(TEST_SUCI_SEED));
+    sim
+}
+
+/// Create a configured SIM with SUCI service enabled and power it on.
+pub fn create_sim_with_suci_powered_on() -> TestSim {
+    let mut sim = create_sim_with_suci();
     let _ = sim.process(SimEvent::PowerOn);
     sim
 }
@@ -228,7 +231,7 @@ pub fn select_ef_iccid(sim: &mut TestSim) -> (u8, u8) {
 /// Construct a valid AUTN for the test Milenage credentials with a given
 /// SQN and AMF, so AUTHENTICATE will accept the MAC.
 pub fn build_valid_autn(challenge: &[u8; 16], sequence_number: [u8; 6], management_field: [u8; 2]) -> [u8; 16] {
-    let params = MilenageParams::with_defaults(TEST_K, OperatorVariant::Opc(TEST_OPC));
+    let params = MilenageParams::with_defaults(SubscriberKey::new(TEST_K), OperatorVariant::Opc(TEST_OPC));
     let anonymity_key = params.compute_anonymity_key(challenge);
     let auth_mac = params.compute_auth_mac(challenge, &sequence_number, &management_field);
     let mut auth_token = [0u8; 16];

@@ -5,7 +5,26 @@
 //! this crate are designed so that their execution time and memory access
 //! patterns do not depend on the values of secret data.
 //!
-//! # Primitives
+//! # Core Type
+//!
+//! [`CtBool`] is an opaque constant-time boolean that prevents accidental
+//! branching. All comparison and zero-test operations return `CtBool` instead
+//! of `bool`. Call [`.into_bool()`](CtBool::into_bool) explicitly when a
+//! branch is intentional.
+//!
+//! # Traits
+//!
+//! | Trait | Purpose |
+//! |-------|---------|
+//! | [`CtEq`] | Constant-time equality (returns [`CtBool`]) |
+//! | [`CtSelect`] | Conditional select / cmov |
+//! | [`CtSwap`] | Conditional swap / cswap |
+//! | [`CtZero`] | Zero test |
+//!
+//! Implementations are provided for `u8`, `u64`, `[u8; N]`, `[u64; N]`,
+//! and tuples up to arity 5.
+//!
+//! # Free Functions
 //!
 //! | Function | Purpose |
 //! |----------|---------|
@@ -14,7 +33,10 @@
 //! | [`ct_xtime`] | Branchless GF(2^8) multiplication by {02} |
 //! | [`ct_eq`] | Constant-time byte-slice equality |
 //! | [`ct_is_zero_u8`] | Constant-time zero test for `u8` |
+//! | [`ct_is_zero_u64`] | Constant-time zero test for `u64` |
 //! | [`ct_mux_u8`] | Constant-time conditional select for `u8` |
+//! | [`ct_mux_u64`] | Constant-time conditional select for `u64` |
+//! | [`ct_swap_u64`] | Constant-time conditional swap for `u64` |
 //!
 //! # Derive Macro
 //!
@@ -28,7 +50,7 @@
 //!
 //! let a = Mac([0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3]);
 //! let b = Mac([0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3]);
-//! assert!(a.ct_eq(&b));
+//! assert!(a.ct_eq(&b).into_bool());
 //! ```
 //!
 //! # Constant-Time Guarantees
@@ -58,49 +80,18 @@ extern crate std;
 #[cfg(test)]
 extern crate self as simrs_consttime;
 
-// Re-export the derive macro so users only need `simrs-consttime` as a dep.
-pub use simrs_consttime_macros::CtEq;
+mod ctbool;
+mod traits;
 
-// ---------------------------------------------------------------------------
-// Trait
-// ---------------------------------------------------------------------------
+// Re-export derive macros so users only need `simrs-consttime` as a dep.
+pub use simrs_consttime_macros::{CtEq, CtSelect, CtSwap};
 
-/// Constant-time equality comparison.
-///
-/// Implementations must examine all bytes of both operands regardless of
-/// where differences occur, preventing timing side-channel attacks on
-/// secret data comparisons (e.g., MAC verification).
-///
-/// # Contract
-///
-/// - `ct_eq` must return `true` if and only if the two values are equal.
-/// - The execution time must be independent of which bytes differ.
-/// - The memory access pattern must be independent of which bytes differ.
-///
-/// # Derive
-///
-/// Use `#[derive(CtEq)]` for structs with `[u8; N]` or `u8` fields:
-///
-/// ```
-/// use simrs_consttime::CtEq;
-///
-/// #[derive(CtEq)]
-/// struct AuthMac {
-///     mac: [u8; 8],
-///     tag: u8,
-/// }
-/// ```
-pub trait CtEq {
-    /// Compare `self` with `other` in constant time.
-    fn ct_eq(&self, other: &Self) -> bool;
-}
-
-impl<const N: usize> CtEq for [u8; N] {
-    #[inline]
-    fn ct_eq(&self, other: &Self) -> bool {
-        ct_eq(self, other)
-    }
-}
+// Re-export core types and traits.
+pub use ctbool::CtBool;
+pub use traits::{
+    ct_is_zero_u64, ct_is_zero_u8, ct_mux_u64, ct_mux_u8, ct_swap_u64, CtEq, CtSelect, CtSwap,
+    CtZero,
+};
 
 // ---------------------------------------------------------------------------
 // Table Lookups
@@ -224,20 +215,18 @@ pub const fn ct_xtime(b: u8) -> u8 {
 }
 
 // ---------------------------------------------------------------------------
-// Comparison
+// Byte-slice comparison (kept as free function for &[u8] slices)
 // ---------------------------------------------------------------------------
 
 /// Constant-time byte-slice equality comparison.
 ///
-/// Returns `true` if `a` and `b` have the same length and identical contents.
-/// Always examines every byte regardless of where mismatches occur, preventing
-/// timing side-channel attacks on MAC verification.
+/// Returns [`CtBool::TRUE`] if `a` and `b` have the same length and
+/// identical contents. Always examines every byte regardless of where
+/// mismatches occur, preventing timing side-channel attacks on MAC
+/// verification.
 ///
-/// # How It Works
-///
-/// Accumulates `XOR` differences into a single byte. Any nonzero bit in the
-/// accumulator means the slices differ. The loop runs for the full length
-/// regardless of early mismatches.
+/// For fixed-size arrays, prefer the [`CtEq`] trait:
+/// `a.ct_eq(&b)`.
 ///
 /// # Example
 ///
@@ -248,60 +237,20 @@ pub const fn ct_xtime(b: u8) -> u8 {
 /// let b = [0x4A, 0x9F, 0xFA, 0xC3];
 /// let c = [0x4A, 0x9F, 0xFA, 0xC4];
 ///
-/// assert!(ct_eq(&a, &b));
-/// assert!(!ct_eq(&a, &c));
-/// assert!(!ct_eq(&a, &[0x4A, 0x9F])); // different lengths
+/// assert!(ct_eq(&a, &b).into_bool());
+/// assert!(!ct_eq(&a, &c).into_bool());
+/// assert!(!ct_eq(&a, &[0x4A, 0x9F]).into_bool()); // different lengths
 /// ```
 #[inline]
-pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+pub fn ct_eq(a: &[u8], b: &[u8]) -> CtBool {
     if a.len() != b.len() {
-        return false;
+        return CtBool::FALSE;
     }
     let mut diff = 0u8;
     for i in 0..a.len() {
         diff |= a[i] ^ b[i];
     }
-    diff == 0
-}
-
-// ---------------------------------------------------------------------------
-// Building Blocks
-// ---------------------------------------------------------------------------
-
-/// Constant-time zero test for `u8`.
-///
-/// Returns `0xFF` if `x == 0`, `0x00` otherwise. No branches.
-///
-/// # Example
-///
-/// ```
-/// use simrs_consttime::ct_is_zero_u8;
-///
-/// assert_eq!(ct_is_zero_u8(0), 0xFF);
-/// assert_eq!(ct_is_zero_u8(1), 0x00);
-/// assert_eq!(ct_is_zero_u8(255), 0x00);
-/// ```
-#[inline]
-pub const fn ct_is_zero_u8(x: u8) -> u8 {
-    ((x | x.wrapping_neg()) >> 7).wrapping_sub(1)
-}
-
-/// Constant-time conditional select for `u8`.
-///
-/// Returns `a` if `mask == 0xFF`, `b` if `mask == 0x00`.
-/// Behavior is undefined for other mask values.
-///
-/// # Example
-///
-/// ```
-/// use simrs_consttime::ct_mux_u8;
-///
-/// assert_eq!(ct_mux_u8(0xFF, 0x42, 0x99), 0x42);
-/// assert_eq!(ct_mux_u8(0x00, 0x42, 0x99), 0x99);
-/// ```
-#[inline]
-pub const fn ct_mux_u8(mask: u8, a: u8, b: u8) -> u8 {
-    b ^ (mask & (a ^ b))
+    ct_is_zero_u8(diff)
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +266,6 @@ mod tests {
 
     #[test]
     fn ct_select_identity_table() {
-        // Identity table: table[i] == i for all i.
         let table: [u8; 256] = core::array::from_fn(|i| i as u8);
         for i in 0u16..256 {
             let b = i as u8;
@@ -328,7 +276,6 @@ mod tests {
     #[test]
     #[allow(clippy::cast_possible_truncation)]
     fn ct_select_inverted_table() {
-        // Inverted table: table[i] == 255 - i.
         let table: [u8; 256] = core::array::from_fn(|i| 255 - i as u8);
         for i in 0u16..256 {
             let b = i as u8;
@@ -342,7 +289,6 @@ mod tests {
 
     #[test]
     fn ct_select_single_nonzero() {
-        // Table with only one nonzero entry -- must find it for the right index.
         for pos in [0u8, 1, 127, 128, 254, 255] {
             let mut table = [0u8; 256];
             table[pos as usize] = 0xAB;
@@ -417,16 +363,15 @@ mod tests {
 
     #[test]
     fn ct_xtime_fips197_example() {
-        // NIST FIPS 197 clause 4.2.1: {57} * {02} = {AE}
         assert_eq!(ct_xtime(0x57), 0xAE);
     }
 
-    // -- ct_eq --
+    // -- ct_eq (free function) --
 
     #[test]
     fn ct_eq_equal() {
         let a = [0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3];
-        assert!(ct_eq(&a, &a));
+        assert!(ct_eq(&a, &a).into_bool());
     }
 
     #[test]
@@ -437,7 +382,7 @@ mod tests {
                 let mut b = a;
                 b[i] ^= 1 << bit;
                 assert!(
-                    !ct_eq(&a, &b),
+                    !ct_eq(&a, &b).into_bool(),
                     "must detect bit {bit} diff at byte {i}"
                 );
             }
@@ -446,24 +391,24 @@ mod tests {
 
     #[test]
     fn ct_eq_different_lengths() {
-        assert!(!ct_eq(&[1, 2, 3], &[1, 2]));
-        assert!(!ct_eq(&[1, 2], &[1, 2, 3]));
+        assert!(!ct_eq(&[1, 2, 3], &[1, 2]).into_bool());
+        assert!(!ct_eq(&[1, 2], &[1, 2, 3]).into_bool());
     }
 
     #[test]
     fn ct_eq_empty() {
         let a: [u8; 0] = [];
-        assert!(ct_eq(&a, &a));
+        assert!(ct_eq(&a, &a).into_bool());
     }
 
     #[test]
     fn ct_eq_all_zero() {
-        assert!(ct_eq(&[0u8; 16], &[0u8; 16]));
+        assert!(ct_eq(&[0u8; 16], &[0u8; 16]).into_bool());
     }
 
     #[test]
     fn ct_eq_all_ff() {
-        assert!(ct_eq(&[0xFF; 16], &[0xFF; 16]));
+        assert!(ct_eq(&[0xFF; 16], &[0xFF; 16]).into_bool());
     }
 
     #[test]
@@ -471,59 +416,25 @@ mod tests {
         let a = [0x00; 16];
         let mut b = [0x00; 16];
         b[15] = 0x01;
-        assert!(!ct_eq(&a, &b));
+        assert!(!ct_eq(&a, &b).into_bool());
     }
 
-    // -- ct_is_zero_u8 --
-
-    #[test]
-    #[allow(clippy::cast_possible_truncation)]
-    fn ct_is_zero_u8_exhaustive() {
-        for i in 0u16..256 {
-            let b = i as u8;
-            let expected = if b == 0 { 0xFF } else { 0x00 };
-            assert_eq!(ct_is_zero_u8(b), expected, "ct_is_zero_u8({b})");
-        }
-    }
-
-    // -- ct_mux_u8 --
-
-    #[test]
-    #[allow(clippy::cast_possible_truncation)]
-    fn ct_mux_u8_select_a() {
-        for i in 0u16..256 {
-            let a = i as u8;
-            let b = (!a).wrapping_add(1); // some different value
-            assert_eq!(ct_mux_u8(0xFF, a, b), a, "mux(0xFF, {a}, {b})");
-        }
-    }
-
-    #[test]
-    #[allow(clippy::cast_possible_truncation)]
-    fn ct_mux_u8_select_b() {
-        for i in 0u16..256 {
-            let a = i as u8;
-            let b = (!a).wrapping_add(1);
-            assert_eq!(ct_mux_u8(0x00, a, b), b, "mux(0x00, {a}, {b})");
-        }
-    }
-
-    // -- CtEq trait --
+    // -- CtEq trait (via [u8; N] impl) --
 
     #[test]
     fn ct_eq_trait_array_8() {
         let a: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
         let b: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
         let c: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 9];
-        assert!(a.ct_eq(&b));
-        assert!(!a.ct_eq(&c));
+        assert!(a.ct_eq(&b).into_bool());
+        assert!(!a.ct_eq(&c).into_bool());
     }
 
     #[test]
     fn ct_eq_trait_array_16() {
         let a = [0xABu8; 16];
         let b = [0xABu8; 16];
-        assert!(a.ct_eq(&b));
+        assert!(a.ct_eq(&b).into_bool());
     }
 
     // -- Derive CtEq integration --
@@ -536,8 +447,8 @@ mod tests {
         let a = TestMac([0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3]);
         let b = TestMac([0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3]);
         let c = TestMac([0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB4]);
-        assert!(a.ct_eq(&b));
-        assert!(!a.ct_eq(&c));
+        assert!(a.ct_eq(&b).into_bool());
+        assert!(!a.ct_eq(&c).into_bool());
     }
 
     #[derive(CtEq)]
@@ -560,8 +471,8 @@ mod tests {
             mac: [1, 2, 3, 4, 5, 6, 7, 8],
             res: [9, 10, 11, 12, 13, 14, 15, 0],
         };
-        assert!(a.ct_eq(&b));
-        assert!(!a.ct_eq(&c));
+        assert!(a.ct_eq(&b).into_bool());
+        assert!(!a.ct_eq(&c).into_bool());
     }
 
     #[derive(CtEq)]
@@ -588,9 +499,9 @@ mod tests {
             tag: 0xAB,
             data: [1, 2, 3, 5],
         };
-        assert!(a.ct_eq(&b));
-        assert!(!a.ct_eq(&c));
-        assert!(!a.ct_eq(&d));
+        assert!(a.ct_eq(&b).into_bool());
+        assert!(!a.ct_eq(&c).into_bool());
+        assert!(!a.ct_eq(&d).into_bool());
     }
 
     #[derive(CtEq)]
@@ -599,7 +510,7 @@ mod tests {
     #[test]
     fn derive_ct_eq_unit_struct() {
         let a = TestUnit;
-        assert!(a.ct_eq(&TestUnit));
+        assert!(a.ct_eq(&TestUnit).into_bool());
     }
 }
 
@@ -616,7 +527,6 @@ mod proptests {
     proptest! {
         #[test]
         fn ct_select_matches_direct(index in 0u8..=255) {
-            // Identity table -- ct_select must return the index itself.
             let table: [u8; 256] = core::array::from_fn(|i| i as u8);
             prop_assert_eq!(ct_select(&table, index), index);
         }
@@ -625,7 +535,7 @@ mod proptests {
     proptest! {
         #[test]
         fn ct_eq_reflexive(data in proptest::collection::vec(any::<u8>(), 0..64)) {
-            prop_assert!(ct_eq(&data, &data));
+            prop_assert!(ct_eq(&data, &data).into_bool());
         }
     }
 
@@ -639,7 +549,7 @@ mod proptests {
             prop_assume!(flip_pos < data.len());
             let mut modified = data.clone();
             modified[flip_pos] ^= 1 << flip_bit;
-            prop_assert!(!ct_eq(&data, &modified));
+            prop_assert!(!ct_eq(&data, &modified).into_bool());
         }
     }
 
@@ -654,27 +564,25 @@ mod proptests {
     proptest! {
         #[test]
         fn ct_is_zero_correct(x in any::<u8>()) {
-            let expected = if x == 0 { 0xFF } else { 0x00 };
-            prop_assert_eq!(ct_is_zero_u8(x), expected);
+            prop_assert_eq!(ct_is_zero_u8(x).into_bool(), x == 0);
         }
     }
 
     proptest! {
         #[test]
         fn ct_mux_correct(a in any::<u8>(), b in any::<u8>()) {
-            prop_assert_eq!(ct_mux_u8(0xFF, a, b), a);
-            prop_assert_eq!(ct_mux_u8(0x00, a, b), b);
+            prop_assert_eq!(ct_mux_u8(CtBool::TRUE, a, b), a);
+            prop_assert_eq!(ct_mux_u8(CtBool::FALSE, a, b), b);
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// DudeCT constant-time validation tests
+// Timing validation tests (tacet-backed)
 //
-// These tests use statistical timing analysis (Welch's t-test) to detect
-// data-dependent timing behavior. They MUST be run in release mode
-// (`--release` or opt-level >= 2) to avoid false positives from unoptimized
-// debug code paths.
+// These tests use statistical timing analysis to detect data-dependent
+// timing behavior. They MUST be run in release mode (`--release` or
+// opt-level >= 2) to avoid false positives from unoptimized code paths.
 //
 // Run with:
 //   cargo test -p simrs-consttime --features ct-validation --release
@@ -685,91 +593,58 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{dudect_test, Rng};
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
 
-    const SAMPLES: u64 = 50_000;
-
-    /// `ct_select`: class 0 = fixed index 0, class 1 = random index.
-    /// Identity table so every index yields a different value; a non-CT
-    /// implementation would show timing differences across cache lines.
     #[test]
     fn ct_select_timing() {
         let table: [u8; 256] = core::array::from_fn(|i| i as u8);
-        let mut rng = Rng::from_seed(1);
-        let result = dudect_test(
-            "ct_select (fixed vs random index)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(1,
             |_rng| 0u8,
-            Rng::next_u8,
+            |rng| rng.next_u8(),
             |&index| {
                 black_box(ct_select(&table, index));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
-    /// `ct_select_n` with 512 entries: class 0 = index 0, class 1 = random index.
     #[test]
     fn ct_select_n_timing() {
         let table: [u8; 512] = core::array::from_fn(|i| (i & 0xFF) as u8);
-        let mut rng = Rng::from_seed(2);
-        let result = dudect_test(
-            "ct_select_n(512) (fixed vs random index)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(2,
             |_rng| 0usize,
             |rng| (rng.next_u64() as usize) % 512,
             |&index| {
                 black_box(ct_select_n(&table, index));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
-    /// `ct_xtime`: class 0 = no reduction (high bit clear), class 1 = reduction
-    /// (high bit set). A branching implementation would show different timing
-    /// for the two classes.
     #[test]
     fn ct_xtime_timing() {
-        let mut rng = Rng::from_seed(3);
-        let result = dudect_test(
-            "ct_xtime (no-reduce vs reduce)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(3,
             |rng| rng.next_u8() & 0x7F,
             |rng| rng.next_u8() | 0x80,
             |&b| {
                 black_box(ct_xtime(b));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
-    /// `ct_eq` (equal vs different): class 0 = identical slices, class 1 =
-    /// slices that differ at a random position. A short-circuiting
-    /// implementation would return faster for early mismatches.
     #[test]
     fn ct_eq_equal_vs_different_timing() {
-        let mut rng = Rng::from_seed(4);
-        let result = dudect_test(
-            "ct_eq (equal vs different)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(4,
             |rng| {
                 let mut buf = [0u8; 32];
                 rng.fill_bytes(&mut buf);
-                // class 0: both slices identical
                 (buf, buf)
             },
             |rng| {
                 let mut a = [0u8; 32];
                 rng.fill_bytes(&mut a);
                 let mut b = a;
-                // class 1: differ at a random position
                 let pos = (rng.next_u64() as usize) % 32;
                 b[pos] ^= 0x01;
                 (a, b)
@@ -778,25 +653,16 @@ mod ct_validation {
                 black_box(ct_eq(&pair.0, &pair.1));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
-    /// `ct_eq` (early diff vs late diff): class 0 = differ at byte 0,
-    /// class 1 = differ at byte 31. A short-circuiting implementation
-    /// would return faster when the first byte already differs.
     #[test]
     fn ct_eq_early_vs_late_diff_timing() {
-        let mut rng = Rng::from_seed(5);
-        let result = dudect_test(
-            "ct_eq (early vs late diff)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(5,
             |rng| {
                 let mut a = [0u8; 32];
                 rng.fill_bytes(&mut a);
                 let mut b = a;
-                // class 0: differ at byte 0 (early)
                 b[0] ^= 0x01;
                 (a, b)
             },
@@ -804,7 +670,6 @@ mod ct_validation {
                 let mut a = [0u8; 32];
                 rng.fill_bytes(&mut a);
                 let mut b = a;
-                // class 1: differ at byte 31 (late)
                 b[31] ^= 0x01;
                 (a, b)
             },
@@ -812,19 +677,12 @@ mod ct_validation {
                 black_box(ct_eq(&pair.0, &pair.1));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
-    /// `ct_is_zero_u8`: class 0 = zero input, class 1 = nonzero input.
-    /// A branching implementation would show different timing.
     #[test]
     fn ct_is_zero_u8_timing() {
-        let mut rng = Rng::from_seed(6);
-        let result = dudect_test(
-            "ct_is_zero_u8 (zero vs nonzero)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(6,
             |_rng| 0u8,
             |rng| {
                 let mut v = rng.next_u8();
@@ -837,26 +695,18 @@ mod ct_validation {
                 black_box(ct_is_zero_u8(x));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
-    /// `ct_mux_u8`: class 0 = mask 0xFF (select a), class 1 = mask 0x00
-    /// (select b). A branching mux would show timing differences.
     #[test]
     fn ct_mux_u8_timing() {
-        let mut rng = Rng::from_seed(7);
-        let result = dudect_test(
-            "ct_mux_u8 (mask 0xFF vs 0x00)",
-            SAMPLES,
-            &mut rng,
-            |rng| (0xFFu8, rng.next_u8(), rng.next_u8()),
-            |rng| (0x00u8, rng.next_u8(), rng.next_u8()),
-            |&(mask, a, b)| {
-                black_box(ct_mux_u8(mask, a, b));
+        let outcome = ct_test(7,
+            |rng| (CtBool::TRUE, rng.next_u8(), rng.next_u8()),
+            |rng| (CtBool::FALSE, rng.next_u8(), rng.next_u8()),
+            |&(cond, a, b)| {
+                black_box(ct_mux_u8(cond, a, b));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 }

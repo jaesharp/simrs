@@ -180,8 +180,8 @@ pub fn comp128(ki: &[u8; 16], rand: &[u8; 16]) -> Comp128Result {
                 for l in 0..half {
                     let m = (l + k * (half << 1)) as usize;
                     let n = m + half as usize;
-                    let y = ((u32::from(x[m]) + 2 * u32::from(x[n])) % modulus) as usize;
-                    let z = ((2 * u32::from(x[m]) + u32::from(x[n])) % modulus) as usize;
+                    let y = ((u32::from(x[m]) + 2 * u32::from(x[n])) & (modulus - 1)) as usize;
+                    let z = ((2 * u32::from(x[m]) + u32::from(x[n])) & (modulus - 1)) as usize;
                     x[m] = ct_select_n(tables[j as usize], y);
                     x[n] = ct_select_n(tables[j as usize], z);
                 }
@@ -200,7 +200,7 @@ pub fn comp128(ki: &[u8; 16], rand: &[u8; 16]) -> Comp128Result {
             for j in 0..16usize {
                 x[j + 16] = 0;
                 for k in 0..8u32 {
-                    let bit_next = ((8 * j as u32 + k) * 17) % 128;
+                    let bit_next = ((8 * j as u32 + k) * 17) & 127;
                     x[j + 16] |= bits[bit_next as usize] << (7 - k);
                 }
             }
@@ -555,17 +555,13 @@ mod proptests {
 #[cfg(all(test, feature = "ct-validation"))]
 mod ct_validation {
     use super::*;
-    use simrs_consttime_validation::{dudect_test, Rng};
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
 
     #[test]
     fn test_comp128_ct() {
-        let mut rng = Rng::from_seed(42);
         let fixed_ki = [0xABu8; 16];
 
-        let result = dudect_test(
-            "comp128: fixed Ki vs random Ki",
-            10_000,
-            &mut rng,
+        let outcome = ct_test(42,
             |rng| {
                 // Class 0: fixed Ki, random RAND
                 let mut rand = [0u8; 16];
@@ -585,7 +581,47 @@ mod ct_validation {
                 core::hint::black_box(r);
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// COMP128 timing must be independent of RAND content with fixed Ki.
+    ///
+    /// Class 0: fixed RAND (values near modulus boundaries: 0xFF bytes
+    ///          that produce intermediates near 512, 256, etc.).
+    /// Class 1: random RAND.
+    ///
+    /// Before the bitmask fix, `% modulus` on values near the boundary
+    /// could exhibit variable-time division paths. The `& (modulus - 1)` fix
+    /// makes this a single AND instruction regardless of value.
+    #[test]
+    fn test_comp128_rand_independence_ct() {
+        let fixed_ki = [0xABu8; 16];
+
+        // Fixed RAND with boundary-probing values: bytes near 0xFF produce
+        // intermediates (x[m] + 2*x[n]) near the modulus boundary.
+        let boundary_rand: [u8; 16] = [
+            0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        ];
+
+        let outcome = ct_test(0xC128_0002,
+            |rng| {
+                // Class 0: fixed boundary RAND, burn RNG for symmetry.
+                let mut _discard = [0u8; 16];
+                rng.fill_bytes(&mut _discard);
+                (fixed_ki, boundary_rand)
+            },
+            |rng| {
+                // Class 1: random RAND.
+                let mut rand = [0u8; 16];
+                rng.fill_bytes(&mut rand);
+                (fixed_ki, rand)
+            },
+            |(ki, rand)| {
+                let r = comp128(ki, rand);
+                core::hint::black_box(r);
+            },
+        );
+        assert_no_timing_leak!(outcome);
     }
 }

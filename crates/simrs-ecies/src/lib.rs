@@ -24,13 +24,14 @@
 //!
 //! ```
 //! use simrs_ecies::{ecies_profile_a_encrypt, x25519};
+//! use simrs_secret::Secret;
 //!
 //! // Home Network key pair (use CSPRNG in production).
 //! let hn_sk = [0x42u8; 32];
 //! let hn_pk = x25519::x25519_base(&hn_sk);
 //!
 //! // Encrypt the MSIN with a fresh ephemeral key.
-//! let eph_sk = [0x99u8; 32];
+//! let eph_sk = Secret::new([0x99u8; 32]);
 //! let msin = [0x00, 0x01, 0x20, 0x80, 0xf6];
 //! let result = ecies_profile_a_encrypt(&hn_pk, &msin, &eph_sk);
 //!
@@ -49,6 +50,7 @@ pub mod x25519;
 
 use simrs_kdf::{kdf_x963, HmacSha256};
 use simrs_rijndael::Rijndael;
+use simrs_secret::Secret;
 
 // ---------------------------------------------------------------------------
 // AES-128-CTR (NIST SP 800-38A clause 6.5)
@@ -89,16 +91,19 @@ pub fn aes128_ctr(key: &[u8; 16], iv: &[u8; 16], input: &[u8], output: &mut [u8]
     }
 }
 
-/// Increment a 128-bit counter in big-endian byte order.
+/// Increment a 128-bit counter in big-endian byte order (branchless).
+///
+/// Always processes all 16 bytes using a carry mask to avoid
+/// data-dependent branches on the counter value.
 fn increment_counter(ctr: &mut [u8; 16]) {
-    let mut i: usize = 15;
-    loop {
-        let (val, overflow) = ctr[i].overflowing_add(1);
-        ctr[i] = val;
-        if !overflow || i == 0 {
-            break;
-        }
+    // Process from LSB to MSB. carry starts at 1 (the increment).
+    let mut carry: u16 = 1;
+    let mut i: usize = 16;
+    while i > 0 {
         i -= 1;
+        let sum = ctr[i] as u16 + carry;
+        ctr[i] = sum as u8;
+        carry = sum >> 8;
     }
 }
 
@@ -172,15 +177,15 @@ pub struct EciesProfileAResult {
 pub fn ecies_profile_a_encrypt(
     hn_pubkey: &[u8; 32],
     plaintext: &[u8],
-    ephemeral_sk: &[u8; 32],
+    ephemeral_sk: &Secret<[u8; 32]>,
 ) -> EciesProfileAResult {
     assert!(plaintext.len() <= MAX_PLAINTEXT_LEN, "plaintext too long");
 
     // Step 1: Compute ephemeral public key.
-    let ephemeral_pk = x25519::x25519_base(ephemeral_sk);
+    let ephemeral_pk = x25519::x25519_base(ephemeral_sk.declassify_ref());
 
     // Step 2: ECDH shared secret.
-    let shared_secret = x25519::x25519(ephemeral_sk, hn_pubkey);
+    let shared_secret = x25519::x25519(ephemeral_sk.declassify_ref(), hn_pubkey);
 
     // Step 3: Key derivation via ANSI X9.63 KDF.
     // Per TS 33.501 C.3.4:
@@ -248,19 +253,19 @@ pub struct EciesProfileBResult {
 pub fn ecies_profile_b_encrypt(
     hn_pubkey: &[u8; 65],
     plaintext: &[u8],
-    ephemeral_sk: &[u8; 32],
+    ephemeral_sk: &Secret<[u8; 32]>,
 ) -> EciesProfileBResult {
     assert!(plaintext.len() <= MAX_PLAINTEXT_LEN, "plaintext too long");
     assert!(
-        p256::validate_scalar(ephemeral_sk),
+        p256::validate_scalar(ephemeral_sk.declassify_ref()),
         "ephemeral_sk must be in [1, n-1]"
     );
 
     // Step 1: Compute compressed ephemeral public key.
-    let ephemeral_pk = p256::p256_pubkey_compressed(ephemeral_sk);
+    let ephemeral_pk = p256::p256_pubkey_compressed(ephemeral_sk.declassify_ref());
 
     // Step 2: ECDH shared secret (x-coordinate).
-    let shared_secret = p256::p256_ecdh(ephemeral_sk, hn_pubkey)
+    let shared_secret = p256::p256_ecdh(ephemeral_sk.declassify_ref(), hn_pubkey)
         .expect("ECDH failed: invalid HN public key or degenerate point");
 
     // Step 3: Key derivation via ANSI X9.63 KDF.
@@ -406,7 +411,7 @@ mod tests {
         );
         let plaintext = [0x00, 0x01, 0x20, 0x80, 0xf6]; // packed BCD MSIN
 
-        let result = ecies_profile_a_encrypt(&hn_pk, &plaintext, &eph_sk);
+        let result = ecies_profile_a_encrypt(&hn_pk, &plaintext, &Secret::new(eph_sk));
 
         // Verify ephemeral pubkey.
         assert_eq!(
@@ -478,7 +483,7 @@ mod tests {
         );
         let msin = [0x00, 0x01, 0x20, 0x80, 0xf6];
 
-        let result = ecies_profile_a_encrypt(&hn_pk, &msin, &eph_sk);
+        let result = ecies_profile_a_encrypt(&hn_pk, &msin, &Secret::new(eph_sk));
 
         // HN side: compute shared secret and re-derive keys.
         let shared_secret = x25519::x25519(&hn_sk, &result.ephemeral_pk);
@@ -511,6 +516,7 @@ mod tests {
         let eph_sk = [99u8; 32];
         let msin = [0xAB, 0xCD, 0xEF];
 
+        let eph_sk = Secret::new(eph_sk);
         let r1 = ecies_profile_a_encrypt(&hn_pk, &msin, &eph_sk);
         let r2 = ecies_profile_a_encrypt(&hn_pk, &msin, &eph_sk);
 
@@ -525,8 +531,8 @@ mod tests {
         let hn_pk = x25519::x25519_base(&[42u8; 32]);
         let msin = [0xAB, 0xCD, 0xEF];
 
-        let r1 = ecies_profile_a_encrypt(&hn_pk, &msin, &[1u8; 32]);
-        let r2 = ecies_profile_a_encrypt(&hn_pk, &msin, &[2u8; 32]);
+        let r1 = ecies_profile_a_encrypt(&hn_pk, &msin, &Secret::new([1u8; 32]));
+        let r2 = ecies_profile_a_encrypt(&hn_pk, &msin, &Secret::new([2u8; 32]));
 
         assert_ne!(r1.ephemeral_pk, r2.ephemeral_pk);
         assert_ne!(r1.ciphertext[..r1.ct_len], r2.ciphertext[..r2.ct_len]);
@@ -537,6 +543,7 @@ mod tests {
         let hn_pk = x25519::x25519_base(&[42u8; 32]);
         let eph_sk = [99u8; 32];
 
+        let eph_sk = Secret::new(eph_sk);
         let r1 = ecies_profile_a_encrypt(&hn_pk, &[0x01, 0x02], &eph_sk);
         let r2 = ecies_profile_a_encrypt(&hn_pk, &[0x01, 0x03], &eph_sk);
 
@@ -600,7 +607,7 @@ mod tests {
         );
         let plaintext = [0x00, 0x01, 0x20, 0x80, 0xf6]; // packed BCD MSIN
 
-        let result = ecies_profile_b_encrypt(&hn_pk, &plaintext, &eph_sk);
+        let result = ecies_profile_b_encrypt(&hn_pk, &plaintext, &Secret::new(eph_sk));
 
         // Verify ephemeral compressed pubkey.
         let mut expected_eph = [0u8; 33];
@@ -678,7 +685,7 @@ mod tests {
         );
         let msin = [0x00, 0x01, 0x20, 0x80, 0xf6];
 
-        let result = ecies_profile_b_encrypt(&hn_pk, &msin, &eph_sk);
+        let result = ecies_profile_b_encrypt(&hn_pk, &msin, &Secret::new(eph_sk));
 
         // HN side: recover shared secret from compressed ephemeral pubkey.
         let eph_pk_uncompressed = p256::p256_decompress_pubkey(&result.ephemeral_pk)
@@ -719,6 +726,7 @@ mod tests {
         );
         let msin = [0x00, 0x01, 0x20, 0x80, 0xf6];
 
+        let eph_sk = Secret::new(eph_sk);
         let r1 = ecies_profile_b_encrypt(&hn_pk, &msin, &eph_sk);
         let r2 = ecies_profile_b_encrypt(&hn_pk, &msin, &eph_sk);
 
@@ -742,8 +750,8 @@ mod tests {
         );
         let msin = [0x00, 0x01, 0x20, 0x80, 0xf6];
 
-        let r1 = ecies_profile_b_encrypt(&hn_pk, &msin, &eph_sk1);
-        let r2 = ecies_profile_b_encrypt(&hn_pk, &msin, &eph_sk2);
+        let r1 = ecies_profile_b_encrypt(&hn_pk, &msin, &Secret::new(eph_sk1));
+        let r2 = ecies_profile_b_encrypt(&hn_pk, &msin, &Secret::new(eph_sk2));
 
         assert_ne!(r1.ephemeral_pk, r2.ephemeral_pk);
         assert_ne!(r1.ciphertext[..r1.ct_len], r2.ciphertext[..r2.ct_len]);
@@ -759,6 +767,7 @@ mod tests {
             "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
         );
 
+        let eph_sk = Secret::new(eph_sk);
         let r1 = ecies_profile_b_encrypt(&hn_pk, &[0x01, 0x02], &eph_sk);
         let r2 = ecies_profile_b_encrypt(&hn_pk, &[0x01, 0x03], &eph_sk);
 
@@ -824,7 +833,7 @@ mod proptests {
             msin in any::<[u8; 5]>(),
         ) {
             let hn_pk = x25519::x25519_base(&hn_sk);
-            let result = ecies_profile_a_encrypt(&hn_pk, &msin, &eph_sk);
+            let result = ecies_profile_a_encrypt(&hn_pk, &msin, &Secret::new(eph_sk));
 
             // HN-side decrypt: ECDH + X9.63 KDF + verify MAC + AES-128-CTR.
             let shared_secret = x25519::x25519(&hn_sk, &result.ephemeral_pk);
@@ -867,7 +876,7 @@ mod proptests {
             msin in any::<[u8; 5]>(),
         ) {
             let hn_pk = p256::p256_pubkey(&hn_sk);
-            let result = ecies_profile_b_encrypt(&hn_pk, &msin, &eph_sk);
+            let result = ecies_profile_b_encrypt(&hn_pk, &msin, &Secret::new(eph_sk));
 
             // HN-side decrypt: decompress ephemeral pk, ECDH, re-derive keys.
             let eph_pk_uncompressed = p256::p256_decompress_pubkey(&result.ephemeral_pk)
@@ -909,20 +918,14 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{dudect_test, Rng};
-
-    const SAMPLES: u64 = 10_000;
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak, Rng};
 
     /// X25519 scalar multiplication timing must be independent of scalar value.
     /// Class 0: fixed scalar, random base point.
     /// Class 1: random scalar, random base point.
     #[test]
     fn test_x25519_scalar_mul_ct() {
-        let mut rng = Rng::from_seed(0xC25519_01);
-        let result = dudect_test(
-            "x25519 (fixed scalar vs random scalar)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(0xC25519_01,
             |rng| {
                 let scalar = [0x42u8; 32];
                 let mut base = [0u8; 32];
@@ -940,8 +943,7 @@ mod ct_validation {
                 black_box(x25519::x25519(scalar, base));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
     /// ECIES Profile A encryption timing must be independent of plaintext content.
@@ -950,11 +952,7 @@ mod ct_validation {
     #[test]
     fn test_ecies_profile_a_ct() {
         let hn_pk = x25519::x25519_base(&[0x77u8; 32]);
-        let mut rng = Rng::from_seed(0xEC1E5_A01);
-        let result = dudect_test(
-            "ecies_profile_a_encrypt (fixed pt vs random pt)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(0xEC1E5_A01,
             |rng| {
                 let pt = [0x12, 0x34, 0x56, 0x78, 0x9A];
                 let mut eph = [0u8; 32];
@@ -969,11 +967,10 @@ mod ct_validation {
                 (pt, eph)
             },
             |(pt, eph)| {
-                black_box(ecies_profile_a_encrypt(&hn_pk, pt, eph));
+                black_box(ecies_profile_a_encrypt(&hn_pk, pt, &Secret::new(*eph)));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
     /// P-256 scalar multiplication timing must be independent of scalar value.
@@ -1010,11 +1007,7 @@ mod ct_validation {
             }
         }
 
-        let mut rng = Rng::from_seed(0x9256_0001);
-        let result = dudect_test(
-            "p256_ecdh (fixed scalar vs random scalar)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(0x9256_0001,
             |rng| {
                 // Class 0: generate a random scalar (burn rng), but use the fixed one.
                 let _ = gen_valid_scalar(rng);
@@ -1029,8 +1022,7 @@ mod ct_validation {
                 black_box(p256::p256_ecdh(scalar, pk));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
     /// ECIES Profile B encryption timing must be independent of plaintext content.
@@ -1045,11 +1037,7 @@ mod ct_validation {
             0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
         ];
         let hn_pk = p256::p256_pubkey(&hn_sk);
-        let mut rng = Rng::from_seed(0xEC1E5_B01);
-        let result = dudect_test(
-            "ecies_profile_b_encrypt (fixed pt vs random pt)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(0xEC1E5_B01,
             |rng| {
                 let pt = [0x12, 0x34, 0x56, 0x78, 0x9A];
                 let mut eph = [0u8; 32];
@@ -1074,10 +1062,168 @@ mod ct_validation {
                 (pt, eph)
             },
             |(pt, eph)| {
-                black_box(ecies_profile_b_encrypt(&hn_pk, pt, eph));
+                black_box(ecies_profile_b_encrypt(&hn_pk, pt, &Secret::new(*eph)));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// P-256 scalar multiplication with scalar = n-1 (maximum valid) vs
+    /// mid-range scalars. This exercises the edge of the scalar domain where
+    /// the ladder repeatedly hits the doubling case in Point::add.
+    ///
+    /// Class 0: scalar = n-1 (fixed, near group order).
+    /// Class 1: random valid scalar.
+    #[test]
+    fn test_p256_scalar_near_order_ct() {
+        let hn_sk = [
+            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7,
+            0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3, 0x68, 0xb1,
+            0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
+            0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
+        ];
+        let hn_pk = p256::p256_pubkey(&hn_sk);
+
+        // n-1 for P-256: FFFFFFFF 00000000 FFFFFFFF FFFFFFFF
+        //                 BCE6FAAD A7179E84 F3B9CAC2 FC632550
+        let n_minus_1: [u8; 32] = [
+            0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xBC, 0xE6, 0xFA, 0xAD, 0xA7, 0x17, 0x9E, 0x84,
+            0xF3, 0xB9, 0xCA, 0xC2, 0xFC, 0x63, 0x25, 0x50,
+        ];
+
+        let outcome = ct_test(0x9256_0003,
+            |rng| {
+                let mut _discard = [0u8; 32];
+                rng.fill_bytes(&mut _discard);
+                (n_minus_1, hn_pk)
+            },
+            |rng| {
+                let mut s = [0u8; 32];
+                loop {
+                    rng.fill_bytes(&mut s);
+                    if p256::validate_scalar(&s) {
+                        break;
+                    }
+                }
+                (s, hn_pk)
+            },
+            |(scalar, pk)| {
+                black_box(p256::p256_ecdh(scalar, pk));
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// P-256 scalar multiplication must be constant-time for sparse scalars.
+    ///
+    /// Scalar=3 has Hamming weight 2, meaning 254 of 256 ladder steps
+    /// operate on the identity point (Z=0). Without projective coordinate
+    /// randomization and scalar blinding, this causes a Zero-Value Register
+    /// Attack (ZRA / Goubin 2003) where field multiplications with all-zero
+    /// operands execute faster on some CPUs.
+    ///
+    /// Class 0: scalar = 3 (sparse, Hamming weight 2).
+    /// Class 1: random valid scalar (dense, ~128 set bits on average).
+    #[test]
+    fn test_p256_scalar_sparse_vs_dense_ct() {
+        let hn_sk = [
+            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7,
+            0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3, 0x68, 0xb1,
+            0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
+            0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
+        ];
+        let hn_pk = p256::p256_pubkey(&hn_sk);
+
+        // Scalar = 3 (big-endian): 31 zero bytes followed by 0x03.
+        let mut sparse_scalar = [0u8; 32];
+        sparse_scalar[31] = 0x03;
+
+        let outcome = ct_test(0x9256_0004,
+            |rng| {
+                // Class 0: burn RNG to keep symmetric, use sparse scalar.
+                let mut _discard = [0u8; 32];
+                rng.fill_bytes(&mut _discard);
+                (sparse_scalar, hn_pk)
+            },
+            |rng| {
+                // Class 1: random valid scalar.
+                let mut s = [0u8; 32];
+                loop {
+                    rng.fill_bytes(&mut s);
+                    if p256::validate_scalar(&s) {
+                        break;
+                    }
+                }
+                (s, hn_pk)
+            },
+            |(scalar, pk)| {
+                black_box(p256::p256_ecdh(scalar, pk));
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// AES-CTR counter increment timing must be independent of carry depth.
+    ///
+    /// Class 0: counter = 0xFF..FF (maximum carry: all 16 bytes carry).
+    /// Class 1: counter = 0x00..01 (zero carry: only LSB increments).
+    ///
+    /// Before the branchless fix, the old implementation had an early exit
+    /// on no carry, making class 1 significantly faster.
+    #[test]
+    fn test_increment_counter_ct() {
+        let outcome = ct_test(0x1AAEC_0001,
+            |_rng| {
+                // Class 0: all-FF counter (every byte carries).
+                [0xFFu8; 16]
+            },
+            |_rng| {
+                // Class 1: counter at 1 (no carry at all).
+                let mut c = [0u8; 16];
+                c[15] = 0x01;
+                c
+            },
+            |ctr| {
+                let mut c = *ctr;
+                black_box(increment_counter(&mut c));
+                black_box(c);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// AES-CTR counter increment with random carry depth.
+    ///
+    /// Class 0: counter ending in 8 bytes of 0xFF (8-byte carry chain).
+    /// Class 1: random counter value (variable carry depth).
+    #[test]
+    fn test_increment_counter_variable_carry_ct() {
+        let outcome = ct_test(0x1AAEC_0002,
+            |rng| {
+                // Class 0: high bytes random, low 8 bytes = 0xFF.
+                let mut c = [0xFFu8; 16];
+                let mut hi = [0u8; 8];
+                rng.fill_bytes(&mut hi);
+                c[..8].copy_from_slice(&hi);
+                // Burn 8 more bytes to keep RNG symmetric.
+                let mut _discard = [0u8; 8];
+                rng.fill_bytes(&mut _discard);
+                c
+            },
+            |rng| {
+                // Class 1: fully random counter.
+                let mut c = [0u8; 16];
+                rng.fill_bytes(&mut c);
+                c
+            },
+            |ctr| {
+                let mut c = *ctr;
+                black_box(increment_counter(&mut c));
+                black_box(c);
+            },
+        );
+        assert_no_timing_leak!(outcome);
     }
 }

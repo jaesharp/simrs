@@ -4,6 +4,8 @@
 //! Field elements in GF(2^255 - 19) are represented as five 51-bit limbs in
 //! radix 2^51.
 
+use simrs_consttime::{CtBool, CtSelect, CtSwap};
+
 // ---------------------------------------------------------------------------
 // Field element: GF(2^255 - 19)
 // ---------------------------------------------------------------------------
@@ -123,12 +125,9 @@ impl Fe {
 
         // If g[4] bit 63 is set, subtraction underflowed: f < p, keep f.
         // Otherwise f >= p, use g (= f - p).
-        let mask = 0u64.wrapping_sub((g[4] >> 63) & 1); // all-1s if f < p
-        f.0[0] = (f.0[0] & mask) | (g[0] & !mask);
-        f.0[1] = (f.0[1] & mask) | (g[1] & !mask);
-        f.0[2] = (f.0[2] & mask) | (g[2] & !mask);
-        f.0[3] = (f.0[3] & mask) | (g[3] & !mask);
-        f.0[4] = (f.0[4] & mask) | ((g[4] & MASK51) & !mask);
+        let keep_f = CtBool::from_u64_bit((g[4] >> 63) & 1);
+        let g_reduced = [g[0], g[1], g[2], g[3], g[4] & MASK51];
+        f.0 = <[u64; 5]>::ct_select(keep_f, &f.0, &g_reduced);
 
         f
     }
@@ -235,9 +234,80 @@ impl Fe {
         Self(r)
     }
 
-    /// Squaring mod p (alias for `mul(self, self)`).
+    /// Squaring mod 2^255-19 using Comba squaring (15 multiplications
+    /// vs 25 for generic mul).
+    ///
+    /// Exploits the symmetry a[i]*a[j] == a[j]*a[i] by pre-doubling input
+    /// limbs (safe since limbs are 51 bits, so 2*limb fits in 52 bits, and
+    /// the maximum accumulator value is ~2^110, well within u128).
+    ///
+    /// Formulas (derived from the multiplication formulas with b = a):
+    ///   t0 = a0^2      + 38*a1*a4 + 38*a2*a3
+    ///   t1 = 2*a0*a1   + 38*a2*a4 + 19*a3^2
+    ///   t2 = 2*a0*a2   + a1^2     + 38*a3*a4
+    ///   t3 = 2*a0*a3   + 2*a1*a2  + 19*a4^2
+    ///   t4 = 2*a0*a4   + 2*a1*a3  + a2^2
+    #[allow(clippy::cast_possible_truncation)]
     fn square(self) -> Self {
-        self.mul(self)
+        let a = self.0;
+
+        // Pre-compute doubled limbs and reduced limbs.
+        let a0_2 = 2 * a[0];
+        let a1_2 = 2 * a[1];
+        let a3_19 = 19 * a[3];
+        let a4_19 = 19 * a[4];
+        let a4_38 = 2 * a4_19; // 38 * a[4]
+
+        let t0 = (a[0] as u128) * (a[0] as u128)
+            + (a1_2 as u128) * (a4_19 as u128) // 2*a1 * 19*a4 = 38*a1*a4
+            + (a[2] as u128) * (2 * a3_19 as u128); // a2 * 38*a3
+
+        let t1 = (a0_2 as u128) * (a[1] as u128)
+            + (a[2] as u128) * (a4_38 as u128) // a2 * 38*a4
+            + (a[3] as u128) * (a3_19 as u128); // a3 * 19*a3 = 19*a3^2
+
+        let t2 = (a0_2 as u128) * (a[2] as u128)
+            + (a[1] as u128) * (a[1] as u128)
+            + (a[4] as u128) * (2 * a3_19 as u128); // a4 * 38*a3
+
+        let t3 = (a0_2 as u128) * (a[3] as u128)
+            + (a1_2 as u128) * (a[2] as u128)
+            + (a[4] as u128) * (a4_19 as u128); // a4 * 19*a4 = 19*a4^2
+
+        let t4 = (a0_2 as u128) * (a[4] as u128)
+            + (a1_2 as u128) * (a[3] as u128)
+            + (a[2] as u128) * (a[2] as u128);
+
+        // Carry chain (identical to mul).
+        let mut r = [0u64; 5];
+        let mut carry: u128;
+
+        r[0] = (t0 as u64) & MASK51;
+        carry = t0 >> 51;
+
+        let t1 = t1 + carry;
+        r[1] = (t1 as u64) & MASK51;
+        carry = t1 >> 51;
+
+        let t2 = t2 + carry;
+        r[2] = (t2 as u64) & MASK51;
+        carry = t2 >> 51;
+
+        let t3 = t3 + carry;
+        r[3] = (t3 as u64) & MASK51;
+        carry = t3 >> 51;
+
+        let t4 = t4 + carry;
+        r[4] = (t4 as u64) & MASK51;
+        carry = t4 >> 51;
+
+        // Wrap carry with factor 19.
+        r[0] += (carry as u64) * 19;
+        let c = r[0] >> 51;
+        r[0] &= MASK51;
+        r[1] += c;
+
+        Self(r)
     }
 
     /// Repeated squaring: compute self^(2^n).
@@ -310,17 +380,12 @@ impl Fe {
         t255_5.mul(a11)
     }
 
-    /// Constant-time conditional swap.
-    /// If swap == 1, swap self and other. If swap == 0, no-op.
-    fn cswap(&mut self, other: &mut Self, swap: u64) {
-        let mask = 0u64.wrapping_sub(swap);
-        let mut i = 0;
-        while i < 5 {
-            let t = mask & (self.0[i] ^ other.0[i]);
-            self.0[i] ^= t;
-            other.0[i] ^= t;
-            i += 1;
-        }
+}
+
+impl simrs_consttime::CtSwap for Fe {
+    #[inline]
+    fn ct_swap(a: &mut Self, b: &mut Self, cond: simrs_consttime::CtBool) {
+        <[u64; 5]>::ct_swap(&mut a.0, &mut b.0, cond);
     }
 }
 
@@ -385,8 +450,8 @@ fn ladder(k: &[u8; 32], u: &Fe) -> Fe {
     while t >= 0 {
         let k_t = ((k[(t >> 3) as usize] >> (t & 7)) & 1) as u64;
         swap ^= k_t;
-        Fe::cswap(&mut x_2, &mut x_3, swap);
-        Fe::cswap(&mut z_2, &mut z_3, swap);
+        Fe::ct_swap(&mut x_2, &mut x_3, CtBool::from_u64_bit(swap));
+        Fe::ct_swap(&mut z_2, &mut z_3, CtBool::from_u64_bit(swap));
         swap = k_t;
 
         let a = x_2.add(z_2);
@@ -406,8 +471,8 @@ fn ladder(k: &[u8; 32], u: &Fe) -> Fe {
         t -= 1;
     }
 
-    Fe::cswap(&mut x_2, &mut x_3, swap);
-    Fe::cswap(&mut z_2, &mut z_3, swap);
+    Fe::ct_swap(&mut x_2, &mut x_3, CtBool::from_u64_bit(swap));
+    Fe::ct_swap(&mut z_2, &mut z_3, CtBool::from_u64_bit(swap));
 
     // Return x_2 * z_2^(-1).
     x_2.mul(z_2.invert())
@@ -583,6 +648,35 @@ mod tests {
         assert_eq!(result.to_bytes(), bytes);
     }
 
+    /// Verify Comba squaring produces identical results to mul(a, a)
+    /// for adversarial inputs designed to maximize carry pressure.
+    #[test]
+    fn fe_square_vs_mul() {
+        // Curve25519 base point x-coordinate.
+        let a = Fe::from_bytes(&hex_to_32(
+            "0900000000000000000000000000000000000000000000000000000000000000",
+        ));
+        assert_eq!(a.square().to_bytes(), a.mul(a).to_bytes());
+
+        // p-1 (all bits set in reduced form -- maximizes limb values).
+        let p_minus_1 = Fe::from_bytes(&hex_to_32(
+            "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        ));
+        assert_eq!(p_minus_1.square().to_bytes(), p_minus_1.mul(p_minus_1).to_bytes());
+
+        // p-2 (used in Fermat inversion, another near-max value).
+        let p_minus_2 = Fe::from_bytes(&hex_to_32(
+            "ebffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        ));
+        assert_eq!(p_minus_2.square().to_bytes(), p_minus_2.mul(p_minus_2).to_bytes());
+
+        // Value with alternating high bits in each limb.
+        let alt = Fe::from_bytes(&hex_to_32(
+            "e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c",
+        ));
+        assert_eq!(alt.square().to_bytes(), alt.mul(alt).to_bytes());
+    }
+
     #[test]
     fn fe_invert_self_mul_is_one() {
         let bytes = hex_to_32("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c");
@@ -594,5 +688,20 @@ mod tests {
         let mut expected_one = [0u8; 32];
         expected_one[0] = 1;
         assert_eq!(result, expected_one);
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Comba squaring matches generic multiplication for random field elements.
+        #[test]
+        fn fe_square_matches_mul(bytes in any::<[u8; 32]>()) {
+            let a = Fe::from_bytes(&bytes);
+            prop_assert_eq!(a.square().to_bytes(), a.mul(a).to_bytes());
+        }
     }
 }

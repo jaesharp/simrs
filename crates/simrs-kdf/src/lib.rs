@@ -1020,7 +1020,7 @@ mod proptests {
 }
 
 // ---------------------------------------------------------------------------
-// Constant-time validation (DudeCT)
+// Constant-time validation (tacet via ct_test wrapper)
 //
 //   cargo test -p simrs-kdf --features ct-validation --release
 // ---------------------------------------------------------------------------
@@ -1029,20 +1029,14 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{dudect_test, Rng};
-
-    const SAMPLES: u64 = 10_000;
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
 
     /// HMAC-SHA-256 timing must be independent of key content.
     /// Class 0: fixed key, random data.
     /// Class 1: random key, random data.
     #[test]
     fn test_hmac_sha256_ct() {
-        let mut rng = Rng::from_seed(0xA0AC_256C);
-        let result = dudect_test(
-            "hmac_sha256 (fixed key vs random key)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(0xA0AC_256C,
             |rng| {
                 let key = [0xAAu8; 32];
                 let mut data = [0u8; 32];
@@ -1060,18 +1054,13 @@ mod ct_validation {
                 black_box(hmac_sha256(key, data));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
     /// 3GPP KDF timing must be independent of key content.
     #[test]
     fn test_kdf_ct() {
-        let mut rng = Rng::from_seed(0x3BEE_CDFC);
-        let result = dudect_test(
-            "kdf (fixed key vs random key)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(0x3BEE_CDFC,
             |rng| {
                 let key = [0xBBu8; 32];
                 let mut param = [0u8; 16];
@@ -1089,8 +1078,7 @@ mod ct_validation {
                 black_box(kdf(key, 0x10, &[&param[..]]));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 
     /// X9.63 KDF timing must be independent of shared secret Z content.
@@ -1098,11 +1086,7 @@ mod ct_validation {
     /// Class 1: random Z, random SharedInfo.
     #[test]
     fn test_kdf_x963_ct() {
-        let mut rng = Rng::from_seed(0x963C_DFBA);
-        let result = dudect_test(
-            "kdf_x963 (fixed Z vs random Z)",
-            SAMPLES,
-            &mut rng,
+        let outcome = ct_test(0x963C_DFBA,
             |rng| {
                 let z = [0xCCu8; 32];
                 let mut si = [0u8; 33];
@@ -1121,7 +1105,6 @@ mod ct_validation {
                 black_box(kdf_x963(z, si, 64, &mut out));
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 }

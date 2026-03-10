@@ -9,7 +9,7 @@
 
 use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, Sfi};
 use simrs_gsm::GsmApp;
-use simrs_milenage::{MilenageParams, OperatorVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
 use simrs_proactive::{ProactiveCommand, TextCoding};
 use simrs_qemu::{QemuBridge, QemuBridgeError, ShmemMsgType};
@@ -131,7 +131,7 @@ fn make_sim() -> Sim<MilenageParams, 256> {
         .unwrap();
     let _ = gsm.pin_manager().verify(PinKey::PIN1, &pin);
 
-    let mil = MilenageParams::with_defaults(USIM_K, OperatorVariant::Opc(USIM_OPC));
+    let mil = MilenageParams::with_defaults(SubscriberKey::new(USIM_K), OperatorVariant::Opc(USIM_OPC));
     let usim = sim.usim_app_mut();
     *usim = UsimApp::new(&MF, &ADF_TABLE, mil);
     let pin2 = PinValue::new(PIN_VAL);
@@ -307,7 +307,7 @@ fn usim_select_aid_and_authenticate() {
         0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
         0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
     ];
-    let params = MilenageParams::with_defaults(USIM_K, OperatorVariant::Opc(USIM_OPC));
+    let params = MilenageParams::with_defaults(SubscriberKey::new(USIM_K), OperatorVariant::Opc(USIM_OPC));
     let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
     let management_field = [0xB9, 0xB9];
     let anonymity_key = params.compute_anonymity_key(&rand_val);
@@ -345,11 +345,11 @@ fn usim_select_aid_and_authenticate() {
 
     // Verify CK = f3(RAND).
     let cipher_key = params.compute_cipher_key(&rand_val);
-    assert_eq!(&data[12..28], &cipher_key);
+    assert_eq!(&data[12..28], cipher_key.declassify().as_slice());
 
     // Verify IK = f4(RAND).
     let integrity_key = params.compute_integrity_key(&rand_val);
-    assert_eq!(&data[29..45], &integrity_key);
+    assert_eq!(&data[29..45], integrity_key.declassify().as_slice());
 }
 
 #[test]

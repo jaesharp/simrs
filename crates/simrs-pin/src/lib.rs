@@ -67,6 +67,7 @@
 extern crate std;
 
 use simrs_consttime::ct_eq;
+use simrs_secret::Secret;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -129,27 +130,32 @@ impl core::fmt::Display for PinKey {
 /// Per ETSI TS 102 221, PIN values are 4--8 ASCII digit characters
 /// (`0x30`--`0x39`), right-padded with `0xFF` to fill 8 bytes.
 ///
+/// Both the raw bytes and the length are secret: the length reveals the
+/// PIN size and narrows the brute-force space. Access the raw data only
+/// through [`declassify_bytes`](Self::declassify_bytes) and
+/// [`declassify_len`](Self::declassify_len).
+///
 /// # Example
 ///
 /// ```
 /// use simrs_pin::PinValue;
 /// // PIN "1234" in ASCII encoding
 /// let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
-/// assert_eq!(pin.len, 4);
-/// assert_eq!(pin.bytes[0], 0x31); // ASCII '1'
+/// assert_eq!(pin.declassify_len(), 4);
+/// assert_eq!(pin.declassify_bytes()[0], 0x31); // ASCII '1'
 /// ```
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct PinValue {
     /// Raw 8-byte encoding: ASCII digits followed by `0xFF` padding.
-    pub bytes: [u8; 8],
+    bytes: Secret<[u8; 8]>,
     /// Number of significant (non-padding) bytes, 0--8.
-    pub len: u8,
+    len: u8,
 }
 
 impl PinValue {
     /// An empty PIN value (all `0xFF`).
     pub const EMPTY: Self = Self {
-        bytes: [0xFF; 8],
+        bytes: Secret::new([0xFF; 8]),
         len: 0,
     };
 
@@ -163,7 +169,7 @@ impl PinValue {
     /// ```
     /// use simrs_pin::PinValue;
     /// let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-    /// assert_eq!(pin.len, 8);
+    /// assert_eq!(pin.declassify_len(), 8);
     /// ```
     #[allow(clippy::cast_possible_truncation)] // i is always 0..8
     pub const fn new(bytes: [u8; 8]) -> Self {
@@ -176,7 +182,25 @@ impl PinValue {
             }
             i += 1;
         }
-        Self { bytes, len }
+        Self { bytes: Secret::new(bytes), len }
+    }
+
+    /// Access the raw 8-byte encoding.
+    ///
+    /// Each call site is a visible acknowledgement that secret PIN data
+    /// is leaving the protected domain.
+    #[inline]
+    pub const fn declassify_bytes(&self) -> &[u8; 8] {
+        self.bytes.declassify_ref()
+    }
+
+    /// Access the significant (non-padding) length.
+    ///
+    /// The length reveals the PIN size and narrows the brute-force space,
+    /// so it is treated as secret and requires explicit declassification.
+    #[inline]
+    pub const fn declassify_len(&self) -> u8 {
+        self.len
     }
 }
 
@@ -184,11 +208,17 @@ impl PartialEq for PinValue {
     fn eq(&self, other: &Self) -> bool {
         // Constant-time comparison: prevents timing side-channel attacks that
         // could recover PIN/PUK bytes by measuring early-exit latency.
-        ct_eq(&self.bytes, &other.bytes)
+        ct_eq(self.declassify_bytes(), other.declassify_bytes()).into_bool()
     }
 }
 
 impl Eq for PinValue {}
+
+impl core::fmt::Debug for PinValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("PinValue([REDACTED])")
+    }
+}
 
 /// Result of a PIN operation.
 ///
@@ -433,10 +463,10 @@ impl<const N: usize> PinManager<N> {
         let idx = self.count as usize;
         self.slots[idx] = PinSlot {
             key: key.value(),
-            pin: pin.bytes,
+            pin: *pin.declassify_bytes(),
             pin_retries: pin_max_retries,
             pin_max: pin_max_retries,
-            puk: puk.bytes,
+            puk: *puk.declassify_bytes(),
             puk_retries: puk_max_retries,
             enabled,
             verified: false,
@@ -477,7 +507,7 @@ impl<const N: usize> PinManager<N> {
         if slot.pin_retries == 0 {
             return PinResult::Blocked;
         }
-        if ct_eq(&slot.pin, &val.bytes) {
+        if ct_eq(&slot.pin, val.declassify_bytes()).into_bool() {
             slot.pin_retries = slot.pin_max;
             slot.verified = true;
             PinResult::Success
@@ -522,13 +552,13 @@ impl<const N: usize> PinManager<N> {
         if slot.pin_retries == 0 {
             return PinResult::Blocked;
         }
-        if !ct_eq(&slot.pin, &old.bytes) {
+        if !ct_eq(&slot.pin, old.declassify_bytes()).into_bool() {
             slot.pin_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.pin_retries,
             };
         }
-        slot.pin = new_pin.bytes;
+        slot.pin = *new_pin.declassify_bytes();
         slot.pin_retries = slot.pin_max;
         // CHANGE does not set verified.
         PinResult::Success
@@ -564,7 +594,7 @@ impl<const N: usize> PinManager<N> {
         if slot.pin_retries == 0 {
             return PinResult::Blocked;
         }
-        if !ct_eq(&slot.pin, &val.bytes) {
+        if !ct_eq(&slot.pin, val.declassify_bytes()).into_bool() {
             slot.pin_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.pin_retries,
@@ -606,7 +636,7 @@ impl<const N: usize> PinManager<N> {
         if slot.enabled {
             return PinResult::Success;
         }
-        if !ct_eq(&slot.pin, &val.bytes) {
+        if !ct_eq(&slot.pin, val.declassify_bytes()).into_bool() {
             slot.pin_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.pin_retries,
@@ -653,14 +683,14 @@ impl<const N: usize> PinManager<N> {
         if slot.puk_retries == 0 {
             return PinResult::Blocked;
         }
-        if !ct_eq(&slot.puk, &puk.bytes) {
+        if !ct_eq(&slot.puk, puk.declassify_bytes()).into_bool() {
             slot.puk_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.puk_retries,
             };
         }
         // PUK correct: reset PIN.
-        slot.pin = new_pin.bytes;
+        slot.pin = *new_pin.declassify_bytes();
         slot.pin_retries = slot.pin_max;
         slot.enabled = true;
         slot.verified = false;
@@ -1235,10 +1265,18 @@ mod tests {
 
     #[test]
     fn pin_value_len_computed_correctly() {
-        assert_eq!(PinValue::EMPTY.len, 0);
-        assert_eq!(ascii_pin("1234").len, 4);
-        assert_eq!(ascii_pin("12345678").len, 8);
-        assert_eq!(pin(&[0x30, 0x31]).len, 2);
+        assert_eq!(PinValue::EMPTY.declassify_len(), 0);
+        assert_eq!(ascii_pin("1234").declassify_len(), 4);
+        assert_eq!(ascii_pin("12345678").declassify_len(), 8);
+        assert_eq!(pin(&[0x30, 0x31]).declassify_len(), 2);
+    }
+
+    #[test]
+    fn pin_value_debug_redacted() {
+        let pin = ascii_pin("1234");
+        let dbg = alloc::format!("{pin:?}");
+        assert!(dbg.contains("REDACTED"), "Debug must redact: {dbg}");
+        assert!(!dbg.contains("31"), "Debug must not leak data: {dbg}");
     }
 
     #[test]
@@ -1473,36 +1511,33 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{dudect_test, Rng};
+    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
 
     #[test]
     fn pin_verify_ct() {
-        let mut rng = Rng::from_seed(42);
-        let result = dudect_test(
-            "PinValue::eq (matching vs non-matching)",
-            50_000,
-            &mut rng,
+        let outcome = ct_test(42,
             |rng| {
                 // Class 0: compare two identical PINs
                 let mut bytes = [0xFFu8; 8];
                 rng.fill_bytes(&mut bytes[..4]);
-                (PinValue::new(bytes), PinValue::new(bytes))
+                (bytes, bytes)
             },
             |rng| {
                 // Class 1: compare two PINs differing at random position
                 let mut bytes = [0xFFu8; 8];
                 rng.fill_bytes(&mut bytes[..4]);
-                let a = PinValue::new(bytes);
+                let a_bytes = bytes;
                 let pos = (rng.next_u64() as usize) % 4;
                 bytes[pos] ^= 0x01;
-                let b = PinValue::new(bytes);
-                (a, b)
+                let b_bytes = bytes;
+                (a_bytes, b_bytes)
             },
             |(a, b)| {
-                black_box(a == b);
+                let pa = PinValue::new(*a);
+                let pb = PinValue::new(*b);
+                black_box(pa == pb);
             },
         );
-        result.report();
-        assert!(result.pass, "|t| = {:.3}", result.t_value.abs());
+        assert_no_timing_leak!(outcome);
     }
 }

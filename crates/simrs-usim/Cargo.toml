@@ -27,6 +27,9 @@ profile-5g   = ["profile-standard"]
 profile-ims  = ["profile-full", "isim"]
 profile-all  = ["profile-full", "isim", "hpsim", "telecom"]
 
+# Constant-time validation (DudeCT) -- dev/test only
+ct-validation = []
+
 [dependencies]
 simrs-iso7816   = { workspace = true }
 simrs-bertlv    = { workspace = true }
@@ -34,9 +37,13 @@ simrs-milenage  = { workspace = true }
 simrs-fs        = { workspace = true }
 simrs-pin       = { workspace = true }
 simrs-proactive = { workspace = true }
+simrs-ecies     = { workspace = true }
+simrs-kdf       = { workspace = true }
+simrs-secret    = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

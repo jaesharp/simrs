@@ -11,6 +11,7 @@ std     = []
 
 [dependencies]
 getrandom = { workspace = true }
+tacet     = { workspace = true }
 
 [lints]
 workspace = true
