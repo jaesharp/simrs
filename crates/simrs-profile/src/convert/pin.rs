@@ -1,9 +1,10 @@
 //! PE-PINCodes / PE-PUKCodes to simrs PIN configuration conversion.
 
 use crate::pe::pin::{PePinCodes, PePukCodes};
+use simrs_redact::Redact;
 
 /// Extracted PIN configuration for a single PIN.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PinConfig {
     /// PIN key reference (e.g. 0x01 = PIN1, 0x81 = PIN2).
     pub key_reference: u8,
@@ -17,8 +18,20 @@ pub struct PinConfig {
     pub enabled: bool,
 }
 
+impl core::fmt::Debug for PinConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PinConfig")
+            .field("key_reference", &self.key_reference)
+            .field("pin_value", &Redact(&self.pin_value))
+            .field("puk_key_reference", &self.puk_key_reference)
+            .field("max_retries", &self.max_retries)
+            .field("enabled", &self.enabled)
+            .finish()
+    }
+}
+
 /// Extracted PUK configuration for a single PUK.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PukConfig {
     /// PUK key reference.
     pub key_reference: u8,
@@ -26,6 +39,16 @@ pub struct PukConfig {
     pub puk_value: [u8; 8],
     /// Maximum retry attempts.
     pub max_retries: u8,
+}
+
+impl core::fmt::Debug for PukConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PukConfig")
+            .field("key_reference", &self.key_reference)
+            .field("puk_value", &Redact(&self.puk_value))
+            .field("max_retries", &self.max_retries)
+            .finish()
+    }
 }
 
 /// Extract PIN configurations from a PE-PINCodes.

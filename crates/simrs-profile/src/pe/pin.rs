@@ -2,9 +2,10 @@
 
 use crate::der_util;
 use crate::error::ProfileError;
+use simrs_redact::Redact;
 
 /// A single PIN configuration entry.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PinConfiguration {
     /// PIN key reference (e.g. 0x01 = PIN1, 0x81 = PIN2).
     pub key_reference: u8,
@@ -19,6 +20,18 @@ pub struct PinConfiguration {
     pub max_retries_byte: u8,
 }
 
+impl core::fmt::Debug for PinConfiguration {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PinConfiguration")
+            .field("key_reference", &self.key_reference)
+            .field("pin_value", &Redact(&self.pin_value))
+            .field("unblocking_ref", &self.unblocking_ref)
+            .field("pin_attributes", &self.pin_attributes)
+            .field("max_retries_byte", &self.max_retries_byte)
+            .finish()
+    }
+}
+
 /// PE-PINCodes: PIN configuration (`ProfileElement` tag 2).
 #[derive(Clone, Debug)]
 pub struct PePinCodes {
@@ -27,7 +40,7 @@ pub struct PePinCodes {
 }
 
 /// A single PUK configuration entry.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PukConfiguration {
     /// PUK key reference.
     pub key_reference: u8,
@@ -35,6 +48,16 @@ pub struct PukConfiguration {
     pub puk_value: [u8; 8],
     /// Max retries byte (packed). Default 0xAA (10 max, 10 remaining).
     pub max_retries_byte: u8,
+}
+
+impl core::fmt::Debug for PukConfiguration {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PukConfiguration")
+            .field("key_reference", &self.key_reference)
+            .field("puk_value", &Redact(&self.puk_value))
+            .field("max_retries_byte", &self.max_retries_byte)
+            .finish()
+    }
 }
 
 /// PE-PUKCodes: PUK configuration (`ProfileElement` tag 3).
