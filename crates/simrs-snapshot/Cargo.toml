@@ -13,8 +13,11 @@ simrs-sim      = { workspace = true }
 simrs-milenage = { workspace = true }
 
 [dev-dependencies]
-simrs-fs = { workspace = true }
-proptest = { workspace = true }
+simrs-fs     = { workspace = true }
+simrs-gsm    = { workspace = true }
+simrs-usim   = { workspace = true }
+simrs-secret = { workspace = true }
+proptest     = { workspace = true }
 
 [lints]
 workspace = true

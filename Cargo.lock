@@ -1748,8 +1748,11 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-fs",
+ "simrs-gsm",
  "simrs-milenage",
+ "simrs-secret",
  "simrs-sim",
+ "simrs-usim",
 ]
 
 [[package]]

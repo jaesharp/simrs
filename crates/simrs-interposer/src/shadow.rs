@@ -29,22 +29,10 @@ pub struct SimTerminal {
 impl SimTerminal {
     /// Create a new SimTerminal with the given auth config and filesystem.
     pub fn new(config: &AuthConfig, atr: &'static [u8], mf: &'static DfDef) -> Self {
-        let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
-
-        // Configure GSM app with Ki.
-        {
-            use simrs_gsm::GsmApp;
-            let gsm = sim.gsm_app_mut();
-            *gsm = GsmApp::new(mf, simrs_gsm::Ki::new(config.ki));
-        }
-
-        // Configure USIM app with K/OPc.
-        {
-            use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::opc(config.opc));
-            let usim = sim.usim_app_mut();
-            *usim = UsimApp::new(mf, &[], mil);
-        }
+        let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::Ki::new(config.ki));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::opc(config.opc));
+        let usim = simrs_usim::UsimApp::new(mf, &[], mil);
+        let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
 
         Self {
             sim,
@@ -138,22 +126,10 @@ impl ShadowSim {
         atr: &'static [u8],
         mf: &'static DfDef,
     ) -> Self {
-        let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
-
-        // Configure GSM app with Ki.
-        {
-            use simrs_gsm::GsmApp;
-            let gsm = sim.gsm_app_mut();
-            *gsm = GsmApp::new(mf, simrs_gsm::Ki::new(config.ki));
-        }
-
-        // Configure USIM app with K/OPc.
-        {
-            use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::opc(config.opc));
-            let usim = sim.usim_app_mut();
-            *usim = UsimApp::new(mf, &[], mil);
-        }
+        let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::Ki::new(config.ki));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::opc(config.opc));
+        let usim = simrs_usim::UsimApp::new(mf, &[], mil);
+        let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
 
         Self {
             sim,

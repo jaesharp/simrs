@@ -418,7 +418,11 @@ mod tests {
     static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
 
     fn make_sim() -> Sim<MilenageParams, 256> {
-        Sim::<MilenageParams, 256>::new(&ATR, &MF)
+        use simrs_milenage::{OperatorVariant, SubscriberKey};
+        let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::new(simrs_secret::Secret::new([0u8; 16])));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(simrs_secret::Secret::new([0u8; 16])), OperatorVariant::opc(simrs_secret::Secret::new([0u8; 16])));
+        let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
+        Sim::<MilenageParams, 256>::new(&ATR, gsm, usim)
     }
 
     /// Create a shmem region with a valid header and empty rings.

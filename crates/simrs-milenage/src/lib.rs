@@ -227,12 +227,6 @@ impl core::fmt::Debug for MilenageParams {
     }
 }
 
-impl Default for MilenageParams {
-    fn default() -> Self {
-        Self::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])))
-    }
-}
-
 /// Successful authentication output.
 ///
 /// Per [3GPP TS 31.102 V19.4.0 clause 7.1.2.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A754%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C330%5D), the successful AUTHENTICATE
@@ -620,6 +614,10 @@ pub trait AuthenticationAlgorithm {
     fn save_state(&self, buf: &mut [u8]) -> usize;
     /// Restore algorithm state.
     fn restore_state(&mut self, buf: &[u8]) -> bool;
+    /// Construct algorithm state from a snapshot buffer.
+    ///
+    /// Returns `None` if `buf` is too small.
+    fn from_snapshot(buf: &[u8]) -> Option<Self> where Self: Sized;
 
     /// Deprecated: use [`compute_auth_mac`](AuthenticationAlgorithm::compute_auth_mac).
     #[deprecated(note = "use `compute_auth_mac` -- f1 is the 3GPP designation for MAC-A (network authentication code) computation")]
@@ -699,6 +697,10 @@ impl AuthenticationAlgorithm for MilenageParams {
 
     fn restore_state(&mut self, buf: &[u8]) -> bool {
         self.restore_state(buf)
+    }
+
+    fn from_snapshot(buf: &[u8]) -> Option<Self> {
+        Self::from_snapshot(buf)
     }
 }
 
@@ -1055,27 +1057,41 @@ impl MilenageParams {
         w.finish()
     }
 
+    /// Construct Milenage parameters directly from a snapshot buffer.
+    ///
+    /// Returns `None` if `buf` is too small.
+    #[must_use]
+    pub fn from_snapshot(buf: &[u8]) -> Option<Self> {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return None;
+        }
+        let mut r = SnapReader::new(buf);
+        let mut k_bytes = [0u8; 16];
+        r.get_bytes(&mut k_bytes);
+        let k = SubscriberKey::new(Secret::new(k_bytes));
+        let mut opc_bytes = [0u8; 16];
+        r.get_bytes(&mut opc_bytes);
+        let opc = Secret::new(opc_bytes);
+        let mut ci = [[0u8; 16]; 5];
+        for c in &mut ci {
+            r.get_bytes(c);
+        }
+        let mut ri = [0u8; 5];
+        r.get_bytes(&mut ri);
+        let mut expected_sequence_number = [0u8; 6];
+        r.get_bytes(&mut expected_sequence_number);
+        Some(Self { k, opc, ci, ri, expected_sequence_number })
+    }
+
     /// Restore the Milenage parameters from `buf`.
     ///
     /// Returns `true` on success.
     #[must_use]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
-        if buf.len() < Self::SNAPSHOT_SIZE {
-            return false;
+        match Self::from_snapshot(buf) {
+            Some(new) => { *self = new; true }
+            None => false,
         }
-        let mut r = SnapReader::new(buf);
-        let mut k_bytes = [0u8; 16];
-        r.get_bytes(&mut k_bytes);
-        self.k = SubscriberKey::new(Secret::new(k_bytes));
-        let mut opc_bytes = [0u8; 16];
-        r.get_bytes(&mut opc_bytes);
-        self.opc = Secret::new(opc_bytes);
-        for c in &mut self.ci {
-            r.get_bytes(c);
-        }
-        r.get_bytes(&mut self.ri);
-        r.get_bytes(&mut self.expected_sequence_number);
-        true
     }
 }
 
@@ -1699,9 +1715,8 @@ mod tests {
         let mut snap = [0u8; MilenageParams::SNAPSHOT_SIZE];
         assert_eq!(orig.save_state(&mut snap), 123);
 
-        // Restore into a zeroed params.
-        let mut restored = MilenageParams::default();
-        assert!(restored.restore_state(&snap));
+        let restored = MilenageParams::from_snapshot(&snap)
+            .expect("from_snapshot must succeed for valid buffer");
 
         // Restored params must produce the same output.
         assert_eq!(restored.compute_response(&TS1_RAND), TS1_F2_RES);
@@ -1726,8 +1741,8 @@ mod tests {
         let mut snap = [0u8; MilenageParams::SNAPSHOT_SIZE];
         assert_eq!(p.save_state(&mut snap), MilenageParams::SNAPSHOT_SIZE);
 
-        let mut restored = MilenageParams::default();
-        assert!(restored.restore_state(&snap));
+        let mut restored = MilenageParams::from_snapshot(&snap)
+            .expect("from_snapshot must succeed for valid buffer");
 
         // Replaying the same SQN must trigger SyncFailure on the restored
         // instance, proving expected_sequence_number was preserved through save/restore.
@@ -1739,13 +1754,12 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_small_buffer_returns_zero_or_false() {
+    fn snapshot_small_buffer_returns_zero_or_none() {
         let p = MilenageParams::with_defaults(TS1_K, TS1_OPC);
         let mut small = [0u8; 50];
         assert_eq!(p.save_state(&mut small), 0);
 
-        let mut p2 = MilenageParams::default();
-        assert!(!p2.restore_state(&small));
+        assert!(MilenageParams::from_snapshot(&small).is_none());
     }
 
     // -- Constant-time comparison tests --

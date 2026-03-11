@@ -72,10 +72,10 @@ pub const PUK_MAX_RETRIES: u8 = 10;
 ///
 /// Panics if `add_pin` fails (should not happen with valid test data).
 pub fn create_sim() -> TestSim {
-    let mut sim = TestSim::new(&ATR, &REFERENCE_MF);
     let mil = MilenageParams::with_defaults(TEST_K, TEST_OPC);
-    *sim.usim_app_mut() = simrs_usim::UsimApp::new(&REFERENCE_MF, &ADF_TABLE, mil);
-    *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(&REFERENCE_MF, TEST_KI);
+    let gsm = simrs_gsm::GsmApp::new(&REFERENCE_MF, TEST_KI);
+    let usim = simrs_usim::UsimApp::new(&REFERENCE_MF, &ADF_TABLE, mil);
+    let mut sim = TestSim::new(&ATR, gsm, usim);
 
     // Configure PIN1 with test values.
     let pin1 = PinValue::new(apdu::encode_pin(apdu::PIN1_CORRECT));

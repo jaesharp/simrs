@@ -38,13 +38,20 @@
 //!
 //! ```
 //! use simrs_sim::{Sim, SimEvent, SimResponse};
-//! use simrs_milenage::MilenageParams;
+//! use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 //! use simrs_fs::{DfDef, Fid};
+//! use simrs_secret::Secret;
 //!
 //! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
 //! static ATR: [u8; 2] = [0x3B, 0x00];
 //!
-//! let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &MF);
+//! let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::new(Secret::new([0u8; 16])));
+//! let mil = MilenageParams::with_defaults(
+//!     SubscriberKey::new(Secret::new([0u8; 16])),
+//!     OperatorVariant::opc(Secret::new([0u8; 16])),
+//! );
+//! let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
+//! let mut sim = Sim::<MilenageParams, 256>::new(&ATR, gsm, usim);
 //!
 //! // Power on returns ATR
 //! let rsp = sim.process(SimEvent::PowerOn);
@@ -63,6 +70,7 @@
 // Many 3GPP terms used in docs (CLA, USIM, ATR, etc.)
 #![allow(clippy::doc_markdown)]
 
+#[cfg(not(any(feature = "gsm", feature = "usim")))]
 use simrs_fs::DfDef;
 #[cfg(feature = "gsm")]
 use simrs_gsm::GsmApp;
@@ -368,14 +376,10 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
 
     /// Create a new SIM card with GSM application layer.
     ///
-    /// The COMP128 Ki is zero-initialized. Use [`gsm_app_mut`](Self::gsm_app_mut)
-    /// to replace the `GsmApp` with properly configured credentials
-    /// (e.g. `*sim.gsm_app_mut() = GsmApp::new(mf, Ki(ki))`).
-    ///
     /// Configure PINs via `sim.gsm_app_mut().pin_manager().add_pin(...)`.
     #[cfg(all(feature = "gsm", not(feature = "usim")))]
-    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
-        Self::with_reset_policy(atr, mf, standard_reset_policy)
+    pub fn new(atr: &'static [u8], gsm: GsmApp) -> Self {
+        Self::with_reset_policy(atr, gsm, standard_reset_policy)
     }
 
     /// Create a new SIM card with GSM application layer and a custom
@@ -383,7 +387,7 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     #[cfg(all(feature = "gsm", not(feature = "usim")))]
     pub fn with_reset_policy(
         atr: &'static [u8],
-        mf: &'static DfDef,
+        gsm: GsmApp,
         reset_policy: fn(ResetKind) -> ResetEffects,
     ) -> Self {
         Self {
@@ -391,25 +395,17 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
             state: CardState::Off,
             reset_policy,
             rsp_buf: [0u8; RSP_CAP],
-            gsm: GsmApp::new(mf, simrs_gsm::Ki::new(simrs_secret::Secret::new([0u8; 16]))),
+            gsm,
             _auth: core::marker::PhantomData,
         }
     }
 
     /// Create a new SIM card with USIM application layer.
     ///
-    /// Authentication parameters are zero-initialized. Use
-    /// [`usim_app_mut`](Self::usim_app_mut) to replace the `UsimApp` with
-    /// properly configured credentials
-    /// (e.g. `*sim.usim_app_mut() = UsimApp::new(mf, adfs, auth)`).
-    ///
     /// Configure PINs via `sim.usim_app_mut().pin_manager().add_pin(...)`.
     #[cfg(all(feature = "usim", not(feature = "gsm")))]
-    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self
-    where
-        A: Default,
-    {
-        Self::with_reset_policy(atr, mf, standard_reset_policy)
+    pub fn new(atr: &'static [u8], usim: UsimApp<A>) -> Self {
+        Self::with_reset_policy(atr, usim, standard_reset_policy)
     }
 
     /// Create a new SIM card with USIM application layer and a custom
@@ -417,46 +413,32 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     #[cfg(all(feature = "usim", not(feature = "gsm")))]
     pub fn with_reset_policy(
         atr: &'static [u8],
-        mf: &'static DfDef,
+        usim: UsimApp<A>,
         reset_policy: fn(ResetKind) -> ResetEffects,
-    ) -> Self
-    where
-        A: Default,
-    {
+    ) -> Self {
         Self {
             atr,
             state: CardState::Off,
             reset_policy,
             rsp_buf: [0u8; RSP_CAP],
-            usim: UsimApp::new(mf, &[], A::default()),
+            usim,
         }
     }
 
     /// Create a new SIM card with both GSM and USIM application layers.
     ///
-    /// Both Ki and authentication parameters are zero-initialized with empty
-    /// filesystems.  **Replace both app layers** before activating the card:
-    ///
     /// ```ignore
     /// use simrs_usim::profile::{REFERENCE_MF, ADF_TABLE};
     ///
-    /// let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &REFERENCE_MF);
-    /// *sim.usim_app_mut() = UsimApp::new(&REFERENCE_MF, &ADF_TABLE, auth);
-    /// *sim.gsm_app_mut() = GsmApp::new(&REFERENCE_MF, ki);
-    ///
-    /// // Optional: enable on-card SUCI computation (GET IDENTITY).
-    /// *sim.usim_app_mut().suci_mut() = Some(SuciState::new(seed));
+    /// let gsm = GsmApp::new(&REFERENCE_MF, ki);
+    /// let usim = UsimApp::new(&REFERENCE_MF, &ADF_TABLE, auth);
+    /// let sim = Sim::<MilenageParams, 256>::new(&ATR, gsm, usim);
     /// ```
     ///
-    /// Use [`gsm_app_mut`](Self::gsm_app_mut) and
-    /// [`usim_app_mut`](Self::usim_app_mut) to replace the app layers with
-    /// properly configured credentials before activating the card.
+    /// Configure PINs via `sim.usim_app_mut().pin_manager().add_pin(...)`.
     #[cfg(all(feature = "gsm", feature = "usim"))]
-    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self
-    where
-        A: Default,
-    {
-        Self::with_reset_policy(atr, mf, standard_reset_policy)
+    pub fn new(atr: &'static [u8], gsm: GsmApp, usim: UsimApp<A>) -> Self {
+        Self::with_reset_policy(atr, gsm, usim, standard_reset_policy)
     }
 
     /// Create a new SIM card with both GSM and USIM application layers
@@ -470,24 +452,24 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     ///         ResetKind::Warm => ResetEffects { clear_pin_verified: false, ..ResetEffects::all() },
     ///     }
     /// }
-    /// let sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, warm_preserves_pin);
+    /// let gsm = GsmApp::new(&MF, ki);
+    /// let usim = UsimApp::new(&MF, &[], auth);
+    /// let sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, gsm, usim, warm_preserves_pin);
     /// ```
     #[cfg(all(feature = "gsm", feature = "usim"))]
     pub fn with_reset_policy(
         atr: &'static [u8],
-        mf: &'static DfDef,
+        gsm: GsmApp,
+        usim: UsimApp<A>,
         reset_policy: fn(ResetKind) -> ResetEffects,
-    ) -> Self
-    where
-        A: Default,
-    {
+    ) -> Self {
         Self {
             atr,
             state: CardState::Off,
             reset_policy,
             rsp_buf: [0u8; RSP_CAP],
-            gsm: GsmApp::new(mf, simrs_gsm::Ki::new(simrs_secret::Secret::new([0u8; 16]))),
-            usim: UsimApp::new(mf, &[], A::default()),
+            gsm,
+            usim,
         }
     }
 
@@ -497,7 +479,7 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     ///
     /// Use this to replace the app with configured credentials:
     /// ```ignore
-    /// *sim.gsm_app_mut() = GsmApp::new(mf, Ki(ki));
+    /// *sim.gsm_app_mut() = GsmApp::new(mf, Ki::new(ki));
     /// sim.gsm_app_mut().pin_manager().add_pin(...);
     /// ```
     #[cfg(feature = "gsm")]
@@ -842,31 +824,35 @@ mod tests {
     fn make_sim_with_policy(
         policy: fn(ResetKind) -> ResetEffects,
     ) -> Sim<MilenageParams, 256> {
-        #[allow(unused_mut)]
-        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, policy);
-
         #[cfg(feature = "gsm")]
-        {
+        let gsm = {
             use simrs_gsm::GsmApp;
-            let gsm = sim.gsm_app_mut();
-            *gsm = GsmApp::new(&MF, simrs_gsm::Ki::new(simrs_secret::Secret::new([0x11u8; 16])));
+            let mut g = GsmApp::new(&MF, simrs_gsm::Ki::new(simrs_secret::Secret::new([0x11u8; 16])));
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
             let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-            let _ = gsm.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
-        }
+            let _ = g.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
+            g
+        };
 
         #[cfg(feature = "usim")]
-        {
+        let usim = {
             use simrs_usim::UsimApp;
             let mil = MilenageParams::with_defaults(SubscriberKey::new(simrs_secret::Secret::new([0u8; 16])), OperatorVariant::opc(simrs_secret::Secret::new([0u8; 16])));
-            let usim = sim.usim_app_mut();
-            *usim = UsimApp::new(&MF, &ADF_TABLE, mil);
+            let mut u = UsimApp::new(&MF, &ADF_TABLE, mil);
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
             let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-            let _ = usim.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
-        }
+            let _ = u.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
+            u
+        };
 
-        sim
+        #[cfg(all(feature = "gsm", feature = "usim"))]
+        { Sim::<MilenageParams, 256>::with_reset_policy(&ATR, gsm, usim, policy) }
+        #[cfg(all(feature = "gsm", not(feature = "usim")))]
+        { Sim::<MilenageParams, 256>::with_reset_policy(&ATR, gsm, policy) }
+        #[cfg(all(feature = "usim", not(feature = "gsm")))]
+        { Sim::<MilenageParams, 256>::with_reset_policy(&ATR, usim, policy) }
+        #[cfg(not(any(feature = "gsm", feature = "usim")))]
+        { Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, policy) }
     }
 
     /// Verify USIM PIN1 ("1234") on a powered-on SIM.
@@ -1642,7 +1628,7 @@ mod tests {
             KIND.store(kind as u8, Ordering::Relaxed);
             ResetEffects::all()
         }
-        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, recording);
+        let mut sim = make_sim_with_policy(recording);
         let _ = sim.process(SimEvent::PowerOn);
         assert_eq!(KIND.load(Ordering::Relaxed), ResetKind::Cold as u8);
     }
@@ -1655,7 +1641,7 @@ mod tests {
             KIND.store(kind as u8, Ordering::Relaxed);
             ResetEffects::all()
         }
-        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, recording);
+        let mut sim = make_sim_with_policy(recording);
         let _ = sim.process(SimEvent::PowerOn);
         let _ = sim.process(SimEvent::Reset);
         assert_eq!(KIND.load(Ordering::Relaxed), ResetKind::Warm as u8);
@@ -1697,8 +1683,6 @@ mod tests {
     #[cfg(feature = "usim")]
     #[test]
     fn custom_policy_warm_preserves_pin() {
-        use simrs_pin::{PinKey, PinValue};
-
         fn warm_preserves_pin(kind: ResetKind) -> ResetEffects {
             match kind {
                 ResetKind::Cold => ResetEffects::all(),
@@ -1709,15 +1693,7 @@ mod tests {
             }
         }
 
-        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, warm_preserves_pin);
-
-        // Configure PIN1 on the USIM app.
-        let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
-        let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-        sim.usim_app_mut()
-            .pin_manager()
-            .add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true)
-            .unwrap();
+        let mut sim = make_sim_with_policy(warm_preserves_pin);
 
         let _ = sim.process(SimEvent::PowerOn);
 
@@ -2396,7 +2372,7 @@ mod tests {
             ResetEffects::all()
         }
 
-        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, counting_policy);
+        let mut sim = make_sim_with_policy(counting_policy);
         CALL_COUNT.store(0, Ordering::Relaxed);
 
         // PowerOn invokes the policy once (Cold)
@@ -2419,7 +2395,7 @@ mod tests {
             ResetEffects::all()
         }
 
-        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, counting_policy);
+        let mut sim = make_sim_with_policy(counting_policy);
         CALL_COUNT.store(0, Ordering::Relaxed);
 
         let _ = sim.process(SimEvent::PowerOn); // call 1
@@ -2440,7 +2416,7 @@ mod tests {
             ResetEffects::all()
         }
 
-        let mut sim = Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, recording);
+        let mut sim = make_sim_with_policy(recording);
 
         // First PowerOn -> Cold
         let _ = sim.process(SimEvent::PowerOn);

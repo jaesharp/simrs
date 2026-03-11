@@ -121,10 +121,7 @@ static PUK_VAL: [u8; 8] = [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38];
 // ---------------------------------------------------------------------------
 
 fn make_sim() -> Sim<MilenageParams, 256> {
-    let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &MF);
-
-    let gsm = sim.gsm_app_mut();
-    *gsm = GsmApp::new(&MF, KI);
+    let mut gsm = GsmApp::new(&MF, KI);
     let pin = PinValue::new(PIN_VAL);
     let puk = PinValue::new(PUK_VAL);
     gsm.pin_manager()
@@ -133,8 +130,7 @@ fn make_sim() -> Sim<MilenageParams, 256> {
     let _ = gsm.pin_manager().verify(PinKey::PIN1, &pin);
 
     let mil = MilenageParams::with_defaults(USIM_K, USIM_OPC);
-    let usim = sim.usim_app_mut();
-    *usim = UsimApp::new(&MF, &ADF_TABLE, mil);
+    let mut usim = UsimApp::new(&MF, &ADF_TABLE, mil);
     let pin2 = PinValue::new(PIN_VAL);
     let puk2 = PinValue::new(PUK_VAL);
     usim.pin_manager()
@@ -142,7 +138,7 @@ fn make_sim() -> Sim<MilenageParams, 256> {
         .unwrap();
     let _ = usim.pin_manager().verify(PinKey::PIN1, &pin2);
 
-    sim
+    Sim::<MilenageParams, 256>::new(&ATR, gsm, usim)
 }
 
 /// Send an APDU and return (sw1, sw2, data).

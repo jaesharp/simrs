@@ -63,7 +63,7 @@ mod tests {
     use super::*;
     use simrs_sim::{SimEvent, SimResponse};
     use simrs_fs::{DfDef, Fid};
-    use simrs_milenage::MilenageParams;
+    use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 
     static MF: DfDef = DfDef {
         fid: Fid::new(0x3F00),
@@ -73,7 +73,10 @@ mod tests {
     static ATR: [u8; 2] = [0x3B, 0x00];
 
     fn make_sim() -> Sim<MilenageParams, 256> {
-        Sim::<MilenageParams, 256>::new(&ATR, &MF)
+        let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::new(simrs_secret::Secret::new([0u8; 16])));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(simrs_secret::Secret::new([0u8; 16])), OperatorVariant::opc(simrs_secret::Secret::new([0u8; 16])));
+        let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
+        Sim::<MilenageParams, 256>::new(&ATR, gsm, usim)
     }
 
     #[test]
@@ -131,8 +134,15 @@ mod tests {
     #[test]
     fn different_rsp_cap_sizes() {
         // Verify the trait works with a different RSP_CAP.
-        let sim_small = Sim::<MilenageParams, 64>::new(&ATR, &MF);
-        let sim_large = Sim::<MilenageParams, 512>::new(&ATR, &MF);
+        let gsm1 = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::new(simrs_secret::Secret::new([0u8; 16])));
+        let mil1 = MilenageParams::with_defaults(SubscriberKey::new(simrs_secret::Secret::new([0u8; 16])), OperatorVariant::opc(simrs_secret::Secret::new([0u8; 16])));
+        let usim1 = simrs_usim::UsimApp::new(&MF, &[], mil1);
+        let sim_small = Sim::<MilenageParams, 64>::new(&ATR, gsm1, usim1);
+
+        let gsm2 = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::new(simrs_secret::Secret::new([0u8; 16])));
+        let mil2 = MilenageParams::with_defaults(SubscriberKey::new(simrs_secret::Secret::new([0u8; 16])), OperatorVariant::opc(simrs_secret::Secret::new([0u8; 16])));
+        let usim2 = simrs_usim::UsimApp::new(&MF, &[], mil2);
+        let sim_large = Sim::<MilenageParams, 512>::new(&ATR, gsm2, usim2);
 
         // SNAPSHOT_SIZE should be identical (RSP_CAP is transient, not serialized).
         assert_eq!(

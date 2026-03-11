@@ -244,12 +244,6 @@ impl core::fmt::Debug for TuakParams {
     }
 }
 
-impl Default for TuakParams {
-    fn default() -> Self {
-        Self::new(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::topc(Secret::new([0u8; 32])))
-    }
-}
-
 impl TuakParams {
     /// Create with standard parameters.
     ///
@@ -451,23 +445,35 @@ impl TuakParams {
         w.finish()
     }
 
+    /// Construct TUAK parameters directly from a snapshot buffer.
+    ///
+    /// Returns `None` if `buf` is too small.
+    #[must_use]
+    pub fn from_snapshot(buf: &[u8]) -> Option<Self> {
+        if buf.len() < Self::SNAPSHOT_SIZE {
+            return None;
+        }
+        let mut r = SnapReader::new(buf);
+        let mut key_bytes = [0u8; 16];
+        r.get_bytes(&mut key_bytes);
+        let key = SubscriberKey::new(Secret::new(key_bytes));
+        let mut top_c_bytes = [0u8; 32];
+        r.get_bytes(&mut top_c_bytes);
+        let top_c = Secret::new(top_c_bytes);
+        let mut expected_sequence_number = [0u8; 6];
+        r.get_bytes(&mut expected_sequence_number);
+        Some(Self { key, top_c, expected_sequence_number })
+    }
+
     /// Restore the TUAK parameters from `buf`.
     ///
     /// Returns `true` on success.
     #[must_use]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
-        if buf.len() < Self::SNAPSHOT_SIZE {
-            return false;
+        match Self::from_snapshot(buf) {
+            Some(new) => { *self = new; true }
+            None => false,
         }
-        let mut r = SnapReader::new(buf);
-        let mut key_bytes = [0u8; 16];
-        r.get_bytes(&mut key_bytes);
-        self.key = SubscriberKey::new(Secret::new(key_bytes));
-        let mut top_c_bytes = [0u8; 32];
-        r.get_bytes(&mut top_c_bytes);
-        self.top_c = Secret::new(top_c_bytes);
-        r.get_bytes(&mut self.expected_sequence_number);
-        true
     }
 }
 
@@ -528,6 +534,10 @@ impl AuthenticationAlgorithm for TuakParams {
 
     fn restore_state(&mut self, buf: &[u8]) -> bool {
         self.restore_state(buf)
+    }
+
+    fn from_snapshot(buf: &[u8]) -> Option<Self> {
+        Self::from_snapshot(buf)
     }
 }
 
@@ -1085,8 +1095,8 @@ mod tests {
         let mut snap = [0u8; TuakParams::SNAPSHOT_SIZE];
         assert_eq!(orig.save_state(&mut snap), 54);
 
-        let mut restored = TuakParams::default();
-        assert!(restored.restore_state(&snap));
+        let restored = TuakParams::from_snapshot(&snap)
+            .expect("from_snapshot must succeed for valid buffer");
 
         // Restored params must produce the same outputs.
         assert_eq!(restored.compute_response(&TS1_RAND), orig.compute_response(&TS1_RAND));
@@ -1115,8 +1125,8 @@ mod tests {
         let mut snap = [0u8; TuakParams::SNAPSHOT_SIZE];
         assert_eq!(p.save_state(&mut snap), TuakParams::SNAPSHOT_SIZE);
 
-        let mut restored = TuakParams::default();
-        assert!(restored.restore_state(&snap));
+        let mut restored = TuakParams::from_snapshot(&snap)
+            .expect("from_snapshot must succeed for valid buffer");
 
         // Replaying the same SQN must trigger SyncFailure on the restored
         // instance, proving expected_sequence_number was preserved.

@@ -109,10 +109,10 @@ pub fn hle_init(
     opc: [u8; 16],
 ) {
     SIM.with(|cell| {
-        let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
         let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), MilOp::opc(Secret::new(opc)));
-        *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], mil);
-        *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
+        let gsm = simrs_gsm::GsmApp::new(mf, ki);
+        let usim = simrs_usim::UsimApp::new(mf, &[], mil);
+        let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
     });
 }
@@ -131,10 +131,10 @@ pub fn hle_init_tuak(
     topc: [u8; 32],
 ) {
     SIM.with(|cell| {
-        let mut sim = Sim::<TuakParams, 256>::new(atr, mf);
         let tuak = TuakParams::new(SubscriberKey::new(Secret::new(k)), TuakOp::topc(Secret::new(topc)));
-        *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], tuak);
-        *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
+        let gsm = simrs_gsm::GsmApp::new(mf, ki);
+        let usim = simrs_usim::UsimApp::new(mf, &[], tuak);
+        let sim = Sim::<TuakParams, 256>::new(atr, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
     });
 }
@@ -152,10 +152,10 @@ pub fn hle_init_with_adf(
     adf_table: &'static [AdfSlot],
 ) {
     SIM.with(|cell| {
-        let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
         let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), MilOp::opc(Secret::new(opc)));
-        *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, adf_table, mil);
-        *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
+        let gsm = simrs_gsm::GsmApp::new(mf, ki);
+        let usim = simrs_usim::UsimApp::new(mf, adf_table, mil);
+        let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
     });
 }
@@ -173,10 +173,10 @@ pub fn hle_init_tuak_with_adf(
     adf_table: &'static [AdfSlot],
 ) {
     SIM.with(|cell| {
-        let mut sim = Sim::<TuakParams, 256>::new(atr, mf);
         let tuak = TuakParams::new(SubscriberKey::new(Secret::new(k)), TuakOp::topc(Secret::new(topc)));
-        *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, adf_table, tuak);
-        *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
+        let gsm = simrs_gsm::GsmApp::new(mf, ki);
+        let usim = simrs_usim::UsimApp::new(mf, adf_table, tuak);
+        let sim = Sim::<TuakParams, 256>::new(atr, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
     });
 }

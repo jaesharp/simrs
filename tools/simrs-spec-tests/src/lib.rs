@@ -118,16 +118,14 @@ pub fn parse_hex(s: &str) -> Vec<u8> {
 ///
 /// Panics if `add_pin` fails (should not happen with valid test data).
 pub fn create_sim() -> Sim<MilenageParams, 256> {
-    let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &MF);
     let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(TEST_K)), OperatorVariant::opc(Secret::new(TEST_OPC)));
-    *sim.usim_app_mut() = simrs_usim::UsimApp::new(&MF, &[], mil);
-    *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(&MF, TEST_KI);
+    let gsm = simrs_gsm::GsmApp::new(&MF, TEST_KI);
+    let mut usim = simrs_usim::UsimApp::new(&MF, &[], mil);
 
     // Configure PIN1 with test values.
     let pin_val = PinValue::new(CORRECT_PIN);
     let puk_val = PinValue::new(CORRECT_PUK);
-    sim.usim_app_mut()
-        .pin_manager()
+    usim.pin_manager()
         .add_pin(
             PinKey::PIN1,
             &pin_val,
@@ -138,7 +136,7 @@ pub fn create_sim() -> Sim<MilenageParams, 256> {
         )
         .expect("add_pin must succeed");
 
-    sim
+    Sim::<MilenageParams, 256>::new(&ATR, gsm, usim)
 }
 
 /// Create a configured SIM and power it on.
