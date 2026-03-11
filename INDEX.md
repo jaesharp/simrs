@@ -1,6 +1,6 @@
 # simrs Crate Index
 
-> 33 crates, 1371 tests, zero clippy/doc warnings. Pure `no_std` (where marked). Zero external runtime dependencies.
+> 38 crates, 1746 tests, zero clippy/doc warnings. Pure `no_std` (where marked). Zero external runtime dependencies.
 > Pure Rust SIM/USIM card simulator for bare-metal simulation and Shannon baseband fuzzing.
 >
 > Colours follow the [Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
@@ -49,15 +49,23 @@ graph TB
         OTA["simrs-ota<br/><i>TS 102 225/226 OTA</i>"]
     end
 
+    subgraph comp_layer2 ["Composition (cont.)"]
+        KDF["simrs-kdf<br/><i>HMAC-SHA-256 + 3GPP KDF</i>"]
+        ECIES["simrs-ecies<br/><i>SUCI ECIES A/B</i>"]
+        SEC["simrs-secret<br/><i>Secret&lt;T&gt; wrapper</i>"]
+    end
+
     subgraph found_layer ["Foundation"]
         ISO["simrs-iso7816<br/><i>APDU, CLA, SW</i>"]
         BER["simrs-bertlv<br/><i>encode/decode</i>"]
         RIJ["simrs-rijndael<br/><i>AES-128</i>"]
         C128["simrs-comp128<br/><i>A3/A8 GSM</i>"]
         KEC["simrs-keccak<br/><i>Keccak-f[1600] permutation</i>"]
+        SHA["simrs-sha256<br/><i>FIPS 180-4 SHA-256</i>"]
         PCAP["simrs-pcap<br/><i>PCAP + GSMTAP encode</i>"]
         CT["simrs-consttime<br/><i>CT primitives</i>"]
         CTM["simrs-consttime-macros<br/><i>#[derive(CtEq)]</i>"]
+        RED["simrs-redact<br/><i>Debug/Display redaction</i>"]
     end
 
     %% Meta -> Application / Composition
@@ -107,6 +115,14 @@ graph TB
     TUAK --> KEC
     TUAK --> MIL
     MIL --> RIJ
+    KDF --> SHA
+    KDF --> SEC
+    ECIES --> CT
+    ECIES --> KDF
+    ECIES --> RIJ
+    ECIES --> SEC
+    SEC --> CT
+    SEC --> RED
     OTA --> RIJ
     OTA --> ISO
     FS --> ISO
@@ -131,8 +147,8 @@ graph TB
     classDef meta_std fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
     classDef entry fill:#E69F00,stroke:#333,color:#000,stroke-width:3px
 
-    class ISO,BER,RIJ,C128,KEC,PCAP,CT,CTM foundation
-    class MIL,TUAK,FS,PIN,PRO,OTA composition
+    class ISO,BER,RIJ,C128,KEC,SHA,PCAP,CT,CTM,RED foundation
+    class MIL,TUAK,FS,PIN,PRO,OTA,KDF,ECIES,SEC composition
     class GSM,USIM application
     class SIM entry
     class TR,SHM,VIO,PERI,SHAN boundary
@@ -155,6 +171,11 @@ graph TB
 | [`simrs-pcap`](crates/simrs-pcap/) | Foundation | yes | PCAP file + GSMTAP SIM frame encoding | -- | [API](docs/architecture.md#simrs-pcap) |
 | [`simrs-consttime-macros`](crates/simrs-consttime-macros/) | Foundation | yes | `#[derive(CtEq)]` proc macro for constant-time equality | -- | [API](docs/architecture.md#simrs-consttime-macros) |
 | [`simrs-consttime`](crates/simrs-consttime/) | Foundation | yes | Constant-time primitives (table lookup, comparison, GF(2^8)) | [consttime-macros](crates/simrs-consttime-macros/) | [API](docs/architecture.md#simrs-consttime) |
+| [`simrs-redact`](crates/simrs-redact/) | Foundation | yes | Feature-gated `Debug`/`Display` redaction for secret byte arrays | -- | -- |
+| [`simrs-sha256`](crates/simrs-sha256/) | Foundation | yes | SHA-256 hash per NIST FIPS 180-4 | -- | -- |
+| [`simrs-secret`](crates/simrs-secret/) | Composition | yes | `Secret<T>` and `CtOption<T>` -- zero-cost compile-time constant-time boundary enforcement | [consttime](crates/simrs-consttime/), [redact](crates/simrs-redact/) | -- |
+| [`simrs-kdf`](crates/simrs-kdf/) | Composition | yes | HMAC-SHA-256 and 3GPP KDFs (TS 33.220/33.401/33.501) | [sha256](crates/simrs-sha256/), [secret](crates/simrs-secret/) | -- |
+| [`simrs-ecies`](crates/simrs-ecies/) | Composition | yes | ECIES Profiles A & B (X25519/P-256 + AES-128-CTR + HMAC-SHA-256) for SUCI per TS 33.501 | [consttime](crates/simrs-consttime/), [kdf](crates/simrs-kdf/), [rijndael](crates/simrs-rijndael/), [secret](crates/simrs-secret/) | -- |
 | [`simrs-milenage`](crates/simrs-milenage/) | Composition | yes | Milenage f1--f5 UMTS authentication | [rijndael](crates/simrs-rijndael/) | [API](docs/architecture.md#simrs-milenage) |
 | [`simrs-tuak`](crates/simrs-tuak/) | Composition | yes | TUAK f1--f5 3GPP auth (Keccak-based) | [keccak](crates/simrs-keccak/), [milenage](crates/simrs-milenage/) | [API](docs/architecture.md#simrs-tuak) |
 | [`simrs-fs`](crates/simrs-fs/) | Composition | yes | ICC filesystem model (MF/DF/ADF/EF), `const` trees. Type system: `Fid`/`Sfi` validated newtypes, `EfDef` typed constructors (`transparent`/`linear_fixed`/`cyclic`/`ber_tlv`) with compile-time data length checks, `assert_fids_unique` compile-time FID uniqueness, `EfStructure` method dispatch (10 methods), `FsData<CAP, MAX_EFS>` dual const generics. | [iso7816](crates/simrs-iso7816/), [bertlv](crates/simrs-bertlv/) | [API](docs/architecture.md#simrs-fs) |
@@ -183,9 +204,9 @@ graph TB
 
 ^opt^ = optional feature gate
 
-**External test harnesses** (not workspace members, distributed separately):
-- [`simrs-spec-tests`](tools/simrs-spec-tests/) -- Cucumber BDD functional test harness (236 scenarios across 12 feature files)
-- [`simrs-security-tests`](tools/simrs-security-tests/) -- Cucumber BDD security regression harness (148 scenarios across 7 feature files)
+**Test harnesses:**
+- [`simrs-security-tests`](tools/simrs-security-tests/) -- Cucumber BDD security regression harness (149 scenarios across 8 feature files) *(workspace member)*
+- [`simrs-spec-tests`](tools/simrs-spec-tests/) -- Cucumber BDD functional test harness (232 scenarios across 12 feature files) *(external, not a workspace member)*
 
 ## Standards Coverage
 
@@ -201,7 +222,13 @@ graph TB
 | ETSI TS 102 223 V18.2.0 | [proactive](crates/simrs-proactive/) | Card Application Toolkit |
 | ETSI TS 135 206 V19.0.0 | [milenage](crates/simrs-milenage/) | Milenage algorithm |
 | ETSI TS 135 208 V19.0.0 | [milenage](crates/simrs-milenage/) | Milenage test vectors |
+| NIST FIPS 180-4 | [sha256](crates/simrs-sha256/) | SHA-256 hash |
 | NIST FIPS 197 | [rijndael](crates/simrs-rijndael/) | AES-128 |
+| NIST FIPS 198-1 / RFC 2104 | [kdf](crates/simrs-kdf/) | HMAC-SHA-256 |
+| 3GPP TS 33.220 | [kdf](crates/simrs-kdf/) | Generic 3GPP KDF (Annex B) |
+| 3GPP TS 33.401 | [kdf](crates/simrs-kdf/) | LTE key derivation (Annex A) |
+| 3GPP TS 33.501 | [kdf](crates/simrs-kdf/), [ecies](crates/simrs-ecies/) | 5G key derivation, SUCI ECIES Profiles A/B (Annex C) |
+| RFC 7748 | [ecies](crates/simrs-ecies/) | X25519 Diffie-Hellman (Profile A) |
 | ISO/IEC 8825-1 | [bertlv](crates/simrs-bertlv/) | BER-TLV encoding rules |
 | 3GPP TS 51.011 V4.15.0 | [gsm](crates/simrs-gsm/) | GSM SIM-ME interface (successor to GSM 11.11) |
 | 3GPP TS 35.231 | [tuak](crates/simrs-tuak/) | TUAK algorithm |

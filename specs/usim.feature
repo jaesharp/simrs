@@ -15,12 +15,14 @@ Feature: 3GPP USIM Application Layer
 
   Background:
     Given a UsimApp with:
+      """
       MF (3F00)
       +-- EF.ICCID (2FE2) transparent, 10 bytes
       +-- EF.DIR (2F00) linear-fixed, record_size=8, num_records=2
       +-- ADF.USIM (AID=A0000000871002)
           +-- EF.IMSI (6F07) transparent, 9 bytes
           +-- EF.UST (6F38) transparent, 4 bytes
+      """
     And Milenage params: K, OPc, SQN, AMF per test set 1
     And PIN1 is "1234", enabled, 3 retries
     And PUK1 is "12345678", 10 retries
@@ -155,7 +157,9 @@ Feature: 3GPP USIM Application Layer
   Scenario: AUTHENTICATE UMTS context with valid AUTN
     Given ADF.USIM is selected
     When I send AUTHENTICATE [00 88 00 81 22] with:
+      """
       0x10 [RAND:16 bytes] 0x10 [AUTN:16 bytes]
+      """
     Then SW1 is 0x61 (response available)
     And GET RESPONSE returns tag 0xDB with RES + CK + IK
 

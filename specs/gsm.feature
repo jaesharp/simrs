@@ -14,6 +14,7 @@ Feature: GSM 11.11 SIM Application Layer
 
   Background:
     Given a GsmApp with:
+      """
       MF (3F00)
       +-- EF.ICCID (2FE2) transparent, 10 bytes [98 10 14 80 00 00 00 00 00 F0]
       +-- EF.DIR (2F00) linear-fixed, record_size=8, num_records=2
@@ -22,6 +23,7 @@ Feature: GSM 11.11 SIM Application Layer
       +-- DF.GSM (7F20)
           +-- EF.IMSI (6F07) transparent, 9 bytes
           +-- EF.Kc (6F20) transparent, 9 bytes
+      """
     And Ki = [01 23 45 67 89 AB CD EF 01 23 45 67 89 AB CD EF]
     And PIN1 is "1234", enabled, 3 retries
     And PUK1 is "12345678", 10 retries

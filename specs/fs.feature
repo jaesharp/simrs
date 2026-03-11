@@ -12,6 +12,7 @@ Feature: ICC Filesystem Model
 
   Background:
     Given a filesystem tree:
+      """
       MF (3F00)
       +-- EF.ICCID (2FE2) transparent, 10 bytes [98 10 14 80 00 00 00 00 00 F0]
       +-- EF.DIR (2F00) linear fixed, record_size=8, num_records=2
@@ -20,10 +21,12 @@ Feature: ICC Filesystem Model
       +-- DF.GSM (7F20)
           +-- EF.IMSI (6F07) transparent, 9 bytes
           +-- EF.Kc (6F20) transparent, 9 bytes
-
+      """
     And an ADF table:
+      """
       ADF.USIM (AID=A0000000871002) root:
       +-- EF.IMSI (6F07) transparent, 9 bytes [USIM-specific content]
+      """
 
   # -- SELECT by FID (P1=0x00) per clause 11.1.1 --
 

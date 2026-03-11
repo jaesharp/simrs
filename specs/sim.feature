@@ -12,10 +12,12 @@ Feature: SIM/USIM Orchestrator (simrs-sim)
 
   Background:
     Given a Sim with:
+      """
       MF (3F00)
       +-- EF.ICCID (2FE2) transparent, 10 bytes
       +-- ADF.USIM (AID=A0000000871002)
           +-- EF.IMSI (6F07) transparent, 9 bytes
+      """
     And ATR = [3B 9F 96 80 ...] (standard UICC ATR)
     And feature "gsm" enabled with Ki = [00; 16]
     And feature "usim" enabled with Milenage K/OPc params
