@@ -27,7 +27,7 @@
 //! use simrs_secret::Secret;
 //!
 //! // Home Network key pair (use CSPRNG in production).
-//! let hn_sk = [0x42u8; 32];
+//! let hn_sk = Secret::new([0x42u8; 32]);
 //! let hn_pk = x25519::x25519_base(&hn_sk);
 //!
 //! // Encrypt the MSIN with a fresh ephemeral key.
@@ -65,7 +65,7 @@ use simrs_secret::Secret;
 /// # Panics
 ///
 /// Panics if `output.len() < input.len()`.
-pub fn aes128_ctr(key: &[u8; 16], iv: &[u8; 16], input: &[u8], output: &mut [u8]) {
+pub fn aes128_ctr(key: &Secret<[u8; 16]>, iv: &[u8; 16], input: &[u8], output: &mut [u8]) {
     assert!(output.len() >= input.len(), "output buffer too small");
 
     let cipher = Rijndael::new(key);
@@ -122,9 +122,9 @@ pub const MAX_PLAINTEXT_LEN: usize = 16;
 ///
 /// Returns (ciphertext_buf, plaintext_len, mac_tag).
 fn encrypt_and_mac(
-    enc_key: &[u8; 16],
+    enc_key: &Secret<[u8; 16]>,
     iv: &[u8; 16],
-    mac_key: &[u8; 32],
+    mac_key: &Secret<[u8; 32]>,
     plaintext: &[u8],
 ) -> ([u8; MAX_PLAINTEXT_LEN], usize, [u8; 8]) {
     let mut ciphertext = [0u8; MAX_PLAINTEXT_LEN];
@@ -182,24 +182,30 @@ pub fn ecies_profile_a_encrypt(
     assert!(plaintext.len() <= MAX_PLAINTEXT_LEN, "plaintext too long");
 
     // Step 1: Compute ephemeral public key.
-    let ephemeral_pk = x25519::x25519_base(ephemeral_sk.declassify_ref());
+    let ephemeral_pk = x25519::x25519_base(ephemeral_sk);
 
     // Step 2: ECDH shared secret.
-    let shared_secret = x25519::x25519(ephemeral_sk.declassify_ref(), hn_pubkey);
+    let shared_secret = x25519::x25519(ephemeral_sk, hn_pubkey);
 
     // Step 3: Key derivation via ANSI X9.63 KDF.
     // Per TS 33.501 C.3.4:
     //   KDF(Z, SharedInfo1) where SharedInfo1 = ephemeral public key (raw 32 bytes, no prefix)
     //   Output: 64 bytes = enc_key(16) || ICB(16) || mac_key(32)
     let mut kdf_out = [0u8; 64];
-    kdf_x963(&shared_secret, &ephemeral_pk, 64, &mut kdf_out);
+    kdf_x963(shared_secret.declassify_ref(), &ephemeral_pk, 64, &mut kdf_out);
 
-    let mut enc_key = [0u8; 16];
-    enc_key.copy_from_slice(&kdf_out[..16]);
+    let enc_key = Secret::new({
+        let mut k = [0u8; 16];
+        k.copy_from_slice(&kdf_out[..16]);
+        k
+    });
     let mut icb = [0u8; 16];
     icb.copy_from_slice(&kdf_out[16..32]);
-    let mut mac_key = [0u8; 32];
-    mac_key.copy_from_slice(&kdf_out[32..64]);
+    let mac_key = Secret::new({
+        let mut k = [0u8; 32];
+        k.copy_from_slice(&kdf_out[32..64]);
+        k
+    });
 
     // Steps 4+5: AES-128-CTR encryption + HMAC-SHA-256 MAC.
     let (ciphertext, ct_len, mac) = encrypt_and_mac(&enc_key, &icb, &mac_key, plaintext);
@@ -262,10 +268,10 @@ pub fn ecies_profile_b_encrypt(
     );
 
     // Step 1: Compute compressed ephemeral public key.
-    let ephemeral_pk = p256::p256_pubkey_compressed(ephemeral_sk.declassify_ref());
+    let ephemeral_pk = p256::p256_pubkey_compressed(ephemeral_sk);
 
     // Step 2: ECDH shared secret (x-coordinate).
-    let shared_secret = p256::p256_ecdh(ephemeral_sk.declassify_ref(), hn_pubkey)
+    let shared_secret = p256::p256_ecdh(ephemeral_sk, hn_pubkey)
         .expect("ECDH failed: invalid HN public key or degenerate point");
 
     // Step 3: Key derivation via ANSI X9.63 KDF.
@@ -273,14 +279,20 @@ pub fn ecies_profile_b_encrypt(
     //   KDF(Z, SharedInfo1) where SharedInfo1 = compressed ephemeral pubkey
     //   Output: 64 bytes = enc_key(16) || ICB(16) || mac_key(32)
     let mut kdf_out = [0u8; 64];
-    kdf_x963(&shared_secret, &ephemeral_pk, 64, &mut kdf_out);
+    kdf_x963(shared_secret.declassify_ref(), &ephemeral_pk, 64, &mut kdf_out);
 
-    let mut enc_key = [0u8; 16];
-    enc_key.copy_from_slice(&kdf_out[..16]);
+    let enc_key = Secret::new({
+        let mut k = [0u8; 16];
+        k.copy_from_slice(&kdf_out[..16]);
+        k
+    });
     let mut icb = [0u8; 16];
     icb.copy_from_slice(&kdf_out[16..32]);
-    let mut mac_key = [0u8; 32];
-    mac_key.copy_from_slice(&kdf_out[32..64]);
+    let mac_key = Secret::new({
+        let mut k = [0u8; 32];
+        k.copy_from_slice(&kdf_out[32..64]);
+        k
+    });
 
     // Steps 4+5: AES-128-CTR encryption + HMAC-SHA-256 MAC.
     let (ciphertext, ct_len, mac) = encrypt_and_mac(&enc_key, &icb, &mac_key, plaintext);
@@ -339,7 +351,7 @@ mod tests {
         let expected_ct = hex_to_16("874d6191b620e3261bef6864990db6ce");
 
         let mut ct = [0u8; 16];
-        aes128_ctr(&key, &iv, &pt, &mut ct);
+        aes128_ctr(&Secret::new(key), &iv, &pt, &mut ct);
         assert_eq!(ct, expected_ct);
     }
 
@@ -364,7 +376,7 @@ mod tests {
         ];
 
         let mut ct = [0u8; 64];
-        aes128_ctr(&key, &iv, &pt, &mut ct);
+        aes128_ctr(&Secret::new(key), &iv, &pt, &mut ct);
         assert_eq!(ct, expected_ct);
     }
 
@@ -376,10 +388,10 @@ mod tests {
         let pt = b"Hello, Curve25519 world!";
 
         let mut ct = [0u8; 24];
-        aes128_ctr(&key, &iv, pt, &mut ct);
+        aes128_ctr(&Secret::new(key), &iv, pt, &mut ct);
 
         let mut recovered = [0u8; 24];
-        aes128_ctr(&key, &iv, &ct, &mut recovered);
+        aes128_ctr(&Secret::new(key), &iv, &ct, &mut recovered);
         assert_eq!(&recovered[..], &pt[..]);
     }
 
@@ -390,11 +402,11 @@ mod tests {
         let iv = [0u8; 16];
         let pt = [0x42; 5];
         let mut ct = [0u8; 5];
-        aes128_ctr(&key, &iv, &pt, &mut ct);
+        aes128_ctr(&Secret::new(key), &iv, &pt, &mut ct);
 
         // Decrypt.
         let mut recovered = [0u8; 5];
-        aes128_ctr(&key, &iv, &ct, &mut recovered);
+        aes128_ctr(&Secret::new(key), &iv, &ct, &mut recovered);
         assert_eq!(recovered, pt);
     }
 
@@ -441,14 +453,14 @@ mod tests {
         );
 
         // Shared secret (X25519 ECDH).
-        let z = x25519::x25519(&eph_sk, &hn_pk);
+        let z = x25519::x25519(&Secret::new(eph_sk), &hn_pk);
         assert_eq!(
-            z,
+            *z.declassify_ref(),
             hex_to_32("028ddf890ec83cdf163947ce45f6ec1a0e3070ea5fe57e2b1f05139f3e82422a"),
         );
 
         // Ephemeral pubkey (= SharedInfo for KDF, raw 32 bytes).
-        let eph_pk = x25519::x25519_base(&eph_sk);
+        let eph_pk = x25519::x25519_base(&Secret::new(eph_sk));
         assert_eq!(
             eph_pk,
             hex_to_32("b2e92f836055a255837debf850b528997ce0201cb82adfe4be1f587d07d8457d"),
@@ -456,7 +468,7 @@ mod tests {
 
         // KDF output: enc_key(16) || ICB(16) || mac_key(32).
         let mut kdf_out = [0u8; 64];
-        simrs_kdf::kdf_x963(&z, &eph_pk, 64, &mut kdf_out);
+        simrs_kdf::kdf_x963(z.declassify_ref(), &eph_pk, 64, &mut kdf_out);
 
         let expected_enc_key = hex_to_16("2ba342cabd2b3b1e5e4e890da11b65f6");
         let expected_icb = hex_to_16("e2622cb0cdd08204e721c8ea9b95a7c6");
@@ -476,7 +488,7 @@ mod tests {
         let hn_sk = hex_to_32(
             "c53c22208b61860b06c62e5406a7b330c2b577aa5558981510d128247d38bd1d",
         );
-        let hn_pk = x25519::x25519_base(&hn_sk);
+        let hn_pk = x25519::x25519_base(&Secret::new(hn_sk));
 
         let eph_sk = hex_to_32(
             "c80949f13ebe61af4ebdbd293ea4f942696b9e815d7e8f0096bbf6ed7de62256",
@@ -486,9 +498,9 @@ mod tests {
         let result = ecies_profile_a_encrypt(&hn_pk, &msin, &Secret::new(eph_sk));
 
         // HN side: compute shared secret and re-derive keys.
-        let shared_secret = x25519::x25519(&hn_sk, &result.ephemeral_pk);
+        let shared_secret = x25519::x25519(&Secret::new(hn_sk), &result.ephemeral_pk);
         let mut kdf_out = [0u8; 64];
-        simrs_kdf::kdf_x963(&shared_secret, &result.ephemeral_pk, 64, &mut kdf_out);
+        simrs_kdf::kdf_x963(shared_secret.declassify_ref(), &result.ephemeral_pk, 64, &mut kdf_out);
 
         let mut enc_key = [0u8; 16];
         enc_key.copy_from_slice(&kdf_out[..16]);
@@ -498,21 +510,21 @@ mod tests {
         mac_key.copy_from_slice(&kdf_out[32..64]);
 
         // Verify MAC.
-        let mut mac_hasher = HmacSha256::new(&mac_key);
+        let mut mac_hasher = HmacSha256::new(&Secret::new(mac_key));
         mac_hasher.update(&result.ciphertext[..result.ct_len]);
         let full_mac = mac_hasher.finalize();
         assert_eq!(&full_mac[..8], &result.mac);
 
         // Decrypt.
         let mut decrypted = [0u8; 16];
-        aes128_ctr(&enc_key, &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
+        aes128_ctr(&Secret::new(enc_key), &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
         assert_eq!(&decrypted[..msin.len()], &msin);
     }
 
     #[test]
     fn ecies_profile_a_deterministic() {
         // Same inputs should produce same outputs.
-        let hn_pk = x25519::x25519_base(&[42u8; 32]);
+        let hn_pk = x25519::x25519_base(&Secret::new([42u8; 32]));
         let eph_sk = [99u8; 32];
         let msin = [0xAB, 0xCD, 0xEF];
 
@@ -528,7 +540,7 @@ mod tests {
     #[test]
     fn ecies_profile_a_different_eph_keys() {
         // Different ephemeral keys should produce different ciphertext.
-        let hn_pk = x25519::x25519_base(&[42u8; 32]);
+        let hn_pk = x25519::x25519_base(&Secret::new([42u8; 32]));
         let msin = [0xAB, 0xCD, 0xEF];
 
         let r1 = ecies_profile_a_encrypt(&hn_pk, &msin, &Secret::new([1u8; 32]));
@@ -540,7 +552,7 @@ mod tests {
 
     #[test]
     fn ecies_profile_a_mac_changes_with_data() {
-        let hn_pk = x25519::x25519_base(&[42u8; 32]);
+        let hn_pk = x25519::x25519_base(&Secret::new([42u8; 32]));
         let eph_sk = [99u8; 32];
 
         let eph_sk = Secret::new(eph_sk);
@@ -640,14 +652,14 @@ mod tests {
         );
 
         // Shared secret (ECDH x-coordinate).
-        let z = p256::p256_ecdh(&eph_sk, &hn_pk).unwrap();
+        let z = p256::p256_ecdh(&Secret::new(eph_sk), &hn_pk).unwrap();
         assert_eq!(
-            z,
+            *z.declassify_ref(),
             hex_to_32("6c7e6518980025b982fbb2ff746e3c2e85a196d252099a7ad23ea7b4c0959cae"),
         );
 
         // Compressed ephemeral pubkey (= SharedInfo for KDF).
-        let eph_pk = p256::p256_pubkey_compressed(&eph_sk);
+        let eph_pk = p256::p256_pubkey_compressed(&Secret::new(eph_sk));
         let mut expected_eph = [0u8; 33];
         hex_to_n(
             "039aab8376597021e855679a9778ea0b67396e68c66df32c0f41e9acca2da9b9d1",
@@ -657,7 +669,7 @@ mod tests {
 
         // KDF output: enc_key(16) || ICB(16) || mac_key(32).
         let mut kdf_out = [0u8; 64];
-        simrs_kdf::kdf_x963(&z, &eph_pk, 64, &mut kdf_out);
+        simrs_kdf::kdf_x963(z.declassify_ref(), &eph_pk, 64, &mut kdf_out);
 
         let expected_enc_key = hex_to_16("8a65c3aed80295c12bd55087e965702a");
         let expected_icb = hex_to_16("ef285b4061c3baee858ab6ec68487dae");
@@ -678,7 +690,7 @@ mod tests {
         let hn_sk = hex_to_32(
             "f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda",
         );
-        let hn_pk = p256::p256_pubkey(&hn_sk);
+        let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
 
         let eph_sk = hex_to_32(
             "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
@@ -690,11 +702,11 @@ mod tests {
         // HN side: recover shared secret from compressed ephemeral pubkey.
         let eph_pk_uncompressed = p256::p256_decompress_pubkey(&result.ephemeral_pk)
             .expect("compressed decompress failed");
-        let z = p256::p256_ecdh(&hn_sk, &eph_pk_uncompressed).unwrap();
+        let z = p256::p256_ecdh(&Secret::new(hn_sk), &eph_pk_uncompressed).unwrap();
 
         // Re-derive keys.
         let mut kdf_out = [0u8; 64];
-        simrs_kdf::kdf_x963(&z, &result.ephemeral_pk, 64, &mut kdf_out);
+        simrs_kdf::kdf_x963(z.declassify_ref(), &result.ephemeral_pk, 64, &mut kdf_out);
 
         let mut enc_key = [0u8; 16];
         enc_key.copy_from_slice(&kdf_out[..16]);
@@ -704,14 +716,14 @@ mod tests {
         mac_key.copy_from_slice(&kdf_out[32..64]);
 
         // Verify MAC.
-        let mut mac_hasher = HmacSha256::new(&mac_key);
+        let mut mac_hasher = HmacSha256::new(&Secret::new(mac_key));
         mac_hasher.update(&result.ciphertext[..result.ct_len]);
         let full_mac = mac_hasher.finalize();
         assert_eq!(&full_mac[..8], &result.mac);
 
         // Decrypt.
         let mut decrypted = [0u8; 16];
-        aes128_ctr(&enc_key, &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
+        aes128_ctr(&Secret::new(enc_key), &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
         assert_eq!(&decrypted[..msin.len()], &msin);
     }
 
@@ -720,7 +732,7 @@ mod tests {
         let hn_sk = hex_to_32(
             "f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda",
         );
-        let hn_pk = p256::p256_pubkey(&hn_sk);
+        let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
         let eph_sk = hex_to_32(
             "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
         );
@@ -740,7 +752,7 @@ mod tests {
         let hn_sk = hex_to_32(
             "f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda",
         );
-        let hn_pk = p256::p256_pubkey(&hn_sk);
+        let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
 
         let eph_sk1 = hex_to_32(
             "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
@@ -762,7 +774,7 @@ mod tests {
         let hn_sk = hex_to_32(
             "f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda",
         );
-        let hn_pk = p256::p256_pubkey(&hn_sk);
+        let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
         let eph_sk = hex_to_32(
             "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
         );
@@ -795,9 +807,9 @@ mod proptests {
         ) {
             let pt = &pt[..pt_len];
             let mut ct = [0u8; 48];
-            aes128_ctr(&key, &iv, pt, &mut ct);
+            aes128_ctr(&Secret::new(key), &iv, pt, &mut ct);
             let mut recovered = [0u8; 48];
-            aes128_ctr(&key, &iv, &ct[..pt_len], &mut recovered);
+            aes128_ctr(&Secret::new(key), &iv, &ct[..pt_len], &mut recovered);
             prop_assert_eq!(&recovered[..pt_len], pt);
         }
     }
@@ -807,11 +819,11 @@ mod proptests {
         // scalar_mul(a, scalar_mul(b, G)) == scalar_mul(b, scalar_mul(a, G))
         #[test]
         fn x25519_ecdh_commutative(a in any::<[u8; 32]>(), b in any::<[u8; 32]>()) {
-            let pk_a = x25519::x25519_base(&a);
-            let pk_b = x25519::x25519_base(&b);
-            let shared_ab = x25519::x25519(&a, &pk_b);
-            let shared_ba = x25519::x25519(&b, &pk_a);
-            prop_assert_eq!(shared_ab, shared_ba, "ECDH must be commutative");
+            let pk_a = x25519::x25519_base(&Secret::new(a));
+            let pk_b = x25519::x25519_base(&Secret::new(b));
+            let shared_ab = x25519::x25519(&Secret::new(a), &pk_b);
+            let shared_ba = x25519::x25519(&Secret::new(b), &pk_a);
+            prop_assert_eq!(shared_ab.declassify_ref(), shared_ba.declassify_ref(), "ECDH must be commutative");
         }
     }
 
@@ -819,7 +831,7 @@ mod proptests {
         // X25519 public key is never all-zero for random scalars.
         #[test]
         fn x25519_pubkey_nonzero(sk in any::<[u8; 32]>()) {
-            let pk = x25519::x25519_base(&sk);
+            let pk = x25519::x25519_base(&Secret::new(sk));
             prop_assert_ne!(pk, [0u8; 32], "public key must not be all-zero");
         }
     }
@@ -832,13 +844,13 @@ mod proptests {
             eph_sk in any::<[u8; 32]>(),
             msin in any::<[u8; 5]>(),
         ) {
-            let hn_pk = x25519::x25519_base(&hn_sk);
+            let hn_pk = x25519::x25519_base(&Secret::new(hn_sk));
             let result = ecies_profile_a_encrypt(&hn_pk, &msin, &Secret::new(eph_sk));
 
             // HN-side decrypt: ECDH + X9.63 KDF + verify MAC + AES-128-CTR.
-            let shared_secret = x25519::x25519(&hn_sk, &result.ephemeral_pk);
+            let shared_secret = x25519::x25519(&Secret::new(hn_sk), &result.ephemeral_pk);
             let mut kdf_out = [0u8; 64];
-            simrs_kdf::kdf_x963(&shared_secret, &result.ephemeral_pk, 64, &mut kdf_out);
+            simrs_kdf::kdf_x963(shared_secret.declassify_ref(), &result.ephemeral_pk, 64, &mut kdf_out);
 
             let mut enc_key = [0u8; 16];
             enc_key.copy_from_slice(&kdf_out[..16]);
@@ -848,14 +860,14 @@ mod proptests {
             mac_key.copy_from_slice(&kdf_out[32..64]);
 
             // Verify MAC.
-            let mut mac_hasher = simrs_kdf::HmacSha256::new(&mac_key);
+            let mut mac_hasher = simrs_kdf::HmacSha256::new(&simrs_secret::Secret::new(mac_key));
             mac_hasher.update(&result.ciphertext[..result.ct_len]);
             let full_mac = mac_hasher.finalize();
             prop_assert_eq!(&full_mac[..8], &result.mac[..], "MAC must verify");
 
             // Decrypt.
             let mut decrypted = [0u8; 16];
-            aes128_ctr(&enc_key, &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
+            aes128_ctr(&Secret::new(enc_key), &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
             prop_assert_eq!(&decrypted[..msin.len()], &msin[..]);
         }
     }
@@ -875,17 +887,17 @@ mod proptests {
             eph_sk in valid_p256_scalar(),
             msin in any::<[u8; 5]>(),
         ) {
-            let hn_pk = p256::p256_pubkey(&hn_sk);
+            let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
             let result = ecies_profile_b_encrypt(&hn_pk, &msin, &Secret::new(eph_sk));
 
             // HN-side decrypt: decompress ephemeral pk, ECDH, re-derive keys.
             let eph_pk_uncompressed = p256::p256_decompress_pubkey(&result.ephemeral_pk)
                 .expect("decompress must succeed for valid key");
-            let z = p256::p256_ecdh(&hn_sk, &eph_pk_uncompressed)
+            let z = p256::p256_ecdh(&Secret::new(hn_sk), &eph_pk_uncompressed)
                 .expect("ECDH must succeed");
 
             let mut kdf_out = [0u8; 64];
-            simrs_kdf::kdf_x963(&z, &result.ephemeral_pk, 64, &mut kdf_out);
+            simrs_kdf::kdf_x963(z.declassify_ref(), &result.ephemeral_pk, 64, &mut kdf_out);
 
             let mut enc_key = [0u8; 16];
             enc_key.copy_from_slice(&kdf_out[..16]);
@@ -895,14 +907,14 @@ mod proptests {
             mac_key.copy_from_slice(&kdf_out[32..64]);
 
             // Verify MAC.
-            let mut mac_hasher = simrs_kdf::HmacSha256::new(&mac_key);
+            let mut mac_hasher = simrs_kdf::HmacSha256::new(&simrs_secret::Secret::new(mac_key));
             mac_hasher.update(&result.ciphertext[..result.ct_len]);
             let full_mac = mac_hasher.finalize();
             prop_assert_eq!(&full_mac[..8], &result.mac[..], "MAC must verify");
 
             // Decrypt.
             let mut decrypted = [0u8; 16];
-            aes128_ctr(&enc_key, &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
+            aes128_ctr(&Secret::new(enc_key), &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
             prop_assert_eq!(&decrypted[..msin.len()], &msin[..]);
         }
     }
@@ -940,7 +952,7 @@ mod ct_validation {
                 (scalar, base)
             },
             |(scalar, base)| {
-                black_box(x25519::x25519(scalar, base));
+                black_box(x25519::x25519(&Secret::new(*scalar), base));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -951,7 +963,7 @@ mod ct_validation {
     /// Class 1: random plaintext with random ephemeral key.
     #[test]
     fn test_ecies_profile_a_ct() {
-        let hn_pk = x25519::x25519_base(&[0x77u8; 32]);
+        let hn_pk = x25519::x25519_base(&Secret::new([0x77u8; 32]));
         let outcome = ct_test(0xEC1E5_A01,
             |rng| {
                 let pt = [0x12, 0x34, 0x56, 0x78, 0x9A];
@@ -987,7 +999,7 @@ mod ct_validation {
             0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
             0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
         ];
-        let hn_pk = p256::p256_pubkey(&hn_sk);
+        let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
         let fixed_scalar: [u8; 32] = [
             0x99, 0x79, 0x88, 0x58, 0xa1, 0xdc, 0x6a, 0x2c,
             0x68, 0x63, 0x71, 0x49, 0xa4, 0xb1, 0xdb, 0xfd,
@@ -1019,7 +1031,7 @@ mod ct_validation {
                 (scalar, hn_pk)
             },
             |(scalar, pk)| {
-                black_box(p256::p256_ecdh(scalar, pk));
+                black_box(p256::p256_ecdh(&Secret::new(*scalar), pk));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1036,7 +1048,7 @@ mod ct_validation {
             0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
             0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
         ];
-        let hn_pk = p256::p256_pubkey(&hn_sk);
+        let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
         let outcome = ct_test(0xEC1E5_B01,
             |rng| {
                 let pt = [0x12, 0x34, 0x56, 0x78, 0x9A];
@@ -1082,7 +1094,7 @@ mod ct_validation {
             0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
             0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
         ];
-        let hn_pk = p256::p256_pubkey(&hn_sk);
+        let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
 
         // n-1 for P-256: FFFFFFFF 00000000 FFFFFFFF FFFFFFFF
         //                 BCE6FAAD A7179E84 F3B9CAC2 FC632550
@@ -1110,7 +1122,7 @@ mod ct_validation {
                 (s, hn_pk)
             },
             |(scalar, pk)| {
-                black_box(p256::p256_ecdh(scalar, pk));
+                black_box(p256::p256_ecdh(&Secret::new(*scalar), pk));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1134,7 +1146,7 @@ mod ct_validation {
             0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
             0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
         ];
-        let hn_pk = p256::p256_pubkey(&hn_sk);
+        let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
 
         // Scalar = 3 (big-endian): 31 zero bytes followed by 0x03.
         let mut sparse_scalar = [0u8; 32];
@@ -1159,7 +1171,7 @@ mod ct_validation {
                 (s, hn_pk)
             },
             |(scalar, pk)| {
-                black_box(p256::p256_ecdh(scalar, pk));
+                black_box(p256::p256_ecdh(&Secret::new(*scalar), pk));
             },
         );
         assert_no_timing_leak!(outcome);

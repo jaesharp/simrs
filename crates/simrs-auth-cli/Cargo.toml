@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 simrs-consttime = { workspace = true }
 simrs-milenage  = { workspace = true, features = ["std"] }
+simrs-secret    = { workspace = true }
 clap            = { workspace = true }
 getrandom       = { workspace = true }
 

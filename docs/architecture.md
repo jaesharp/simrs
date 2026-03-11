@@ -410,7 +410,7 @@ Used exclusively by [`simrs-milenage`](#simrs-milenage).
 
 ```rust
 pub struct Comp128Result { pub sres: [u8; 4], pub kc: [u8; 8] }
-pub fn comp128(ki: &[u8; 16], rand: &[u8; 16]) -> Comp128Result;
+pub fn comp128(ki: &Secret<[u8; 16]>, rand: &[u8; 16]) -> Comp128Result;
 ```
 
 Used exclusively by [`simrs-gsm`](#simrs-gsm).
@@ -778,7 +778,7 @@ Handles CLA=`0xA0` APDUs: SELECT, GET RESPONSE, READ BINARY, STATUS, RUN GSM ALG
 Constructs GSM 11.11 clause 9.2.1 SELECT responses: MF/DF (23 bytes), EF (15 bytes).
 
 ```rust
-pub struct Ki(pub [u8; 16]);  // GSM 11.11 clause 11: COMP128 subscriber key
+pub struct Ki(Secret<[u8; 16]>);  // GSM 11.11 clause 11: COMP128 subscriber key
 
 pub struct GsmApp { /* fields private: fs, pin, ki, rsp_queue */ }
 impl GsmApp {

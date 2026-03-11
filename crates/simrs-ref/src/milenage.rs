@@ -235,11 +235,12 @@ static VECTORS: [MilenageVector; 6] = [
 mod tests {
     use super::*;
     use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+    use simrs_secret::Secret;
 
     #[test]
     fn all_vectors_match() {
         for (i, v) in VECTORS.iter().enumerate() {
-            let p = MilenageParams::with_defaults(SubscriberKey::new(v.k), OperatorVariant::Opc(v.opc));
+            let p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(v.k)), OperatorVariant::opc(Secret::new(v.opc)));
             assert_eq!(
                 p.compute_auth_mac(&v.rand, &v.sqn, &v.amf), v.expected_f1,
                 "Test Set {} f1 (MAC-A) mismatch", i + 1

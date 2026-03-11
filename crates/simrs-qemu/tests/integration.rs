@@ -10,6 +10,7 @@
 use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, Sfi};
 use simrs_gsm::GsmApp;
 use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+use simrs_secret::Secret;
 use simrs_pin::{PinKey, PinValue};
 use simrs_proactive::{ProactiveCommand, TextCoding};
 use simrs_qemu::{QemuBridge, QemuBridgeError, ShmemMsgType};
@@ -97,20 +98,20 @@ static MF: DfDef = DfDef {
 
 static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
 
-static KI: simrs_gsm::Ki = simrs_gsm::Ki([
+static KI: simrs_gsm::Ki = simrs_gsm::Ki::new(Secret::new([
     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-]);
+]));
 
 // ETSI TS 135 208 Test Set 1.
-static USIM_K: [u8; 16] = [
+static USIM_K: SubscriberKey = SubscriberKey::new(Secret::new([
     0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
     0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC,
-];
-static USIM_OPC: [u8; 16] = [
+]));
+static USIM_OPC: OperatorVariant = OperatorVariant::opc(Secret::new([
     0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E,
     0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B, 0xAF,
-];
+]));
 
 static PIN_VAL: [u8; 8] = [0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
 static PUK_VAL: [u8; 8] = [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38];
@@ -131,7 +132,7 @@ fn make_sim() -> Sim<MilenageParams, 256> {
         .unwrap();
     let _ = gsm.pin_manager().verify(PinKey::PIN1, &pin);
 
-    let mil = MilenageParams::with_defaults(SubscriberKey::new(USIM_K), OperatorVariant::Opc(USIM_OPC));
+    let mil = MilenageParams::with_defaults(USIM_K, USIM_OPC);
     let usim = sim.usim_app_mut();
     *usim = UsimApp::new(&MF, &ADF_TABLE, mil);
     let pin2 = PinValue::new(PIN_VAL);
@@ -275,9 +276,9 @@ fn gsm_run_gsm_algorithm_comp128() {
     assert_eq!(data.len(), 12);
 
     // Verify against independent COMP128 computation.
-    let result = simrs_comp128::comp128(&KI, &rand_val);
+    let result = simrs_comp128::comp128(KI.as_secret(), &rand_val);
     assert_eq!(&data[..4], &result.sres);
-    assert_eq!(&data[4..12], &result.kc);
+    assert_eq!(&data[4..12], result.kc.declassify_ref());
 }
 
 #[test]
@@ -307,7 +308,7 @@ fn usim_select_aid_and_authenticate() {
         0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
         0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
     ];
-    let params = MilenageParams::with_defaults(SubscriberKey::new(USIM_K), OperatorVariant::Opc(USIM_OPC));
+    let params = MilenageParams::with_defaults(USIM_K, USIM_OPC);
     let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
     let management_field = [0xB9, 0xB9];
     let anonymity_key = params.compute_anonymity_key(&rand_val);

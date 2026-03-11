@@ -2,6 +2,7 @@
 
 use simrs_pcap::LinkType;
 use simrs_redact::Redact;
+use simrs_secret::Secret;
 
 /// Operating mode for the APDU interposer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,19 +20,19 @@ pub enum InterposerMode {
 /// Authentication credentials for the shadow/replace SIM.
 pub struct AuthConfig {
     /// GSM Ki (128 bits).
-    pub ki: [u8; 16],
+    pub ki: Secret<[u8; 16]>,
     /// UMTS K (128 bits).
-    pub k: [u8; 16],
+    pub k: Secret<[u8; 16]>,
     /// UMTS `OPc` (128 bits).
-    pub opc: [u8; 16],
+    pub opc: Secret<[u8; 16]>,
 }
 
 impl core::fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("AuthConfig")
-            .field("ki", &Redact(&self.ki))
-            .field("k", &Redact(&self.k))
-            .field("opc", &Redact(&self.opc))
+            .field("ki", &Redact(self.ki.declassify_ref()))
+            .field("k", &Redact(self.k.declassify_ref()))
+            .field("opc", &Redact(self.opc.declassify_ref()))
             .finish()
     }
 }

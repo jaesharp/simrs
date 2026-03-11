@@ -68,7 +68,7 @@ pub unsafe extern "C" fn simrs_init(
     simrs_hle::hle_init_with_adf(
         &ATR,
         &REFERENCE_MF,
-        Ki(ki_arr),
+        Ki::new(ki_arr),
         k_arr,
         opc_arr,
         &ADF_TABLE,
@@ -85,7 +85,7 @@ pub extern "C" fn simrs_init_default() {
     simrs_hle::hle_init_with_adf(
         &ATR,
         &REFERENCE_MF,
-        Ki([0u8; 16]),
+        Ki::new([0u8; 16]),
         [0u8; 16],
         [0u8; 16],
         &ADF_TABLE,

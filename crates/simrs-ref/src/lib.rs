@@ -11,12 +11,13 @@
 //! # Usage
 //!
 //! ```ignore
-//! use simrs_ref::comp128::{vectors, run_vector};
+//! use simrs_ref::comp128::vectors;
+//! use simrs_secret::Secret;
 //!
 //! for v in vectors() {
-//!     let result = simrs_comp128::comp128(&v.ki, &v.rand);
+//!     let result = simrs_comp128::comp128(&Secret::new(v.ki), &v.rand);
 //!     assert_eq!(result.sres, v.expected_sres);
-//!     assert_eq!(result.kc, v.expected_kc);
+//!     assert_eq!(*result.kc.declassify_ref(), v.expected_kc);
 //! }
 //! ```
 

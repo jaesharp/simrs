@@ -31,6 +31,7 @@ pub mod apdu;
 use simrs_gsm::Ki;
 use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
+use simrs_secret::Secret;
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
 use simrs_usim::SuciSeed;
@@ -44,13 +45,13 @@ pub static ATR: [u8; 2] = [0x3B, 0x00];
 // ---- Test credentials ----
 
 /// Test Ki (all 0x11).
-pub const TEST_KI: Ki = Ki([0x11; 16]);
+pub const TEST_KI: Ki = Ki::new(Secret::new([0x11; 16]));
 /// Test K (all 0x22).
-pub const TEST_K: [u8; 16] = [0x22; 16];
+pub const TEST_K: SubscriberKey = SubscriberKey::new(Secret::new([0x22; 16]));
 /// Test `OPc` (all 0x33).
-pub const TEST_OPC: [u8; 16] = [0x33; 16];
+pub const TEST_OPC: OperatorVariant = OperatorVariant::opc(Secret::new([0x33; 16]));
 /// Test SUCI DRBG seed (all 0x44).
-pub const TEST_SUCI_SEED: SuciSeed = SuciSeed([0x44; 32]);
+pub const TEST_SUCI_SEED: SuciSeed = SuciSeed::new([0x44; 32]);
 
 // PIN/PUK digit-string constants live in apdu::PIN1_CORRECT etc.
 // Encoding to 8-byte ISO format is done by apdu::encode_pin().
@@ -72,7 +73,7 @@ pub const PUK_MAX_RETRIES: u8 = 10;
 /// Panics if `add_pin` fails (should not happen with valid test data).
 pub fn create_sim() -> TestSim {
     let mut sim = TestSim::new(&ATR, &REFERENCE_MF);
-    let mil = MilenageParams::with_defaults(SubscriberKey::new(TEST_K), OperatorVariant::Opc(TEST_OPC));
+    let mil = MilenageParams::with_defaults(TEST_K, TEST_OPC);
     *sim.usim_app_mut() = simrs_usim::UsimApp::new(&REFERENCE_MF, &ADF_TABLE, mil);
     *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(&REFERENCE_MF, TEST_KI);
 
@@ -231,7 +232,7 @@ pub fn select_ef_iccid(sim: &mut TestSim) -> (u8, u8) {
 /// Construct a valid AUTN for the test Milenage credentials with a given
 /// SQN and AMF, so AUTHENTICATE will accept the MAC.
 pub fn build_valid_autn(challenge: &[u8; 16], sequence_number: [u8; 6], management_field: [u8; 2]) -> [u8; 16] {
-    let params = MilenageParams::with_defaults(SubscriberKey::new(TEST_K), OperatorVariant::Opc(TEST_OPC));
+    let params = MilenageParams::with_defaults(TEST_K, TEST_OPC);
     let anonymity_key = params.compute_anonymity_key(challenge);
     let auth_mac = params.compute_auth_mac(challenge, &sequence_number, &management_field);
     let mut auth_token = [0u8; 16];

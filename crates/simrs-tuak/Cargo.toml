@@ -15,6 +15,7 @@ redact-secrets-in-logs = ["simrs-redact/redact-secrets-in-logs"]
 simrs-keccak    = { workspace = true }
 simrs-milenage  = { workspace = true }
 simrs-redact    = { workspace = true }
+simrs-secret    = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

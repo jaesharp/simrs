@@ -15,6 +15,7 @@ redact-secrets-in-logs = ["simrs-redact/redact-secrets-in-logs"]
 
 [dependencies]
 simrs-redact        = { workspace = true }
+simrs-secret        = { workspace = true }
 simrs-pcap          = { workspace = true }
 simrs-transport     = { workspace = true }
 simrs-transport-tcp = { workspace = true }

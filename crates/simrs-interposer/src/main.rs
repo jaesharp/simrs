@@ -3,6 +3,7 @@
 use simrs_interposer::mode::{
     parse_hex, parse_mode, AuthConfig, InterposerConfig, InterposerMode,
 };
+use simrs_secret::Secret;
 use simrs_interposer::proxy::ProxyLoop;
 use simrs_pcap::LinkType;
 
@@ -133,9 +134,9 @@ fn parse_args(args: &[String]) -> Result<InterposerConfig, String> {
 
     let auth = if ki.is_some() || k.is_some() || opc.is_some() {
         Some(AuthConfig {
-            ki: ki.unwrap_or([0u8; 16]),
-            k: k.unwrap_or([0u8; 16]),
-            opc: opc.unwrap_or([0u8; 16]),
+            ki: Secret::new(ki.unwrap_or([0u8; 16])),
+            k: Secret::new(k.unwrap_or([0u8; 16])),
+            opc: Secret::new(opc.unwrap_or([0u8; 16])),
         })
     } else {
         None
@@ -208,9 +209,9 @@ mod tests {
         assert_eq!(config.pcap_path.as_deref(), Some("/tmp/test.pcap"));
         assert_eq!(config.link_type, LinkType::GsmTap);
         let auth = config.auth.unwrap();
-        assert_eq!(auth.ki, [0x11u8; 16]);
-        assert_eq!(auth.k, [0x22u8; 16]);
-        assert_eq!(auth.opc, [0x33u8; 16]);
+        assert_eq!(*auth.ki.declassify_ref(), [0x11u8; 16]);
+        assert_eq!(*auth.k.declassify_ref(), [0x22u8; 16]);
+        assert_eq!(*auth.opc.declassify_ref(), [0x33u8; 16]);
     }
 
     #[test]

@@ -22,8 +22,9 @@
 
 use simrs_fs::{DfDef, EfDef, Fid, FileRef};
 use simrs_gsm::Ki;
-use simrs_milenage::{MilenageParams, OperatorVariant};
+use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
+use simrs_secret::Secret;
 use simrs_sim::{Sim, SimEvent, SimResponse};
 
 // ---- Static filesystem for tests ------------------------------------------------
@@ -50,7 +51,7 @@ pub static ATR: [u8; 2] = [0x3B, 0x00];
 // ---- Test credentials -----------------------------------------------------------
 
 /// Test Ki (all 0x11).
-pub const TEST_KI: Ki = Ki([0x11; 16]);
+pub const TEST_KI: Ki = Ki::new(Secret::new([0x11; 16]));
 /// Test K (all 0x22).
 pub const TEST_K: [u8; 16] = [0x22; 16];
 /// Test OPc (all 0x33).
@@ -118,7 +119,7 @@ pub fn parse_hex(s: &str) -> Vec<u8> {
 /// Panics if `add_pin` fails (should not happen with valid test data).
 pub fn create_sim() -> Sim<MilenageParams, 256> {
     let mut sim = Sim::<MilenageParams, 256>::new(&ATR, &MF);
-    let mil = MilenageParams::with_defaults(TEST_K, OperatorVariant::Opc(TEST_OPC));
+    let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(TEST_K)), OperatorVariant::opc(Secret::new(TEST_OPC)));
     *sim.usim_app_mut() = simrs_usim::UsimApp::new(&MF, &[], mil);
     *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(&MF, TEST_KI);
 

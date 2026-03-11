@@ -30,6 +30,7 @@
 //! use simrs_iso7816::Command;
 //! use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
 //! use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+//! use simrs_secret::Secret;
 //!
 //! static EF: EfDef = EfDef::transparent(
 //!     Fid::new(0x2FE2),
@@ -38,7 +39,7 @@
 //! );
 //! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[FileRef::Ef(&EF)] };
 //!
-//! let milenage = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+//! let milenage = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
 //! let mut app = UsimApp::new(&MF, &[], milenage);
 //!
 //! // SELECT MF (interindustry CLA)
@@ -65,6 +66,7 @@ use simrs_kdf::HmacSha256;
 use simrs_milenage::{AuthenticationAlgorithm, AuthenticationError, CipherKey, IntegrityKey, MilenageParams};
 use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
 use simrs_proactive::ProactiveState;
+use simrs_redact::Redact;
 use simrs_secret::Secret;
 
 // ---------------------------------------------------------------------------
@@ -177,7 +179,27 @@ const SUCI_CALC_INFO_KEY_TAG: u8 = 0x81;
 /// "The freshness and randomness of SUCI returned upon each call of the
 /// command depends on the protection scheme configured."
 #[derive(Clone, Copy)]
-pub struct SuciSeed(pub [u8; 32]);
+pub struct SuciSeed(Secret<[u8; 32]>);
+
+impl SuciSeed {
+    /// Create a new SUCI DRBG seed from raw bytes.
+    pub const fn new(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
+
+    /// Access the underlying bytes for cryptographic operations.
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
+}
+
+impl core::fmt::Debug for SuciSeed {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("SuciSeed")
+            .field(&Redact(self.0.declassify_ref()))
+            .finish()
+    }
+}
 
 /// SUCI on-card computation state.
 ///
@@ -203,7 +225,7 @@ impl SuciState {
     /// Derive the next ephemeral key via HMAC-SHA-256(seed, counter_be).
     fn next_ephemeral_key(&mut self) -> [u8; 32] {
         let ctr_bytes = self.counter.to_be_bytes();
-        let mut hmac = HmacSha256::new(&self.seed.0);
+        let mut hmac = HmacSha256::new(&simrs_secret::Secret::new(*self.seed.declassify()));
         hmac.update(&ctr_bytes);
         let key = hmac.finalize();
         self.counter += 1;
@@ -498,9 +520,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// use simrs_usim::UsimApp;
     /// use simrs_fs::{DfDef, Fid, AdfSlot};
     /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+    /// use simrs_secret::Secret;
     ///
     /// static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
-    /// let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+    /// let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
     /// let app = UsimApp::new(&MF, &[], mil);
     /// ```
     pub fn new(
@@ -2345,17 +2368,17 @@ mod tests {
     };
 
     // ETSI TS 135 208 Test Set 1 values.
-    static K: SubscriberKey = SubscriberKey::new([
+    static K: SubscriberKey = SubscriberKey::new(Secret::new([
         0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
         0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC,
-    ]);
-    static OPC: [u8; 16] = [
+    ]));
+    static OPC: OperatorVariant = OperatorVariant::opc(Secret::new([
         0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E,
         0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B, 0xAF,
-    ];
+    ]));
 
     fn app() -> UsimApp {
-        let mil = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let mil = MilenageParams::with_defaults(K, OPC);
         let mut a = UsimApp::new(&MF, &ADF_TABLE, mil);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -2370,7 +2393,7 @@ mod tests {
 
     /// Create an app with PIN1 enabled (not disabled) for PIN-gate tests.
     fn app_with_pin1_enabled() -> UsimApp {
-        let mil = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let mil = MilenageParams::with_defaults(K, OPC);
         let mut a = UsimApp::new(&MF, &ADF_TABLE, mil);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -2681,7 +2704,7 @@ mod tests {
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
         ];
-        let mut params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let mut params = MilenageParams::with_defaults(K, OPC);
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
         let anonymity_key = params.compute_anonymity_key(&rand_val);
@@ -2790,7 +2813,7 @@ mod tests {
         assert_eq!(buf[5], 0x08); // Kc length tag
 
         // Verify SRES = f2(RAND)[0..4].
-        let params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let params = MilenageParams::with_defaults(K, OPC);
         let response = params.compute_response(&rand_val);
         assert_eq!(&buf[1..5], &response[..4]);
 
@@ -2838,7 +2861,7 @@ mod tests {
     #[test]
     fn authenticate_result_encode_success() {
         // Use ETSI TS 135 208 Test Set 1 to produce known RES/CK/IK values.
-        let mut params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let mut params = MilenageParams::with_defaults(K, OPC);
         let rand_val: [u8; 16] = [
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
@@ -3745,7 +3768,7 @@ mod tests {
         assert_eq!(written, UsimApp::<MilenageParams>::SNAPSHOT_SIZE);
 
         // Restore into fresh app (same adfs).
-        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -3772,7 +3795,7 @@ mod tests {
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
         ];
-        let params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let params = MilenageParams::with_defaults(K, OPC);
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
         let anonymity_key = params.compute_anonymity_key(&rand_val);
@@ -3787,7 +3810,7 @@ mod tests {
         // Save and restore.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -3822,7 +3845,7 @@ mod tests {
         // Save and restore.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -3837,7 +3860,7 @@ mod tests {
         let mut small = [0u8; 10];
         assert_eq!(src.save_state(&mut small), 0);
 
-        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&small));
     }
@@ -3858,7 +3881,7 @@ mod tests {
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
         snap[RSP_QUEUE_LEN_OFFSET] = u8::MAX;
-        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&snap));
     }
@@ -4731,7 +4754,7 @@ mod tests {
         // Verify snapshot roundtrip preserves the new data.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = app.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
     }
@@ -5093,7 +5116,7 @@ mod tests {
         ];
 
         // Compute AUTN from known SQN and AMF.
-        let mut params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let mut params = MilenageParams::with_defaults(K, OPC);
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
         let anonymity_key = params.compute_anonymity_key(&rand_val);
@@ -5306,7 +5329,7 @@ mod tests {
             "GET RESPONSE for SELECT FCP must succeed");
 
         // Step 2: AUTHENTICATE with valid AUTN.
-        let mut params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let mut params = MilenageParams::with_defaults(K, OPC);
         let rand_val: [u8; 16] = [
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
@@ -5378,7 +5401,7 @@ mod tests {
         // Step 2: AUTHENTICATE with corrupted AUTN.
         // Use a valid RAND but construct an AUTN with a deliberately wrong
         // MAC-A (bitwise NOT of the real MAC).
-        let params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let params = MilenageParams::with_defaults(K, OPC);
         let rand_val: [u8; 16] = [
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
             0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
@@ -5415,7 +5438,7 @@ mod tests {
     fn multistep_two_sequential_authenticates_different_res() {
         let mut app = app();
 
-        let params = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let params = MilenageParams::with_defaults(K, OPC);
         let sequence_number_1 = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         // Second AUTHENTICATE must use a higher SQN (monotonic SQN tracking).
         let sequence_number_2 = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x08];
@@ -5465,9 +5488,9 @@ mod tests {
             "different RAND values must produce different RES values");
 
         // Cross-check each RES against independent (fresh) Milenage computation.
-        let mut check1 = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let mut check1 = MilenageParams::with_defaults(K, OPC);
         let expected1 = check1.authenticate(&rand1, &auth_token_1).unwrap();
-        let mut check2 = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let mut check2 = MilenageParams::with_defaults(K, OPC);
         let expected2 = check2.authenticate(&rand2, &auth_token_2).unwrap();
         assert_eq!(res1, expected1.response,
             "first RES must match independent Milenage");
@@ -5489,7 +5512,7 @@ mod tests {
     #[cfg(feature = "profile-full")]
     fn ref_app() -> UsimApp {
         use crate::profile;
-        let mil = MilenageParams::with_defaults(K, OperatorVariant::Opc(OPC));
+        let mil = MilenageParams::with_defaults(K, OPC);
         let mut a = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, mil);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -6256,7 +6279,7 @@ mod proptests {
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
             prop_assume!(u16::from(offset) + u16::from(length) <= 8);
-            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
@@ -6276,7 +6299,7 @@ mod proptests {
         fn fcp_always_starts_with_62(idx in 0usize..2) {
             let fids: [u16; 2] = [0x3F00, 0x2FE2];
             let fid = fids[idx];
-            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let fid_be = fid.to_be_bytes();
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, fid_be[0], fid_be[1]];
@@ -6297,7 +6320,7 @@ mod proptests {
         // For any valid record number, READ RECORD succeeds.
         #[test]
         fn read_record_in_bounds(rec in 1u8..=3u8) {
-            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
             let mut app = UsimApp::new(&PT_MF, &PT_ADF_TABLE, mil);
             // Select ADF.USIM
             let sel_adf = [0x00, 0xA4, 0x04, 0x04, 0x07,
@@ -6323,7 +6346,7 @@ mod proptests {
         #[test]
         #[allow(clippy::cast_possible_truncation)] // data.len() is 1..=8, fits in u8
         fn update_binary_roundtrip(data in proptest::collection::vec(any::<u8>(), 1..=8)) {
-            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             // Select the 8-byte transparent EF
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
@@ -6362,7 +6385,7 @@ mod proptests {
         #[test]
         fn read_binary_out_of_bounds_fails(offset in 0u16..256, length in 1u8..=255u8) {
             prop_assume!(u32::from(offset) + u32::from(length) > 8); // beyond 8-byte EF
-            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
             let mut app = UsimApp::new(&PT_MF, &[], mil);
             let sel = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
@@ -6383,7 +6406,7 @@ mod proptests {
     /// GET IDENTITY returns 69 85 when SUCI is not provisioned.
     #[test]
     fn get_identity_without_suci_returns_conditions_not_satisfied() {
-        let auth = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+        let auth = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
         let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
         assert!(app.suci_mut().is_none());
         let cmd_bytes = [0x00, 0x78, 0x00, 0x01];
@@ -6620,14 +6643,14 @@ mod ct_validation {
     /// encoding combine.
     #[test]
     fn test_get_identity_null_scheme_ct() {
-        use simrs_milenage::OperatorVariant;
+        use simrs_milenage::{OperatorVariant, SubscriberKey};
 
         // Build two apps with different IMSI data.
         // We mutate EF_IMSI content between calls to get different MSIN values
         // while keeping the same app structure.
 
-        let auth = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
-        let seed = SuciSeed([0x42u8; 32]);
+        let auth = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
+        let seed = SuciSeed::new([0x42u8; 32]);
         let mut app = UsimApp::new(
             &profile::REFERENCE_MF, &profile::ADF_TABLE, auth,
         );

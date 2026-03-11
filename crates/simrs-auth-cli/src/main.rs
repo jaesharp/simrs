@@ -14,6 +14,7 @@ use std::process;
 
 use clap::{Parser, Subcommand};
 use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+use simrs_secret::Secret;
 
 #[derive(Parser)]
 #[command(name = "simrs-auth")]
@@ -97,7 +98,7 @@ fn cmd_gen_vector(k_hex: &str, opc_hex: &str, sqn_hex: &str, amf_hex: &str, rand
     );
 
     // Standard ETSI TS 135 206 clause 4 operator constants (c1..c5, r1..r5).
-    let params = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc(opc));
+    let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::opc(Secret::new(opc)));
 
     // MME-side auth vector computation:
     // anonymity_key  = f5(RAND)
@@ -221,7 +222,7 @@ mod tests {
         let management_field: [u8; 2] = parse_hex(TS1_AMF, "AMF").unwrap();
         let rand_bytes: [u8; 16] = parse_hex(TS1_RAND, "RAND").unwrap();
 
-        let params = MilenageParams::with_defaults(SubscriberKey::new(k), OperatorVariant::Opc(opc));
+        let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::opc(Secret::new(opc)));
         let anonymity_key = params.compute_anonymity_key(&rand_bytes);
         let auth_mac = params.compute_auth_mac(&rand_bytes, &sequence_number, &management_field);
         let expected_response = params.compute_response(&rand_bytes);

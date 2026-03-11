@@ -29,10 +29,10 @@ use simrs_secret::Secret;
 pub struct SubscriberKey(Secret<[u8; 16]>);
 
 impl SubscriberKey {
-    /// Wrap a raw 128-bit key as a [`SubscriberKey`].
+    /// Classify a raw 128-bit key as a [`SubscriberKey`].
     #[inline]
-    pub const fn new(raw: [u8; 16]) -> Self {
-        Self(Secret::new(raw))
+    pub const fn new(k: Secret<[u8; 16]>) -> Self {
+        Self(k)
     }
 
     /// Borrow the raw key bytes.
@@ -43,6 +43,13 @@ impl SubscriberKey {
     #[inline]
     pub const fn declassify(&self) -> &[u8; 16] {
         self.0.declassify_ref()
+    }
+
+    /// Borrow the inner [`Secret`] for passing to cryptographic primitives
+    /// (e.g. Rijndael) without first declassifying.
+    #[inline]
+    pub const fn as_secret(&self) -> &Secret<[u8; 16]> {
+        &self.0
     }
 }
 

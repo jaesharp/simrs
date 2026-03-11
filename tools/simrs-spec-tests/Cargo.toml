@@ -33,6 +33,7 @@ simrs-iso7816      = { path = "../../crates/simrs-iso7816" }
 simrs-milenage     = { path = "../../crates/simrs-milenage" }
 simrs-pin          = { path = "../../crates/simrs-pin", features = ["std"] }
 simrs-proactive    = { path = "../../crates/simrs-proactive" }
+simrs-secret       = { path = "../../crates/simrs-secret" }
 simrs-sim          = { path = "../../crates/simrs-sim", features = ["usim", "gsm"] }
 simrs-transport    = { path = "../../crates/simrs-transport" }
 simrs-transport-tcp = { path = "../../crates/simrs-transport-tcp" }

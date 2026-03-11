@@ -18,8 +18,9 @@
 //!
 //! ```
 //! use simrs_kdf::hmac_sha256;
+//! use simrs_secret::Secret;
 //!
-//! let mac = hmac_sha256(b"key", b"message");
+//! let mac = hmac_sha256(&Secret::new(*b"key"), b"message");
 //! assert_ne!(mac, [0u8; 32]);
 //! ```
 #![no_std]
@@ -29,6 +30,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use simrs_secret::Secret;
 use simrs_sha256::Sha256;
 
 // ---------------------------------------------------------------------------
@@ -52,8 +54,9 @@ const OPAD: u8 = 0x5C;
 ///
 /// ```
 /// use simrs_kdf::HmacSha256;
+/// use simrs_secret::Secret;
 ///
-/// let mut mac = HmacSha256::new(b"Jefe");
+/// let mut mac = HmacSha256::new(&Secret::new(*b"Jefe"));
 /// mac.update(b"what do ya want ");
 /// mac.update(b"for nothing?");
 /// let tag = mac.finalize();
@@ -71,7 +74,7 @@ pub struct HmacSha256 {
     /// Inner hash (H(K XOR ipad || ...)).
     inner: Sha256,
     /// Outer key pad (K XOR opad), ready for the outer hash.
-    opad_key: [u8; HMAC_BLOCK_SIZE],
+    opad_key: Secret<[u8; HMAC_BLOCK_SIZE]>,
 }
 
 impl HmacSha256 {
@@ -79,7 +82,8 @@ impl HmacSha256 {
     ///
     /// Keys longer than 64 bytes are first hashed with SHA-256 per RFC 2104
     /// clause 2. Keys shorter than 64 bytes are zero-padded.
-    pub fn new(key: &[u8]) -> Self {
+    pub fn new<K: AsRef<[u8]>>(key: &Secret<K>) -> Self {
+        let key = key.declassify_ref().as_ref();
         // Step 1: If key > block_size, hash it to 32 bytes.
         let mut key_block = [0u8; HMAC_BLOCK_SIZE];
         if key.len() > HMAC_BLOCK_SIZE {
@@ -103,7 +107,7 @@ impl HmacSha256 {
         let mut inner = Sha256::new();
         inner.update(&ipad_key);
 
-        Self { inner, opad_key }
+        Self { inner, opad_key: Secret::new(opad_key) }
     }
 
     /// Feed data into the HMAC computation.
@@ -121,7 +125,7 @@ impl HmacSha256 {
 
         // Outer hash: H(opad_key || inner_hash).
         let mut outer = Sha256::new();
-        outer.update(&self.opad_key);
+        outer.update(self.opad_key.declassify_ref());
         outer.update(&inner_hash);
         outer.finalize()
     }
@@ -131,12 +135,13 @@ impl HmacSha256 {
 ///
 /// ```
 /// use simrs_kdf::hmac_sha256;
+/// use simrs_secret::Secret;
 ///
 /// // RFC 4231 Test Case 2: key="Jefe", data="what do ya want for nothing?"
-/// let tag = hmac_sha256(b"Jefe", b"what do ya want for nothing?");
+/// let tag = hmac_sha256(&Secret::new(*b"Jefe"), b"what do ya want for nothing?");
 /// assert_eq!(tag[0], 0x5b);
 /// ```
-pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+pub fn hmac_sha256<K: AsRef<[u8]>>(key: &Secret<K>, data: &[u8]) -> [u8; 32] {
     let mut mac = HmacSha256::new(key);
     mac.update(data);
     mac.finalize()
@@ -157,7 +162,7 @@ pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
 /// # Panics
 ///
 /// Panics if any parameter is longer than 65535 bytes.
-pub fn kdf(key: &[u8], fc: u8, params: &[&[u8]]) -> [u8; 32] {
+pub fn kdf<K: AsRef<[u8]>>(key: &Secret<K>, fc: u8, params: &[&[u8]]) -> [u8; 32] {
     let mut mac = HmacSha256::new(key);
 
     // FC
@@ -194,7 +199,7 @@ pub fn derive_kasme(
     let mut key = [0u8; 32];
     key[..16].copy_from_slice(ck);
     key[16..].copy_from_slice(ik);
-    kdf(&key, 0x10, &[plmn_id, sqn_xor_ak])
+    kdf(&Secret::new(key), 0x10, &[plmn_id, sqn_xor_ak])
 }
 
 /// Derive K_eNB from K_ASME and uplink NAS count.
@@ -204,7 +209,7 @@ pub fn derive_kasme(
 /// - P0 = uplink NAS count (4 bytes, big-endian)
 pub fn derive_kenb(kasme: &[u8; 32], ul_nas_count: u32) -> [u8; 32] {
     let count_be = ul_nas_count.to_be_bytes();
-    kdf(kasme, 0x11, &[&count_be])
+    kdf(&Secret::new(*kasme), 0x11, &[&count_be])
 }
 
 /// Derive algorithm-specific key from a parent key.
@@ -226,7 +231,7 @@ pub fn derive_algorithm_key(
     alg_distinguisher: u8,
     alg_id: u8,
 ) -> [u8; 32] {
-    kdf(key, 0x15, &[&[alg_distinguisher], &[alg_id]])
+    kdf(&Secret::new(*key), 0x15, &[&[alg_distinguisher], &[alg_id]])
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +257,7 @@ pub fn derive_kausf(
     let mut key = [0u8; 32];
     key[..16].copy_from_slice(ck);
     key[16..].copy_from_slice(ik);
-    kdf(&key, 0x6A, &[snn, sqn_xor_ak])
+    kdf(&Secret::new(key), 0x6A, &[snn, sqn_xor_ak])
 }
 
 /// Derive RES* from CK', IK', serving network name, RAND, and RES.
@@ -275,7 +280,7 @@ pub fn derive_res_star(
     let mut key = [0u8; 32];
     key[..16].copy_from_slice(ck);
     key[16..].copy_from_slice(ik);
-    let full = kdf(&key, 0x6B, &[snn, rand, res]);
+    let full = kdf(&Secret::new(key), 0x6B, &[snn, rand, res]);
     // 128 LSBs = bytes 16..32
     let mut out = [0u8; 16];
     out.copy_from_slice(&full[16..32]);
@@ -288,7 +293,7 @@ pub fn derive_res_star(
 /// - FC = 0x6C
 /// - P0 = serving network name
 pub fn derive_kseaf(kausf: &[u8; 32], snn: &[u8]) -> [u8; 32] {
-    kdf(kausf, 0x6C, &[snn])
+    kdf(&Secret::new(*kausf), 0x6C, &[snn])
 }
 
 /// Derive K_AMF from K_SEAF, SUPI, and ABBA parameter.
@@ -298,7 +303,7 @@ pub fn derive_kseaf(kausf: &[u8; 32], snn: &[u8]) -> [u8; 32] {
 /// - P0 = SUPI (IMSI as ASCII digits)
 /// - P1 = ABBA parameter (2 bytes for primary authentication)
 pub fn derive_kamf(kseaf: &[u8; 32], supi: &[u8], abba: &[u8]) -> [u8; 32] {
-    kdf(kseaf, 0x6D, &[supi, abba])
+    kdf(&Secret::new(*kseaf), 0x6D, &[supi, abba])
 }
 
 /// Derive K_gNB from K_AMF, uplink NAS count, and access type.
@@ -309,7 +314,7 @@ pub fn derive_kamf(kseaf: &[u8; 32], supi: &[u8], abba: &[u8]) -> [u8; 32] {
 /// - P1 = access type distinguisher (1 byte: 0x01 = 3GPP, 0x02 = non-3GPP)
 pub fn derive_kgnb(kamf: &[u8; 32], ul_nas_count: u32, access_type: u8) -> [u8; 32] {
     let count_be = ul_nas_count.to_be_bytes();
-    kdf(kamf, 0x6E, &[&count_be, &[access_type]])
+    kdf(&Secret::new(*kamf), 0x6E, &[&count_be, &[access_type]])
 }
 
 // ---------------------------------------------------------------------------
@@ -404,14 +409,14 @@ mod tests {
     fn rfc4231_tc1() {
         // Key = 20 bytes of 0x0b, Data = "Hi There"
         let key = [0x0bu8; 20];
-        let tag = hmac_sha256(&key, b"Hi There");
+        let tag = hmac_sha256(&Secret::new(key), b"Hi There");
         assert_eq!(tag, hex32("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"));
     }
 
     #[test]
     fn rfc4231_tc2() {
         // Key = "Jefe", Data = "what do ya want for nothing?"
-        let tag = hmac_sha256(b"Jefe", b"what do ya want for nothing?");
+        let tag = hmac_sha256(&Secret::new(*b"Jefe"), b"what do ya want for nothing?");
         assert_eq!(tag, hex32("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"));
     }
 
@@ -420,7 +425,7 @@ mod tests {
         // Key = 20 bytes of 0xaa, Data = 50 bytes of 0xdd
         let key = [0xaau8; 20];
         let data = [0xddu8; 50];
-        let tag = hmac_sha256(&key, &data);
+        let tag = hmac_sha256(&Secret::new(key), &data);
         assert_eq!(tag, hex32("773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe"));
     }
 
@@ -434,7 +439,7 @@ mod tests {
             i += 1;
         }
         let data = [0xcdu8; 50];
-        let tag = hmac_sha256(&key, &data);
+        let tag = hmac_sha256(&Secret::new(key), &data);
         assert_eq!(tag, hex32("82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b"));
     }
 
@@ -443,7 +448,7 @@ mod tests {
         // Truncation test: Key = 20 bytes of 0x0c, Data = "Test With Truncation"
         // RFC 4231 gives only the first 128 bits (16 bytes) of the HMAC output.
         let key = [0x0cu8; 20];
-        let tag = hmac_sha256(&key, b"Test With Truncation");
+        let tag = hmac_sha256(&Secret::new(key), b"Test With Truncation");
         // Verify the first 16 bytes match the RFC's truncated value.
         assert_eq!(
             &tag[..16],
@@ -457,7 +462,7 @@ mod tests {
         // Key = 131 bytes of 0xaa (longer than block size)
         // Data = "Test Using Larger Than Block-Size Key - Hash Key First"
         let key = [0xaau8; 131];
-        let tag = hmac_sha256(&key, b"Test Using Larger Than Block-Size Key - Hash Key First");
+        let tag = hmac_sha256(&Secret::new(key), b"Test Using Larger Than Block-Size Key - Hash Key First");
         assert_eq!(tag, hex32("60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"));
     }
 
@@ -468,7 +473,7 @@ mod tests {
         //         than block-size data. ..."
         let key = [0xaau8; 131];
         let data = b"This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm.";
-        let tag = hmac_sha256(&key, data);
+        let tag = hmac_sha256(&Secret::new(key), data);
         assert_eq!(tag, hex32("9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2"));
     }
 
@@ -481,9 +486,9 @@ mod tests {
         let key = b"test-key";
         let msg = b"hello world";
 
-        let one_shot = hmac_sha256(key, msg);
+        let one_shot = hmac_sha256(&Secret::new(*key), msg);
 
-        let mut mac = HmacSha256::new(key);
+        let mut mac = HmacSha256::new(&Secret::new(*key));
         mac.update(b"hello ");
         mac.update(b"world");
         let streamed = mac.finalize();
@@ -494,27 +499,27 @@ mod tests {
     #[test]
     fn hmac_empty_key() {
         // Empty key should still produce a valid MAC.
-        let tag = hmac_sha256(b"", b"data");
+        let tag = hmac_sha256(&Secret::new(*b""), b"data");
         assert_ne!(tag, [0u8; 32]);
     }
 
     #[test]
     fn hmac_empty_data() {
-        let tag = hmac_sha256(b"key", b"");
+        let tag = hmac_sha256(&Secret::new(*b"key"), b"");
         assert_ne!(tag, [0u8; 32]);
     }
 
     #[test]
     fn hmac_different_keys_different_tags() {
-        let t1 = hmac_sha256(b"key1", b"msg");
-        let t2 = hmac_sha256(b"key2", b"msg");
+        let t1 = hmac_sha256(&Secret::new(*b"key1"), b"msg");
+        let t2 = hmac_sha256(&Secret::new(*b"key2"), b"msg");
         assert_ne!(t1, t2);
     }
 
     #[test]
     fn hmac_different_data_different_tags() {
-        let t1 = hmac_sha256(b"key", b"msg1");
-        let t2 = hmac_sha256(b"key", b"msg2");
+        let t1 = hmac_sha256(&Secret::new(*b"key"), b"msg1");
+        let t2 = hmac_sha256(&Secret::new(*b"key"), b"msg2");
         assert_ne!(t1, t2);
     }
 
@@ -526,8 +531,8 @@ mod tests {
     fn kdf_different_fc_different_output() {
         let key = [0x42u8; 32];
         let p = [0x01, 0x02, 0x03];
-        let out1 = kdf(&key, 0x10, &[&p]);
-        let out2 = kdf(&key, 0x11, &[&p]);
+        let out1 = kdf(&Secret::new(key), 0x10, &[&p]);
+        let out2 = kdf(&Secret::new(key), 0x11, &[&p]);
         assert_ne!(out1, out2);
     }
 
@@ -536,8 +541,8 @@ mod tests {
         let key = [0x42u8; 32];
         let p1 = [0x01, 0x02, 0x03];
         let p2 = [0x01, 0x02, 0x04];
-        let out1 = kdf(&key, 0x10, &[&p1]);
-        let out2 = kdf(&key, 0x10, &[&p2]);
+        let out1 = kdf(&Secret::new(key), 0x10, &[&p1]);
+        let out2 = kdf(&Secret::new(key), 0x10, &[&p2]);
         assert_ne!(out1, out2);
     }
 
@@ -545,8 +550,8 @@ mod tests {
     fn kdf_deterministic() {
         let key = [0x42u8; 32];
         let p = [0x01, 0x02, 0x03];
-        let out1 = kdf(&key, 0x10, &[&p]);
-        let out2 = kdf(&key, 0x10, &[&p]);
+        let out1 = kdf(&Secret::new(key), 0x10, &[&p]);
+        let out2 = kdf(&Secret::new(key), 0x10, &[&p]);
         assert_eq!(out1, out2);
     }
 
@@ -557,11 +562,11 @@ mod tests {
         let key = [0xAA; 16];
         let p0 = [0x01, 0x02, 0x03]; // 3 bytes -> L0 = 0x0003
 
-        let kdf_result = kdf(&key, 0x10, &[&p0]);
+        let kdf_result = kdf(&Secret::new(key), 0x10, &[&p0]);
 
         // Manually construct S = FC || P0 || L0
         let s: [u8; 6] = [0x10, 0x01, 0x02, 0x03, 0x00, 0x03];
-        let manual = hmac_sha256(&key, &s);
+        let manual = hmac_sha256(&Secret::new(key), &s);
 
         assert_eq!(kdf_result, manual);
     }
@@ -573,11 +578,11 @@ mod tests {
         let p0 = [0x0A, 0x0B]; // 2 bytes -> L0 = 0x0002
         let p1 = [0x0C];       // 1 byte  -> L1 = 0x0001
 
-        let kdf_result = kdf(&key, 0x20, &[&p0, &p1]);
+        let kdf_result = kdf(&Secret::new(key), 0x20, &[&p0, &p1]);
 
         // S = 0x20 || 0x0A 0x0B || 0x00 0x02 || 0x0C || 0x00 0x01
         let s: [u8; 8] = [0x20, 0x0A, 0x0B, 0x00, 0x02, 0x0C, 0x00, 0x01];
-        let manual = hmac_sha256(&key, &s);
+        let manual = hmac_sha256(&Secret::new(key), &s);
 
         assert_eq!(kdf_result, manual);
     }
@@ -621,7 +626,7 @@ mod tests {
         let mut key = [0u8; 32];
         key[..16].copy_from_slice(&ck);
         key[16..].copy_from_slice(&ik);
-        let expected = kdf(&key, 0x10, &[&plmn[..], &sqn_ak[..]]);
+        let expected = kdf(&Secret::new(key), 0x10, &[&plmn[..], &sqn_ak[..]]);
 
         assert_eq!(kasme, expected);
     }
@@ -678,7 +683,7 @@ mod tests {
         let mut key = [0u8; 32];
         key[..16].copy_from_slice(&ck);
         key[16..].copy_from_slice(&ik);
-        let full = kdf(&key, 0x6B, &[snn, &rand[..], &res[..]]);
+        let full = kdf(&Secret::new(key), 0x6B, &[snn, &rand[..], &res[..]]);
 
         assert_eq!(res_star, full[16..32]);
     }
@@ -726,7 +731,7 @@ mod tests {
         let kausf = [0xDD; 32];
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
         let kseaf = derive_kseaf(&kausf, snn);
-        let expected = kdf(&kausf, 0x6C, &[snn]);
+        let expected = kdf(&Secret::new(kausf), 0x6C, &[snn]);
         assert_eq!(kseaf, expected);
     }
 
@@ -736,7 +741,7 @@ mod tests {
         let supi = b"001010000000001";
         let abba = [0x00, 0x00];
         let kamf = derive_kamf(&kseaf, supi, &abba);
-        let expected = kdf(&kseaf, 0x6D, &[supi, &abba]);
+        let expected = kdf(&Secret::new(kseaf), 0x6D, &[supi, &abba]);
         assert_eq!(kamf, expected);
     }
 
@@ -886,8 +891,8 @@ mod tests {
         key[16..].copy_from_slice(&ik);
 
         let param = [0x00, 0xF1, 0x10]; // 3 bytes
-        let k4g = kdf(&key, 0x10, &[&param[..], &sqn_ak[..]]);
-        let k5g = kdf(&key, 0x6A, &[&param[..], &sqn_ak[..]]);
+        let k4g = kdf(&Secret::new(key), 0x10, &[&param[..], &sqn_ak[..]]);
+        let k5g = kdf(&Secret::new(key), 0x6A, &[&param[..], &sqn_ak[..]]);
         assert_ne!(k4g, k5g);
     }
 }
@@ -917,9 +922,9 @@ mod proptests {
             let mut combined = [0u8; 64];
             combined[..a.len()].copy_from_slice(a);
             combined[a.len()..a.len() + b.len()].copy_from_slice(b);
-            let one_shot = hmac_sha256(&key, &combined[..a.len() + b.len()]);
+            let one_shot = hmac_sha256(&Secret::new(key), &combined[..a.len() + b.len()]);
 
-            let mut h = HmacSha256::new(&key);
+            let mut h = HmacSha256::new(&Secret::new(key));
             h.update(a);
             h.update(b);
             let streamed = h.finalize();
@@ -937,8 +942,8 @@ mod proptests {
             data in any::<[u8; 32]>(),
         ) {
             prop_assume!(k1 != k2);
-            let m1 = hmac_sha256(&k1, &data);
-            let m2 = hmac_sha256(&k2, &data);
+            let m1 = hmac_sha256(&Secret::new(k1), &data);
+            let m2 = hmac_sha256(&Secret::new(k2), &data);
             prop_assert_ne!(m1, m2, "different keys must produce different MACs");
         }
     }
@@ -953,8 +958,8 @@ mod proptests {
             fc2 in any::<u8>(),
         ) {
             prop_assume!(fc1 != fc2);
-            let k1 = kdf(&key, fc1, &[&param[..]]);
-            let k2 = kdf(&key, fc2, &[&param[..]]);
+            let k1 = kdf(&Secret::new(key), fc1, &[&param[..]]);
+            let k2 = kdf(&Secret::new(key), fc2, &[&param[..]]);
             prop_assert_ne!(k1, k2, "different FC must produce different derived keys");
         }
     }
@@ -968,8 +973,8 @@ mod proptests {
             p2 in any::<[u8; 16]>(),
         ) {
             prop_assume!(p1 != p2);
-            let k1 = kdf(&key, 0x10, &[&p1[..]]);
-            let k2 = kdf(&key, 0x10, &[&p2[..]]);
+            let k1 = kdf(&Secret::new(key), 0x10, &[&p1[..]]);
+            let k2 = kdf(&Secret::new(key), 0x10, &[&p2[..]]);
             prop_assert_ne!(k1, k2, "different params must produce different derived keys");
         }
     }
@@ -1051,7 +1056,7 @@ mod ct_validation {
                 (key, data)
             },
             |(key, data)| {
-                black_box(hmac_sha256(key, data));
+                black_box(hmac_sha256(&Secret::new(*key), data));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1075,7 +1080,7 @@ mod ct_validation {
                 (key, param)
             },
             |(key, param)| {
-                black_box(kdf(key, 0x10, &[&param[..]]));
+                black_box(kdf(&Secret::new(*key), 0x10, &[&param[..]]));
             },
         );
         assert_no_timing_leak!(outcome);

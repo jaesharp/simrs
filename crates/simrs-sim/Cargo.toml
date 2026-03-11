@@ -15,6 +15,7 @@ simrs-iso7816  = { workspace = true }
 simrs-fs       = { workspace = true }
 simrs-pin      = { workspace = true }
 simrs-milenage = { workspace = true }
+simrs-secret   = { workspace = true }
 simrs-gsm      = { workspace = true, optional = true }
 simrs-usim     = { workspace = true, optional = true }
 

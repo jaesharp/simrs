@@ -37,6 +37,7 @@ use core::cell::RefCell;
 use simrs_fs::{AdfSlot, DfDef};
 use simrs_milenage::{MilenageParams, OperatorVariant as MilOp, SubscriberKey};
 use simrs_profile::{AuthConfig, ProfileConfig};
+use simrs_secret::Secret;
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_tuak::{OperatorVariant as TuakOp, TuakParams};
 
@@ -109,7 +110,7 @@ pub fn hle_init(
 ) {
     SIM.with(|cell| {
         let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
-        let mil = MilenageParams::with_defaults(SubscriberKey::new(k), MilOp::Opc(opc));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), MilOp::opc(Secret::new(opc)));
         *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], mil);
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
@@ -131,7 +132,7 @@ pub fn hle_init_tuak(
 ) {
     SIM.with(|cell| {
         let mut sim = Sim::<TuakParams, 256>::new(atr, mf);
-        let tuak = TuakParams::new(SubscriberKey::new(k), TuakOp::TopC(topc));
+        let tuak = TuakParams::new(SubscriberKey::new(Secret::new(k)), TuakOp::topc(Secret::new(topc)));
         *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, &[], tuak);
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
@@ -152,7 +153,7 @@ pub fn hle_init_with_adf(
 ) {
     SIM.with(|cell| {
         let mut sim = Sim::<MilenageParams, 256>::new(atr, mf);
-        let mil = MilenageParams::with_defaults(SubscriberKey::new(k), MilOp::Opc(opc));
+        let mil = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), MilOp::opc(Secret::new(opc)));
         *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, adf_table, mil);
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
@@ -173,7 +174,7 @@ pub fn hle_init_tuak_with_adf(
 ) {
     SIM.with(|cell| {
         let mut sim = Sim::<TuakParams, 256>::new(atr, mf);
-        let tuak = TuakParams::new(SubscriberKey::new(k), TuakOp::TopC(topc));
+        let tuak = TuakParams::new(SubscriberKey::new(Secret::new(k)), TuakOp::topc(Secret::new(topc)));
         *sim.usim_app_mut() = simrs_usim::UsimApp::new(mf, adf_table, tuak);
         *sim.gsm_app_mut() = simrs_gsm::GsmApp::new(mf, ki);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
@@ -194,7 +195,7 @@ pub fn hle_init_from_profile(config: &ProfileConfig) {
             hle_init_with_adf(
                 config.atr,
                 config.mf,
-                Ki(*k),
+                Ki::new(Secret::new(*k)),
                 *k,
                 *opc,
                 config.adf_table,
@@ -204,7 +205,7 @@ pub fn hle_init_from_profile(config: &ProfileConfig) {
             hle_init_tuak_with_adf(
                 config.atr,
                 config.mf,
-                Ki(*k),
+                Ki::new(Secret::new(*k)),
                 *k,
                 *topc,
                 config.adf_table,
@@ -215,7 +216,7 @@ pub fn hle_init_from_profile(config: &ProfileConfig) {
             hle_init_with_adf(
                 config.atr,
                 config.mf,
-                Ki([0u8; 16]),
+                Ki::new(Secret::new([0u8; 16])),
                 [0u8; 16],
                 [0u8; 16],
                 config.adf_table,
@@ -381,11 +382,11 @@ mod tests {
     static ATR: [u8; 2] = [0x3B, 0x00];
 
     fn init() {
-        hle_init(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 16]);
+        hle_init(&ATR, &MF, Ki::new(Secret::new([0x11; 16])), [0x22; 16], [0x33; 16]);
     }
 
     fn init_tuak() {
-        hle_init_tuak(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 32]);
+        hle_init_tuak(&ATR, &MF, Ki::new(Secret::new([0x11; 16])), [0x22; 16], [0x33; 32]);
     }
 
     // -------------------------------------------------------------------
@@ -650,7 +651,7 @@ mod tests {
 
     #[test]
     fn hle_init_with_adf_table() {
-        hle_init_with_adf(&ATR, &MF, Ki([0x11; 16]), [0x22; 16], [0x33; 16], &ADF_TABLE);
+        hle_init_with_adf(&ATR, &MF, Ki::new(Secret::new([0x11; 16])), [0x22; 16], [0x33; 16], &ADF_TABLE);
         hle_reset();
         let mut rsp = [0u8; 256];
         // SELECT by AID: 00 A4 04 00 07 [AID] 00

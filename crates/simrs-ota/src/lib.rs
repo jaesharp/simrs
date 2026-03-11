@@ -388,7 +388,7 @@ fn apply_padding(data: &[u8], padded: &mut [u8]) -> Result<usize, OtaError> {
 /// `data` must be a multiple of 16 bytes (caller pads first). The IV is
 /// all-zeros per the OTA specification default. Returns the 8-byte MAC
 /// (left half of the final CBC block) per [ETSI TS 102 225 V19.0.0 Annex B](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf).
-fn aes_cbc_mac(key: &[u8; 16], data: &[u8]) -> [u8; 8] {
+fn aes_cbc_mac(key: &Secret<[u8; 16]>, data: &[u8]) -> [u8; 8] {
     let rij = Rijndael::new(key);
     let mut cv = [0u8; 16]; // IV = 0
 
@@ -416,7 +416,7 @@ fn aes_cbc_mac(key: &[u8; 16], data: &[u8]) -> [u8; 8] {
 /// AES-128 CBC encrypt `data` in-place.
 ///
 /// `data` must be a multiple of 16 bytes. IV is all-zeros.
-fn aes_cbc_encrypt(key: &[u8; 16], data: &mut [u8]) {
+fn aes_cbc_encrypt(key: &Secret<[u8; 16]>, data: &mut [u8]) {
     let rij = Rijndael::new(key);
     // IV is always zero per ETSI TS 102 225 V19.0.0 clause 5.1.
     // Replay protection is provided by the CNTR field inside the encrypted region.
@@ -440,7 +440,7 @@ fn aes_cbc_encrypt(key: &[u8; 16], data: &mut [u8]) {
 /// `data` must be a multiple of 16 bytes. IV is all-zeros.
 /// Mirrors [`aes_cbc_encrypt`]: decrypt each block with `Rijndael::decrypt`,
 /// then XOR with the previous ciphertext block (or IV for the first block).
-fn aes_cbc_decrypt(key: &[u8; 16], data: &mut [u8]) {
+fn aes_cbc_decrypt(key: &Secret<[u8; 16]>, data: &mut [u8]) {
     let rij = Rijndael::new(key);
     // IV is always zero per ETSI TS 102 225 V19.0.0 clause 5.1.
     // Replay protection is provided by the CNTR field inside the encrypted region.
@@ -609,7 +609,7 @@ pub fn encode_command_packet(
             let mac_region = &buf[3..total];
             let mut mac_buf = [0u8; 1024];
             let padded_len = apply_padding(mac_region, &mut mac_buf)?;
-            let mac = aes_cbc_mac(km.declassify_ref(), &mac_buf[..padded_len]);
+            let mac = aes_cbc_mac(km, &mac_buf[..padded_len]);
             buf[cc_offset..cc_offset + CC_SIZE].copy_from_slice(&mac);
         } else {
             return Err(OtaError::UnknownAlgorithm);
@@ -621,7 +621,7 @@ pub fn encode_command_packet(
         if let Some(kc) = key_cipher {
             let cipher_region = &mut buf[10..total];
             debug_assert!(cipher_region.len() == padded_secured_len);
-            aes_cbc_encrypt(kc.declassify_ref(), cipher_region);
+            aes_cbc_encrypt(kc, cipher_region);
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
@@ -688,7 +688,7 @@ pub fn decode_command_packet(
     // Encode order is MAC-then-encrypt, so decode is decrypt-then-verify-MAC.
     if has_cipher {
         if let Some(kc) = key_cipher {
-            aes_cbc_decrypt(kc.declassify_ref(), &mut work[..secured_len]);
+            aes_cbc_decrypt(kc, &mut work[..secured_len]);
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
@@ -729,7 +729,7 @@ pub fn decode_command_packet(
             }
             let mut mac_padded = [0u8; 1024];
             let padded_len = apply_padding(&recompute_buf[..mac_input_len], &mut mac_padded)?;
-            let computed_mac = aes_cbc_mac(km.declassify_ref(), &mac_padded[..padded_len]);
+            let computed_mac = aes_cbc_mac(km, &mac_padded[..padded_len]);
 
             if !ct_eq(&computed_mac, &received_mac).into_bool() {
                 return Err(OtaError::MacVerifyFailed);
@@ -870,7 +870,7 @@ pub fn encode_response_packet(
             let mac_region = &buf[3..total];
             let mut mac_buf = [0u8; 1024];
             let padded_len = apply_padding(mac_region, &mut mac_buf)?;
-            let mac = aes_cbc_mac(km.declassify_ref(), &mac_buf[..padded_len]);
+            let mac = aes_cbc_mac(km, &mac_buf[..padded_len]);
             buf[cc_offset..cc_offset + CC_SIZE].copy_from_slice(&mac);
         } else {
             return Err(OtaError::UnknownAlgorithm);
@@ -882,7 +882,7 @@ pub fn encode_response_packet(
         if let Some(kc) = key_cipher {
             let cipher_region = &mut buf[6..total];
             debug_assert!(cipher_region.len() == padded_secured_len);
-            aes_cbc_encrypt(kc.declassify_ref(), cipher_region);
+            aes_cbc_encrypt(kc, cipher_region);
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
@@ -1241,7 +1241,7 @@ mod tests {
             0x3A, 0xD7, 0x7B, 0xB4, 0x0D, 0x7A, 0x36, 0x60,
         ];
 
-        let mac = aes_cbc_mac(&key, &plaintext);
+        let mac = aes_cbc_mac(&Secret::new(key), &plaintext);
         assert_eq!(mac, expected_mac);
     }
 
@@ -1400,7 +1400,7 @@ mod ct_validation {
                 (key, data)
             },
             |(key, data)| {
-                black_box(aes_cbc_mac(key, data));
+                black_box(aes_cbc_mac(&Secret::new(*key), data));
             },
         );
         assert_no_timing_leak!(outcome);

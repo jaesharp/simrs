@@ -345,10 +345,10 @@ impl<'a> SnapReader<'a> {
 #[derive(Clone, Copy)]
 struct PinSlot {
     key: u8,
-    pin: [u8; 8],
+    pin: Secret<[u8; 8]>,
     pin_retries: u8,
     pin_max: u8,
-    puk: [u8; 8],
+    puk: Secret<[u8; 8]>,
     puk_retries: u8,
     enabled: bool,
     /// Session-level verification flag.
@@ -362,10 +362,10 @@ struct PinSlot {
 impl PinSlot {
     const EMPTY: Self = Self {
         key: 0,
-        pin: [0xFF; 8],
+        pin: Secret::new([0xFF; 8]),
         pin_retries: 0,
         pin_max: 0,
-        puk: [0xFF; 8],
+        puk: Secret::new([0xFF; 8]),
         puk_retries: 0,
         enabled: false,
         verified: false,
@@ -463,10 +463,10 @@ impl<const N: usize> PinManager<N> {
         let idx = self.count as usize;
         self.slots[idx] = PinSlot {
             key: key.value(),
-            pin: *pin.declassify_bytes(),
+            pin: Secret::new(*pin.declassify_bytes()),
             pin_retries: pin_max_retries,
             pin_max: pin_max_retries,
-            puk: *puk.declassify_bytes(),
+            puk: Secret::new(*puk.declassify_bytes()),
             puk_retries: puk_max_retries,
             enabled,
             verified: false,
@@ -507,7 +507,7 @@ impl<const N: usize> PinManager<N> {
         if slot.pin_retries == 0 {
             return PinResult::Blocked;
         }
-        if ct_eq(&slot.pin, val.declassify_bytes()).into_bool() {
+        if ct_eq(slot.pin.declassify_ref(), val.declassify_bytes()).into_bool() {
             slot.pin_retries = slot.pin_max;
             slot.verified = true;
             PinResult::Success
@@ -552,13 +552,13 @@ impl<const N: usize> PinManager<N> {
         if slot.pin_retries == 0 {
             return PinResult::Blocked;
         }
-        if !ct_eq(&slot.pin, old.declassify_bytes()).into_bool() {
+        if !ct_eq(slot.pin.declassify_ref(), old.declassify_bytes()).into_bool() {
             slot.pin_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.pin_retries,
             };
         }
-        slot.pin = *new_pin.declassify_bytes();
+        slot.pin = Secret::new(*new_pin.declassify_bytes());
         slot.pin_retries = slot.pin_max;
         // CHANGE does not set verified.
         PinResult::Success
@@ -594,7 +594,7 @@ impl<const N: usize> PinManager<N> {
         if slot.pin_retries == 0 {
             return PinResult::Blocked;
         }
-        if !ct_eq(&slot.pin, val.declassify_bytes()).into_bool() {
+        if !ct_eq(slot.pin.declassify_ref(), val.declassify_bytes()).into_bool() {
             slot.pin_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.pin_retries,
@@ -636,7 +636,7 @@ impl<const N: usize> PinManager<N> {
         if slot.enabled {
             return PinResult::Success;
         }
-        if !ct_eq(&slot.pin, val.declassify_bytes()).into_bool() {
+        if !ct_eq(slot.pin.declassify_ref(), val.declassify_bytes()).into_bool() {
             slot.pin_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.pin_retries,
@@ -683,14 +683,14 @@ impl<const N: usize> PinManager<N> {
         if slot.puk_retries == 0 {
             return PinResult::Blocked;
         }
-        if !ct_eq(&slot.puk, puk.declassify_bytes()).into_bool() {
+        if !ct_eq(slot.puk.declassify_ref(), puk.declassify_bytes()).into_bool() {
             slot.puk_retries -= 1;
             return PinResult::WrongPin {
                 retries_remaining: slot.puk_retries,
             };
         }
         // PUK correct: reset PIN.
-        slot.pin = *new_pin.declassify_bytes();
+        slot.pin = Secret::new(*new_pin.declassify_bytes());
         slot.pin_retries = slot.pin_max;
         slot.enabled = true;
         slot.verified = false;
@@ -806,10 +806,10 @@ impl<const N: usize> PinManager<N> {
         while i < N {
             let s = &self.slots[i];
             w.put_u8(s.key);
-            w.put_bytes(&s.pin);
+            w.put_bytes(s.pin.declassify_ref());
             w.put_u8(s.pin_retries);
             w.put_u8(s.pin_max);
-            w.put_bytes(&s.puk);
+            w.put_bytes(s.puk.declassify_ref());
             w.put_u8(s.puk_retries);
             w.put_bool(s.enabled);
             w.put_bool(s.verified);
@@ -837,10 +837,14 @@ impl<const N: usize> PinManager<N> {
         while i < N {
             let s = &mut self.slots[i];
             s.key = r.get_u8();
-            r.get_bytes(&mut s.pin);
+            let mut pin_buf = [0u8; 8];
+            r.get_bytes(&mut pin_buf);
+            s.pin = Secret::new(pin_buf);
             s.pin_retries = r.get_u8();
             s.pin_max = r.get_u8();
-            r.get_bytes(&mut s.puk);
+            let mut puk_buf = [0u8; 8];
+            r.get_bytes(&mut puk_buf);
+            s.puk = Secret::new(puk_buf);
             s.puk_retries = r.get_u8();
             s.enabled = r.get_bool();
             s.verified = r.get_bool();

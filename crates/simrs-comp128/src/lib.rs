@@ -33,15 +33,16 @@
 //!
 //! ```
 //! use simrs_comp128::{comp128, Comp128Result};
+//! use simrs_secret::Secret;
 //!
 //! // Cross-validated against reference implementation
-//! let ki   = [0xABu8; 16];
+//! let ki   = Secret::new([0xABu8; 16]);
 //! let rand = [0xCDu8; 16];
 //!
 //! let result: Comp128Result = comp128(&ki, &rand);
 //!
 //! assert_eq!(result.sres, [0x43, 0xFA, 0xD2, 0x08]);
-//! assert_eq!(result.kc, [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
+//! assert_eq!(*result.kc.declassify_ref(), [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
 //! ```
 #![no_std]
 #![deny(unsafe_code)]
@@ -52,6 +53,8 @@
 extern crate std;
 
 use simrs_consttime::ct_select_n;
+use simrs_redact::Redact;
+use simrs_secret::Secret;
 
 /// Result of the `COMP128v1` algorithm.
 ///
@@ -71,12 +74,13 @@ use simrs_consttime::ct_select_n;
 ///
 /// ```
 /// use simrs_comp128::{comp128, Comp128Result};
+/// use simrs_secret::Secret;
 ///
-/// let r = comp128(&[0u8; 16], &[0u8; 16]);
-/// assert_eq!(r.kc[7], 0x00);
-/// assert_eq!(r.kc[6] & 0x03, 0x00);
+/// let r = comp128(&Secret::new([0u8; 16]), &[0u8; 16]);
+/// assert_eq!(r.kc.declassify_ref()[7], 0x00);
+/// assert_eq!(r.kc.declassify_ref()[6] & 0x03, 0x00);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct Comp128Result {
     /// Signed Response (4 bytes).
     /// Sent to the base station to prove knowledge of Ki.
@@ -85,7 +89,16 @@ pub struct Comp128Result {
     /// Ciphering key (8 bytes, effective 54 bits).
     /// Used as the session key for A5/1 or A5/3 encryption.
     /// Byte 7 is always 0x00; byte 6 bottom 2 bits are always 0.
-    pub kc: [u8; 8],
+    pub kc: Secret<[u8; 8]>,
+}
+
+impl core::fmt::Debug for Comp128Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Comp128Result")
+            .field("sres", &self.sres)
+            .field("kc", &Redact(self.kc.declassify_ref()))
+            .finish()
+    }
 }
 
 /// Run the COMP128v1 A3/A8 GSM authentication algorithm.
@@ -95,7 +108,7 @@ pub struct Comp128Result {
 ///
 /// # Arguments
 ///
-/// * `ki` -- 16-byte Individual Subscriber Authentication Key (stored in SIM and AuC)
+/// * `ki` -- 16-byte Individual Subscriber Authentication Key wrapped in [`Secret`]
 /// * `rand` -- 16-byte random challenge from the network
 ///
 /// # Returns
@@ -118,21 +131,29 @@ pub struct Comp128Result {
 ///
 /// ```
 /// use simrs_comp128::comp128;
+/// use simrs_secret::Secret;
 ///
-/// let ki   = [0x11u8; 16];
+/// let ki   = Secret::new([0x11u8; 16]);
 /// let rand = [0x22u8; 16];
-/// assert_eq!(comp128(&ki, &rand), comp128(&ki, &rand));
+/// let r1 = comp128(&ki, &rand);
+/// let r2 = comp128(&ki, &rand);
+/// assert_eq!(r1.sres, r2.sres);
+/// assert_eq!(r1.kc.declassify_ref(), r2.kc.declassify_ref());
 /// ```
 ///
 /// # Different inputs produce different outputs
 ///
 /// ```
 /// use simrs_comp128::comp128;
+/// use simrs_secret::Secret;
 ///
-/// let ki = [0x11u8; 16];
+/// let ki = Secret::new([0x11u8; 16]);
 /// let r1 = comp128(&ki, &[0x00u8; 16]);
 /// let r2 = comp128(&ki, &[0x01u8; 16]);
-/// assert_ne!(r1, r2, "different RAND must produce different results");
+/// assert!(
+///     r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
+///     "different RAND must produce different results"
+/// );
 /// ```
 ///
 /// # Cross-validation
@@ -141,22 +162,24 @@ pub struct Comp128Result {
 ///
 /// ```
 /// use simrs_comp128::comp128;
+/// use simrs_secret::Secret;
 ///
-/// let ki = [
+/// let ki = Secret::new([
 ///     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ///     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x07,
-/// ];
+/// ]);
 /// let rand = [
 ///     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
 ///     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
 /// ];
 /// let result = comp128(&ki, &rand);
 /// assert_eq!(result.sres, [0x46, 0xF0, 0x2D, 0xBA]);
-/// assert_eq!(result.kc, [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
+/// assert_eq!(*result.kc.declassify_ref(), [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
 /// ```
 #[allow(clippy::cast_possible_truncation)] // values bounded by table size / bit masks
 #[allow(clippy::many_single_char_names)]  // matches C reference variable names
-pub fn comp128(ki: &[u8; 16], rand: &[u8; 16]) -> Comp128Result {
+pub fn comp128(ki: &Secret<[u8; 16]>, rand: &[u8; 16]) -> Comp128Result {
+    let ki_bytes = ki.declassify_ref();
     let tables: [&[u8]; 5] = [&TABLE_0, &TABLE_1, &TABLE_2, &TABLE_3, &TABLE_4];
 
     let mut x = [0u8; 32];
@@ -168,7 +191,7 @@ pub fn comp128(ki: &[u8; 16], rand: &[u8; 16]) -> Comp128Result {
     // 8 rounds (indexed 1..=8 in the C reference).
     for round in 1..=8u32 {
         // Reload Ki into lower half each round.
-        x[0..16].copy_from_slice(ki);
+        x[0..16].copy_from_slice(ki_bytes);
 
         // 5 substitution stages.
         for j in 0..5u32 {
@@ -224,7 +247,7 @@ pub fn comp128(ki: &[u8; 16], rand: &[u8; 16]) -> Comp128Result {
     kc[6] = (x[30] << 6) | (x[31] << 2);
     kc[7] = 0x00;
 
-    Comp128Result { sres, kc }
+    Comp128Result { sres, kc: Secret::new(kc) }
 }
 
 // ---------------------------------------------------------------------------
@@ -344,112 +367,119 @@ static TABLE_4: [u8; 32] = [
 mod tests {
     use super::*;
 
+    fn ki(bytes: [u8; 16]) -> Secret<[u8; 16]> {
+        Secret::new(bytes)
+    }
+
     // -- Cross-validation vectors (generated by compiling reference gsm_algo()) --
 
     #[test]
     fn swsim_vector_all_zero() {
-        let r = comp128(&[0x00; 16], &[0x00; 16]);
+        let r = comp128(&ki([0x00; 16]), &[0x00; 16]);
         assert_eq!(r.sres, [0x09, 0xE5, 0x5D, 0xA4]);
-        assert_eq!(r.kc, [0x17, 0x47, 0x57, 0x78, 0x3D, 0xC4, 0x04, 0x00]);
+        assert_eq!(*r.kc.declassify_ref(), [0x17, 0x47, 0x57, 0x78, 0x3D, 0xC4, 0x04, 0x00]);
     }
 
     #[test]
     fn swsim_vector_ab_cd() {
-        let r = comp128(&[0xAB; 16], &[0xCD; 16]);
+        let r = comp128(&ki([0xAB; 16]), &[0xCD; 16]);
         assert_eq!(r.sres, [0x43, 0xFA, 0xD2, 0x08]);
-        assert_eq!(r.kc, [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
+        assert_eq!(*r.kc.declassify_ref(), [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
     }
 
     #[test]
     fn swsim_vector_doctest() {
-        let ki = [
+        let k = ki([
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x07,
-        ];
+        ]);
         let rand = [
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
         ];
-        let r = comp128(&ki, &rand);
+        let r = comp128(&k, &rand);
         assert_eq!(r.sres, [0x46, 0xF0, 0x2D, 0xBA]);
-        assert_eq!(r.kc, [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
+        assert_eq!(*r.kc.declassify_ref(), [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
     }
 
     #[test]
     fn swsim_vector_11_22() {
-        let r = comp128(&[0x11; 16], &[0x22; 16]);
+        let r = comp128(&ki([0x11; 16]), &[0x22; 16]);
         assert_eq!(r.sres, [0x67, 0x5B, 0x74, 0xF6]);
-        assert_eq!(r.kc, [0x7E, 0xFC, 0x50, 0xA3, 0xED, 0x03, 0x68, 0x00]);
+        assert_eq!(*r.kc.declassify_ref(), [0x7E, 0xFC, 0x50, 0xA3, 0xED, 0x03, 0x68, 0x00]);
     }
 
     #[test]
     fn swsim_vector_all_ff() {
-        let r = comp128(&[0xFF; 16], &[0xFF; 16]);
+        let r = comp128(&ki([0xFF; 16]), &[0xFF; 16]);
         assert_eq!(r.sres, [0xFE, 0x65, 0xFD, 0x52]);
-        assert_eq!(r.kc, [0x8E, 0xD6, 0x68, 0x0A, 0x9B, 0x77, 0xC4, 0x00]);
+        assert_eq!(*r.kc.declassify_ref(), [0x8E, 0xD6, 0x68, 0x0A, 0x9B, 0x77, 0xC4, 0x00]);
     }
 
     #[test]
     fn swsim_vector_sequential() {
         #[allow(clippy::cast_possible_truncation)]
-        let ki: [u8; 16] = core::array::from_fn(|i| i as u8);
+        let k = ki(core::array::from_fn(|i| i as u8));
         #[allow(clippy::cast_possible_truncation)]
         let rand: [u8; 16] = core::array::from_fn(|i| (i + 16) as u8);
-        let r = comp128(&ki, &rand);
+        let r = comp128(&k, &rand);
         assert_eq!(r.sres, [0x37, 0x38, 0xF8, 0x82]);
-        assert_eq!(r.kc, [0x39, 0xCD, 0xA2, 0xDB, 0xBA, 0x4A, 0x7C, 0x00]);
+        assert_eq!(*r.kc.declassify_ref(), [0x39, 0xCD, 0xA2, 0xDB, 0xBA, 0x4A, 0x7C, 0x00]);
     }
 
     // -- Structural invariants --
 
     #[test]
     fn kc_byte7_always_zero() {
-        let r = comp128(&[0xAB; 16], &[0xCD; 16]);
-        assert_eq!(r.kc[7], 0x00);
+        let r = comp128(&ki([0xAB; 16]), &[0xCD; 16]);
+        assert_eq!(r.kc.declassify_ref()[7], 0x00);
     }
 
     #[test]
     fn kc_byte6_bottom_bits_zero() {
-        let r = comp128(&[0xAB; 16], &[0xCD; 16]);
-        assert_eq!(r.kc[6] & 0x03, 0x00);
+        let r = comp128(&ki([0xAB; 16]), &[0xCD; 16]);
+        assert_eq!(r.kc.declassify_ref()[6] & 0x03, 0x00);
     }
 
     #[test]
     fn deterministic() {
-        let ki = [0x11; 16];
+        let k = ki([0x11; 16]);
         let rand = [0x22; 16];
-        assert_eq!(comp128(&ki, &rand), comp128(&ki, &rand));
+        let r1 = comp128(&k, &rand);
+        let r2 = comp128(&k, &rand);
+        assert_eq!(r1.sres, r2.sres);
+        assert_eq!(r1.kc.declassify_ref(), r2.kc.declassify_ref());
     }
 
     #[test]
     fn different_rand_different_output() {
-        let ki = [0x11; 16];
-        let r1 = comp128(&ki, &[0x00; 16]);
-        let r2 = comp128(&ki, &[0x01; 16]);
-        assert_ne!(r1, r2);
+        let k = ki([0x11; 16]);
+        let r1 = comp128(&k, &[0x00; 16]);
+        let r2 = comp128(&k, &[0x01; 16]);
+        assert!(r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref());
     }
 
     #[test]
     fn different_ki_different_output() {
         let rand = [0x33; 16];
-        let r1 = comp128(&[0x00; 16], &rand);
-        let r2 = comp128(&[0x01; 16], &rand);
-        assert_ne!(r1, r2);
+        let r1 = comp128(&ki([0x00; 16]), &rand);
+        let r2 = comp128(&ki([0x01; 16]), &rand);
+        assert!(r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref());
     }
 
     #[test]
     fn zero_input_not_zero_output() {
-        let r = comp128(&[0u8; 16], &[0u8; 16]);
+        let r = comp128(&ki([0u8; 16]), &[0u8; 16]);
         assert!(
-            r.sres != [0u8; 4] || r.kc != [0u8; 8],
+            r.sres != [0u8; 4] || *r.kc.declassify_ref() != [0u8; 8],
             "zero input must not produce all-zero output"
         );
     }
 
     #[test]
     fn output_not_all_ff() {
-        let r = comp128(&[0xFF; 16], &[0xFF; 16]);
-        let all_ff = r.sres == [0xFF; 4] && r.kc == [0xFF; 8];
+        let r = comp128(&ki([0xFF; 16]), &[0xFF; 16]);
+        let all_ff = r.sres == [0xFF; 4] && *r.kc.declassify_ref() == [0xFF; 8];
         assert!(!all_ff, "all-FF input must not produce all-FF output");
     }
 
@@ -486,32 +516,36 @@ mod proptests {
         // Collision probability is astronomically low for a good PRF.
         #[test]
         fn different_rand_different_output(
-            ki in any::<[u8; 16]>(),
+            ki_bytes in any::<[u8; 16]>(),
             rand1 in any::<[u8; 16]>(),
             rand2 in any::<[u8; 16]>(),
         ) {
             prop_assume!(rand1 != rand2);
+            let ki = Secret::new(ki_bytes);
             let r1 = comp128(&ki, &rand1);
             let r2 = comp128(&ki, &rand2);
-            prop_assert_ne!(r1, r2, "same Ki with different RAND must produce different outputs");
+            prop_assert!(
+                r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
+                "same Ki with different RAND must produce different outputs"
+            );
         }
     }
 
     proptest! {
         // Kc byte 7 is always 0x00 for any input.
         #[test]
-        fn kc_byte7_zero(ki in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
-            let r = comp128(&ki, &rand);
-            prop_assert_eq!(r.kc[7], 0x00);
+        fn kc_byte7_zero(ki_bytes in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
+            let r = comp128(&Secret::new(ki_bytes), &rand);
+            prop_assert_eq!(r.kc.declassify_ref()[7], 0x00);
         }
     }
 
     proptest! {
         // Kc byte 6 bottom 2 bits are always zero for any input.
         #[test]
-        fn kc_byte6_bottom_bits(ki in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
-            let r = comp128(&ki, &rand);
-            prop_assert_eq!(r.kc[6] & 0x03, 0x00);
+        fn kc_byte6_bottom_bits(ki_bytes in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
+            let r = comp128(&Secret::new(ki_bytes), &rand);
+            prop_assert_eq!(r.kc.declassify_ref()[6] & 0x03, 0x00);
         }
     }
 
@@ -520,15 +554,19 @@ mod proptests {
         // (This is a weak non-linearity test, not guaranteed but empirically holds.)
         #[test]
         fn single_rand_bit_flip_changes_output(
-            ki in any::<[u8; 16]>(),
+            ki_bytes in any::<[u8; 16]>(),
             rand in any::<[u8; 16]>(),
             bit_idx in 0usize..128,
         ) {
+            let ki = Secret::new(ki_bytes);
             let r1 = comp128(&ki, &rand);
             let mut rand2 = rand;
             rand2[bit_idx / 8] ^= 1 << (bit_idx % 8);
             let r2 = comp128(&ki, &rand2);
-            prop_assert_ne!(r1, r2, "flipping bit {} in RAND should change output", bit_idx);
+            prop_assert!(
+                r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
+                "flipping bit {} in RAND should change output", bit_idx
+            );
         }
     }
 
@@ -536,14 +574,17 @@ mod proptests {
         // Different Ki with same RAND must produce different output.
         #[test]
         fn different_ki_different_output(
-            ki1 in any::<[u8; 16]>(),
-            ki2 in any::<[u8; 16]>(),
+            ki1_bytes in any::<[u8; 16]>(),
+            ki2_bytes in any::<[u8; 16]>(),
             rand in any::<[u8; 16]>(),
         ) {
-            prop_assume!(ki1 != ki2);
-            let r1 = comp128(&ki1, &rand);
-            let r2 = comp128(&ki2, &rand);
-            prop_assert_ne!(r1, r2, "different Ki must produce different outputs");
+            prop_assume!(ki1_bytes != ki2_bytes);
+            let r1 = comp128(&Secret::new(ki1_bytes), &rand);
+            let r2 = comp128(&Secret::new(ki2_bytes), &rand);
+            prop_assert!(
+                r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
+                "different Ki must produce different outputs"
+            );
         }
     }
 }
@@ -559,7 +600,7 @@ mod ct_validation {
 
     #[test]
     fn test_comp128_ct() {
-        let fixed_ki = [0xABu8; 16];
+        let fixed_ki = Secret::new([0xABu8; 16]);
 
         let outcome = ct_test(42,
             |rng| {
@@ -570,11 +611,11 @@ mod ct_validation {
             },
             |rng| {
                 // Class 1: random Ki, random RAND
-                let mut ki = [0u8; 16];
+                let mut ki_bytes = [0u8; 16];
                 let mut rand = [0u8; 16];
-                rng.fill_bytes(&mut ki);
+                rng.fill_bytes(&mut ki_bytes);
                 rng.fill_bytes(&mut rand);
-                (ki, rand)
+                (Secret::new(ki_bytes), rand)
             },
             |(ki, rand)| {
                 let r = comp128(ki, rand);
@@ -595,7 +636,7 @@ mod ct_validation {
     /// makes this a single AND instruction regardless of value.
     #[test]
     fn test_comp128_rand_independence_ct() {
-        let fixed_ki = [0xABu8; 16];
+        let fixed_ki = Secret::new([0xABu8; 16]);
 
         // Fixed RAND with boundary-probing values: bytes near 0xFF produce
         // intermediates (x[m] + 2*x[n]) near the modulus boundary.

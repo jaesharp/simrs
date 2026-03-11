@@ -39,6 +39,7 @@ simrs-pin       = { workspace = true }
 simrs-proactive = { workspace = true }
 simrs-ecies     = { workspace = true }
 simrs-kdf       = { workspace = true }
+simrs-redact    = { workspace = true }
 simrs-secret    = { workspace = true }
 
 [dev-dependencies]

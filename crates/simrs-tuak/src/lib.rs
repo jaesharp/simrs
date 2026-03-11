@@ -56,6 +56,7 @@ extern crate std;
 use simrs_keccak::keccak_f1600_bytes;
 use simrs_milenage::{AuthenticationAlgorithm, CipherKey, IntegrityKey, SubscriberKey};
 use simrs_redact::Redact;
+use simrs_secret::Secret;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -156,26 +157,41 @@ impl<'a> SnapReader<'a> {
 ///
 /// ```
 /// use simrs_tuak::OperatorVariant;
+/// use simrs_secret::Secret;
 ///
 /// // Pre-computed TOPc (recommended for production)
-/// let _topc = OperatorVariant::TopC([0xAA; 32]);
+/// let _topc = OperatorVariant::topc(Secret::new([0xAA; 32]));
 ///
 /// // Raw TOP (TOPc computed at runtime from K and TOP)
-/// let _top = OperatorVariant::Top([0xBB; 32]);
+/// let _top = OperatorVariant::top(Secret::new([0xBB; 32]));
 /// ```
 #[derive(Clone, Copy)]
 pub enum OperatorVariant {
     /// Pre-computed TOPc (256 bits). Preferred -- avoids runtime Keccak call.
-    TopC([u8; 32]),
+    TopC(Secret<[u8; 32]>),
     /// Raw TOP. TOPc will be derived as per [3GPP TS 35.231 V19.0.0 clause 6.1](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf#%5B%7B%22num%22%3A39%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C300%5D).
-    Top([u8; 32]),
+    Top(Secret<[u8; 32]>),
+}
+
+impl OperatorVariant {
+    /// Classify raw bytes as [`OperatorVariant::TopC`].
+    #[inline]
+    pub const fn topc(k: Secret<[u8; 32]>) -> Self {
+        Self::TopC(k)
+    }
+
+    /// Classify raw bytes as [`OperatorVariant::Top`].
+    #[inline]
+    pub const fn top(k: Secret<[u8; 32]>) -> Self {
+        Self::Top(k)
+    }
 }
 
 impl core::fmt::Debug for OperatorVariant {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::TopC(v) => f.debug_tuple("OperatorVariant::TopC").field(&Redact(v)).finish(),
-            Self::Top(v) => f.debug_tuple("OperatorVariant::Top").field(&Redact(v)).finish(),
+            Self::TopC(v) => f.debug_tuple("OperatorVariant::TopC").field(&Redact(v.declassify_ref())).finish(),
+            Self::Top(v) => f.debug_tuple("OperatorVariant::Top").field(&Redact(v.declassify_ref())).finish(),
         }
     }
 }
@@ -200,10 +216,11 @@ pub type TopVariant = OperatorVariant;
 /// ```
 /// use simrs_tuak::{TuakParams, OperatorVariant};
 /// use simrs_milenage::SubscriberKey;
+/// use simrs_secret::Secret;
 ///
 /// let params = TuakParams::new(
-///     SubscriberKey::new([0xFF; 16]),      // K
-///     OperatorVariant::TopC([0xAA; 32]),  // TOPc
+///     SubscriberKey::new(Secret::new([0xFF; 16])),      // K
+///     OperatorVariant::topc(Secret::new([0xAA; 32])),  // TOPc
 /// );
 /// ```
 #[derive(Clone)]
@@ -211,7 +228,7 @@ pub struct TuakParams {
     /// Subscriber key K (128 bits).
     key: SubscriberKey,
     /// Derived operator constant TOPc (256 bits).
-    top_c: [u8; 32],
+    top_c: Secret<[u8; 32]>,
     /// Next expected SQN (big-endian 48-bit), for replay protection per
     /// [3GPP TS 33.102 V19.1.0 clause 6.3.3](../../../docs/specs/3gpp/ts-33.102/ts_133102v190100p.pdf#%5B%7B%22num%22%3A58%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D). Initialized to zero (accept any SQN).
     expected_sequence_number: [u8; 6],
@@ -221,7 +238,7 @@ impl core::fmt::Debug for TuakParams {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TuakParams")
             .field("key", &self.key)
-            .field("top_c", &Redact(&self.top_c))
+            .field("top_c", &Redact(self.top_c.declassify_ref()))
             .field("expected_sequence_number", &self.expected_sequence_number)
             .finish()
     }
@@ -229,7 +246,7 @@ impl core::fmt::Debug for TuakParams {
 
 impl Default for TuakParams {
     fn default() -> Self {
-        Self::new(SubscriberKey::new([0u8; 16]), OperatorVariant::TopC([0u8; 32]))
+        Self::new(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::topc(Secret::new([0u8; 32])))
     }
 }
 
@@ -242,13 +259,14 @@ impl TuakParams {
     /// ```
     /// use simrs_tuak::{TuakParams, OperatorVariant};
     /// use simrs_milenage::SubscriberKey;
+    /// use simrs_secret::Secret;
     ///
-    /// let p = TuakParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::TopC([0u8; 32]));
+    /// let p = TuakParams::new(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::topc(Secret::new([0u8; 32])));
     /// ```
     pub fn new(key: SubscriberKey, top: OperatorVariant) -> Self {
         let top_c = match top {
             OperatorVariant::TopC(topc) => topc,
-            OperatorVariant::Top(top_val) => compute_topc(key.declassify(), &top_val),
+            OperatorVariant::Top(top_val) => Secret::new(compute_topc(key.declassify(), top_val.declassify_ref())),
         };
         Self { key, top_c, expected_sequence_number: [0u8; 6] }
     }
@@ -261,15 +279,16 @@ impl TuakParams {
     /// ```
     /// use simrs_tuak::{TuakParams, OperatorVariant};
     /// use simrs_milenage::SubscriberKey;
+    /// use simrs_secret::Secret;
     ///
-    /// let p = TuakParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::TopC([0u8; 32]));
+    /// let p = TuakParams::new(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::topc(Secret::new([0u8; 32])));
     /// let mac_a = p.compute_auth_mac(&[0u8; 16], &[0u8; 6], &[0u8; 2]);
     /// assert_eq!(mac_a.len(), 8);
     /// ```
     pub fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
         let buf = tuak_f1_core(
             self.key.declassify(),
-            &self.top_c,
+            self.top_c.declassify_ref(),
             challenge,
             sequence_number,
             management_field,
@@ -295,7 +314,7 @@ impl TuakParams {
     pub fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
         let buf = tuak_f1_core(
             self.key.declassify(),
-            &self.top_c,
+            self.top_c.declassify_ref(),
             challenge,
             sequence_number,
             management_field,
@@ -321,13 +340,14 @@ impl TuakParams {
     /// ```
     /// use simrs_tuak::{TuakParams, OperatorVariant};
     /// use simrs_milenage::SubscriberKey;
+    /// use simrs_secret::Secret;
     ///
-    /// let p = TuakParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::TopC([0u8; 32]));
+    /// let p = TuakParams::new(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::topc(Secret::new([0u8; 32])));
     /// let res = p.compute_response(&[0u8; 16]);
     /// assert_eq!(res.len(), 8);
     /// ```
     pub fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8] {
-        let buf = tuak_f2345_core(self.key.declassify(), &self.top_c, challenge);
+        let buf = tuak_f2345_core(self.key.declassify(), self.top_c.declassify_ref(), challenge);
         let mut res = [0u8; 8];
         pull_data(&buf, OUT_OFF_RES, &mut res);
         res
@@ -344,7 +364,7 @@ impl TuakParams {
     /// 3GPP function designation: f3.
     /// Per [3GPP TS 35.231 V19.0.0 clause 5.4](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf).
     pub fn compute_cipher_key(&self, challenge: &[u8; 16]) -> CipherKey {
-        let buf = tuak_f2345_core(self.key.declassify(), &self.top_c, challenge);
+        let buf = tuak_f2345_core(self.key.declassify(), self.top_c.declassify_ref(), challenge);
         let mut ck = [0u8; 16];
         pull_data(&buf, OUT_OFF_CK, &mut ck);
         CipherKey::from_bytes(ck)
@@ -361,7 +381,7 @@ impl TuakParams {
     /// 3GPP function designation: f4.
     /// Per [3GPP TS 35.231 V19.0.0 clause 5.5](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf).
     pub fn compute_integrity_key(&self, challenge: &[u8; 16]) -> IntegrityKey {
-        let buf = tuak_f2345_core(self.key.declassify(), &self.top_c, challenge);
+        let buf = tuak_f2345_core(self.key.declassify(), self.top_c.declassify_ref(), challenge);
         let mut ik = [0u8; 16];
         pull_data(&buf, OUT_OFF_IK, &mut ik);
         IntegrityKey::from_bytes(ik)
@@ -380,7 +400,7 @@ impl TuakParams {
     ///
     /// Used to conceal SQN in AUTN: `AUTN = (SQN XOR AK) || AMF || MAC-A`.
     pub fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
-        let buf = tuak_f2345_core(self.key.declassify(), &self.top_c, challenge);
+        let buf = tuak_f2345_core(self.key.declassify(), self.top_c.declassify_ref(), challenge);
         let mut anonymity_key = [0u8; 6];
         pull_data(&buf, OUT_OFF_AK, &mut anonymity_key);
         anonymity_key
@@ -399,7 +419,7 @@ impl TuakParams {
     ///
     /// Used in AUTS construction: `AUTS = (SQN_MS XOR AK*) || MAC-S`.
     pub fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
-        let buf = tuak_f5star_core(self.key.declassify(), &self.top_c, challenge);
+        let buf = tuak_f5star_core(self.key.declassify(), self.top_c.declassify_ref(), challenge);
         let mut resync_anonymity_key = [0u8; 6];
         pull_data(&buf, OUT_OFF_AK, &mut resync_anonymity_key);
         resync_anonymity_key
@@ -426,7 +446,7 @@ impl TuakParams {
         }
         let mut w = SnapWriter::new(buf);
         w.put_bytes(self.key.declassify());
-        w.put_bytes(&self.top_c);
+        w.put_bytes(self.top_c.declassify_ref());
         w.put_bytes(&self.expected_sequence_number);
         w.finish()
     }
@@ -442,8 +462,10 @@ impl TuakParams {
         let mut r = SnapReader::new(buf);
         let mut key_bytes = [0u8; 16];
         r.get_bytes(&mut key_bytes);
-        self.key = SubscriberKey::new(key_bytes);
-        r.get_bytes(&mut self.top_c);
+        self.key = SubscriberKey::new(Secret::new(key_bytes));
+        let mut top_c_bytes = [0u8; 32];
+        r.get_bytes(&mut top_c_bytes);
+        self.top_c = Secret::new(top_c_bytes);
         r.get_bytes(&mut self.expected_sequence_number);
         true
     }
@@ -490,7 +512,7 @@ impl AuthenticationAlgorithm for TuakParams {
 
     /// Override: compute RES, CK, IK from a single `tuak_f2345_core` Keccak call.
     fn compute_response_and_keys(&self, challenge: &[u8; 16]) -> ([u8; 8], CipherKey, IntegrityKey) {
-        let buf = tuak_f2345_core(self.key.declassify(), &self.top_c, challenge);
+        let buf = tuak_f2345_core(self.key.declassify(), self.top_c.declassify_ref(), challenge);
         let mut response = [0u8; 8];
         let mut ck = [0u8; 16];
         let mut ik = [0u8; 16];
@@ -804,13 +826,13 @@ mod tests {
     #[test]
     fn f1_test_set_1() {
         // Test set 1 uses MAC=64, K=128, so INSTANCE_F1=0x08 matches our standard.
-        let p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         assert_eq!(p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF), TS1_F1);
     }
 
     #[test]
     fn f1_star_test_set_1() {
-        let p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         assert_eq!(p.compute_resync_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF), TS1_F1_STAR);
     }
 
@@ -925,8 +947,8 @@ mod tests {
     #[test]
     fn top_and_topc_produce_same_response() {
         let topc = compute_topc(&TS1_K, &TS1_TOP);
-        let p_top = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
-        let p_topc = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::TopC(topc));
+        let p_top = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
+        let p_topc = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::topc(Secret::new(topc)));
         assert_eq!(p_top.compute_response(&TS1_RAND), p_topc.compute_response(&TS1_RAND));
     }
 
@@ -936,7 +958,7 @@ mod tests {
 
     #[test]
     fn auth_mac_and_resync_mac_differ() {
-        let p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         let auth_mac = p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF);
         let resync_mac = p.compute_resync_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF);
         assert_ne!(auth_mac, resync_mac, "compute_auth_mac and compute_resync_mac must produce different outputs");
@@ -944,7 +966,7 @@ mod tests {
 
     #[test]
     fn anonymity_key_and_resync_anonymity_key_differ() {
-        let p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
         let resync_anonymity_key = p.compute_resync_anonymity_key(&TS1_RAND);
         assert_ne!(anonymity_key, resync_anonymity_key, "compute_anonymity_key and compute_resync_anonymity_key must produce different outputs");
@@ -952,7 +974,7 @@ mod tests {
 
     #[test]
     fn different_challenge_different_outputs() {
-        let p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         let challenge2 = [0x99u8; 16];
         assert_ne!(p.compute_response(&TS1_RAND), p.compute_response(&challenge2));
         assert_ne!(*p.compute_cipher_key(&TS1_RAND).declassify(), *p.compute_cipher_key(&challenge2).declassify());
@@ -961,7 +983,7 @@ mod tests {
 
     #[test]
     fn deterministic() {
-        let p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         assert_eq!(p.compute_response(&TS1_RAND), p.compute_response(&TS1_RAND));
         assert_eq!(*p.compute_cipher_key(&TS1_RAND).declassify(), *p.compute_cipher_key(&TS1_RAND).declassify());
         assert_eq!(p.compute_anonymity_key(&TS1_RAND), p.compute_anonymity_key(&TS1_RAND));
@@ -970,7 +992,7 @@ mod tests {
     #[test]
     fn all_functions_produce_nonzero_output() {
         // Use non-trivial key/TOP to avoid accidental zero outputs.
-        let p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         assert_ne!(p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF), [0u8; 8]);
         assert_ne!(p.compute_resync_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF), [0u8; 8]);
         assert_ne!(p.compute_response(&TS1_RAND), [0u8; 8]);
@@ -986,7 +1008,7 @@ mod tests {
 
     #[test]
     fn authenticate_with_valid_autn() {
-        let mut p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let mut p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         let challenge = TS1_RAND;
         let sequence_number = TS1_SQN;
         let management_field = TS1_AMF;
@@ -1012,7 +1034,7 @@ mod tests {
 
     #[test]
     fn authenticate_with_bad_mac_fails() {
-        let mut p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let mut p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         // All-0xFF AUTN will have wrong MAC-A
         let result = p.authenticate(&TS1_RAND, &[0xFFu8; 16]);
         assert!(matches!(result, Err(AuthenticationError::MacFailure)));
@@ -1020,7 +1042,7 @@ mod tests {
 
     #[test]
     fn authenticate_gsm_cipher_key_is_c3_conversion() {
-        let mut p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let mut p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
 
         // Build valid AUTN
         let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
@@ -1058,13 +1080,12 @@ mod tests {
 
     #[test]
     fn snapshot_roundtrip_preserves_computation() {
-        let orig = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let orig = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
 
         let mut snap = [0u8; TuakParams::SNAPSHOT_SIZE];
         assert_eq!(orig.save_state(&mut snap), 54);
 
-        // Restore into a zeroed params.
-        let mut restored = TuakParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::TopC([0u8; 32]));
+        let mut restored = TuakParams::default();
         assert!(restored.restore_state(&snap));
 
         // Restored params must produce the same outputs.
@@ -1078,7 +1099,7 @@ mod tests {
 
     #[test]
     fn snapshot_roundtrip_preserves_expected_sequence_number() {
-        let mut p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let mut p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
 
         // Advance expected_sequence_number by performing a successful authenticate.
         let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
@@ -1094,7 +1115,7 @@ mod tests {
         let mut snap = [0u8; TuakParams::SNAPSHOT_SIZE];
         assert_eq!(p.save_state(&mut snap), TuakParams::SNAPSHOT_SIZE);
 
-        let mut restored = TuakParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::TopC([0u8; 32]));
+        let mut restored = TuakParams::default();
         assert!(restored.restore_state(&snap));
 
         // Replaying the same SQN must trigger SyncFailure on the restored
@@ -1108,7 +1129,7 @@ mod tests {
 
     #[test]
     fn sqn_boundary_accepts_equal_rejects_below() {
-        let mut p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let mut p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
         let management_field = [0x80, 0x00];
 
         let build_auth_token = |p: &TuakParams, sequence_number: [u8; 6]| -> [u8; 16] {
@@ -1144,11 +1165,11 @@ mod tests {
 
     #[test]
     fn snapshot_small_buffer_returns_zero_or_false() {
-        let p = TuakParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::TopC([0u8; 32]));
+        let p = TuakParams::new(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::topc(Secret::new([0u8; 32])));
         let mut small = [0u8; 20];
         assert_eq!(p.save_state(&mut small), 0);
 
-        let mut p2 = TuakParams::new(SubscriberKey::new([0u8; 16]), OperatorVariant::TopC([0u8; 32]));
+        let mut p2 = TuakParams::new(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::topc(Secret::new([0u8; 32])));
         assert!(!p2.restore_state(&small));
     }
 
@@ -1158,7 +1179,7 @@ mod tests {
 
     #[test]
     fn trait_methods_match_inherent() {
-        let p = TuakParams::new(SubscriberKey::new(TS1_K), OperatorVariant::Top(TS1_TOP));
+        let p = TuakParams::new(SubscriberKey::new(Secret::new(TS1_K)), OperatorVariant::top(Secret::new(TS1_TOP)));
 
         // Verify trait methods delegate to inherent methods.
         let trait_auth_mac = AuthenticationAlgorithm::compute_auth_mac(&p, &TS1_RAND, &TS1_SQN, &TS1_AMF);
@@ -1181,7 +1202,7 @@ mod proptests {
     use proptest::prelude::*;
 
     fn make_params(key: [u8; 16]) -> TuakParams {
-        TuakParams::new(SubscriberKey::new(key), OperatorVariant::TopC([0x83u8; 32]))
+        TuakParams::new(SubscriberKey::new(Secret::new(key)), OperatorVariant::topc(Secret::new([0x83u8; 32])))
     }
 
     proptest! {
@@ -1293,7 +1314,7 @@ mod ct_validation {
                 (key, topc, challenge)
             },
             |(key, topc, challenge)| {
-                let p = TuakParams::new(SubscriberKey::new(*key), OperatorVariant::TopC(*topc));
+                let p = TuakParams::new(SubscriberKey::new(Secret::new(*key)), OperatorVariant::topc(Secret::new(*topc)));
                 black_box(p.compute_response(challenge));
             },
         );
@@ -1328,7 +1349,7 @@ mod ct_validation {
                 (key, topc, challenge, sqn, amf)
             },
             |(key, topc, challenge, sqn, amf)| {
-                let p = TuakParams::new(SubscriberKey::new(*key), OperatorVariant::TopC(*topc));
+                let p = TuakParams::new(SubscriberKey::new(Secret::new(*key)), OperatorVariant::topc(Secret::new(*topc)));
                 black_box(p.compute_auth_mac(challenge, sqn, amf));
             },
         );
@@ -1363,7 +1384,7 @@ mod ct_validation {
                 (key, topc, challenge, sqn, amf)
             },
             |(key, topc, challenge, sqn, amf)| {
-                let p = TuakParams::new(SubscriberKey::new(*key), OperatorVariant::TopC(*topc));
+                let p = TuakParams::new(SubscriberKey::new(Secret::new(*key)), OperatorVariant::topc(Secret::new(*topc)));
                 black_box(p.compute_resync_mac(challenge, sqn, amf));
             },
         );
@@ -1390,7 +1411,7 @@ mod ct_validation {
                 (key, topc, challenge)
             },
             |(key, topc, challenge)| {
-                let p = TuakParams::new(SubscriberKey::new(*key), OperatorVariant::TopC(*topc));
+                let p = TuakParams::new(SubscriberKey::new(Secret::new(*key)), OperatorVariant::topc(Secret::new(*topc)));
                 black_box(p.compute_cipher_key(challenge));
             },
         );
@@ -1417,7 +1438,7 @@ mod ct_validation {
                 (key, topc, challenge)
             },
             |(key, topc, challenge)| {
-                let p = TuakParams::new(SubscriberKey::new(*key), OperatorVariant::TopC(*topc));
+                let p = TuakParams::new(SubscriberKey::new(Secret::new(*key)), OperatorVariant::topc(Secret::new(*topc)));
                 black_box(p.compute_integrity_key(challenge));
             },
         );
@@ -1444,7 +1465,7 @@ mod ct_validation {
                 (key, topc, challenge)
             },
             |(key, topc, challenge)| {
-                let p = TuakParams::new(SubscriberKey::new(*key), OperatorVariant::TopC(*topc));
+                let p = TuakParams::new(SubscriberKey::new(Secret::new(*key)), OperatorVariant::topc(Secret::new(*topc)));
                 black_box(p.compute_anonymity_key(challenge));
             },
         );
@@ -1471,7 +1492,7 @@ mod ct_validation {
                 (key, topc, challenge)
             },
             |(key, topc, challenge)| {
-                let p = TuakParams::new(SubscriberKey::new(*key), OperatorVariant::TopC(*topc));
+                let p = TuakParams::new(SubscriberKey::new(Secret::new(*key)), OperatorVariant::topc(Secret::new(*topc)));
                 black_box(p.compute_resync_anonymity_key(challenge));
             },
         );

@@ -38,7 +38,7 @@ const TEST_HN_SK_A: [u8; 32] = [
 ///   81 20 <key:32>     -- Key = 32-byte X25519 public key
 /// ```
 fn build_suci_calc_info_profile_a() -> Vec<u8> {
-    let hn_pk = simrs_ecies::x25519::x25519_base(&TEST_HN_SK_A);
+    let hn_pk = simrs_ecies::x25519::x25519_base(&simrs_secret::Secret::new(TEST_HN_SK_A));
     let mut data = Vec::with_capacity(41);
     // Protection Scheme Identifier List (tag 0xA0)
     data.extend_from_slice(&[0xA0, 0x02, 0x01, 0x01]);

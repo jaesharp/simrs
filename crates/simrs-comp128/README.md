@@ -23,7 +23,7 @@ None (leaf crate).
 
 ## API
 
-- `comp128(&[u8; 16], &[u8; 16]) -> Comp128Result` -- Ki + RAND -> SRES + Kc
+- `comp128(&Secret<[u8; 16]>, &[u8; 16]) -> Comp128Result` -- Ki + RAND -> SRES + Kc
 - `Comp128Result { sres: [u8; 4], kc: [u8; 8] }`
 
 ## Specs

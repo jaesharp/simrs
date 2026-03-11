@@ -163,59 +163,60 @@ static VECTORS: [Comp128Vector; 12] = [
 mod tests {
     use super::*;
     use simrs_comp128::comp128;
+    use simrs_secret::Secret;
 
     /// Test: all-zero Ki and RAND.
     #[test]
     fn vector_all_zero() {
         let v = &VECTORS[0];
-        let r = comp128(&v.ki, &v.rand);
+        let r = comp128(&Secret::new(v.ki), &v.rand);
         assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
-        assert_eq!(r.kc, v.expected_kc, "Kc mismatch");
+        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: all 0xAB Ki, all 0xCD RAND.
     #[test]
     fn vector_ab_cd() {
         let v = &VECTORS[1];
-        let r = comp128(&v.ki, &v.rand);
+        let r = comp128(&Secret::new(v.ki), &v.rand);
         assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
-        assert_eq!(r.kc, v.expected_kc, "Kc mismatch");
+        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: doctest vector (Ki=FF...FF07, RAND=0123...EF).
     #[test]
     fn vector_doctest() {
         let v = &VECTORS[2];
-        let r = comp128(&v.ki, &v.rand);
+        let r = comp128(&Secret::new(v.ki), &v.rand);
         assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
-        assert_eq!(r.kc, v.expected_kc, "Kc mismatch");
+        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: Ki=0x11..., RAND=0x22...
     #[test]
     fn vector_11_22() {
         let v = &VECTORS[3];
-        let r = comp128(&v.ki, &v.rand);
+        let r = comp128(&Secret::new(v.ki), &v.rand);
         assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
-        assert_eq!(r.kc, v.expected_kc, "Kc mismatch");
+        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: all 0xFF Ki and RAND.
     #[test]
     fn vector_all_ff() {
         let v = &VECTORS[4];
-        let r = comp128(&v.ki, &v.rand);
+        let r = comp128(&Secret::new(v.ki), &v.rand);
         assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
-        assert_eq!(r.kc, v.expected_kc, "Kc mismatch");
+        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: sequential Ki and RAND.
     #[test]
     fn vector_sequential() {
         let v = &VECTORS[5];
-        let r = comp128(&v.ki, &v.rand);
+        let r = comp128(&Secret::new(v.ki), &v.rand);
         assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
-        assert_eq!(r.kc, v.expected_kc, "Kc mismatch");
+        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// ETSI and swsim sources must agree on expected outputs for the same inputs.

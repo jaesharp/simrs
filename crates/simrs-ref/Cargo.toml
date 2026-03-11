@@ -15,6 +15,7 @@ simrs-tuak = { path = "../simrs-tuak", optional = true }
 simrs-comp128 = { path = "../simrs-comp128" }
 simrs-milenage = { path = "../simrs-milenage" }
 simrs-tuak = { path = "../simrs-tuak" }
+simrs-secret = { path = "../simrs-secret" }
 
 [features]
 default = []

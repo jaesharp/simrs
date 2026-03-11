@@ -12,6 +12,8 @@ ct-validation = []
 
 [dependencies]
 simrs-consttime = { workspace = true }
+simrs-redact    = { workspace = true }
+simrs-secret    = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

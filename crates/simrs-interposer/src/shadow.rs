@@ -35,13 +35,13 @@ impl SimTerminal {
         {
             use simrs_gsm::GsmApp;
             let gsm = sim.gsm_app_mut();
-            *gsm = GsmApp::new(mf, simrs_gsm::Ki(config.ki));
+            *gsm = GsmApp::new(mf, simrs_gsm::Ki::new(config.ki));
         }
 
         // Configure USIM app with K/OPc.
         {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::Opc(config.opc));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::opc(config.opc));
             let usim = sim.usim_app_mut();
             *usim = UsimApp::new(mf, &[], mil);
         }
@@ -144,13 +144,13 @@ impl ShadowSim {
         {
             use simrs_gsm::GsmApp;
             let gsm = sim.gsm_app_mut();
-            *gsm = GsmApp::new(mf, simrs_gsm::Ki(config.ki));
+            *gsm = GsmApp::new(mf, simrs_gsm::Ki::new(config.ki));
         }
 
         // Configure USIM app with K/OPc.
         {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::Opc(config.opc));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(config.k), OperatorVariant::opc(config.opc));
             let usim = sim.usim_app_mut();
             *usim = UsimApp::new(mf, &[], mil);
         }
@@ -195,6 +195,7 @@ impl ShadowSim {
 mod tests {
     use super::*;
     use simrs_fs::{DfDef, EfDef, Fid, FileRef};
+    use simrs_secret::Secret;
 
     static ICCID_DATA: [u8; 10] =
         [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
@@ -214,9 +215,9 @@ mod tests {
 
     fn test_auth_config() -> AuthConfig {
         AuthConfig {
-            ki: [0x11u8; 16],
-            k: [0x22u8; 16],
-            opc: [0x33u8; 16],
+            ki: Secret::new([0x11u8; 16]),
+            k: Secret::new([0x22u8; 16]),
+            opc: Secret::new([0x33u8; 16]),
         }
     }
 
@@ -315,8 +316,8 @@ mod tests {
         let mut config2 = test_auth_config();
 
         // Different Ki
-        config1.ki = [0x11u8; 16];
-        config2.ki = [0x22u8; 16];
+        config1.ki = Secret::new([0x11u8; 16]);
+        config2.ki = Secret::new([0x22u8; 16]);
 
         let mut term1 = SimTerminal::new(&config1, &TEST_ATR, &TEST_MF);
         let mut term2 = SimTerminal::new(&config2, &TEST_ATR, &TEST_MF);

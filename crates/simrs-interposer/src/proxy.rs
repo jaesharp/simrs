@@ -543,10 +543,11 @@ mod tests {
     }
 
     fn test_auth_config() -> crate::mode::AuthConfig {
+        use simrs_secret::Secret;
         crate::mode::AuthConfig {
-            ki: [0x11u8; 16],
-            k: [0x22u8; 16],
-            opc: [0x33u8; 16],
+            ki: Secret::new([0x11u8; 16]),
+            k: Secret::new([0x22u8; 16]),
+            opc: Secret::new([0x33u8; 16]),
         }
     }
 

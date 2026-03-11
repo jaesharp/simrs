@@ -761,6 +761,8 @@ name = "simrs-comp128"
 version = "0.1.0"
 dependencies = [
  "simrs-consttime",
+ "simrs-redact",
+ "simrs-secret",
 ]
 
 [[package]]
@@ -780,6 +782,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-ecies"
+version = "0.1.0"
+dependencies = [
+ "simrs-consttime",
+ "simrs-kdf",
+ "simrs-rijndael",
+ "simrs-secret",
+]
+
+[[package]]
 name = "simrs-fs"
 version = "0.1.0"
 
@@ -791,6 +803,8 @@ dependencies = [
  "simrs-fs",
  "simrs-iso7816",
  "simrs-pin",
+ "simrs-redact",
+ "simrs-secret",
 ]
 
 [[package]]
@@ -798,11 +812,21 @@ name = "simrs-iso7816"
 version = "0.1.0"
 
 [[package]]
+name = "simrs-kdf"
+version = "0.1.0"
+dependencies = [
+ "simrs-secret",
+ "simrs-sha256",
+]
+
+[[package]]
 name = "simrs-milenage"
 version = "0.1.0"
 dependencies = [
  "simrs-consttime",
+ "simrs-redact",
  "simrs-rijndael",
+ "simrs-secret",
 ]
 
 [[package]]
@@ -810,6 +834,7 @@ name = "simrs-pin"
 version = "0.1.0"
 dependencies = [
  "simrs-consttime",
+ "simrs-secret",
 ]
 
 [[package]]
@@ -820,11 +845,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-redact"
+version = "0.1.0"
+
+[[package]]
 name = "simrs-rijndael"
 version = "0.1.0"
 dependencies = [
  "simrs-consttime",
+ "simrs-secret",
 ]
+
+[[package]]
+name = "simrs-secret"
+version = "0.1.0"
+dependencies = [
+ "simrs-consttime",
+ "simrs-redact",
+]
+
+[[package]]
+name = "simrs-sha256"
+version = "0.1.0"
 
 [[package]]
 name = "simrs-sim"
@@ -835,6 +877,7 @@ dependencies = [
  "simrs-iso7816",
  "simrs-milenage",
  "simrs-pin",
+ "simrs-secret",
  "simrs-usim",
 ]
 
@@ -852,6 +895,7 @@ dependencies = [
  "simrs-milenage",
  "simrs-pin",
  "simrs-proactive",
+ "simrs-secret",
  "simrs-sim",
  "simrs-transport",
  "simrs-transport-tcp",
@@ -875,11 +919,15 @@ name = "simrs-usim"
 version = "0.1.0"
 dependencies = [
  "simrs-bertlv",
+ "simrs-ecies",
  "simrs-fs",
  "simrs-iso7816",
+ "simrs-kdf",
  "simrs-milenage",
  "simrs-pin",
  "simrs-proactive",
+ "simrs-redact",
+ "simrs-secret",
 ]
 
 [[package]]

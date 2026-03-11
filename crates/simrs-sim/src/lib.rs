@@ -391,7 +391,7 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
             state: CardState::Off,
             reset_policy,
             rsp_buf: [0u8; RSP_CAP],
-            gsm: GsmApp::new(mf, simrs_gsm::Ki([0u8; 16])),
+            gsm: GsmApp::new(mf, simrs_gsm::Ki::new(simrs_secret::Secret::new([0u8; 16]))),
             _auth: core::marker::PhantomData,
         }
     }
@@ -486,7 +486,7 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
             state: CardState::Off,
             reset_policy,
             rsp_buf: [0u8; RSP_CAP],
-            gsm: GsmApp::new(mf, simrs_gsm::Ki([0u8; 16])),
+            gsm: GsmApp::new(mf, simrs_gsm::Ki::new(simrs_secret::Secret::new([0u8; 16]))),
             usim: UsimApp::new(mf, &[], A::default()),
         }
     }
@@ -849,7 +849,7 @@ mod tests {
         {
             use simrs_gsm::GsmApp;
             let gsm = sim.gsm_app_mut();
-            *gsm = GsmApp::new(&MF, simrs_gsm::Ki([0x11u8; 16]));
+            *gsm = GsmApp::new(&MF, simrs_gsm::Ki::new(simrs_secret::Secret::new([0x11u8; 16])));
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
             let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
             let _ = gsm.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
@@ -858,7 +858,7 @@ mod tests {
         #[cfg(feature = "usim")]
         {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(SubscriberKey::new([0u8; 16]), OperatorVariant::Opc([0u8; 16]));
+            let mil = MilenageParams::with_defaults(SubscriberKey::new(simrs_secret::Secret::new([0u8; 16])), OperatorVariant::opc(simrs_secret::Secret::new([0u8; 16])));
             let usim = sim.usim_app_mut();
             *usim = UsimApp::new(&MF, &ADF_TABLE, mil);
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);

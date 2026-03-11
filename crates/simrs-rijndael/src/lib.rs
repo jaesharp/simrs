@@ -25,12 +25,13 @@
 //! # Example
 //! ```
 //! use simrs_rijndael::Rijndael;
+//! use simrs_secret::Secret;
 //!
 //! // NIST FIPS 197 Appendix B test vector
-//! let key = [
+//! let key = Secret::new([
 //!     0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
 //!     0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C,
-//! ];
+//! ]);
 //! let input = [
 //!     0x32, 0x43, 0xF6, 0xA8, 0x88, 0x5A, 0x30, 0x8D,
 //!     0x31, 0x31, 0x98, 0xA2, 0xE0, 0x37, 0x07, 0x34,
@@ -52,6 +53,7 @@
 extern crate std;
 
 use simrs_consttime::{ct_select, ct_xtime};
+use simrs_secret::Secret;
 
 /// AES S-box substitution table.
 /// [NIST FIPS 197](../../../docs/specs/nist/fips-197/NIST.FIPS.197.pdf) clause 5.1.1, Figure 7.
@@ -104,7 +106,7 @@ const INV_SBOX: [u8; 256] = {
 #[derive(Clone)]
 pub struct Rijndael {
     /// Round keys in column-major layout: `round_keys[round][row][col]`.
-    round_keys: [[[u8; 4]; 4]; 11],
+    round_keys: Secret<[[[u8; 4]; 4]; 11]>,
 }
 
 impl Rijndael {
@@ -115,9 +117,11 @@ impl Rijndael {
     /// # Example
     /// ```
     /// use simrs_rijndael::Rijndael;
-    /// let rij = Rijndael::new(&[0u8; 16]);
+    /// use simrs_secret::Secret;
+    /// let rij = Rijndael::new(&Secret::new([0u8; 16]));
     /// ```
-    pub const fn new(key: &[u8; 16]) -> Self {
+    pub const fn new(key: &Secret<[u8; 16]>) -> Self {
+        let key = key.declassify_ref();
         let mut rk = [[[0u8; 4]; 4]; 11];
 
         // Round 0: key bytes arranged in column-major order.
@@ -153,7 +157,7 @@ impl Rijndael {
             round += 1;
         }
 
-        Self { round_keys: rk }
+        Self { round_keys: Secret::new(rk) }
     }
 
     /// Encrypt a single 128-bit block.
@@ -164,7 +168,8 @@ impl Rijndael {
     /// # Example
     /// ```
     /// use simrs_rijndael::Rijndael;
-    /// let rij = Rijndael::new(&[0u8; 16]);
+    /// use simrs_secret::Secret;
+    /// let rij = Rijndael::new(&Secret::new([0u8; 16]));
     /// let ct = rij.encrypt(&[0u8; 16]);
     /// // Deterministic: same key + input always yields same output
     /// assert_eq!(ct, rij.encrypt(&[0u8; 16]));
@@ -179,8 +184,10 @@ impl Rijndael {
             i += 1;
         }
 
+        let rk = self.round_keys.declassify_ref();
+
         // Initial round key addition.
-        Self::key_add(&mut state, &self.round_keys[0]);
+        Self::key_add(&mut state, &rk[0]);
 
         // Rounds 1..=9: ByteSub + ShiftRow + MixColumn + KeyAdd
         let mut round = 1;
@@ -188,14 +195,14 @@ impl Rijndael {
             Self::byte_sub(&mut state);
             Self::shift_rows(&mut state);
             Self::mix_columns(&mut state);
-            Self::key_add(&mut state, &self.round_keys[round]);
+            Self::key_add(&mut state, &rk[round]);
             round += 1;
         }
 
         // Round 10: ByteSub + ShiftRow + KeyAdd (no MixColumn)
         Self::byte_sub(&mut state);
         Self::shift_rows(&mut state);
-        Self::key_add(&mut state, &self.round_keys[10]);
+        Self::key_add(&mut state, &rk[10]);
 
         // Extract output from state array.
         let mut output = [0u8; 16];
@@ -217,7 +224,8 @@ impl Rijndael {
     /// # Example
     /// ```
     /// use simrs_rijndael::Rijndael;
-    /// let rij = Rijndael::new(&[0u8; 16]);
+    /// use simrs_secret::Secret;
+    /// let rij = Rijndael::new(&Secret::new([0u8; 16]));
     /// let pt = [0x42u8; 16];
     /// assert_eq!(rij.decrypt(&rij.encrypt(&pt)), pt);
     /// ```
@@ -231,15 +239,17 @@ impl Rijndael {
             i += 1;
         }
 
+        let rk = self.round_keys.declassify_ref();
+
         // Initial round key addition with round 10 key.
-        Self::key_add(&mut state, &self.round_keys[10]);
+        Self::key_add(&mut state, &rk[10]);
 
         // Rounds 9..=1: InvShiftRows + InvSubBytes + AddRoundKey + InvMixColumns
         let mut round = 9;
         while round >= 1 {
             Self::inv_shift_rows(&mut state);
             Self::inv_sub_bytes(&mut state);
-            Self::key_add(&mut state, &self.round_keys[round]);
+            Self::key_add(&mut state, &rk[round]);
             Self::inv_mix_columns(&mut state);
             round -= 1;
         }
@@ -247,7 +257,7 @@ impl Rijndael {
         // Final round: InvShiftRows + InvSubBytes + AddRoundKey(0)
         Self::inv_shift_rows(&mut state);
         Self::inv_sub_bytes(&mut state);
-        Self::key_add(&mut state, &self.round_keys[0]);
+        Self::key_add(&mut state, &rk[0]);
 
         // Extract output from state array.
         let mut output = [0u8; 16];
@@ -483,7 +493,7 @@ mod tests {
             0xDC, 0x11, 0x85, 0x97, 0x19, 0x6A, 0x0B, 0x32,
         ];
 
-        let rij = Rijndael::new(&key);
+        let rij = Rijndael::new(&Secret::new(key));
         assert_eq!(rij.encrypt(&input), expected);
     }
 
@@ -504,7 +514,7 @@ mod tests {
             0xA8, 0x9E, 0xCA, 0xF3, 0x24, 0x66, 0xEF, 0x97,
         ];
 
-        let rij = Rijndael::new(&key);
+        let rij = Rijndael::new(&Secret::new(key));
         assert_eq!(rij.encrypt(&plaintext), expected);
     }
 
@@ -513,7 +523,7 @@ mod tests {
     /// indicate a broken implementation).
     #[test]
     fn zero_key_zero_input_not_zero() {
-        let rij = Rijndael::new(&[0u8; 16]);
+        let rij = Rijndael::new(&Secret::new([0u8; 16]));
         let ct = rij.encrypt(&[0u8; 16]);
         assert_ne!(ct, [0u8; 16], "zero input must not produce zero output");
         // Known value for AES-128(0...0, 0...0):
@@ -529,7 +539,7 @@ mod tests {
     fn deterministic() {
         let key = [0x01; 16];
         let input = [0x02; 16];
-        let rij = Rijndael::new(&key);
+        let rij = Rijndael::new(&Secret::new(key));
         assert_eq!(rij.encrypt(&input), rij.encrypt(&input));
     }
 
@@ -537,22 +547,22 @@ mod tests {
     #[test]
     fn different_keys_different_output() {
         let input = [0xAA; 16];
-        let r1 = Rijndael::new(&[0x00; 16]);
-        let r2 = Rijndael::new(&[0x01; 16]);
+        let r1 = Rijndael::new(&Secret::new([0x00; 16]));
+        let r2 = Rijndael::new(&Secret::new([0x01; 16]));
         assert_ne!(r1.encrypt(&input), r2.encrypt(&input));
     }
 
     /// Different plaintexts produce different ciphertexts for the same key.
     #[test]
     fn different_inputs_different_output() {
-        let rij = Rijndael::new(&[0x00; 16]);
+        let rij = Rijndael::new(&Secret::new([0x00; 16]));
         assert_ne!(rij.encrypt(&[0x00; 16]), rij.encrypt(&[0x01; 16]));
     }
 
     /// Verify const construction works at compile time.
     #[test]
     fn const_construction() {
-        const RIJ: Rijndael = Rijndael::new(&[0u8; 16]);
+        const RIJ: Rijndael = Rijndael::new(&Secret::new([0u8; 16]));
         let ct = RIJ.encrypt(&[0u8; 16]);
         assert_ne!(ct, [0u8; 16]);
     }
@@ -625,7 +635,7 @@ mod tests {
             0xDC, 0x11, 0x85, 0x97, 0x19, 0x6A, 0x0B, 0x32,
         ];
 
-        let rij = Rijndael::new(&key);
+        let rij = Rijndael::new(&Secret::new(key));
         assert_eq!(rij.decrypt(&ciphertext), plaintext);
     }
 
@@ -646,7 +656,7 @@ mod tests {
             0xA8, 0x9E, 0xCA, 0xF3, 0x24, 0x66, 0xEF, 0x97,
         ];
 
-        let rij = Rijndael::new(&key);
+        let rij = Rijndael::new(&Secret::new(key));
         assert_eq!(rij.decrypt(&ciphertext), plaintext);
     }
 
@@ -663,7 +673,7 @@ mod tests {
             0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
         ];
-        let r1 = Rijndael::new(&key1);
+        let r1 = Rijndael::new(&Secret::new(key1));
         assert_eq!(r1.decrypt(&r1.encrypt(&pt1)), pt1);
 
         // Pair 2: different key and plaintext with irrational-like byte patterns
@@ -675,7 +685,7 @@ mod tests {
             0x27, 0x18, 0x28, 0x18, 0x28, 0x45, 0x90, 0x45,
             0x23, 0x53, 0x60, 0x28, 0x74, 0x71, 0x35, 0x26,
         ];
-        let r2 = Rijndael::new(&key2);
+        let r2 = Rijndael::new(&Secret::new(key2));
         assert_eq!(r2.decrypt(&r2.encrypt(&pt2)), pt2);
 
         // Pair 3: all-high-bit pattern
@@ -687,7 +697,7 @@ mod tests {
             0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88,
             0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00,
         ];
-        let r3 = Rijndael::new(&key3);
+        let r3 = Rijndael::new(&Secret::new(key3));
         assert_eq!(r3.decrypt(&r3.encrypt(&pt3)), pt3);
     }
 
@@ -704,7 +714,7 @@ mod tests {
             0xDC, 0x11, 0x85, 0x97, 0x19, 0x6A, 0x0B, 0x32,
         ];
 
-        let rij = Rijndael::new(&key);
+        let rij = Rijndael::new(&Secret::new(key));
         let decrypted = rij.decrypt(&ciphertext);
         assert_ne!(
             decrypted, ciphertext,
@@ -716,7 +726,7 @@ mod tests {
     /// Verifies decrypt inverts encrypt even for the zero key.
     #[test]
     fn zero_key_round_trip() {
-        let rij = Rijndael::new(&[0u8; 16]);
+        let rij = Rijndael::new(&Secret::new([0u8; 16]));
         let ct = [
             0x66, 0xE9, 0x4B, 0xD4, 0xEF, 0x8A, 0x2C, 0x3B,
             0x88, 0x4C, 0xFA, 0x59, 0xCA, 0x34, 0x2B, 0x2E,
@@ -739,7 +749,7 @@ mod proptests {
         // Encrypt/decrypt roundtrip: decrypt(encrypt(pt, key), key) == pt.
         #[test]
         fn encrypt_decrypt_roundtrip(key in any::<[u8; 16]>(), pt in any::<[u8; 16]>()) {
-            let cipher = Rijndael::new(&key);
+            let cipher = Rijndael::new(&Secret::new(key));
             let ct = cipher.encrypt(&pt);
             let recovered = cipher.decrypt(&ct);
             prop_assert_eq!(recovered, pt);
@@ -755,8 +765,8 @@ mod proptests {
             pt in any::<[u8; 16]>(),
         ) {
             prop_assume!(k1 != k2);
-            let c1 = Rijndael::new(&k1).encrypt(&pt);
-            let c2 = Rijndael::new(&k2).encrypt(&pt);
+            let c1 = Rijndael::new(&Secret::new(k1)).encrypt(&pt);
+            let c2 = Rijndael::new(&Secret::new(k2)).encrypt(&pt);
             prop_assert_ne!(c1, c2, "different keys must produce different ciphertext");
         }
     }
@@ -771,7 +781,7 @@ mod proptests {
             pt2 in any::<[u8; 16]>(),
         ) {
             prop_assume!(pt1 != pt2);
-            let cipher = Rijndael::new(&key);
+            let cipher = Rijndael::new(&Secret::new(key));
             let c1 = cipher.encrypt(&pt1);
             let c2 = cipher.encrypt(&pt2);
             prop_assert_ne!(c1, c2, "encrypt must be a bijection: different plaintexts => different ciphertexts");
@@ -797,17 +807,17 @@ mod ct_validation {
     fn test_aes_encrypt_ct() {
         let outcome = ct_test(0xAE5E_0CC7,
             |rng| {
-                let key = [0u8; 16];
+                let key = Secret::new([0u8; 16]);
                 let mut plaintext = [0u8; 16];
                 rng.fill_bytes(&mut plaintext);
                 (key, plaintext)
             },
             |rng| {
-                let mut key = [0u8; 16];
-                rng.fill_bytes(&mut key);
+                let mut key_bytes = [0u8; 16];
+                rng.fill_bytes(&mut key_bytes);
                 let mut plaintext = [0u8; 16];
                 rng.fill_bytes(&mut plaintext);
-                (key, plaintext)
+                (Secret::new(key_bytes), plaintext)
             },
             |(key, plaintext)| {
                 let cipher = Rijndael::new(key);
@@ -829,17 +839,17 @@ mod ct_validation {
     fn test_aes_decrypt_ct() {
         let outcome = ct_test(0xAE5D_ECC7,
             |rng| {
-                let key = [0u8; 16];
+                let key = Secret::new([0u8; 16]);
                 let mut ciphertext = [0u8; 16];
                 rng.fill_bytes(&mut ciphertext);
                 (key, ciphertext)
             },
             |rng| {
-                let mut key = [0u8; 16];
-                rng.fill_bytes(&mut key);
+                let mut key_bytes = [0u8; 16];
+                rng.fill_bytes(&mut key_bytes);
                 let mut ciphertext = [0u8; 16];
                 rng.fill_bytes(&mut ciphertext);
-                (key, ciphertext)
+                (Secret::new(key_bytes), ciphertext)
             },
             |(key, ciphertext)| {
                 let cipher = Rijndael::new(key);

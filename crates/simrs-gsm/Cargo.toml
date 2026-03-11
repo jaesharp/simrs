@@ -6,18 +6,22 @@ license.workspace = true
 description = "GSM 11.11 SIM application layer (A3/A8, SELECT response) -- no_std"
 
 [features]
-default = ["profile-standard"]
+default = ["profile-standard", "redact-secrets-in-logs"]
 
 # Profile tiers (additive)
 profile-minimal  = []   # IMSI, Kc, LOCI, ACC, SST (9 EFs, FsData<256, 16>)
 profile-standard = []   # Full GSM 11.11 EF set (19 EFs, FsData<1024, 32>)
 profile-full     = []   # TCA eUICC profile trees (160 EFs, FsData<8192, 160>)
 
+redact-secrets-in-logs = ["simrs-redact/redact-secrets-in-logs"]
+
 [dependencies]
 simrs-iso7816 = { workspace = true }
 simrs-comp128 = { workspace = true }
 simrs-fs      = { workspace = true }
 simrs-pin     = { workspace = true }
+simrs-secret  = { workspace = true }
+simrs-redact  = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
