@@ -95,14 +95,16 @@ pub fn aes128_ctr(key: &Secret<[u8; 16]>, iv: &[u8; 16], input: &[u8], output: &
 ///
 /// Always processes all 16 bytes using a carry mask to avoid
 /// data-dependent branches on the counter value.
-fn increment_counter(ctr: &mut [u8; 16]) {
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+const fn increment_counter(ctr: &mut [u8; 16]) {
     // Process from LSB to MSB. carry starts at 1 (the increment).
     let mut carry: u16 = 1;
     let mut i: usize = 16;
     while i > 0 {
         i -= 1;
+        // Note: `as u16` is used because `u16::from()` is not available in const fn.
         let sum = ctr[i] as u16 + carry;
-        ctr[i] = sum as u8;
+        ctr[i] = sum as u8; // intentional truncation: keep low 8 bits
         carry = sum >> 8;
     }
 }
@@ -120,7 +122,7 @@ pub const MAX_PLAINTEXT_LEN: usize = 16;
 /// AES-128-CTR encrypt `plaintext` with `enc_key`/`iv`, then compute
 /// HMAC-SHA-256(`mac_key`, ciphertext) truncated to 8 bytes.
 ///
-/// Returns (ciphertext_buf, plaintext_len, mac_tag).
+/// Returns (`ciphertext_buf`, `plaintext_len`, `mac_tag`).
 fn encrypt_and_mac(
     enc_key: &Secret<[u8; 16]>,
     iv: &[u8; 16],
@@ -163,9 +165,9 @@ pub struct EciesProfileAResult {
 ///
 /// Encrypts `plaintext` (the MSIN portion of the SUPI) using:
 /// 1. ECDH: X25519(`ephemeral_sk`, `hn_pubkey`) to derive a shared secret
-/// 2. KDF: ANSI X9.63 KDF (SHA-256), SharedInfo = ephemeral public key (32 bytes, no prefix)
-/// 3. KDF output 64 bytes: enc_key(16) || ICB(16) || mac_key(32)
-/// 4. AES-128-CTR encryption with derived enc_key and ICB
+/// 2. KDF: ANSI X9.63 KDF (SHA-256), `SharedInfo` = ephemeral public key (32 bytes, no prefix)
+/// 3. KDF output 64 bytes: `enc_key`(16) || ICB(16) || `mac_key`(32)
+/// 4. AES-128-CTR encryption with derived `enc_key` and ICB
 /// 5. HMAC-SHA-256 MAC over the ciphertext (truncated to 64 bits)
 ///
 /// The `ephemeral_sk` must be a fresh random 32-byte secret key.
@@ -174,6 +176,7 @@ pub struct EciesProfileAResult {
 /// # Panics
 ///
 /// Panics if `plaintext.len() > 16`.
+#[allow(clippy::similar_names)]
 pub fn ecies_profile_a_encrypt(
     hn_pubkey: &[u8; 32],
     plaintext: &[u8],
@@ -242,8 +245,8 @@ pub struct EciesProfileBResult {
 ///
 /// Encrypts `plaintext` (the MSIN portion of the SUPI) using:
 /// 1. ECDH: P-256(`ephemeral_sk`, `hn_pubkey`) to derive a shared secret
-/// 2. KDF: ANSI X9.63 KDF with SHA-256, SharedInfo = compressed ephemeral pubkey
-/// 3. AES-128-CTR encryption with derived enc_key and ICB
+/// 2. KDF: ANSI X9.63 KDF with SHA-256, `SharedInfo` = compressed ephemeral pubkey
+/// 3. AES-128-CTR encryption with derived `enc_key` and ICB
 /// 4. HMAC-SHA-256 MAC over the ciphertext (truncated to 64 bits)
 ///
 /// The `ephemeral_sk` must be a valid P-256 private key (32 bytes, big-endian,
@@ -256,6 +259,7 @@ pub struct EciesProfileBResult {
 /// Panics if `plaintext.len() > 16`, if the ECDH shared secret computation
 /// fails (invalid HN public key or degenerate shared point), or if the
 /// ephemeral private key is invalid.
+#[allow(clippy::similar_names)]
 pub fn ecies_profile_b_encrypt(
     hn_pubkey: &[u8; 65],
     plaintext: &[u8],

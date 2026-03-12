@@ -470,10 +470,7 @@ impl TuakParams {
     /// Returns `true` on success.
     #[must_use]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
-        match Self::from_snapshot(buf) {
-            Some(new) => { *self = new; true }
-            None => false,
-        }
+        Self::from_snapshot(buf).is_some_and(|new| { *self = new; true })
     }
 }
 

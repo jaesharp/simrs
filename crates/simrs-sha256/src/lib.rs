@@ -113,7 +113,7 @@ pub struct Sha256 {
     state: [u32; 8],
     /// Partial block buffer.
     buf: [u8; BLOCK_SIZE],
-    /// Number of bytes buffered in `buf` (always < BLOCK_SIZE).
+    /// Number of bytes buffered in `buf` (always < `BLOCK_SIZE`).
     buf_len: usize,
     /// Total message length in bytes.
     total_len: u64,
@@ -197,14 +197,7 @@ impl Sha256 {
         }
 
         // Append 64-bit big-endian bit length.
-        self.buf[56] = (bit_len >> 56) as u8;
-        self.buf[57] = (bit_len >> 48) as u8;
-        self.buf[58] = (bit_len >> 40) as u8;
-        self.buf[59] = (bit_len >> 32) as u8;
-        self.buf[60] = (bit_len >> 24) as u8;
-        self.buf[61] = (bit_len >> 16) as u8;
-        self.buf[62] = (bit_len >> 8) as u8;
-        self.buf[63] = bit_len as u8;
+        self.buf[56..64].copy_from_slice(&bit_len.to_be_bytes());
 
         let block = self.buf;
         compress(&mut self.state, &block);
@@ -213,14 +206,20 @@ impl Sha256 {
         let mut out = [0u8; 32];
         let mut j = 0;
         while j < 8 {
-            let w = self.state[j];
-            out[j * 4] = (w >> 24) as u8;
-            out[j * 4 + 1] = (w >> 16) as u8;
-            out[j * 4 + 2] = (w >> 8) as u8;
-            out[j * 4 + 3] = w as u8;
+            let bytes = self.state[j].to_be_bytes();
+            out[j * 4] = bytes[0];
+            out[j * 4 + 1] = bytes[1];
+            out[j * 4 + 2] = bytes[2];
+            out[j * 4 + 3] = bytes[3];
             j += 1;
         }
         out
+    }
+}
+
+impl Default for Sha256 {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -243,7 +242,8 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 // ---------------------------------------------------------------------------
 
 /// Process one 512-bit (64-byte) block.
-fn compress(state: &mut [u32; 8], block: &[u8; BLOCK_SIZE]) {
+#[allow(clippy::cast_lossless)]
+const fn compress(state: &mut [u32; 8], block: &[u8; BLOCK_SIZE]) {
     // 1. Prepare the message schedule W.
     let mut w = [0u32; 64];
 
@@ -251,6 +251,8 @@ fn compress(state: &mut [u32; 8], block: &[u8; BLOCK_SIZE]) {
     let mut t = 0;
     while t < 16 {
         let base = t * 4;
+        // Note: `as u32` is used instead of `u32::from()` because
+        // `From::from()` is not available in const fn on stable Rust.
         w[t] = (block[base] as u32) << 24
             | (block[base + 1] as u32) << 16
             | (block[base + 2] as u32) << 8

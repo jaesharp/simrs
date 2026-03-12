@@ -1088,10 +1088,7 @@ impl MilenageParams {
     /// Returns `true` on success.
     #[must_use]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
-        match Self::from_snapshot(buf) {
-            Some(new) => { *self = new; true }
-            None => false,
-        }
+        Self::from_snapshot(buf).is_some_and(|new| { *self = new; true })
     }
 }
 
@@ -1105,13 +1102,13 @@ impl AuthenticationOutput {
     pub const fn res(&self) -> [u8; 8] { self.response }
     /// Deprecated: use field `cipher_key` directly.
     #[deprecated(note = "use field `cipher_key` -- CK is the 3GPP abbreviation for Cipher Key")]
-    pub fn ck(&self) -> [u8; 16] { *self.cipher_key.declassify() }
+    pub const fn ck(&self) -> [u8; 16] { *self.cipher_key.declassify() }
     /// Deprecated: use field `integrity_key` directly.
     #[deprecated(note = "use field `integrity_key` -- IK is the 3GPP abbreviation for Integrity Key")]
-    pub fn ik(&self) -> [u8; 16] { *self.integrity_key.declassify() }
+    pub const fn ik(&self) -> [u8; 16] { *self.integrity_key.declassify() }
     /// Deprecated: use field `gsm_cipher_key` directly.
     #[deprecated(note = "use field `gsm_cipher_key` -- Kc is the 3GPP abbreviation for GSM Cipher Key")]
-    pub fn kc(&self) -> [u8; 8] { *self.gsm_cipher_key.declassify() }
+    pub const fn kc(&self) -> [u8; 8] { *self.gsm_cipher_key.declassify() }
 }
 
 impl AuthenticationError {

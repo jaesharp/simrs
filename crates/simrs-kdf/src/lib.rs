@@ -173,7 +173,9 @@ pub fn kdf<K: AsRef<[u8]>>(key: &Secret<K>, fc: u8, params: &[&[u8]]) -> [u8; 32
         mac.update(p);
         let len = p.len();
         assert!(len <= 0xFFFF, "KDF parameter too long");
-        mac.update(&[(len >> 8) as u8, len as u8]);
+        #[allow(clippy::cast_possible_truncation)] // guarded by assert above
+        let len16 = len as u16;
+        mac.update(&len16.to_be_bytes());
     }
 
     mac.finalize()
@@ -183,7 +185,7 @@ pub fn kdf<K: AsRef<[u8]>>(key: &Secret<K>, fc: u8, params: &[&[u8]]) -> [u8; 32
 // 4G EPS-AKA key derivations (TS 33.401 Annex A)
 // ---------------------------------------------------------------------------
 
-/// Derive K_ASME from CK, IK, PLMN-ID, and SQN XOR AK.
+/// Derive `K_ASME` from CK, IK, PLMN-ID, and SQN XOR AK.
 ///
 /// Per [TS 33.401](../../../docs/specs/3gpp/ts-33.401/ts_133401v180300p.pdf) Annex A.2:
 /// - FC = 0x10
@@ -202,7 +204,7 @@ pub fn derive_kasme(
     kdf(&Secret::new(key), 0x10, &[plmn_id, sqn_xor_ak])
 }
 
-/// Derive K_eNB from K_ASME and uplink NAS count.
+/// Derive `K_eNB` from `K_ASME` and uplink NAS count.
 ///
 /// Per [TS 33.401](../../../docs/specs/3gpp/ts-33.401/ts_133401v180300p.pdf) Annex A.3:
 /// - FC = 0x11
@@ -220,12 +222,12 @@ pub fn derive_kenb(kasme: &[u8; 32], ul_nas_count: u32) -> [u8; 32] {
 /// - P1 = algorithm identity (1 byte)
 ///
 /// Algorithm type distinguishers:
-/// - 0x01: NAS encryption (K_NASenc)
-/// - 0x02: NAS integrity (K_NASint)
-/// - 0x03: RRC encryption (K_RRCenc)
-/// - 0x04: RRC integrity (K_RRCint)
-/// - 0x05: UP encryption (K_UPenc)
-/// - 0x06: UP integrity (K_UPint)
+/// - 0x01: NAS encryption (`K_NASenc`)
+/// - 0x02: NAS integrity (`K_NASint`)
+/// - 0x03: RRC encryption (`K_RRCenc`)
+/// - 0x04: RRC integrity (`K_RRCint`)
+/// - 0x05: UP encryption (`K_UPenc`)
+/// - 0x06: UP integrity (`K_UPint`)
 pub fn derive_algorithm_key(
     key: &[u8; 32],
     alg_distinguisher: u8,
@@ -238,7 +240,7 @@ pub fn derive_algorithm_key(
 // 5G NR key derivations (TS 33.501 Annex A)
 // ---------------------------------------------------------------------------
 
-/// Derive K_AUSF from CK', IK', serving network name, and SQN XOR AK.
+/// Derive `K_AUSF` from CK', IK', serving network name, and SQN XOR AK.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.2:
 /// - FC = 0x6A
@@ -287,7 +289,7 @@ pub fn derive_res_star(
     out
 }
 
-/// Derive K_SEAF from K_AUSF and serving network name.
+/// Derive `K_SEAF` from `K_AUSF` and serving network name.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.6:
 /// - FC = 0x6C
@@ -296,7 +298,7 @@ pub fn derive_kseaf(kausf: &[u8; 32], snn: &[u8]) -> [u8; 32] {
     kdf(&Secret::new(*kausf), 0x6C, &[snn])
 }
 
-/// Derive K_AMF from K_SEAF, SUPI, and ABBA parameter.
+/// Derive `K_AMF` from `K_SEAF`, SUPI, and ABBA parameter.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.7:
 /// - FC = 0x6D
@@ -306,7 +308,7 @@ pub fn derive_kamf(kseaf: &[u8; 32], supi: &[u8], abba: &[u8]) -> [u8; 32] {
     kdf(&Secret::new(*kseaf), 0x6D, &[supi, abba])
 }
 
-/// Derive K_gNB from K_AMF, uplink NAS count, and access type.
+/// Derive `K_gNB` from `K_AMF`, uplink NAS count, and access type.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.9:
 /// - FC = 0x6E

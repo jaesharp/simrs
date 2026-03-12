@@ -44,7 +44,7 @@
 //!
 //! The implementation is structured so that field operations are isolated
 //! from point-level logic. This allows future replacement of the software
-//! field backend with hardware accelerators (e.g. ARM CryptoCell, hardware
+//! field backend with hardware accelerators (e.g. ARM `CryptoCell`, hardware
 //! PKA) without changing the point or ECDH layer.
 
 use simrs_consttime::{CtBool, CtEq, CtSelect, CtSwap, CtZero};
@@ -118,7 +118,7 @@ impl Fe {
     // -- Serialization -------------------------------------------------------
 
     /// Decode from 32-byte big-endian encoding (SEC 1 / X.690 convention).
-    fn from_bytes(b: &[u8; 32]) -> Self {
+    const fn from_bytes(b: &[u8; 32]) -> Self {
         Self([
             u64::from_be_bytes([b[24], b[25], b[26], b[27], b[28], b[29], b[30], b[31]]),
             u64::from_be_bytes([b[16], b[17], b[18], b[19], b[20], b[21], b[22], b[23]]),
@@ -143,7 +143,7 @@ impl Fe {
 
     /// Return true if this element is zero (not constant-time; only for
     /// validation paths, never on secret data).
-    fn is_zero(&self) -> bool {
+    const fn is_zero(&self) -> bool {
         self.0[0] == 0 && self.0[1] == 0 && self.0[2] == 0 && self.0[3] == 0
     }
 
@@ -162,7 +162,7 @@ impl Fe {
 
         // Use sum if borrow (sum < p), else use d (sum >= p).
         // c3 means the addition overflowed 256 bits, so sum >= p for sure.
-        let use_d = CtBool::from_u64_bit(c3 as u64 | (1 - borrow as u64));
+        let use_d = CtBool::from_u64_bit(u64::from(c3) | (1 - u64::from(borrow)));
         Self(<[u64; 4]>::ct_select(use_d, &d, &sum.0))
     }
 
@@ -170,10 +170,10 @@ impl Fe {
     fn sub(self, rhs: Self) -> Self {
         let (d, borrow) = sub_inner(self.0, rhs.0);
         // If borrow, add p back.
-        let (r0, c0) = d[0].overflowing_add(P[0] & 0u64.wrapping_sub(borrow as u64));
-        let (r1, c1) = d[1].carrying_add(P[1] & 0u64.wrapping_sub(borrow as u64), c0);
-        let (r2, c2) = d[2].carrying_add(P[2] & 0u64.wrapping_sub(borrow as u64), c1);
-        let (r3, _) = d[3].carrying_add(P[3] & 0u64.wrapping_sub(borrow as u64), c2);
+        let (r0, c0) = d[0].overflowing_add(P[0] & 0u64.wrapping_sub(u64::from(borrow)));
+        let (r1, c1) = d[1].carrying_add(P[1] & 0u64.wrapping_sub(u64::from(borrow)), c0);
+        let (r2, c2) = d[2].carrying_add(P[2] & 0u64.wrapping_sub(u64::from(borrow)), c1);
+        let (r3, _) = d[3].carrying_add(P[3] & 0u64.wrapping_sub(u64::from(borrow)), c2);
         Self([r0, r1, r2, r3])
     }
 
@@ -235,9 +235,7 @@ impl Fe {
         let e = e.square_n(32).mul(x32);               // word: FFFFFFFF
         // FFFFFFFD = (2^30-1)*4 + 1
         let e = e.square_n(30).mul(x30);
-        let e = e.square().square().mul(a);
-
-        e
+        e.square().square().mul(a)
     }
 
     /// Square root mod p: a^((p+1)/4).
@@ -311,8 +309,8 @@ impl CtSwap for Fe {
 // -- Wide multiplication and NIST reduction --------------------------------
 
 /// 4x4 schoolbook multiplication producing an 8-limb (512-bit) result.
-#[allow(clippy::cast_possible_truncation)]
-fn mul_wide(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+const fn mul_wide(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
     let mut r = [0u64; 8];
 
     // Process one row at a time: for each a[i], multiply by all b[j]
@@ -352,8 +350,8 @@ fn mul_wide(a: [u64; 4], b: [u64; 4]) -> [u64; 8] {
 ///   w4 = 2*a1*a3 + a2*a2
 ///   w5 = 2*a2*a3
 ///   w6 = a3*a3
-#[allow(clippy::cast_possible_truncation)]
-fn sqr_wide(a: [u64; 4]) -> [u64; 8] {
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+const fn sqr_wide(a: [u64; 4]) -> [u64; 8] {
     // Compute the 10 distinct products.
     let a0a0 = (a[0] as u128) * (a[0] as u128);
     let a0a1 = (a[0] as u128) * (a[1] as u128);
@@ -455,7 +453,7 @@ fn reduce(t: [u64; 8]) -> Fe {
     // t is in 64-bit limbs; we need 32-bit pieces c0..c15.
     let c = |idx: usize| -> u64 {
         let limb = t[idx / 2];
-        if idx % 2 == 0 {
+        if idx.is_multiple_of(2) {
             limb & 0xFFFFFFFF
         } else {
             limb >> 32
@@ -536,18 +534,18 @@ fn reduce(t: [u64; 8]) -> Fe {
 
 /// Add a 256-bit value (4 limbs) into a 5-limb signed accumulator.
 fn add_to_acc(acc: &mut [i128; 5], val: [u64; 4]) {
-    acc[0] += val[0] as i128;
-    acc[1] += val[1] as i128;
-    acc[2] += val[2] as i128;
-    acc[3] += val[3] as i128;
+    acc[0] += i128::from(val[0]);
+    acc[1] += i128::from(val[1]);
+    acc[2] += i128::from(val[2]);
+    acc[3] += i128::from(val[3]);
 }
 
 /// Subtract a 256-bit value from a 5-limb signed accumulator.
 fn sub_from_acc(acc: &mut [i128; 5], val: [u64; 4]) {
-    acc[0] -= val[0] as i128;
-    acc[1] -= val[1] as i128;
-    acc[2] -= val[2] as i128;
-    acc[3] -= val[3] as i128;
+    acc[0] -= i128::from(val[0]);
+    acc[1] -= i128::from(val[1]);
+    acc[2] -= i128::from(val[2]);
+    acc[3] -= i128::from(val[3]);
 }
 
 /// Normalize a signed accumulator to a field element mod p.
@@ -581,13 +579,13 @@ fn normalize_acc(mut acc: [i128; 5]) -> Fe {
 
     // One constant-time conditional subtraction: if r >= p, return r - p.
     let (d, borrow) = sub_inner(r, P);
-    let use_d = CtBool::from_u64_bit(1 - borrow as u64); // TRUE if r >= p
+    let use_d = CtBool::from_u64_bit(1 - u64::from(borrow)); // TRUE if r >= p
     Fe(<[u64; 4]>::ct_select(use_d, &d, &r))
 }
 
 /// Propagate signed carries through a 5-limb accumulator.
 /// After this, acc[0..4] are in [0, 2^64) and acc[4] holds the overflow.
-fn propagate_carries(acc: &mut [i128; 5]) {
+const fn propagate_carries(acc: &mut [i128; 5]) {
     let mut i = 0;
     while i < 4 {
         let carry = acc[i] >> 64;
@@ -606,7 +604,7 @@ fn propagate_carries(acc: &mut [i128; 5]) {
 ///   limb 1: -top << 32    (top * 2^32 in limb 1 = top * 2^(64+32) = top * 2^96)
 ///   limb 3: -top          (top * 2^0  in limb 3 = top * 2^192)
 ///   limb 3: +top << 32    (top * 2^32 in limb 3 = top * 2^(192+32) = top * 2^224)
-fn fold_top(acc: &mut [i128; 5]) {
+const fn fold_top(acc: &mut [i128; 5]) {
     let top = acc[4];
     acc[4] = 0;
     acc[0] += top;              // +top * 1
@@ -649,7 +647,7 @@ impl Point {
     };
 
     /// The generator point G.
-    fn generator() -> Self {
+    const fn generator() -> Self {
         Self {
             x: GX,
             y: GY,
@@ -658,7 +656,7 @@ impl Point {
     }
 
     /// Check if this is the point at infinity.
-    fn is_identity(&self) -> bool {
+    const fn is_identity(&self) -> bool {
         self.z.is_zero()
     }
 
@@ -812,7 +810,7 @@ impl CtSwap for Point {
 fn fe_reduce(raw: [u64; 4]) -> Fe {
     let (d, borrow) = sub_inner(raw, P);
     // borrow == true means raw < p, so keep raw; else keep d.
-    Fe(<[u64; 4]>::ct_select(CtBool::from_u64_bit(borrow as u64), &raw, &d))
+    Fe(<[u64; 4]>::ct_select(CtBool::from_u64_bit(u64::from(borrow)), &raw, &d))
 }
 
 /// Derive a non-zero field element from a 32-byte HMAC output.
@@ -871,8 +869,8 @@ fn blind_scalar(k: &[u8; 32], r: &[u8; 16]) -> [u8; 48] {
         let mut carry: u128 = 0;
         let mut j = 0;
         while j < 4 {
-            let wide = (r_limbs[i] as u128) * (N[j] as u128)
-                + (temp[i + j] as u128)
+            let wide = u128::from(r_limbs[i]) * u128::from(N[j])
+                + u128::from(temp[i + j])
                 + carry;
             temp[i + j] = wide as u64;
             carry = wide >> 64;
@@ -895,7 +893,7 @@ fn blind_scalar(k: &[u8; 32], r: &[u8; 16]) -> [u8; 48] {
     i = 0;
     while i < 6 {
         let kv = if i < 4 { k_limbs[i] } else { 0 };
-        let sum = (temp[i] as u128) + (kv as u128) + carry;
+        let sum = u128::from(temp[i]) + u128::from(kv) + carry;
         temp[i] = sum as u64;
         carry = sum >> 64;
         i += 1;
@@ -924,16 +922,15 @@ fn scalar_mul_wide(k: &[u8; 48], p: Point) -> Point {
 
     let mut byte_idx: usize = 0;
     while byte_idx < 48 {
-        let mut bit: i8 = 7;
-        while bit >= 0 {
-            let ki = ((k[byte_idx] >> bit as u32) & 1) as u64;
+        let mut bit: u32 = 8;
+        while bit > 0 {
+            bit -= 1;
+            let ki = u64::from((k[byte_idx] >> bit) & 1);
 
             Point::ct_swap(&mut r0, &mut r1, CtBool::from_u64_bit(ki));
             r1 = r0.add(r1);
             r0 = r0.double();
             Point::ct_swap(&mut r0, &mut r1, CtBool::from_u64_bit(ki));
-
-            bit -= 1;
         }
         byte_idx += 1;
     }
@@ -1088,7 +1085,7 @@ pub(crate) fn decode_point_compressed(bytes: &[u8; 33]) -> Option<Point> {
     let y_bytes = y.to_bytes();
     let got_odd = y_bytes[31] & 1 == 1;
 
-    let y = if got_odd != y_is_odd { y.neg() } else { y };
+    let y = if got_odd == y_is_odd { y } else { y.neg() };
 
     Some(Point { x, y, z: Fe::ONE })
 }
@@ -1098,7 +1095,7 @@ pub(crate) fn decode_point_compressed(bytes: &[u8; 33]) -> Option<Point> {
 // ---------------------------------------------------------------------------
 
 /// Check if a scalar is zero.
-fn scalar_is_zero(k: &[u8; 32]) -> bool {
+const fn scalar_is_zero(k: &[u8; 32]) -> bool {
     let mut acc = 0u8;
     let mut i = 0;
     while i < 32 {
@@ -1129,7 +1126,7 @@ fn scalar_gte_n(k: &[u8; 32]) -> bool {
     let mut borrow: u16 = 0;
     let mut i: usize = 31;
     loop {
-        let diff = (k[i] as u16).wrapping_sub(n_bytes[i] as u16).wrapping_sub(borrow);
+        let diff = u16::from(k[i]).wrapping_sub(u16::from(n_bytes[i])).wrapping_sub(borrow);
         borrow = (diff >> 8) & 1;
         if i == 0 {
             break;

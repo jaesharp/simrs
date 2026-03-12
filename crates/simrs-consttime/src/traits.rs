@@ -336,7 +336,7 @@ pub const fn ct_mux_u64(cond: CtBool, a: u64, b: u64) -> u64 {
 
 /// Constant-time conditional swap for `u64`.
 #[inline]
-pub fn ct_swap_u64(a: &mut u64, b: &mut u64, cond: CtBool) {
+pub const fn ct_swap_u64(a: &mut u64, b: &mut u64, cond: CtBool) {
     let mask = cond.as_u64_mask();
     let t = mask & (*a ^ *b);
     *a ^= t;

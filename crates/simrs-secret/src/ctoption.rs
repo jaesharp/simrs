@@ -23,26 +23,16 @@ use simrs_consttime::{CtBool, CtEq, CtSelect};
 /// assert!(some_val.is_some().into_bool());
 /// assert!(none_val.is_none().into_bool());
 /// ```
+#[derive(Clone, Copy)]
 pub struct CtOption<T> {
     value: T,
     is_some: CtBool,
 }
 
-impl<T: Clone> Clone for CtOption<T> {
-    fn clone(&self) -> Self {
-        Self {
-            value: self.value.clone(),
-            is_some: self.is_some,
-        }
-    }
-}
-
-impl<T: Copy> Copy for CtOption<T> {}
-
 impl<T> CtOption<T> {
     /// Create a `CtOption` containing a value.
     #[inline]
-    pub fn some(value: T) -> Self {
+    pub const fn some(value: T) -> Self {
         Self {
             value,
             is_some: CtBool::TRUE,
@@ -54,7 +44,7 @@ impl<T> CtOption<T> {
     /// A default value is required because the value must always be present
     /// in memory (no alloc, no branch on the discriminant).
     #[inline]
-    pub fn none_with(default: T) -> Self {
+    pub const fn none_with(default: T) -> Self {
         Self {
             value: default,
             is_some: CtBool::FALSE,
@@ -63,13 +53,13 @@ impl<T> CtOption<T> {
 
     /// Returns `CtBool::TRUE` if this option contains a value.
     #[inline]
-    pub fn is_some(&self) -> CtBool {
+    pub const fn is_some(&self) -> CtBool {
         self.is_some
     }
 
     /// Returns `CtBool::TRUE` if this option is "none".
     #[inline]
-    pub fn is_none(&self) -> CtBool {
+    pub const fn is_none(&self) -> CtBool {
         self.is_some.not()
     }
 
@@ -105,8 +95,8 @@ impl<T: CtSelect> CtOption<T> {
     ///
     /// Uses constant-time select -- both paths execute.
     #[inline]
-    pub fn ct_unwrap_or(self, default: T) -> T {
-        T::ct_select(self.is_some, &self.value, &default)
+    pub fn ct_unwrap_or(&self, default: &T) -> T {
+        T::ct_select(self.is_some, &self.value, default)
     }
 
     /// Combine two `CtOption`s: returns `other` when `self` is "some",
@@ -114,7 +104,8 @@ impl<T: CtSelect> CtOption<T> {
     ///
     /// Uses constant-time select on the value.
     #[inline]
-    pub fn ct_and(self, other: Self) -> Self {
+    #[must_use]
+    pub fn ct_and(&self, other: &Self) -> Self {
         Self {
             value: T::ct_select(self.is_some, &other.value, &self.value),
             is_some: self.is_some.and(other.is_some),
@@ -191,13 +182,13 @@ mod tests {
     #[test]
     fn ct_unwrap_or_some() {
         let opt = CtOption::some(42u8);
-        assert_eq!(opt.ct_unwrap_or(99), 42);
+        assert_eq!(opt.ct_unwrap_or(&99), 42);
     }
 
     #[test]
     fn ct_unwrap_or_none() {
         let opt = CtOption::<u8>::none_with(0);
-        assert_eq!(opt.ct_unwrap_or(99), 99);
+        assert_eq!(opt.ct_unwrap_or(&99), 99);
     }
 
     #[test]
@@ -216,7 +207,7 @@ mod tests {
     fn ct_and_both_some() {
         let a = CtOption::some([1u8; 4]);
         let b = CtOption::some([2u8; 4]);
-        let result = a.ct_and(b);
+        let result = a.ct_and(&b);
         assert!(result.is_some().into_bool());
         assert_eq!(result.into_option(), Some([2u8; 4]));
     }
@@ -225,7 +216,7 @@ mod tests {
     fn ct_and_first_none() {
         let a = CtOption::<[u8; 4]>::none_with([0; 4]);
         let b = CtOption::some([2u8; 4]);
-        let result = a.ct_and(b);
+        let result = a.ct_and(&b);
         assert!(!result.is_some().into_bool());
     }
 
@@ -233,7 +224,7 @@ mod tests {
     fn ct_and_second_none() {
         let a = CtOption::some([1u8; 4]);
         let b = CtOption::<[u8; 4]>::none_with([0; 4]);
-        let result = a.ct_and(b);
+        let result = a.ct_and(&b);
         assert!(!result.is_some().into_bool());
     }
 
@@ -241,7 +232,7 @@ mod tests {
     fn ct_and_both_none() {
         let a = CtOption::<[u8; 4]>::none_with([0; 4]);
         let b = CtOption::<[u8; 4]>::none_with([0; 4]);
-        let result = a.ct_and(b);
+        let result = a.ct_and(&b);
         assert!(!result.is_some().into_bool());
     }
 
@@ -324,10 +315,10 @@ mod proptests {
         #[test]
         fn ct_unwrap_or_roundtrip(data in any::<[u8; 8]>(), default in any::<[u8; 8]>()) {
             let some_opt = CtOption::some(data);
-            prop_assert_eq!(some_opt.ct_unwrap_or(default), data);
+            prop_assert_eq!(some_opt.ct_unwrap_or(&default), data);
 
             let none_opt = CtOption::<[u8; 8]>::none_with([0; 8]);
-            prop_assert_eq!(none_opt.ct_unwrap_or(default), default);
+            prop_assert_eq!(none_opt.ct_unwrap_or(&default), default);
         }
     }
 

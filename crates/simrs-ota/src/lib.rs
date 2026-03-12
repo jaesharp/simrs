@@ -106,8 +106,9 @@ pub enum CryptoAlgo {
 // SPI (Security Parameter Indicator)
 // ---------------------------------------------------------------------------
 
-/// Security Parameter Indicator (SPI) -- [ETSI TS 102 225 V19.0.0 clause 5.1.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A124%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C514%5D).
+/// Security Parameter Indicator (SPI).
 ///
+/// [ETSI TS 102 225 V19.0.0 clause 5.1.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A124%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C514%5D).
 /// Two bytes controlling the security applied to a command or response packet.
 ///
 /// ```
@@ -170,8 +171,9 @@ impl Spi {
 // KIc / KID (Key Identifier)
 // ---------------------------------------------------------------------------
 
-/// Key Identifier byte (KIc or KID) -- [ETSI TS 102 225 V19.0.0 clause 5.1.2](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A126%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C430%5D).
+/// Key Identifier byte (KIc or KID).
 ///
+/// [ETSI TS 102 225 V19.0.0 clause 5.1.2](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A126%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C430%5D).
 /// Encodes both the cryptographic algorithm and the key index used for
 /// ciphering (KIc) or integrity (KID).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,8 +222,9 @@ const HEADER_SIZE: usize = 13;
 /// Size of the pre-TAR portion: SPI(2) + KIc(1) + KID(1) = 4.
 const PRE_TAR_SIZE: usize = 4;
 
-/// Command packet header -- [ETSI TS 102 225 V19.0.0 clause 5.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A118%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
+/// Command packet header.
 ///
+/// [ETSI TS 102 225 V19.0.0 clause 5.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A118%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
 /// Contains the security parameters, key identifiers, target application
 /// reference (TAR), replay counter, and padding counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,8 +267,9 @@ impl Default for CommandPacketHeader {
 // Remote APDU (ETSI TS 102 226 V19.0.0)
 // ---------------------------------------------------------------------------
 
-/// Remote APDU command structure per [ETSI TS 102 226 V19.0.0 clause 5.2.1](../../../docs/specs/etsi/ts-102-226/ts_102226v190000p.pdf#%5B%7B%22num%22%3A176%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C472%5D).
+/// Remote APDU command structure.
 ///
+/// Per [ETSI TS 102 226 V19.0.0 clause 5.2.1](../../../docs/specs/etsi/ts-102-226/ts_102226v190000p.pdf#%5B%7B%22num%22%3A176%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C472%5D).
 /// Used to encode remote file management or applet management commands
 /// that are transported inside an OTA command packet.
 #[derive(Debug, Clone)]
@@ -471,8 +475,9 @@ fn aes_cbc_decrypt(key: &Secret<[u8; 16]>, data: &mut [u8]) {
 /// MAC size in bytes (8-byte CC per [ETSI TS 102 225 V19.0.0 Annex B](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf) for AES).
 const CC_SIZE: usize = 8;
 
-/// Encode a command packet per [ETSI TS 102 225 V19.0.0 clause 5.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A118%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
+/// Encode a command packet.
 ///
+/// Per [ETSI TS 102 225 V19.0.0 clause 5.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A118%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
 /// The packet layout in `buf` is:
 /// ```text
 /// CPL(2) | CHL(1) | SPI(2) | KIc(1) | KID(1) | TAR(3) | CNTR(5) | PCNTR(1) | CC(8)? | data...
@@ -634,8 +639,9 @@ pub fn encode_command_packet(
 // Command packet decoding (ETSI TS 102 225 V19.0.0 clause 5.1)
 // ---------------------------------------------------------------------------
 
-/// Decode and verify a command packet per [ETSI TS 102 225 V19.0.0 clause 5.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A118%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
+/// Decode and verify a command packet.
 ///
+/// Per [ETSI TS 102 225 V19.0.0 clause 5.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A118%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
 /// Encoding order is MAC-then-encrypt, so decoding is decrypt-then-verify-MAC.
 ///
 /// - `packet`: The complete received packet bytes.
@@ -758,8 +764,9 @@ pub fn decode_command_packet(
 // Response packet encoding (ETSI TS 102 225 V19.0.0 clause 5.2)
 // ---------------------------------------------------------------------------
 
-/// Encode a response packet per [ETSI TS 102 225 V19.0.0 clause 5.2](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A143%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
+/// Encode a response packet.
 ///
+/// Per [ETSI TS 102 225 V19.0.0 clause 5.2](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A143%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 /// Layout:
 /// ```text
 /// RPL(2) | RHL(1) | TAR(3) | CNTR(5) | PCNTR(1) | STATUS(1) | CC(8)? | data...

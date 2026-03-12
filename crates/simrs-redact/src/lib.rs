@@ -37,8 +37,8 @@
 //!
 //! [`Secret<T>`](https://docs.rs/simrs-secret) delegates its `Debug` and
 //! `Display` impls to `Redact`, so all secret-wrapped values automatically
-//! follow the active redaction profile. Raw byte-array fields (e.g. OPc,
-//! TOPc) that aren't wrapped in `Secret` can use `Redact` directly.
+//! follow the active redaction profile. Raw byte-array fields (e.g. `OPc`,
+//! `TOPc`) that aren't wrapped in `Secret` can use `Redact` directly.
 //!
 //! # `no_std`, `no_alloc`
 //! This crate uses no heap. All operations are performed on stack values.

@@ -82,24 +82,28 @@ impl CtBool {
 
     /// Constant-time NOT.
     #[inline]
+    #[must_use]
     pub const fn not(self) -> Self {
         Self(self.0 ^ 1)
     }
 
     /// Constant-time AND.
     #[inline]
+    #[must_use]
     pub const fn and(self, other: Self) -> Self {
         Self(self.0 & other.0)
     }
 
     /// Constant-time OR.
     #[inline]
+    #[must_use]
     pub const fn or(self, other: Self) -> Self {
         Self(self.0 | other.0)
     }
 
     /// Constant-time XOR.
     #[inline]
+    #[must_use]
     pub const fn xor(self, other: Self) -> Self {
         Self(self.0 ^ other.0)
     }

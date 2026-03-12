@@ -98,6 +98,7 @@ pub mod ins {
     /// UPDATE RECORD. [ETSI TS 102 221 V18.3.0 clause 11.1.6](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A367%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
     pub const UPDATE_RECORD: u8 = 0xDC;
     /// GET RESPONSE. [ETSI TS 102 221 V18.3.0 clause 12.1.1](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A483%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C655%5D).
+    ///
     /// (Moved from clause 11 to supplemental chapter 12 in V18.0.0.)
     pub const GET_RESPONSE: u8 = 0xC0;
     /// VERIFY (PIN). [ETSI TS 102 221 V18.3.0 clause 11.1.9](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A375%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C454%5D).
@@ -136,7 +137,9 @@ pub mod ins {
     pub const ACTIVATE_FILE: u8 = 0x44;
     /// TERMINAL CAPABILITY. [ETSI TS 102 221 V18.3.0 clause 11.1.19](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A402%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C538%5D).
     pub const TERMINAL_CAPABILITY: u8 = 0xAA;
-    /// GET IDENTITY. [ETSI TS 102 221 V18.3.0 clause 11.1.20](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf) /
+    /// GET IDENTITY.
+    ///
+    /// [ETSI TS 102 221 V18.3.0 clause 11.1.20](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf) /
     /// [3GPP TS 31.102 V19.4.0 clause 7.5](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf).
     pub const GET_IDENTITY: u8 = 0x78;
 }

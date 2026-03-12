@@ -2,7 +2,7 @@
 //!
 //! Provides a two-class test pattern with a deterministic PRNG, powered by
 //! tacet's adaptive Bayesian methodology and platform-specific high-resolution
-//! timers (rdtsc on x86_64, ~0.3ns resolution).
+//! timers (rdtsc on `x86_64`, ~0.3ns resolution).
 //!
 //! # Usage
 //!
@@ -22,7 +22,7 @@
 //! # Methodology
 //!
 //! tacet uses an adaptive Bayesian approach (rather than the frequentist
-//! Welch's t-test from DudeCT) to determine whether two input classes produce
+//! Welch's t-test from `DudeCT`) to determine whether two input classes produce
 //! statistically different execution times. The test runs adaptively up to a
 //! time budget, reporting:
 //!
@@ -106,7 +106,7 @@ impl Rng {
 /// generation. Class 0 is seeded with `seed`, class 1 with `seed + 1`,
 /// producing independent sequences. The oracle uses `AdjacentNetwork`
 /// attacker model (100ns exploitability threshold) and a 10-second time
-/// budget (tacet default is 60s; 10s is sufficient for AdjacentNetwork
+/// budget (tacet default is 60s; 10s is sufficient for `AdjacentNetwork`
 /// because the model's coarse threshold converges quickly).
 ///
 /// tacet pre-generates all inputs before measurement begins, so the RNG

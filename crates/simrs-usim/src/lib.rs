@@ -218,7 +218,7 @@ impl SuciState {
     /// Create a new SUCI computation state with the given DRBG seed.
     ///
     /// The counter starts at zero and advances with each GET IDENTITY call.
-    pub fn new(seed: SuciSeed) -> Self {
+    pub const fn new(seed: SuciSeed) -> Self {
         Self { seed, counter: 0 }
     }
 
@@ -237,8 +237,9 @@ impl SuciState {
 // AuthenticationResult
 // ---------------------------------------------------------------------------
 
-/// AUTHENTICATE command result per [3GPP TS 31.102 V19.4.0 clause 7.1.2.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A754%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C330%5D).
+/// AUTHENTICATE command result.
 ///
+/// Per [3GPP TS 31.102 V19.4.0 clause 7.1.2.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A754%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C330%5D).
 /// Encodes the three possible outcomes of UMTS AUTHENTICATE:
 /// - Success: RES, CK, IK returned in tag 0xDB
 /// - Sync failure: AUTS returned in tag 0xDC for resynchronization
@@ -581,7 +582,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// The filesystem must contain `EF_SUCI_CALC_INFO`, `EF_IMSI`, `EF_AD`,
     /// and `EF_ROUTING_INDICATOR`; if any are missing, GET IDENTITY returns
     /// SW 69 85 (conditions not satisfied) at runtime.
-    pub fn suci_mut(&mut self) -> &mut Option<SuciState> {
+    pub const fn suci_mut(&mut self) -> &mut Option<SuciState> {
         &mut self.suci
     }
 
@@ -1436,7 +1437,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ///
     /// P2=0x01 is the SUCI context. Returns the SUCI as a TLV data object
     /// (tag 0xA1) via GET RESPONSE.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
     fn handle_get_identity<'buf>(
         &mut self,
         cmd: &Command<'_>,
@@ -1450,16 +1451,14 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         }
 
         // SUCI computation requires provisioned DRBG seed.
-        let suci = match &mut self.suci {
-            Some(s) => s,
-            None => return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED)),
+        let Some(suci) = &mut self.suci else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         };
 
         // Read EF_SUCI_CALC_INFO to determine protection scheme and HN public key.
         let calc_info_len = profile::EF_SUCI_CALC_INFO.data().len() as u16;
-        let calc_info = match self.data.read_binary(&profile::EF_SUCI_CALC_INFO, 0, calc_info_len) {
-            Ok(d) => d,
-            Err(_) => return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED)),
+        let Ok(calc_info) = self.data.read_binary(&profile::EF_SUCI_CALC_INFO, 0, calc_info_len) else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         };
 
         // Parse Protection Scheme Identifier List (tag 0xA0).
@@ -1474,15 +1473,13 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         let key_index = calc_info[3];
 
         // Read EF_IMSI for MSIN extraction.
-        let imsi_data = match self.data.read_binary(&profile::EF_IMSI, 0, 9) {
-            Ok(d) => d,
-            Err(_) => return write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        let Ok(imsi_data) = self.data.read_binary(&profile::EF_IMSI, 0, 9) else {
+            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
         };
 
         // Read EF_AD byte 3 for MNC length.
-        let ad_data = match self.data.read_binary(&profile::EF_AD, 0, 4) {
-            Ok(d) => d,
-            Err(_) => return write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        let Ok(ad_data) = self.data.read_binary(&profile::EF_AD, 0, 4) else {
+            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
         };
         let mnc_len = if ad_data.len() >= 4 && (ad_data[3] == 2 || ad_data[3] == 3) {
             ad_data[3]
@@ -1493,9 +1490,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         let msin = extract_msin(imsi_data, mnc_len);
 
         // Read Routing Indicator (EF 4F0A, 4 bytes BCD).
-        let routing_ind = match self.data.read_binary(&profile::EF_ROUTING_INDICATOR, 0, 4) {
-            Ok(d) => d,
-            Err(_) => return write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        let Ok(routing_ind) = self.data.read_binary(&profile::EF_ROUTING_INDICATOR, 0, 4) else {
+            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
         };
 
         // Extract MCC+MNC from IMSI for the home network identifier.
@@ -1523,9 +1519,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             }
             SCHEME_PROFILE_A => {
                 // Profile A: X25519 ECIES.
-                let hn_key = match parse_hn_public_key(calc_info, 2 + scheme_list_len) {
-                    Some(k) => k,
-                    None => return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND)),
+                let Some(hn_key) = parse_hn_public_key(calc_info, 2 + scheme_list_len) else {
+                    return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND));
                 };
                 if hn_key.len() != 32 {
                     return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND));
@@ -1555,9 +1550,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             }
             SCHEME_PROFILE_B => {
                 // Profile B: P-256 ECIES.
-                let hn_key = match parse_hn_public_key(calc_info, 2 + scheme_list_len) {
-                    Some(k) => k,
-                    None => return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND)),
+                let Some(hn_key) = parse_hn_public_key(calc_info, 2 + scheme_list_len) else {
+                    return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND));
                 };
                 if hn_key.len() != 65 {
                     return write_sw(buf, StatusWord::wrong_params(sw2::DATA_NOT_FOUND));
@@ -1580,14 +1574,14 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
                 // Build selection masks: pick the first (lowest index) valid candidate.
                 // m_i is all-ones if candidate i is selected, all-zeros otherwise.
-                let m0 = (v0 as u8).wrapping_neg(); // 0xFF if v0, else 0x00
+                let m0 = u8::from(v0).wrapping_neg(); // 0xFF if v0, else 0x00
                 let found0 = m0;
-                let m1 = (v1 as u8).wrapping_neg() & !found0;
-                let found1 = found0 | (v1 as u8).wrapping_neg();
-                let m2 = (v2 as u8).wrapping_neg() & !found1;
-                let found2 = found1 | (v2 as u8).wrapping_neg();
-                let m3 = (v3 as u8).wrapping_neg() & !found2;
-                let any_valid = found2 | (v3 as u8).wrapping_neg();
+                let m1 = u8::from(v1).wrapping_neg() & !found0;
+                let found1 = found0 | u8::from(v1).wrapping_neg();
+                let m2 = u8::from(v2).wrapping_neg() & !found1;
+                let found2 = found1 | u8::from(v2).wrapping_neg();
+                let m3 = u8::from(v3).wrapping_neg() & !found2;
+                let any_valid = found2 | u8::from(v3).wrapping_neg();
 
                 if any_valid == 0 {
                     return write_sw(buf, StatusWord::NoPreciseDiagnosis);

@@ -199,38 +199,53 @@ const TAG_OTHER_ADDRESS: u8 = 0xBE;
 // table.  Group primaries noted in comments.
 
 /// LSI Numbers ([ETSI TS 102 223 V18.2.0 clause 8.108](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A534%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+///
 /// CR tag 0x92 (group '12', shared with File List).
 pub const TAG_LSI_NUMBERS: u8 = 0x92;
 
-/// Slices information -- served S-NSSAI list ([3GPP TS 31.111 V19.3.0 clause 8.145](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A809%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Slices information -- served S-NSSAI list.
+///
+/// [3GPP TS 31.111 V19.3.0 clause 8.145](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A809%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 /// CR tag 0xD6 (group '56', shared with CSG ID).
 pub const TAG_SLICES_INFORMATION: u8 = 0xD6;
 
-/// Slices status bitmap ([3GPP TS 31.111 V19.3.0 clause 8.150](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A813%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Slices status bitmap.
+///
+/// [3GPP TS 31.111 V19.3.0 clause 8.150](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A813%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 /// CR tag 0xD5 (group '55', shared with CSG cell selection status).
 pub const TAG_SLICES_STATUS: u8 = 0xD5;
 
-/// Rejected slices information with S-NSSAI mapping ([3GPP TS 31.111 V19.3.0 clause 8.151](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A815%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Rejected slices information with S-NSSAI mapping.
+///
+/// [3GPP TS 31.111 V19.3.0 clause 8.151](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A815%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 /// CR tag 0xD7 (group '57', shared with HNB name).
 pub const TAG_REJECTED_SLICES_W_MAPPING: u8 = 0xD7;
 
-/// Allowed Slices Information with S-NSSAI mapping ([3GPP TS 31.111 V19.3.0 clause 8.152](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A817%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Allowed Slices Information with S-NSSAI mapping.
+///
+/// [3GPP TS 31.111 V19.3.0 clause 8.152](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A817%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 /// CR tag 0xF7 (group '77', shared with GAD shapes).
 pub const TAG_ALLOWED_SLICES_W_MAPPING: u8 = 0xF7;
 
-/// Rejected slices information ([3GPP TS 31.111 V19.3.0 clause 8.153](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A817%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Rejected slices information.
+///
+/// [3GPP TS 31.111 V19.3.0 clause 8.153](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A817%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 /// CR tag 0xB1 (group '31', shared with IMS URI).
 pub const TAG_REJECTED_SLICES_INFO: u8 = 0xB1;
 
 /// Partial NSSAI ([3GPP TS 31.111 V19.3.0 clause 8.154](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A819%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+///
 /// CR tag 0xF9 (group '79', shared with PLMN List).
 pub const TAG_PARTIAL_NSSAI: u8 = 0xF9;
 
-/// Allowed Slices Information ([3GPP TS 31.111 V19.3.0 clause 8.156](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A821%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+/// Allowed Slices Information.
+///
+/// [3GPP TS 31.111 V19.3.0 clause 8.156](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A821%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 /// CR tag 0xF8 (group '78', shared with NMEA sentence).
 pub const TAG_ALLOWED_SLICES_INFO: u8 = 0xF8;
 
 /// DNN List ([3GPP TS 31.111 V19.3.0 clause 8.159](../../../docs/specs/3gpp/ts-31.111/ts_131111v190300p.pdf#%5B%7B%22num%22%3A823%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+///
 /// CR tag 0xFC (group '7C', shared with EPS PDN connection activation).
 pub const TAG_DNN_LIST: u8 = 0xFC;
 
@@ -566,7 +581,9 @@ pub struct MenuItem<'a> {
     pub text: &'a [u8],
 }
 
-/// Duration time unit per [ETSI TS 102 223 V18.2.0 clause 8.8](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A405%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
+/// Duration time unit.
+///
+/// Per [ETSI TS 102 223 V18.2.0 clause 8.8](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A405%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 ///
 /// # Example
 ///

@@ -82,7 +82,7 @@ pub struct CipherKey(Secret<[u8; 16]>);
 impl CipherKey {
     /// Wrap raw bytes as a [`CipherKey`].
     #[inline]
-    pub(crate) fn new(raw: [u8; 16]) -> Self {
+    pub(crate) const fn new(raw: [u8; 16]) -> Self {
         Self(Secret::new(raw))
     }
 
@@ -92,7 +92,7 @@ impl CipherKey {
     /// sibling algorithm crates (e.g. `simrs-tuak`) that compute CK outside
     /// `simrs-milenage`.
     #[inline]
-    pub fn from_bytes(raw: [u8; 16]) -> Self {
+    pub const fn from_bytes(raw: [u8; 16]) -> Self {
         Self(Secret::new(raw))
     }
 
@@ -102,7 +102,7 @@ impl CipherKey {
     /// is leaving the protected domain -- typically for APDU encoding or
     /// key derivation (C3, KASME).
     #[inline]
-    pub fn declassify(&self) -> &[u8; 16] {
+    pub const fn declassify(&self) -> &[u8; 16] {
         self.0.declassify_ref()
     }
 }
@@ -136,7 +136,7 @@ pub struct IntegrityKey(Secret<[u8; 16]>);
 impl IntegrityKey {
     /// Wrap raw bytes as an [`IntegrityKey`].
     #[inline]
-    pub(crate) fn new(raw: [u8; 16]) -> Self {
+    pub(crate) const fn new(raw: [u8; 16]) -> Self {
         Self(Secret::new(raw))
     }
 
@@ -146,7 +146,7 @@ impl IntegrityKey {
     /// sibling algorithm crates (e.g. `simrs-tuak`) that compute IK outside
     /// `simrs-milenage`.
     #[inline]
-    pub fn from_bytes(raw: [u8; 16]) -> Self {
+    pub const fn from_bytes(raw: [u8; 16]) -> Self {
         Self(Secret::new(raw))
     }
 
@@ -156,7 +156,7 @@ impl IntegrityKey {
     /// is leaving the protected domain -- typically for APDU encoding or
     /// key derivation (C3, KASME).
     #[inline]
-    pub fn declassify(&self) -> &[u8; 16] {
+    pub const fn declassify(&self) -> &[u8; 16] {
         self.0.declassify_ref()
     }
 }
@@ -190,7 +190,7 @@ pub struct GsmCipherKey(Secret<[u8; 8]>);
 impl GsmCipherKey {
     /// Wrap raw bytes as a [`GsmCipherKey`].
     #[inline]
-    pub(crate) fn new(raw: [u8; 8]) -> Self {
+    pub(crate) const fn new(raw: [u8; 8]) -> Self {
         Self(Secret::new(raw))
     }
 
@@ -199,7 +199,7 @@ impl GsmCipherKey {
     /// Each call site is a visible acknowledgement that secret key material
     /// is leaving the protected domain -- typically for APDU encoding.
     #[inline]
-    pub fn declassify(&self) -> &[u8; 8] {
+    pub const fn declassify(&self) -> &[u8; 8] {
         self.0.declassify_ref()
     }
 }

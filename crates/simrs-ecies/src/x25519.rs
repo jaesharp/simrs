@@ -84,7 +84,7 @@ impl Fe {
     }
 
     /// Carry-propagate: ensure each limb < 2^52.
-    fn carry(self) -> Self {
+    const fn carry(self) -> Self {
         let mut h = self.0;
         let mut i = 0;
         while i < 4 {
@@ -134,7 +134,7 @@ impl Fe {
     }
 
     /// Addition.
-    fn add(self, rhs: Self) -> Self {
+    const fn add(self, rhs: Self) -> Self {
         Self([
             self.0[0] + rhs.0[0],
             self.0[1] + rhs.0[1],
@@ -145,7 +145,7 @@ impl Fe {
     }
 
     /// Subtraction (add 2p to avoid underflow before subtracting).
-    fn sub(self, rhs: Self) -> Self {
+    const fn sub(self, rhs: Self) -> Self {
         // Add 2*p to each limb to ensure non-negative results.
         // 2*p limbs: [2*(2^51-19), 2*(2^51-1), 2*(2^51-1), 2*(2^51-1), 2*(2^51-1)]
         Self([
@@ -172,35 +172,35 @@ impl Fe {
         // Schoolbook multiplication with reduction.
         // Result limb i = sum of a[j]*b[k] where (j+k) mod 5 == i,
         // with a factor of 19 for wrap-around terms.
-        let t0 = (a[0] as u128) * (b[0] as u128)
-            + (a[1] as u128) * (b4_19 as u128)
-            + (a[2] as u128) * (b3_19 as u128)
-            + (a[3] as u128) * (b2_19 as u128)
-            + (a[4] as u128) * (b1_19 as u128);
+        let t0 = u128::from(a[0]) * u128::from(b[0])
+            + u128::from(a[1]) * u128::from(b4_19)
+            + u128::from(a[2]) * u128::from(b3_19)
+            + u128::from(a[3]) * u128::from(b2_19)
+            + u128::from(a[4]) * u128::from(b1_19);
 
-        let t1 = (a[0] as u128) * (b[1] as u128)
-            + (a[1] as u128) * (b[0] as u128)
-            + (a[2] as u128) * (b4_19 as u128)
-            + (a[3] as u128) * (b3_19 as u128)
-            + (a[4] as u128) * (b2_19 as u128);
+        let t1 = u128::from(a[0]) * u128::from(b[1])
+            + u128::from(a[1]) * u128::from(b[0])
+            + u128::from(a[2]) * u128::from(b4_19)
+            + u128::from(a[3]) * u128::from(b3_19)
+            + u128::from(a[4]) * u128::from(b2_19);
 
-        let t2 = (a[0] as u128) * (b[2] as u128)
-            + (a[1] as u128) * (b[1] as u128)
-            + (a[2] as u128) * (b[0] as u128)
-            + (a[3] as u128) * (b4_19 as u128)
-            + (a[4] as u128) * (b3_19 as u128);
+        let t2 = u128::from(a[0]) * u128::from(b[2])
+            + u128::from(a[1]) * u128::from(b[1])
+            + u128::from(a[2]) * u128::from(b[0])
+            + u128::from(a[3]) * u128::from(b4_19)
+            + u128::from(a[4]) * u128::from(b3_19);
 
-        let t3 = (a[0] as u128) * (b[3] as u128)
-            + (a[1] as u128) * (b[2] as u128)
-            + (a[2] as u128) * (b[1] as u128)
-            + (a[3] as u128) * (b[0] as u128)
-            + (a[4] as u128) * (b4_19 as u128);
+        let t3 = u128::from(a[0]) * u128::from(b[3])
+            + u128::from(a[1]) * u128::from(b[2])
+            + u128::from(a[2]) * u128::from(b[1])
+            + u128::from(a[3]) * u128::from(b[0])
+            + u128::from(a[4]) * u128::from(b4_19);
 
-        let t4 = (a[0] as u128) * (b[4] as u128)
-            + (a[1] as u128) * (b[3] as u128)
-            + (a[2] as u128) * (b[2] as u128)
-            + (a[3] as u128) * (b[1] as u128)
-            + (a[4] as u128) * (b[0] as u128);
+        let t4 = u128::from(a[0]) * u128::from(b[4])
+            + u128::from(a[1]) * u128::from(b[3])
+            + u128::from(a[2]) * u128::from(b[2])
+            + u128::from(a[3]) * u128::from(b[1])
+            + u128::from(a[4]) * u128::from(b[0]);
 
         // Carry chain.
         let mut r = [0u64; 5];
@@ -248,7 +248,7 @@ impl Fe {
     ///   t2 = 2*a0*a2   + a1^2     + 38*a3*a4
     ///   t3 = 2*a0*a3   + 2*a1*a2  + 19*a4^2
     ///   t4 = 2*a0*a4   + 2*a1*a3  + a2^2
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::suspicious_operation_groupings)]
     fn square(self) -> Self {
         let a = self.0;
 
@@ -259,25 +259,25 @@ impl Fe {
         let a4_19 = 19 * a[4];
         let a4_38 = 2 * a4_19; // 38 * a[4]
 
-        let t0 = (a[0] as u128) * (a[0] as u128)
-            + (a1_2 as u128) * (a4_19 as u128) // 2*a1 * 19*a4 = 38*a1*a4
-            + (a[2] as u128) * (2 * a3_19 as u128); // a2 * 38*a3
+        let t0 = u128::from(a[0]) * u128::from(a[0])
+            + u128::from(a1_2) * u128::from(a4_19) // 2*a1 * 19*a4 = 38*a1*a4
+            + u128::from(a[2]) * u128::from(2 * a3_19); // a2 * 38*a3
 
-        let t1 = (a0_2 as u128) * (a[1] as u128)
-            + (a[2] as u128) * (a4_38 as u128) // a2 * 38*a4
-            + (a[3] as u128) * (a3_19 as u128); // a3 * 19*a3 = 19*a3^2
+        let t1 = u128::from(a0_2) * u128::from(a[1])
+            + u128::from(a[2]) * u128::from(a4_38) // a2 * 38*a4
+            + u128::from(a[3]) * u128::from(a3_19); // a3 * 19*a3 = 19*a3^2
 
-        let t2 = (a0_2 as u128) * (a[2] as u128)
-            + (a[1] as u128) * (a[1] as u128)
-            + (a[4] as u128) * (2 * a3_19 as u128); // a4 * 38*a3
+        let t2 = u128::from(a0_2) * u128::from(a[2])
+            + u128::from(a[1]) * u128::from(a[1])
+            + u128::from(a[4]) * u128::from(2 * a3_19); // a4 * 38*a3
 
-        let t3 = (a0_2 as u128) * (a[3] as u128)
-            + (a1_2 as u128) * (a[2] as u128)
-            + (a[4] as u128) * (a4_19 as u128); // a4 * 19*a4 = 19*a4^2
+        let t3 = u128::from(a0_2) * u128::from(a[3])
+            + u128::from(a1_2) * u128::from(a[2])
+            + u128::from(a[4]) * u128::from(a4_19); // a4 * 19*a4 = 19*a4^2
 
-        let t4 = (a0_2 as u128) * (a[4] as u128)
-            + (a1_2 as u128) * (a[3] as u128)
-            + (a[2] as u128) * (a[2] as u128);
+        let t4 = u128::from(a0_2) * u128::from(a[4])
+            + u128::from(a1_2) * u128::from(a[3])
+            + u128::from(a[2]) * u128::from(a[2]);
 
         // Carry chain (identical to mul).
         let mut r = [0u64; 5];
@@ -325,6 +325,7 @@ impl Fe {
     /// Compute the multiplicative inverse via Fermat's little theorem:
     /// a^(-1) = a^(p-2) where p = 2^255 - 19.
     /// p-2 = 2^255 - 21.
+    #[allow(clippy::similar_names)]
     fn invert(self) -> Self {
         // Addition chain for p-2 = 2^255 - 21.
         // Following the standard decomposition.
@@ -406,9 +407,9 @@ impl simrs_consttime::CtSwap for Fe {
 pub fn x25519(scalar: &Secret<[u8; 32]>, point: &[u8; 32]) -> Secret<[u8; 32]> {
     // Clamp scalar per RFC 7748 clause 5.
     let mut k = *scalar.declassify_ref();
-    k[0] &= 248;  // clear bits 0, 1, 2
-    k[31] &= 127; // clear bit 255
-    k[31] |= 64;  // set bit 254
+    k[0] &= 0xF8;  // clear bits 0, 1, 2
+    k[31] &= 0x7F; // clear bit 255
+    k[31] |= 0x40; // set bit 254
 
     let u = Fe::from_bytes(point);
     Secret::new(ladder(&k, &u).to_bytes())
@@ -446,10 +447,13 @@ fn ladder(k: &[u8; 32], u: &Fe) -> Fe {
     // Constant a24 = (A - 2) / 4 = (486662 - 2) / 4 = 121665.
     let a24 = Fe([121_665, 0, 0, 0, 0]);
 
-    // Process bits from 254 down to 0.
-    let mut t: i32 = 254;
-    while t >= 0 {
-        let k_t = ((k[(t >> 3) as usize] >> (t & 7)) & 1) as u64;
+    // Process bits from 254 down to 0 (255 iterations).
+    // Uses a u32 counter counting down from 255; the bit index is t-1.
+    let mut t: u32 = 255;
+    while t > 0 {
+        t -= 1;
+        let bit_idx = t as usize;
+        let k_t = u64::from((k[bit_idx >> 3] >> (bit_idx & 7)) & 1);
         swap ^= k_t;
         Fe::ct_swap(&mut x_2, &mut x_3, CtBool::from_u64_bit(swap));
         Fe::ct_swap(&mut z_2, &mut z_3, CtBool::from_u64_bit(swap));
@@ -468,8 +472,6 @@ fn ladder(k: &[u8; 32], u: &Fe) -> Fe {
         z_3 = da.sub(cb).square().mul(x_1);
         x_2 = aa.mul(bb);
         z_2 = e.mul(aa.add(a24.mul(e)));
-
-        t -= 1;
     }
 
     Fe::ct_swap(&mut x_2, &mut x_3, CtBool::from_u64_bit(swap));

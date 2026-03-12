@@ -64,7 +64,7 @@ fn derive_ct_eq_impl(input: &DeriveInput) -> TokenStream2 {
     }
 }
 
-/// Generate the CtEq comparison body for struct fields.
+/// Generate the `CtEq` comparison body for struct fields.
 ///
 /// Accumulates per-field `CtEq::ct_eq` results into an `all_eq: CtBool`
 /// using `.and()`, avoiding any data-dependent branches.
@@ -158,7 +158,7 @@ fn derive_ct_select_impl(input: &DeriveInput) -> TokenStream2 {
     }
 }
 
-/// Generate the CtSelect body for struct fields.
+/// Generate the `CtSelect` body for struct fields.
 fn generate_ct_select_body(name: &syn::Ident, fields: &Fields) -> TokenStream2 {
     match fields {
         Fields::Named(named) => {
@@ -234,7 +234,7 @@ fn derive_ct_swap_impl(input: &DeriveInput) -> TokenStream2 {
     }
 }
 
-/// Generate the CtSwap body for struct fields.
+/// Generate the `CtSwap` body for struct fields.
 fn generate_ct_swap_body(fields: &Fields) -> TokenStream2 {
     match fields {
         Fields::Named(named) => {
