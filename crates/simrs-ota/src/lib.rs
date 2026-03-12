@@ -29,6 +29,45 @@ use simrs_consttime::ct_eq;
 use simrs_rijndael::Rijndael;
 use simrs_secret::Secret;
 
+// ---------------------------------------------------------------------------
+// Newtypes: ToolkitAppReference (TAR) and OtaCounter
+// ---------------------------------------------------------------------------
+
+/// Toolkit Application Reference (3 bytes).
+///
+/// Identifies the target application on the SIM for OTA messaging.
+/// Per ETSI TS 102 225 clause 5.1.1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ToolkitAppReference([u8; 3]);
+impl ToolkitAppReference {
+    /// Create a new `ToolkitAppReference` from raw bytes.
+    #[inline] pub const fn new(raw: [u8; 3]) -> Self { Self(raw) }
+    /// Access the raw bytes.
+    #[inline] pub const fn as_bytes(&self) -> &[u8; 3] { &self.0 }
+}
+impl From<[u8; 3]> for ToolkitAppReference { fn from(raw: [u8; 3]) -> Self { Self(raw) } }
+
+/// ETSI abbreviation for [`ToolkitAppReference`].
+///
+/// The specs (ETSI TS 102 225 clause 5.1.1) use "TAR" (Toolkit Application
+/// Reference). We prefer `ToolkitAppReference` for self-documenting code.
+#[deprecated(note = "ETSI TAR (TS 102 225 cl. 5.1.1) -- prefer ToolkitAppReference")]
+pub type Tar = ToolkitAppReference;
+
+/// OTA replay counter (5 bytes).
+///
+/// Monotonic counter for replay protection in OTA secured packets.
+/// Per ETSI TS 102 225 clause 5.1.1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OtaCounter([u8; 5]);
+impl OtaCounter {
+    /// Create a new `OtaCounter` from raw bytes.
+    #[inline] pub const fn new(raw: [u8; 5]) -> Self { Self(raw) }
+    /// Access the raw bytes.
+    #[inline] pub const fn as_bytes(&self) -> &[u8; 5] { &self.0 }
+}
+impl From<[u8; 5]> for OtaCounter { fn from(raw: [u8; 5]) -> Self { Self(raw) } }
+
 /// AES block size in bytes.
 const BLOCK_SIZE: usize = 16;
 
@@ -236,9 +275,9 @@ pub struct CommandPacketHeader {
     /// Key Identifier for integrity (KID).
     pub kid: KeyId,
     /// Toolkit Application Reference (3 bytes).
-    pub tar: [u8; 3],
+    pub tar: ToolkitAppReference,
     /// Replay detection counter (5 bytes).
-    pub counter: [u8; 5],
+    pub counter: OtaCounter,
     /// Padding counter (number of padding bytes appended).
     pub padding_counter: u8,
 }
@@ -250,8 +289,8 @@ impl CommandPacketHeader {
             spi: Spi { spi1: 0, spi2: 0 },
             kic: KeyId::new(0),
             kid: KeyId::new(0),
-            tar: [0; 3],
-            counter: [0; 5],
+            tar: ToolkitAppReference::new([0; 3]),
+            counter: OtaCounter::new([0; 5]),
             padding_counter: 0,
         }
     }
@@ -494,14 +533,15 @@ const CC_SIZE: usize = 8;
 /// # Example: Encode and decode a command packet without security
 ///
 /// ```
-/// use simrs_ota::{CommandPacketHeader, Spi, KeyId, encode_command_packet, decode_command_packet};
+/// use simrs_ota::{CommandPacketHeader, Spi, KeyId, ToolkitAppReference, OtaCounter,
+///                  encode_command_packet, decode_command_packet};
 ///
 /// let hdr = CommandPacketHeader {
 ///     spi: Spi { spi1: 0x00, spi2: 0x00 },
 ///     kic: KeyId::new(0x00),
 ///     kid: KeyId::new(0x00),
-///     tar: [0xB0, 0x00, 0x10],
-///     counter: [0x00, 0x00, 0x00, 0x00, 0x01],
+///     tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+///     counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
 ///     padding_counter: 0,
 /// };
 /// let payload = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
@@ -517,7 +557,7 @@ const CC_SIZE: usize = 8;
 ///     &buf[..len], None, None, &mut dec_hdr, &mut dec_data,
 /// ).unwrap();
 /// assert_eq!(&dec_data[..dlen], &payload);
-/// assert_eq!(dec_hdr.tar, [0xB0, 0x00, 0x10]);
+/// assert_eq!(*dec_hdr.tar.as_bytes(), [0xB0, 0x00, 0x10]);
 /// ```
 pub fn encode_command_packet(
     hdr: &CommandPacketHeader,
@@ -580,14 +620,14 @@ pub fn encode_command_packet(
     buf[4] = hdr.spi.spi2;
     buf[5] = hdr.kic.raw();
     buf[6] = hdr.kid.raw();
-    buf[7] = hdr.tar[0];
-    buf[8] = hdr.tar[1];
-    buf[9] = hdr.tar[2];
-    buf[10] = hdr.counter[0];
-    buf[11] = hdr.counter[1];
-    buf[12] = hdr.counter[2];
-    buf[13] = hdr.counter[3];
-    buf[14] = hdr.counter[4];
+    buf[7] = hdr.tar.as_bytes()[0];
+    buf[8] = hdr.tar.as_bytes()[1];
+    buf[9] = hdr.tar.as_bytes()[2];
+    buf[10] = hdr.counter.as_bytes()[0];
+    buf[11] = hdr.counter.as_bytes()[1];
+    buf[12] = hdr.counter.as_bytes()[2];
+    buf[13] = hdr.counter.as_bytes()[3];
+    buf[14] = hdr.counter.as_bytes()[4];
 
     #[allow(clippy::cast_possible_truncation)]
     {
@@ -675,7 +715,7 @@ pub fn decode_command_packet(
     hdr_out.spi = Spi { spi1: packet[3], spi2: packet[4] };
     hdr_out.kic = KeyId::new(packet[5]);
     hdr_out.kid = KeyId::new(packet[6]);
-    hdr_out.tar = [packet[7], packet[8], packet[9]];
+    hdr_out.tar = ToolkitAppReference::new([packet[7], packet[8], packet[9]]);
 
     let has_cc = matches!(hdr_out.spi.redundancy_check(), RedundancyCheck::Cc);
     let has_cipher = hdr_out.spi.ciphering();
@@ -705,7 +745,7 @@ pub fn decode_command_packet(
     if secured_len < 6 + rc_size {
         return Err(OtaError::InvalidLength);
     }
-    hdr_out.counter = [work[0], work[1], work[2], work[3], work[4]];
+    hdr_out.counter = OtaCounter::new([work[0], work[1], work[2], work[3], work[4]]);
     hdr_out.padding_counter = work[5];
 
     let cc_offset = 6; // within work buffer
@@ -784,10 +824,10 @@ pub fn decode_command_packet(
 /// Returns the total number of bytes written.
 ///
 /// ```
-/// use simrs_ota::{Spi, encode_response_packet};
+/// use simrs_ota::{Spi, ToolkitAppReference, OtaCounter, encode_response_packet};
 ///
-/// let tar = [0xB0, 0x00, 0x10];
-/// let counter = [0x00, 0x00, 0x00, 0x00, 0x01];
+/// let tar = ToolkitAppReference::new([0xB0, 0x00, 0x10]);
+/// let counter = OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]);
 /// let spi = Spi { spi1: 0x00, spi2: 0x00 }; // no security
 ///
 /// let mut buf = [0u8; 256];
@@ -797,13 +837,13 @@ pub fn decode_command_packet(
 ///
 /// // RPL(2) + RHL(1) + TAR(3) + CNTR(5) + PCNTR(1) + STATUS(1) = 13
 /// assert_eq!(len, 13);
-/// assert_eq!(&buf[3..6], &tar);
+/// assert_eq!(&buf[3..6], tar.as_bytes());
 /// assert_eq!(buf[12], 0x00); // status code
 /// ```
 #[allow(clippy::too_many_arguments)]
 pub fn encode_response_packet(
-    tar: &[u8; 3],
-    counter: &[u8; 5],
+    tar: &ToolkitAppReference,
+    counter: &OtaCounter,
     status_code: u8,
     data: &[u8],
     spi: &Spi,
@@ -843,14 +883,14 @@ pub fn encode_response_packet(
     buf[0] = rpl_bytes[0];
     buf[1] = rpl_bytes[1];
     buf[2] = rhl;
-    buf[3] = tar[0];
-    buf[4] = tar[1];
-    buf[5] = tar[2];
-    buf[6] = counter[0];
-    buf[7] = counter[1];
-    buf[8] = counter[2];
-    buf[9] = counter[3];
-    buf[10] = counter[4];
+    buf[3] = tar.as_bytes()[0];
+    buf[4] = tar.as_bytes()[1];
+    buf[5] = tar.as_bytes()[2];
+    buf[6] = counter.as_bytes()[0];
+    buf[7] = counter.as_bytes()[1];
+    buf[8] = counter.as_bytes()[2];
+    buf[9] = counter.as_bytes()[3];
+    buf[10] = counter.as_bytes()[4];
 
     #[allow(clippy::cast_possible_truncation)]
     {
@@ -988,8 +1028,8 @@ mod tests {
             spi: Spi { spi1: 0x00, spi2: 0x00 },
             kic: KeyId::new(0x00),
             kid: KeyId::new(0x00),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00; 5],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
@@ -1015,8 +1055,8 @@ mod tests {
             spi: Spi { spi1: 0x02, spi2: 0x00 }, // CC mode
             kic: KeyId::new(0x02),
             kid: KeyId::new(0x02),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00, 0x00, 0x00, 0x00, 0x01],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
@@ -1043,8 +1083,8 @@ mod tests {
             spi: Spi { spi1: 0x00, spi2: 0x00 },
             kic: KeyId::new(0x00),
             kid: KeyId::new(0x00),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00, 0x00, 0x00, 0x00, 0x05],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x05]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
@@ -1058,8 +1098,8 @@ mod tests {
             &buf[..enc_len], None, None, &mut decoded_hdr, &mut decoded_data,
         ).unwrap();
 
-        assert_eq!(decoded_hdr.tar, hdr.tar);
-        assert_eq!(decoded_hdr.counter, hdr.counter);
+        assert_eq!(*decoded_hdr.tar.as_bytes(), *hdr.tar.as_bytes());
+        assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
 
@@ -1070,8 +1110,8 @@ mod tests {
             spi: Spi { spi1: 0x02, spi2: 0x00 },
             kic: KeyId::new(0x02),
             kid: KeyId::new(0x02),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00, 0x00, 0x00, 0x00, 0x01],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
@@ -1096,8 +1136,8 @@ mod tests {
             spi: Spi { spi1: 0x02, spi2: 0x00 },
             kic: KeyId::new(0x02),
             kid: KeyId::new(0x02),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00; 5],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
@@ -1120,8 +1160,8 @@ mod tests {
     // 15. Response packet encoding
     #[test]
     fn encode_response_packet_basic() {
-        let tar = [0xB0, 0x00, 0x10];
-        let counter = [0x00, 0x00, 0x00, 0x00, 0x01];
+        let tar = ToolkitAppReference::new([0xB0, 0x00, 0x10]);
+        let counter = OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]);
         let spi = Spi { spi1: 0x00, spi2: 0x00 };
 
         let mut buf = [0u8; 256];
@@ -1131,7 +1171,7 @@ mod tests {
 
         // RPL(2) + RHL(1) + TAR(3) + CNTR(5) + PCNTR(1) + STATUS(1) = 13
         assert_eq!(len, 13);
-        assert_eq!(&buf[3..6], &tar);
+        assert_eq!(&buf[3..6], tar.as_bytes());
         assert_eq!(buf[12], 0x00); // status
     }
 
@@ -1190,8 +1230,8 @@ mod tests {
             spi: Spi { spi1: 0x08, spi2: 0x00 }, // counter available
             kic: KeyId::new(0x00),
             kid: KeyId::new(0x00),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00, 0x00, 0x00, 0x01, 0x23],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x01, 0x23]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4];
@@ -1205,7 +1245,7 @@ mod tests {
             &buf[..enc_len], None, None, &mut decoded_hdr, &mut decoded_data,
         ).unwrap();
 
-        assert_eq!(decoded_hdr.counter, [0x00, 0x00, 0x00, 0x01, 0x23]);
+        assert_eq!(*decoded_hdr.counter.as_bytes(), [0x00, 0x00, 0x00, 0x01, 0x23]);
         assert!(decoded_hdr.spi.counter_available());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1217,8 +1257,8 @@ mod tests {
             spi: Spi { spi1: 0x00, spi2: 0x00 },
             kic: KeyId::new(0x00),
             kid: KeyId::new(0x00),
-            tar: [0x00; 3],
-            counter: [0x00; 5],
+            tar: ToolkitAppReference::new([0x00; 3]),
+            counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };
         let data = [0x00u8; 10];
@@ -1259,8 +1299,8 @@ mod tests {
             spi: Spi { spi1: 0x04, spi2: 0x00 }, // cipher, no CC
             kic: KeyId::new(0x02),
             kid: KeyId::new(0x00),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00, 0x00, 0x00, 0x00, 0x01],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
@@ -1277,8 +1317,8 @@ mod tests {
             &buf[..enc_len], Some(&key_cipher), None, &mut decoded_hdr, &mut decoded_data,
         ).unwrap();
 
-        assert_eq!(decoded_hdr.tar, hdr.tar);
-        assert_eq!(decoded_hdr.counter, hdr.counter);
+        assert_eq!(*decoded_hdr.tar.as_bytes(), *hdr.tar.as_bytes());
+        assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
 
@@ -1289,8 +1329,8 @@ mod tests {
             spi: Spi { spi1: 0x06, spi2: 0x00 }, // cipher + CC
             kic: KeyId::new(0x02),
             kid: KeyId::new(0x02),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00, 0x00, 0x00, 0x00, 0x01],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
@@ -1303,7 +1343,7 @@ mod tests {
         ).unwrap();
 
         // Ciphertext region should not contain plaintext counter
-        assert_ne!(&buf[10..15], &hdr.counter);
+        assert_ne!(&buf[10..15], hdr.counter.as_bytes());
 
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
@@ -1311,8 +1351,8 @@ mod tests {
             &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
         ).unwrap();
 
-        assert_eq!(decoded_hdr.tar, hdr.tar);
-        assert_eq!(decoded_hdr.counter, hdr.counter);
+        assert_eq!(*decoded_hdr.tar.as_bytes(), *hdr.tar.as_bytes());
+        assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
 
@@ -1323,8 +1363,8 @@ mod tests {
             spi: Spi { spi1: 0x06, spi2: 0x00 },
             kic: KeyId::new(0x02),
             kid: KeyId::new(0x02),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00; 5],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
@@ -1354,8 +1394,8 @@ mod tests {
             spi: Spi { spi1: 0x04, spi2: 0x00 },
             kic: KeyId::new(0x02),
             kid: KeyId::new(0x00),
-            tar: [0xB0, 0x00, 0x10],
-            counter: [0x00; 5],
+            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4];

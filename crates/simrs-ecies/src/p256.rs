@@ -51,6 +51,8 @@ use simrs_consttime::{CtBool, CtEq, CtSelect, CtSwap, CtZero};
 use simrs_kdf::hmac_sha256;
 use simrs_secret::Secret;
 
+use crate::{P256CompressedPublicKey, P256UncompressedPublicKey};
+
 // ---------------------------------------------------------------------------
 // Field element: GF(p) where p = 2^256 - 2^224 + 2^192 + 2^96 - 1
 // ---------------------------------------------------------------------------
@@ -978,8 +980,8 @@ fn scalar_mul_base(k: &[u8; 32]) -> Point {
 ///
 /// Returns the x-coordinate of the shared point as 32 bytes (big-endian),
 /// or `None` if the public key is invalid.
-pub fn p256_ecdh(scalar: &Secret<[u8; 32]>, peer_pubkey: &[u8; 65]) -> Option<Secret<[u8; 32]>> {
-    let q = decode_point_uncompressed(peer_pubkey)?;
+pub fn p256_ecdh(scalar: &Secret<[u8; 32]>, peer_pubkey: &P256UncompressedPublicKey) -> Option<Secret<[u8; 32]>> {
+    let q = decode_point_uncompressed(peer_pubkey.as_bytes())?;
     let shared = scalar_mul(scalar.declassify_ref(), q);
     // Use constant-time zero check on Z coordinate to detect identity.
     // For valid inputs (scalar in [1,n-1], Q on curve), this never triggers.
@@ -995,26 +997,26 @@ pub fn p256_ecdh(scalar: &Secret<[u8; 32]>, peer_pubkey: &[u8; 65]) -> Option<Se
 ///
 /// `scalar` is the private key (32 bytes, big-endian).
 /// Returns the public key in uncompressed SEC 1 format (65 bytes: 0x04 || x || y).
-pub fn p256_pubkey(scalar: &Secret<[u8; 32]>) -> [u8; 65] {
+pub fn p256_pubkey(scalar: &Secret<[u8; 32]>) -> P256UncompressedPublicKey {
     let q = scalar_mul_base(scalar.declassify_ref());
-    encode_point_uncompressed(q)
+    P256UncompressedPublicKey::new(encode_point_uncompressed(q))
 }
 
 /// Compute the compressed P-256 public key.
 ///
 /// Returns 33 bytes: 0x02 (even y) or 0x03 (odd y) followed by x-coordinate.
-pub fn p256_pubkey_compressed(scalar: &Secret<[u8; 32]>) -> [u8; 33] {
+pub fn p256_pubkey_compressed(scalar: &Secret<[u8; 32]>) -> P256CompressedPublicKey {
     let q = scalar_mul_base(scalar.declassify_ref());
-    encode_point_compressed(q)
+    P256CompressedPublicKey::new(encode_point_compressed(q))
 }
 
 /// Decompress a P-256 public key from compressed SEC 1 format (33 bytes)
 /// to uncompressed SEC 1 format (65 bytes).
 ///
 /// Returns `None` if the compressed key is invalid.
-pub fn p256_decompress_pubkey(compressed: &[u8; 33]) -> Option<[u8; 65]> {
-    let point = decode_point_compressed(compressed)?;
-    Some(encode_point_uncompressed(point))
+pub fn p256_decompress_pubkey(compressed: &P256CompressedPublicKey) -> Option<P256UncompressedPublicKey> {
+    let point = decode_point_compressed(compressed.as_bytes())?;
+    Some(P256UncompressedPublicKey::new(encode_point_uncompressed(point)))
 }
 
 // ---------------------------------------------------------------------------
@@ -1380,7 +1382,7 @@ mod tests {
         let diut = hex32("7d7dc5f71eb29ddaf80d6214632eeae03d9058af1fb6d22ed80badb62bc1a534");
         let expected_z = hex32("46fc62106420ff012e54a434fbdd2d25ccc5852060561e68040dd7778997bd7b");
 
-        let z = p256_ecdh(&Secret::new(diut), &qcavs).unwrap();
+        let z = p256_ecdh(&Secret::new(diut), &P256UncompressedPublicKey::new(qcavs)).unwrap();
         assert_eq!(*z.declassify_ref(), expected_z);
     }
 
@@ -1391,7 +1393,7 @@ mod tests {
         let diut = hex32("38f65d6dce47676044d58ce5139582d568f64bb16098d179dbab07741dd5caf5");
         let expected_z = hex32("057d636096cb80b67a8c038c890e887d1adfa4195e9b3ce241c8a778c59cda67");
 
-        let z = p256_ecdh(&Secret::new(diut), &qcavs).unwrap();
+        let z = p256_ecdh(&Secret::new(diut), &P256UncompressedPublicKey::new(qcavs)).unwrap();
         assert_eq!(*z.declassify_ref(), expected_z);
     }
 
@@ -1404,7 +1406,7 @@ mod tests {
         let expected = hex65("04ead218590119e8876b29146ff89ca61770c4edbbf97d38ce385ed281d8a6b23028af61281fd35e2fa7002523acc85a429cb06ee6648325389f59edfce1405141");
 
         let pk = p256_pubkey(&Secret::new(diut));
-        assert_eq!(pk, expected);
+        assert_eq!(*pk.as_bytes(), expected);
     }
 
     // -- Point encoding roundtrip --------------------------------------------
@@ -1413,9 +1415,9 @@ mod tests {
     fn encode_decode_uncompressed_roundtrip() {
         let sk = hex32("7d7dc5f71eb29ddaf80d6214632eeae03d9058af1fb6d22ed80badb62bc1a534");
         let pk = p256_pubkey(&Secret::new(sk));
-        let decoded = decode_point_uncompressed(&pk).unwrap();
+        let decoded = decode_point_uncompressed(pk.as_bytes()).unwrap();
         let re_encoded = encode_point_uncompressed(decoded);
-        assert_eq!(pk, re_encoded);
+        assert_eq!(*pk.as_bytes(), re_encoded);
     }
 
     #[test]
@@ -1425,9 +1427,9 @@ mod tests {
         let pk_compressed = p256_pubkey_compressed(&Secret::new(sk));
 
         // Decode compressed and re-encode as uncompressed.
-        let decoded = decode_point_compressed(&pk_compressed).unwrap();
+        let decoded = decode_point_compressed(pk_compressed.as_bytes()).unwrap();
         let re_encoded = encode_point_uncompressed(decoded);
-        assert_eq!(pk_full, re_encoded);
+        assert_eq!(*pk_full.as_bytes(), re_encoded);
     }
 
     #[test]
@@ -1486,8 +1488,8 @@ mod tests {
         let pk = p256_pubkey(&Secret::new(hn_sk));
         let expected_x = hex32("72da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd1");
         let expected_y = hex32("5a7ded52fcbb097a4ed250e036c7b9c8c7004c4eedc4f068cd7bf8d3f900e3b4");
-        assert_eq!(&pk[1..33], &expected_x);
-        assert_eq!(&pk[33..65], &expected_y);
+        assert_eq!(&pk.as_bytes()[1..33], &expected_x);
+        assert_eq!(&pk.as_bytes()[33..65], &expected_y);
     }
 
     #[test]
@@ -1497,8 +1499,8 @@ mod tests {
         let pk = p256_pubkey(&Secret::new(eph_sk));
         let expected_x = hex32("9aab8376597021e855679a9778ea0b67396e68c66df32c0f41e9acca2da9b9d1");
         let expected_y = hex32("d1f44ea1c87aa7478b954537bde79951e748a43294a4f4cf86eaff1789c9c81f");
-        assert_eq!(&pk[1..33], &expected_x);
-        assert_eq!(&pk[33..65], &expected_y);
+        assert_eq!(&pk.as_bytes()[1..33], &expected_x);
+        assert_eq!(&pk.as_bytes()[33..65], &expected_y);
     }
 
     #[test]
@@ -1508,7 +1510,7 @@ mod tests {
         let hn_pk = hex65("0472da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd15a7ded52fcbb097a4ed250e036c7b9c8c7004c4eedc4f068cd7bf8d3f900e3b4");
         let expected_z = hex32("6c7e6518980025b982fbb2ff746e3c2e85a196d252099a7ad23ea7b4c0959cae");
 
-        let z = p256_ecdh(&Secret::new(eph_sk), &hn_pk).unwrap();
+        let z = p256_ecdh(&Secret::new(eph_sk), &P256UncompressedPublicKey::new(hn_pk)).unwrap();
         assert_eq!(*z.declassify_ref(), expected_z);
     }
 
@@ -1528,7 +1530,7 @@ mod tests {
         let eph_sk = hex32("99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529");
         let compressed = p256_pubkey_compressed(&Secret::new(eph_sk));
         let expected = hex33("039aab8376597021e855679a9778ea0b67396e68c66df32c0f41e9acca2da9b9d1");
-        assert_eq!(compressed, expected);
+        assert_eq!(*compressed.as_bytes(), expected);
     }
 
     // -- fe_reduce tests ----------------------------------------------------

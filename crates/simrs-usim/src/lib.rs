@@ -63,7 +63,7 @@ use simrs_fs::{
 };
 use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
 use simrs_kdf::HmacSha256;
-use simrs_milenage::{AuthenticationAlgorithm, AuthenticationError, CipherKey, IntegrityKey, MilenageParams};
+use simrs_milenage::{AuthChallenge, AuthToken, AuthenticationAlgorithm, AuthenticationError, CipherKey, IntegrityKey, MilenageParams};
 use simrs_pin::{PinKey, PinManager};
 #[cfg(test)]
 use simrs_pin::PinValue;
@@ -1346,20 +1346,22 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
-        let mut challenge = [0u8; 16];
-        challenge.copy_from_slice(&data[1..17]);
-        let mut auth_token = [0u8; 16];
-        auth_token.copy_from_slice(&data[18..34]);
+        let mut challenge_bytes = [0u8; 16];
+        challenge_bytes.copy_from_slice(&data[1..17]);
+        let challenge = AuthChallenge::new(challenge_bytes);
+        let mut auth_token_bytes = [0u8; 16];
+        auth_token_bytes.copy_from_slice(&data[18..34]);
+        let auth_token = AuthToken::new(auth_token_bytes);
 
         let auth_result = match self.auth.authenticate(&challenge, &auth_token) {
             Ok(output) => AuthenticationResult::Success {
-                response: output.response,
+                response: *output.response.as_bytes(),
                 cipher_key: output.cipher_key,
                 integrity_key: output.integrity_key,
             },
             Err(AuthenticationError::MacFailure) => AuthenticationResult::MacFailure,
             Err(AuthenticationError::SyncFailure { resync_token }) => {
-                AuthenticationResult::SyncFailure { resync_token }
+                AuthenticationResult::SyncFailure { resync_token: *resync_token.as_bytes() }
             }
         };
 
@@ -1396,13 +1398,14 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             return write_sw(buf, StatusWord::WrongLength);
         }
 
-        let mut challenge = [0u8; 16];
-        challenge.copy_from_slice(&data[1..17]);
+        let mut challenge_bytes = [0u8; 16];
+        challenge_bytes.copy_from_slice(&data[1..17]);
+        let challenge = AuthChallenge::new(challenge_bytes);
 
         // Compute SRES = f2(RAND)[0..4].
         let response = self.auth.compute_response(&challenge);
         let mut sres = [0u8; 4];
-        sres.copy_from_slice(&response[..4]);
+        sres.copy_from_slice(&response.as_bytes()[..4]);
 
         // Compute Kc per TS 33.102 Annex B c3 conversion:
         // Kc = CK1 xor CK2 xor IK1 xor IK2
@@ -1525,7 +1528,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 pk.copy_from_slice(hn_key);
 
                 let eph_sk = Secret::new(suci.next_ephemeral_key());
-                let result = simrs_ecies::ecies_profile_a_encrypt(&pk, &msin, &eph_sk);
+                let result = simrs_ecies::ecies_profile_a_encrypt(&simrs_ecies::X25519PublicKey::new(pk), &msin, &eph_sk);
 
                 // Scheme output: ephemeral_pk(32) || ciphertext(MSIN_FIXED_LEN) || mac(8)
                 let scheme_output_len = 32 + MSIN_FIXED_LEN + 8;
@@ -1538,9 +1541,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]); pos += 2;
                 q[pos] = SCHEME_PROFILE_A; pos += 1;
                 q[pos] = key_index; pos += 1;
-                q[pos..pos + 32].copy_from_slice(&result.ephemeral_pk); pos += 32;
+                q[pos..pos + 32].copy_from_slice(result.ephemeral_pk.as_bytes()); pos += 32;
                 q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&result.ciphertext[..MSIN_FIXED_LEN]); pos += MSIN_FIXED_LEN;
-                q[pos..pos + 8].copy_from_slice(&result.mac); pos += 8;
+                q[pos..pos + 8].copy_from_slice(result.mac.as_bytes()); pos += 8;
                 self.rsp_queue.set_len(pos);
                 write_sw(buf, StatusWord::bytes_available(pos as u8))
             }
@@ -1590,7 +1593,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                     j += 1;
                 }
 
-                let result = simrs_ecies::ecies_profile_b_encrypt(&pk, &msin, &Secret::new(eph_sk));
+                let result = simrs_ecies::ecies_profile_b_encrypt(&simrs_ecies::P256UncompressedPublicKey::new(pk), &msin, &Secret::new(eph_sk));
 
                 // Scheme output: ephemeral_pk(33) || ciphertext(MSIN_FIXED_LEN) || mac(8)
                 let scheme_output_len = 33 + MSIN_FIXED_LEN + 8;
@@ -1603,9 +1606,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]); pos += 2;
                 q[pos] = SCHEME_PROFILE_B; pos += 1;
                 q[pos] = key_index; pos += 1;
-                q[pos..pos + 33].copy_from_slice(&result.ephemeral_pk); pos += 33;
+                q[pos..pos + 33].copy_from_slice(result.ephemeral_pk.as_bytes()); pos += 33;
                 q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&result.ciphertext[..MSIN_FIXED_LEN]); pos += MSIN_FIXED_LEN;
-                q[pos..pos + 8].copy_from_slice(&result.mac); pos += 8;
+                q[pos..pos + 8].copy_from_slice(result.mac.as_bytes()); pos += 8;
                 self.rsp_queue.set_len(pos);
                 write_sw(buf, StatusWord::bytes_available(pos as u8))
             }
@@ -2114,7 +2117,7 @@ fn write_ber_len(
 mod tests {
     use super::*;
     use simrs_fs::{AdfSlot, EfDef, Fid, FileRef, Sfi};
-    use simrs_milenage::{OperatorVariant, SubscriberKey};
+    use simrs_milenage::{AuthManagementField, OperatorVariant, SequenceNumber, SubscriberKey};
     use simrs_proactive::ProactiveCommand;
 
     // -- Test filesystem --
@@ -2539,16 +2542,19 @@ mod tests {
         let mut params = MilenageParams::with_defaults(K, OPC);
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
-        let anonymity_key = params.compute_anonymity_key(&rand_val);
-        let auth_mac = params.compute_auth_mac(&rand_val, &sequence_number, &management_field);
+        let ch = AuthChallenge::new(rand_val);
+        let sqn = SequenceNumber::new(sequence_number);
+        let amf = AuthManagementField::new(management_field);
+        let anonymity_key = params.compute_anonymity_key(&ch);
+        let auth_mac = params.compute_auth_mac(&ch, &sqn, &amf);
 
         // AUTN = SQN XOR AK || AMF || MAC-A
         let mut auth_token = [0u8; 16];
         for i in 0..6 {
-            auth_token[i] = sequence_number[i] ^ anonymity_key[i];
+            auth_token[i] = sequence_number[i] ^ anonymity_key.as_bytes()[i];
         }
         auth_token[6..8].copy_from_slice(&management_field);
-        auth_token[8..16].copy_from_slice(&auth_mac);
+        auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
 
         // Build AUTHENTICATE APDU.
         let mut apdu = [0u8; 5 + 34];
@@ -2575,9 +2581,9 @@ mod tests {
         assert_eq!(buf[0], 0xDB);
 
         // Verify against direct Milenage computation.
-        let expected = params.authenticate(&rand_val, &auth_token).unwrap();
+        let expected = params.authenticate(&ch, &AuthToken::new(auth_token)).unwrap();
         // RES at offset 3 (after 0xDB, len, 0x08).
-        assert_eq!(&buf[3..11], &expected.response);
+        assert_eq!(&buf[3..11], expected.response.as_bytes());
         // CK at offset 12 (after 0x10).
         assert_eq!(&buf[12..28], expected.cipher_key.declassify().as_slice());
         // IK at offset 29 (after 0x10).
@@ -2646,12 +2652,13 @@ mod tests {
 
         // Verify SRES = f2(RAND)[0..4].
         let params = MilenageParams::with_defaults(K, OPC);
-        let response = params.compute_response(&rand_val);
-        assert_eq!(&buf[1..5], &response[..4]);
+        let ch = AuthChallenge::new(rand_val);
+        let response = params.compute_response(&ch);
+        assert_eq!(&buf[1..5], &response.as_bytes()[..4]);
 
         // Verify Kc = CK1 xor CK2 xor IK1 xor IK2.
-        let cipher_key = params.compute_cipher_key(&rand_val);
-        let integrity_key = params.compute_integrity_key(&rand_val);
+        let cipher_key = params.compute_cipher_key(&ch);
+        let integrity_key = params.compute_integrity_key(&ch);
         let ck = cipher_key.declassify();
         let ik = integrity_key.declassify();
         let mut expected_kc = [0u8; 8];
@@ -2701,17 +2708,20 @@ mod tests {
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
 
-        let anonymity_key = params.compute_anonymity_key(&rand_val);
+        let ch = AuthChallenge::new(rand_val);
+        let sqn = SequenceNumber::new(sequence_number);
+        let amf = AuthManagementField::new(management_field);
+        let anonymity_key = params.compute_anonymity_key(&ch);
         let mut auth_token = [0u8; 16];
         for i in 0..6 {
-            auth_token[i] = sequence_number[i] ^ anonymity_key[i];
+            auth_token[i] = sequence_number[i] ^ anonymity_key.as_bytes()[i];
         }
         auth_token[6..8].copy_from_slice(&management_field);
-        auth_token[8..16].copy_from_slice(&params.compute_auth_mac(&rand_val, &sequence_number, &management_field));
+        auth_token[8..16].copy_from_slice(params.compute_auth_mac(&ch, &sqn, &amf).as_bytes());
 
-        let output = params.authenticate(&rand_val, &auth_token).unwrap();
+        let output = params.authenticate(&ch, &AuthToken::new(auth_token)).unwrap();
         let result = AuthenticationResult::Success {
-            response: output.response,
+            response: *output.response.as_bytes(),
             cipher_key: output.cipher_key,
             integrity_key: output.integrity_key,
         };
@@ -2724,7 +2734,7 @@ mod tests {
         assert_eq!(buf[0], 0xDB); // AUTH_SUCCESS_TAG
         assert_eq!(buf[1], 43);   // inner length = 1+8+1+16+1+16
         assert_eq!(buf[2], 0x08); // RES length prefix
-        assert_eq!(&buf[3..11], &output.response);
+        assert_eq!(&buf[3..11], output.response.as_bytes());
         assert_eq!(buf[11], 0x10); // CK length prefix
         assert_eq!(&buf[12..28], output.cipher_key.declassify().as_slice());
         assert_eq!(buf[28], 0x10); // IK length prefix
@@ -3630,14 +3640,17 @@ mod tests {
         let params = MilenageParams::with_defaults(K, OPC);
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
-        let anonymity_key = params.compute_anonymity_key(&rand_val);
-        let auth_mac = params.compute_auth_mac(&rand_val, &sequence_number, &management_field);
+        let ch = AuthChallenge::new(rand_val);
+        let sqn = SequenceNumber::new(sequence_number);
+        let amf = AuthManagementField::new(management_field);
+        let anonymity_key = params.compute_anonymity_key(&ch);
+        let auth_mac = params.compute_auth_mac(&ch, &sqn, &amf);
         let mut auth_token = [0u8; 16];
         for i in 0..6 {
-            auth_token[i] = sequence_number[i] ^ anonymity_key[i];
+            auth_token[i] = sequence_number[i] ^ anonymity_key.as_bytes()[i];
         }
         auth_token[6..8].copy_from_slice(&management_field);
-        auth_token[8..16].copy_from_slice(&auth_mac);
+        auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
 
         // Save and restore.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
@@ -4951,13 +4964,16 @@ mod tests {
         let mut params = MilenageParams::with_defaults(K, OPC);
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
-        let anonymity_key = params.compute_anonymity_key(&rand_val);
-        let auth_mac = params.compute_auth_mac(&rand_val, &sequence_number, &management_field);
+        let ch = AuthChallenge::new(rand_val);
+        let sqn = SequenceNumber::new(sequence_number);
+        let amf = AuthManagementField::new(management_field);
+        let anonymity_key = params.compute_anonymity_key(&ch);
+        let auth_mac = params.compute_auth_mac(&ch, &sqn, &amf);
 
         let mut auth_token = [0u8; 16];
-        for i in 0..6 { auth_token[i] = sequence_number[i] ^ anonymity_key[i]; }
+        for i in 0..6 { auth_token[i] = sequence_number[i] ^ anonymity_key.as_bytes()[i]; }
         auth_token[6..8].copy_from_slice(&management_field);
-        auth_token[8..16].copy_from_slice(&auth_mac);
+        auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
 
         // Build AUTHENTICATE APDU.
         let mut apdu = [0u8; 5 + 34];
@@ -4978,10 +4994,10 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         // Independently compute expected values.
-        let expected = params.authenticate(&rand_val, &auth_token).unwrap();
+        let expected = params.authenticate(&ch, &AuthToken::new(auth_token)).unwrap();
 
         // Verify RES (8 bytes at offset 3).
-        assert_eq!(&buf[3..11], &expected.response,
+        assert_eq!(&buf[3..11], expected.response.as_bytes(),
             "RES must match Milenage f2 output");
 
         // Verify CK (16 bytes at offset 12).
@@ -4993,7 +5009,7 @@ mod tests {
             "IK must match Milenage f4 output");
 
         // Sanity: none of RES/CK/IK should be all-zeros (non-trivial output).
-        assert_ne!(expected.response, [0u8; 8], "RES must not be all-zeros");
+        assert_ne!(*expected.response.as_bytes(), [0u8; 8], "RES must not be all-zeros");
         assert_ne!(*expected.cipher_key.declassify(), [0u8; 16], "CK must not be all-zeros");
         assert_ne!(*expected.integrity_key.declassify(), [0u8; 16], "IK must not be all-zeros");
     }
@@ -5108,14 +5124,17 @@ mod tests {
         sequence_number: [u8; 6],
         management_field: [u8; 2],
     ) -> [u8; 16] {
-        let anonymity_key = params.compute_anonymity_key(challenge);
-        let auth_mac = params.compute_auth_mac(challenge, &sequence_number, &management_field);
+        let ch = AuthChallenge::new(*challenge);
+        let sqn = SequenceNumber::new(sequence_number);
+        let amf = AuthManagementField::new(management_field);
+        let anonymity_key = params.compute_anonymity_key(&ch);
+        let auth_mac = params.compute_auth_mac(&ch, &sqn, &amf);
         let mut auth_token = [0u8; 16];
         for i in 0..6 {
-            auth_token[i] = sequence_number[i] ^ anonymity_key[i];
+            auth_token[i] = sequence_number[i] ^ anonymity_key.as_bytes()[i];
         }
         auth_token[6..8].copy_from_slice(&management_field);
-        auth_token[8..16].copy_from_slice(&auth_mac);
+        auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
         auth_token
     }
 
@@ -5200,13 +5219,14 @@ mod tests {
         assert_eq!(ik_actual.len(), 16, "IK must be exactly 16 bytes");
 
         // Step 5: Cross-check against independent Milenage computation.
-        let expected = params.authenticate(&rand_val, &auth_token).unwrap();
-        assert_eq!(res_actual, &expected.response, "RES must match Milenage f2");
+        let ch = AuthChallenge::new(rand_val);
+        let expected = params.authenticate(&ch, &AuthToken::new(auth_token)).unwrap();
+        assert_eq!(res_actual, expected.response.as_bytes(), "RES must match Milenage f2");
         assert_eq!(ck_actual, expected.cipher_key.declassify().as_slice(), "CK must match Milenage f3");
         assert_eq!(ik_actual, expected.integrity_key.declassify().as_slice(), "IK must match Milenage f4");
 
         // Non-triviality: none of the outputs should be all-zeros.
-        assert_ne!(expected.response, [0u8; 8], "RES must not be trivial");
+        assert_ne!(*expected.response.as_bytes(), [0u8; 8], "RES must not be trivial");
         assert_ne!(*expected.cipher_key.declassify(), [0u8; 16], "CK must not be trivial");
         assert_ne!(*expected.integrity_key.declassify(), [0u8; 16], "IK must not be trivial");
     }
@@ -5321,12 +5341,12 @@ mod tests {
 
         // Cross-check each RES against independent (fresh) Milenage computation.
         let mut check1 = MilenageParams::with_defaults(K, OPC);
-        let expected1 = check1.authenticate(&rand1, &auth_token_1).unwrap();
+        let expected1 = check1.authenticate(&AuthChallenge::new(rand1), &AuthToken::new(auth_token_1)).unwrap();
         let mut check2 = MilenageParams::with_defaults(K, OPC);
-        let expected2 = check2.authenticate(&rand2, &auth_token_2).unwrap();
-        assert_eq!(res1, expected1.response,
+        let expected2 = check2.authenticate(&AuthChallenge::new(rand2), &AuthToken::new(auth_token_2)).unwrap();
+        assert_eq!(res1, *expected1.response.as_bytes(),
             "first RES must match independent Milenage");
-        assert_eq!(res2, expected2.response,
+        assert_eq!(res2, *expected2.response.as_bytes(),
             "second RES must match independent Milenage");
 
         // CK and IK must also differ between the two runs.

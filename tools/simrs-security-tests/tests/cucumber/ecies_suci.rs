@@ -50,7 +50,7 @@ fn build_suci_calc_info_profile_a() -> Vec<u8> {
     // Key value (tag 0x81)
     data.push(0x81);
     data.push(0x20);
-    data.extend_from_slice(&hn_pk);
+    data.extend_from_slice(hn_pk.as_bytes());
     data
 }
 

@@ -367,15 +367,16 @@ fn encode_response(
             buf[1..total].copy_from_slice(atr);
             Some(total)
         }
-        SimResponse::Apdu { data, sw1, sw2 } => {
+        SimResponse::Apdu { data, sw } => {
+            let [sw1, sw2] = sw.to_bytes();
             let total = 1 + data.len() + 2;
             if buf.len() < total {
                 return None;
             }
             buf[0] = msg_type as u8;
             buf[1..=data.len()].copy_from_slice(data);
-            buf[data.len() + 1] = *sw1;
-            buf[data.len() + 2] = *sw2;
+            buf[data.len() + 1] = sw1;
+            buf[data.len() + 2] = sw2;
             Some(total)
         }
         SimResponse::Ignored => {
@@ -796,8 +797,7 @@ mod tests {
     fn encode_apdu_response_sw_only() {
         let rsp = SimResponse::Apdu {
             data: &[],
-            sw1: 0x90,
-            sw2: 0x00,
+            sw: simrs_iso7816::StatusWord::Success,
         };
         let mut buf = [0u8; 10];
         let n = encode_response(ShmemMsgType::Apdu, &rsp, &mut buf).unwrap();
@@ -811,8 +811,7 @@ mod tests {
     fn encode_apdu_response_with_data() {
         let rsp = SimResponse::Apdu {
             data: &[0x6F, 0x10],
-            sw1: 0x90,
-            sw2: 0x00,
+            sw: simrs_iso7816::StatusWord::Success,
         };
         let mut buf = [0u8; 10];
         let n = encode_response(ShmemMsgType::Apdu, &rsp, &mut buf).unwrap();

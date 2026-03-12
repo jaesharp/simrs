@@ -162,7 +162,7 @@ static VECTORS: [Comp128Vector; 12] = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_comp128::comp128;
+    use simrs_comp128::{comp128, SignedResponse};
     use simrs_secret::Secret;
 
     /// Test: all-zero Ki and RAND.
@@ -170,7 +170,7 @@ mod tests {
     fn vector_all_zero() {
         let v = &VECTORS[0];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
+        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
         assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -179,7 +179,7 @@ mod tests {
     fn vector_ab_cd() {
         let v = &VECTORS[1];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
+        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
         assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -188,7 +188,7 @@ mod tests {
     fn vector_doctest() {
         let v = &VECTORS[2];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
+        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
         assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -197,7 +197,7 @@ mod tests {
     fn vector_11_22() {
         let v = &VECTORS[3];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
+        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
         assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -206,7 +206,7 @@ mod tests {
     fn vector_all_ff() {
         let v = &VECTORS[4];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
+        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
         assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -215,7 +215,7 @@ mod tests {
     fn vector_sequential() {
         let v = &VECTORS[5];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, v.expected_sres, "SRES mismatch");
+        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
         assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 

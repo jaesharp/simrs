@@ -4,7 +4,7 @@
 //! Crate under test: `simrs-milenage`.
 
 use cucumber::{given, then, when};
-use simrs_milenage::{AuthenticationAlgorithm, AuthenticationError, MilenageParams, OperatorVariant, SubscriberKey};
+use simrs_milenage::{AuthChallenge, AuthManagementField, AuthToken, AuthenticationAlgorithm, AuthenticationError, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
 use simrs_secret::Secret;
 use simrs_spec_tests::parse_hex;
 
@@ -107,16 +107,19 @@ fn given_valid_autn(world: &mut SpecWorld, sqn_hex: String, amf_hex: String) {
 
     // Build AUTN = (SQN XOR AK) || AMF || MAC-A
     let params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    let anonymity_key = params.compute_anonymity_key(&challenge);
-    let auth_mac = params.compute_auth_mac(&challenge, &sequence_number, &management_field);
+    let challenge_raw = world.milenage_challenge.expect("RAND not set");
+    let ch = AuthChallenge::new(challenge_raw);
+    let sqn = SequenceNumber::new(sequence_number);
+    let amf = AuthManagementField::new(management_field);
+    let anonymity_key = params.compute_anonymity_key(&ch);
+    let auth_mac = params.compute_auth_mac(&ch, &sqn, &amf);
 
     let mut autn = [0u8; 16];
     for i in 0..6 {
-        autn[i] = sequence_number[i] ^ anonymity_key[i];
+        autn[i] = sequence_number[i] ^ anonymity_key.as_bytes()[i];
     }
     autn[6..8].copy_from_slice(&management_field);
-    autn[8..16].copy_from_slice(&auth_mac);
+    autn[8..16].copy_from_slice(auth_mac.as_bytes());
 
     world.milenage_auth_token = Some(autn);
 }
@@ -149,83 +152,83 @@ fn given_custom_constants(world: &mut SpecWorld, c_hex: String, r_val: String) {
 #[when(regex = r"^f1 is computed$")]
 fn when_f1(world: &mut SpecWorld) {
     let params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    let sequence_number = world.milenage_sequence_number.expect("SQN not set");
-    let management_field = world.milenage_management_field.expect("AMF not set");
-    world.milenage_auth_mac = Some(params.compute_auth_mac(&challenge, &sequence_number, &management_field));
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
+    let sqn = SequenceNumber::new(world.milenage_sequence_number.expect("SQN not set"));
+    let amf = AuthManagementField::new(world.milenage_management_field.expect("AMF not set"));
+    world.milenage_auth_mac = Some(*params.compute_auth_mac(&ch, &sqn, &amf).as_bytes());
 }
 
 #[when(regex = r"^f1\* is computed$")]
 fn when_f1_star(world: &mut SpecWorld) {
     let params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    let sequence_number = world.milenage_sequence_number.expect("SQN not set");
-    let management_field = world.milenage_management_field.expect("AMF not set");
-    world.milenage_resync_mac = Some(params.compute_resync_mac(&challenge, &sequence_number, &management_field));
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
+    let sqn = SequenceNumber::new(world.milenage_sequence_number.expect("SQN not set"));
+    let amf = AuthManagementField::new(world.milenage_management_field.expect("AMF not set"));
+    world.milenage_resync_mac = Some(*params.compute_resync_mac(&ch, &sqn, &amf).as_bytes());
 }
 
 #[when(regex = r"^f2 is computed$")]
 fn when_f2(world: &mut SpecWorld) {
     let params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    world.milenage_response = Some(params.compute_response(&challenge));
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
+    world.milenage_response = Some(*params.compute_response(&ch).as_bytes());
 }
 
 #[when(regex = r"^f3 is computed$")]
 fn when_f3(world: &mut SpecWorld) {
     let params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    world.milenage_cipher_key = Some(*params.compute_cipher_key(&challenge).declassify());
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
+    world.milenage_cipher_key = Some(*params.compute_cipher_key(&ch).declassify());
 }
 
 #[when(regex = r"^f4 is computed$")]
 fn when_f4(world: &mut SpecWorld) {
     let params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    world.milenage_integrity_key = Some(*params.compute_integrity_key(&challenge).declassify());
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
+    world.milenage_integrity_key = Some(*params.compute_integrity_key(&ch).declassify());
 }
 
 #[when(regex = r"^f5 is computed$")]
 fn when_f5(world: &mut SpecWorld) {
     let params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    world.milenage_anonymity_key = Some(params.compute_anonymity_key(&challenge));
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
+    world.milenage_anonymity_key = Some(*params.compute_anonymity_key(&ch).as_bytes());
 }
 
 #[when(regex = r"^f5\* is computed$")]
 fn when_f5_star(world: &mut SpecWorld) {
     let params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    world.milenage_resync_anonymity_key = Some(params.compute_resync_anonymity_key(&challenge));
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
+    world.milenage_resync_anonymity_key = Some(*params.compute_resync_anonymity_key(&ch).as_bytes());
 }
 
 #[when(regex = r#"^f2 is computed with OPc "([0-9A-Fa-f]+)"$"#)]
 fn when_f2_with_opc(world: &mut SpecWorld, opc_hex: String) {
     let k = world.milenage_k.expect("K not set");
     let opc = hex_to_array::<16>(&opc_hex);
-    let challenge = world.milenage_challenge.expect("RAND not set");
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
     let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::opc(Secret::new(opc)));
-    world.milenage_response = Some(params.compute_response(&challenge));
+    world.milenage_response = Some(*params.compute_response(&ch).as_bytes());
 }
 
 #[when(regex = r#"^f2 is computed with OP "([0-9A-Fa-f]+)"$"#)]
 fn when_f2_with_op(world: &mut SpecWorld, op_hex: String) {
     let k = world.milenage_k.expect("K not set");
     let op = hex_to_array::<16>(&op_hex);
-    let challenge = world.milenage_challenge.expect("RAND not set");
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
     let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::op(Secret::new(op)));
-    world.milenage_f2_alt = Some(params.compute_response(&challenge));
+    world.milenage_f2_alt = Some(*params.compute_response(&ch).as_bytes());
 }
 
 #[when(regex = r"^authenticate is called$")]
 fn when_authenticate(world: &mut SpecWorld) {
     let mut params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    let auth_token = world.milenage_auth_token.expect("AUTN not set");
-    let result = params.authenticate(&challenge, &auth_token);
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
+    let at = AuthToken::new(world.milenage_auth_token.expect("AUTN not set"));
+    let result = params.authenticate(&ch, &at);
     // Store individual fields on success for Then steps.
     if let Ok(ref out) = result {
-        world.milenage_response = Some(out.response);
+        world.milenage_response = Some(*out.response.as_bytes());
         world.milenage_cipher_key = Some(*out.cipher_key.declassify());
         world.milenage_integrity_key = Some(*out.integrity_key.declassify());
         world.milenage_gsm_cipher_key = Some(*out.gsm_cipher_key.declassify());
@@ -260,9 +263,9 @@ fn when_params_defaults(world: &mut SpecWorld) {
 #[when(regex = r"^f2 is computed twice$")]
 fn when_f2_twice(world: &mut SpecWorld) {
     let params = build_params(world);
-    let challenge = world.milenage_challenge.expect("RAND not set");
-    world.milenage_response = Some(params.compute_response(&challenge));
-    world.milenage_f2_alt = Some(params.compute_response(&challenge));
+    let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
+    world.milenage_response = Some(*params.compute_response(&ch).as_bytes());
+    world.milenage_f2_alt = Some(*params.compute_response(&ch).as_bytes());
 }
 
 // =========================================================================

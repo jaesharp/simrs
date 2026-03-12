@@ -7,6 +7,8 @@
 use simrs_consttime::{CtBool, CtSelect, CtSwap};
 use simrs_secret::Secret;
 
+use crate::X25519PublicKey;
+
 // ---------------------------------------------------------------------------
 // Field element: GF(2^255 - 19)
 // ---------------------------------------------------------------------------
@@ -404,14 +406,14 @@ impl simrs_consttime::CtSwap for Fe {
 /// - Clear bits 0, 1, 2 of the first byte
 /// - Clear bit 7 of the last byte
 /// - Set bit 6 of the last byte
-pub fn x25519(scalar: &Secret<[u8; 32]>, point: &[u8; 32]) -> Secret<[u8; 32]> {
+pub fn x25519(scalar: &Secret<[u8; 32]>, point: &X25519PublicKey) -> Secret<[u8; 32]> {
     // Clamp scalar per RFC 7748 clause 5.
     let mut k = *scalar.declassify_ref();
     k[0] &= 0xF8;  // clear bits 0, 1, 2
     k[31] &= 0x7F; // clear bit 255
     k[31] |= 0x40; // set bit 254
 
-    let u = Fe::from_bytes(point);
+    let u = Fe::from_bytes(point.as_bytes());
     Secret::new(ladder(&k, &u).to_bytes())
 }
 
@@ -424,9 +426,9 @@ const BASEPOINT: [u8; 32] = {
 
 /// X25519 base point multiplication: compute the public key from a secret key.
 ///
-/// Equivalent to `x25519(scalar, &[9, 0, 0, ..., 0])`.
-pub fn x25519_base(scalar: &Secret<[u8; 32]>) -> [u8; 32] {
-    *x25519(scalar, &BASEPOINT).declassify_ref()
+/// Equivalent to `x25519(scalar, &X25519PublicKey::new([9, 0, 0, ..., 0]))`.
+pub fn x25519_base(scalar: &Secret<[u8; 32]>) -> X25519PublicKey {
+    X25519PublicKey::new(*x25519(scalar, &X25519PublicKey::new(BASEPOINT)).declassify_ref())
 }
 
 // ---------------------------------------------------------------------------
@@ -518,7 +520,7 @@ mod tests {
         let scalar = hex_to_32("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4");
         let point  = hex_to_32("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c");
         let expect = hex_to_32("c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552");
-        assert_eq!(*x25519(&Secret::new(scalar), &point).declassify_ref(), expect);
+        assert_eq!(*x25519(&Secret::new(scalar), &X25519PublicKey::new(point)).declassify_ref(), expect);
     }
 
     #[test]
@@ -526,7 +528,7 @@ mod tests {
         let scalar = hex_to_32("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d");
         let point  = hex_to_32("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493");
         let expect = hex_to_32("95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957");
-        assert_eq!(*x25519(&Secret::new(scalar), &point).declassify_ref(), expect);
+        assert_eq!(*x25519(&Secret::new(scalar), &X25519PublicKey::new(point)).declassify_ref(), expect);
     }
 
     // -- RFC 7748 Section 5.2 iterated test --
@@ -539,7 +541,7 @@ mod tests {
             b[0] = 9;
             b
         };
-        let result = x25519(&Secret::new(nine), &nine);
+        let result = x25519(&Secret::new(nine), &X25519PublicKey::new(nine));
         let expect = hex_to_32("422c8e7a6227d7bca1350b3e2bb7279f7897b87bb6854b783c60e80311ae3079");
         assert_eq!(*result.declassify_ref(), expect);
     }
@@ -553,7 +555,7 @@ mod tests {
         u[0] = 9;
 
         for _ in 0..1000 {
-            let new_k = *x25519(&Secret::new(k), &u).declassify_ref();
+            let new_k = *x25519(&Secret::new(k), &X25519PublicKey::new(u)).declassify_ref();
             u = k;
             k = new_k;
         }
@@ -571,14 +573,14 @@ mod tests {
     fn rfc7748_dh_alice_pubkey() {
         let alice_sk = hex_to_32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
         let alice_pk = hex_to_32("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
-        assert_eq!(x25519_base(&Secret::new(alice_sk)), alice_pk);
+        assert_eq!(*x25519_base(&Secret::new(alice_sk)).as_bytes(), alice_pk);
     }
 
     #[test]
     fn rfc7748_dh_bob_pubkey() {
         let bob_sk = hex_to_32("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb");
         let bob_pk = hex_to_32("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
-        assert_eq!(x25519_base(&Secret::new(bob_sk)), bob_pk);
+        assert_eq!(*x25519_base(&Secret::new(bob_sk)).as_bytes(), bob_pk);
     }
 
     #[test]
@@ -586,7 +588,7 @@ mod tests {
         let alice_sk = hex_to_32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
         let bob_pk   = hex_to_32("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
         let shared   = hex_to_32("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
-        assert_eq!(*x25519(&Secret::new(alice_sk), &bob_pk).declassify_ref(), shared);
+        assert_eq!(*x25519(&Secret::new(alice_sk), &X25519PublicKey::new(bob_pk)).declassify_ref(), shared);
     }
 
     #[test]
@@ -595,7 +597,7 @@ mod tests {
         let alice_pk = hex_to_32("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
         let shared   = hex_to_32("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
         // Both sides must compute the same shared secret.
-        assert_eq!(*x25519(&Secret::new(bob_sk), &alice_pk).declassify_ref(), shared);
+        assert_eq!(*x25519(&Secret::new(bob_sk), &X25519PublicKey::new(alice_pk)).declassify_ref(), shared);
     }
 
     // -- Anti-theater tests --
@@ -605,7 +607,7 @@ mod tests {
         // Non-trivial scalar * basepoint should not be all-zero.
         let sk = [42u8; 32];
         let pk = x25519_base(&Secret::new(sk));
-        assert_ne!(pk, [0u8; 32]);
+        assert_ne!(*pk.as_bytes(), [0u8; 32]);
     }
 
     #[test]

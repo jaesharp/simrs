@@ -13,7 +13,7 @@
 use std::process;
 
 use clap::{Parser, Subcommand};
-use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
 use simrs_secret::Secret;
 
 #[derive(Parser)]
@@ -105,13 +105,16 @@ fn cmd_gen_vector(k_hex: &str, opc_hex: &str, sqn_hex: &str, amf_hex: &str, rand
     // auth_mac       = f1(RAND, SQN, AMF)
     // auth_token     = (SQN XOR anonymity_key) || AMF || auth_mac
     // expected_response = f2(RAND), cipher_key = f3(RAND), integrity_key = f4(RAND)
-    let anonymity_key = params.compute_anonymity_key(&rand_bytes);
-    let auth_mac = params.compute_auth_mac(&rand_bytes, &sequence_number, &management_field);
-    let expected_response = params.compute_response(&rand_bytes);
-    let cipher_key = params.compute_cipher_key(&rand_bytes);
-    let integrity_key = params.compute_integrity_key(&rand_bytes);
+    let ch = AuthChallenge::new(rand_bytes);
+    let sqn = SequenceNumber::new(sequence_number);
+    let amf = AuthManagementField::new(management_field);
+    let anonymity_key = params.compute_anonymity_key(&ch);
+    let auth_mac = params.compute_auth_mac(&ch, &sqn, &amf);
+    let expected_response = params.compute_response(&ch);
+    let cipher_key = params.compute_cipher_key(&ch);
+    let integrity_key = params.compute_integrity_key(&ch);
 
-    let auth_token = build_auth_token(sequence_number, anonymity_key, management_field, auth_mac);
+    let auth_token = build_auth_token(sequence_number, *anonymity_key.as_bytes(), management_field, *auth_mac.as_bytes());
 
     // JSON output -- consumed by Python subprocess.run() callers.
     // All values are lowercase hex without 0x prefix.
@@ -119,7 +122,7 @@ fn cmd_gen_vector(k_hex: &str, opc_hex: &str, sqn_hex: &str, amf_hex: &str, rand
         "{{\n  \"rand\": \"{}\",\n  \"autn\": \"{}\",\n  \"xres\": \"{}\",\n  \"ck\": \"{}\",\n  \"ik\": \"{}\"\n}}",
         hex_encode(&rand_bytes),
         hex_encode(&auth_token),
-        hex_encode(&expected_response),
+        hex_encode(expected_response.as_bytes()),
         hex_encode(cipher_key.declassify()),
         hex_encode(integrity_key.declassify()),
     );
@@ -223,14 +226,17 @@ mod tests {
         let rand_bytes: [u8; 16] = parse_hex(TS1_RAND, "RAND").unwrap();
 
         let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::opc(Secret::new(opc)));
-        let anonymity_key = params.compute_anonymity_key(&rand_bytes);
-        let auth_mac = params.compute_auth_mac(&rand_bytes, &sequence_number, &management_field);
-        let expected_response = params.compute_response(&rand_bytes);
-        let cipher_key = params.compute_cipher_key(&rand_bytes);
-        let integrity_key = params.compute_integrity_key(&rand_bytes);
-        let auth_token = build_auth_token(sequence_number, anonymity_key, management_field, auth_mac);
+        let ch = AuthChallenge::new(rand_bytes);
+        let sqn = SequenceNumber::new(sequence_number);
+        let amf = AuthManagementField::new(management_field);
+        let anonymity_key = params.compute_anonymity_key(&ch);
+        let auth_mac = params.compute_auth_mac(&ch, &sqn, &amf);
+        let expected_response = params.compute_response(&ch);
+        let cipher_key = params.compute_cipher_key(&ch);
+        let integrity_key = params.compute_integrity_key(&ch);
+        let auth_token = build_auth_token(sequence_number, *anonymity_key.as_bytes(), management_field, *auth_mac.as_bytes());
 
-        assert_eq!(hex_encode(&expected_response), TS1_XRES);
+        assert_eq!(hex_encode(expected_response.as_bytes()), TS1_XRES);
         assert_eq!(hex_encode(cipher_key.declassify()), TS1_CK);
         assert_eq!(hex_encode(integrity_key.declassify()), TS1_IK);
         assert_eq!(hex_encode(&auth_token), TS1_AUTN);

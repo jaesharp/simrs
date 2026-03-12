@@ -102,8 +102,8 @@ mod tests {
         // Card should be Ready after restore.
         let rsp = restored.process(SimEvent::Apdu(&[0xF0, 0xA4, 0x00, 0x00]));
         match rsp {
-            SimResponse::Apdu { sw1, sw2, .. } => {
-                assert_eq!((sw1, sw2), (0x6E, 0x00));
+            SimResponse::Apdu { sw, .. } => {
+                assert_eq!(sw.to_bytes(), [0x6E, 0x00]);
             }
             _ => panic!("expected Apdu, card should be Ready"),
         }

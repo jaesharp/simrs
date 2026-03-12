@@ -9,7 +9,10 @@
 
 use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, Sfi};
 use simrs_gsm::GsmApp;
-use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+use simrs_milenage::{
+    AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber,
+    SubscriberKey,
+};
 use simrs_secret::Secret;
 use simrs_pin::{PinKey, PinValue};
 use simrs_proactive::{ProactiveCommand, TextCoding};
@@ -144,7 +147,7 @@ fn make_sim() -> Sim<MilenageParams, 256> {
 /// Send an APDU and return (sw1, sw2, data).
 fn send(sim: &mut Sim<MilenageParams, 256>, apdu: &[u8]) -> (u8, u8, Vec<u8>) {
     match sim.process(SimEvent::Apdu(apdu)) {
-        SimResponse::Apdu { data, sw1, sw2 } => (sw1, sw2, data.to_vec()),
+        SimResponse::Apdu { data, sw } => { let [sw1, sw2] = sw.to_bytes(); (sw1, sw2, data.to_vec()) }
         SimResponse::Ignored => panic!("APDU was ignored"),
         SimResponse::Atr(_) => panic!("unexpected ATR response to APDU"),
     }
@@ -273,7 +276,7 @@ fn gsm_run_gsm_algorithm_comp128() {
 
     // Verify against independent COMP128 computation.
     let result = simrs_comp128::comp128(KI.as_secret(), &rand_val);
-    assert_eq!(&data[..4], &result.sres);
+    assert_eq!(&data[..4], result.sres.as_bytes());
     assert_eq!(&data[4..12], result.kc.declassify_ref());
 }
 
@@ -305,17 +308,18 @@ fn usim_select_aid_and_authenticate() {
         0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
     ];
     let params = MilenageParams::with_defaults(USIM_K, USIM_OPC);
-    let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-    let management_field = [0xB9, 0xB9];
-    let anonymity_key = params.compute_anonymity_key(&rand_val);
-    let auth_mac = params.compute_auth_mac(&rand_val, &sequence_number, &management_field);
+    let challenge = AuthChallenge::new(rand_val);
+    let sequence_number = SequenceNumber::new([0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07]);
+    let management_field = AuthManagementField::new([0xB9, 0xB9]);
+    let anonymity_key = params.compute_anonymity_key(&challenge);
+    let auth_mac = params.compute_auth_mac(&challenge, &sequence_number, &management_field);
 
     let mut auth_token = [0u8; 16];
     for i in 0..6 {
-        auth_token[i] = sequence_number[i] ^ anonymity_key[i];
+        auth_token[i] = sequence_number.as_bytes()[i] ^ anonymity_key.as_bytes()[i];
     }
-    auth_token[6..8].copy_from_slice(&management_field);
-    auth_token[8..16].copy_from_slice(&auth_mac);
+    auth_token[6..8].copy_from_slice(management_field.as_bytes());
+    auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
 
     let mut auth_cmd = [0u8; 39];
     auth_cmd[0] = 0x00;
@@ -337,15 +341,15 @@ fn usim_select_aid_and_authenticate() {
     assert_eq!(data[0], 0xDB);
 
     // Verify RES = f2(RAND).
-    let expected_response = params.compute_response(&rand_val);
-    assert_eq!(&data[3..11], &expected_response);
+    let expected_response = params.compute_response(&challenge);
+    assert_eq!(&data[3..11], expected_response.as_bytes());
 
     // Verify CK = f3(RAND).
-    let cipher_key = params.compute_cipher_key(&rand_val);
+    let cipher_key = params.compute_cipher_key(&challenge);
     assert_eq!(&data[12..28], cipher_key.declassify().as_slice());
 
     // Verify IK = f4(RAND).
-    let integrity_key = params.compute_integrity_key(&rand_val);
+    let integrity_key = params.compute_integrity_key(&challenge);
     assert_eq!(&data[29..45], integrity_key.declassify().as_slice());
 }
 

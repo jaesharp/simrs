@@ -234,39 +234,45 @@ static VECTORS: [MilenageVector; 6] = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+    use simrs_milenage::{
+        AnonymityKey, AuthChallenge, AuthManagementField, AuthResponse, MilenageParams,
+        NetworkMac, OperatorVariant, ResyncMac, SequenceNumber, SubscriberKey,
+    };
     use simrs_secret::Secret;
 
     #[test]
     fn all_vectors_match() {
         for (i, v) in VECTORS.iter().enumerate() {
             let p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(v.k)), OperatorVariant::opc(Secret::new(v.opc)));
+            let rand = AuthChallenge::new(v.rand);
+            let sqn = SequenceNumber::new(v.sqn);
+            let amf = AuthManagementField::new(v.amf);
             assert_eq!(
-                p.compute_auth_mac(&v.rand, &v.sqn, &v.amf), v.expected_f1,
+                p.compute_auth_mac(&rand, &sqn, &amf), NetworkMac::new(v.expected_f1),
                 "Test Set {} f1 (MAC-A) mismatch", i + 1
             );
             assert_eq!(
-                p.compute_resync_mac(&v.rand, &v.sqn, &v.amf), v.expected_f1_star,
+                p.compute_resync_mac(&rand, &sqn, &amf), ResyncMac::new(v.expected_f1_star),
                 "Test Set {} f1* (MAC-S) mismatch", i + 1
             );
             assert_eq!(
-                p.compute_response(&v.rand), v.expected_f2,
+                p.compute_response(&rand), AuthResponse::new(v.expected_f2),
                 "Test Set {} f2 (RES) mismatch", i + 1
             );
             assert_eq!(
-                *p.compute_cipher_key(&v.rand).declassify(), v.expected_f3,
+                *p.compute_cipher_key(&rand).declassify(), v.expected_f3,
                 "Test Set {} f3 (CK) mismatch", i + 1
             );
             assert_eq!(
-                *p.compute_integrity_key(&v.rand).declassify(), v.expected_f4,
+                *p.compute_integrity_key(&rand).declassify(), v.expected_f4,
                 "Test Set {} f4 (IK) mismatch", i + 1
             );
             assert_eq!(
-                p.compute_anonymity_key(&v.rand), v.expected_f5,
+                p.compute_anonymity_key(&rand), AnonymityKey::new(v.expected_f5),
                 "Test Set {} f5 (AK) mismatch", i + 1
             );
             assert_eq!(
-                p.compute_resync_anonymity_key(&v.rand), v.expected_f5_star,
+                p.compute_resync_anonymity_key(&rand), AnonymityKey::new(v.expected_f5_star),
                 "Test Set {} f5* (AK*) mismatch", i + 1
             );
         }

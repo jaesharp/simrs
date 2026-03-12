@@ -72,7 +72,8 @@ impl SimTerminal {
     /// Process an APDU. Returns `(response_data, sw1, sw2)` or `None` if ignored.
     pub fn process_apdu(&mut self, cmd: &[u8]) -> Option<(&[u8], u8, u8)> {
         match self.sim.process(SimEvent::Apdu(cmd)) {
-            SimResponse::Apdu { data, sw1, sw2 } => {
+            SimResponse::Apdu { data, sw } => {
+                let [sw1, sw2] = sw.to_bytes();
                 self.rsp_buf[..data.len()].copy_from_slice(data);
                 Some((&self.rsp_buf[..data.len()], sw1, sw2))
             }
@@ -90,7 +91,8 @@ impl Transport for SimTerminal {
         }
 
         match self.sim.process(SimEvent::Apdu(cmd)) {
-            SimResponse::Apdu { data, sw1, sw2 } => {
+            SimResponse::Apdu { data, sw } => {
+                let [sw1, sw2] = sw.to_bytes();
                 let len = data.len() + 2;
                 if len > rsp.len() {
                     return Err(TransportError::BufferTooSmall);
@@ -156,7 +158,8 @@ impl ShadowSim {
     /// Process an APDU. Returns `(response_data, sw1, sw2)` or `None` if ignored.
     pub fn process_apdu(&mut self, cmd: &[u8]) -> Option<(&[u8], u8, u8)> {
         match self.sim.process(SimEvent::Apdu(cmd)) {
-            SimResponse::Apdu { data, sw1, sw2 } => {
+            SimResponse::Apdu { data, sw } => {
+                let [sw1, sw2] = sw.to_bytes();
                 // Copy data into our response buffer so we can return
                 // a reference that outlives the borrow on self.sim.
                 self.rsp_buf[..data.len()].copy_from_slice(data);

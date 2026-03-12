@@ -155,8 +155,8 @@ fn build_test_ota_packet() -> (Vec<u8>, Vec<u8>) {
     hdr.spi = Spi { spi1: 0x02, spi2: 0x01 };
     hdr.kic = KeyId::new(0x01); // AES CBC
     hdr.kid = KeyId::new(0x01); // AES CBC MAC
-    hdr.tar = [0xB0, 0x00, 0x10];
-    hdr.counter = [0x00, 0x00, 0x00, 0x00, 0x01];
+    hdr.tar = [0xB0, 0x00, 0x10].into();
+    hdr.counter = [0x00, 0x00, 0x00, 0x00, 0x01].into();
 
     let payload = b"Hello SIM";
     let mut buf = [0u8; 512];

@@ -92,7 +92,10 @@ static VECTORS: [TuakVector; 1] = [TuakVector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_milenage::SubscriberKey;
+    use simrs_milenage::{
+        AnonymityKey, AuthChallenge, AuthManagementField, NetworkMac, ResyncMac,
+        SequenceNumber, SubscriberKey,
+    };
     use simrs_secret::Secret;
     use simrs_tuak::{TuakParams, OperatorVariant};
 
@@ -111,12 +114,15 @@ mod tests {
                 OperatorVariant::top(Secret::new(v.top))
             };
             let p = TuakParams::new(SubscriberKey::new(Secret::new(k16)), top_variant);
+            let rand = AuthChallenge::new(v.rand);
+            let sqn = SequenceNumber::new(v.sqn);
+            let amf = AuthManagementField::new(v.amf);
             assert_eq!(
-                p.compute_auth_mac(&v.rand, &v.sqn, &v.amf), v.expected_f1,
+                p.compute_auth_mac(&rand, &sqn, &amf), NetworkMac::new(v.expected_f1),
                 "Vector {} f1 mismatch", i
             );
             assert_eq!(
-                p.compute_resync_mac(&v.rand, &v.sqn, &v.amf), v.expected_f1_star,
+                p.compute_resync_mac(&rand, &sqn, &amf), ResyncMac::new(v.expected_f1_star),
                 "Vector {} f1* mismatch", i
             );
         }
@@ -137,8 +143,9 @@ mod tests {
                 OperatorVariant::top(Secret::new(v.top))
             };
             let p = TuakParams::new(SubscriberKey::new(Secret::new(k16)), top_variant);
+            let rand = AuthChallenge::new(v.rand);
             assert_eq!(
-                p.compute_resync_anonymity_key(&v.rand), v.expected_f5_star,
+                p.compute_resync_anonymity_key(&rand), AnonymityKey::new(v.expected_f5_star),
                 "Vector {} f5* mismatch", i
             );
         }

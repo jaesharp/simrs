@@ -247,7 +247,8 @@ pub fn hle_reset() -> usize {
 pub fn hle_apdu(cmd: &[u8], rsp: &mut [u8]) -> Option<(usize, u8, u8)> {
     with_sim!(None, |sim| {
         match sim.process(SimEvent::Apdu(cmd)) {
-            SimResponse::Apdu { data, sw1, sw2 } => {
+            SimResponse::Apdu { data, sw } => {
+                let [sw1, sw2] = sw.to_bytes();
                 let n = data.len().min(rsp.len());
                 rsp[..n].copy_from_slice(&data[..n]);
                 Some((n, sw1, sw2))

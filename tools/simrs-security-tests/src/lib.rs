@@ -29,7 +29,7 @@
 pub mod apdu;
 
 use simrs_gsm::Ki;
-use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
 use simrs_secret::Secret;
 use simrs_sim::{Sim, SimEvent, SimResponse};
@@ -144,7 +144,10 @@ pub fn parse_hex(s: &str) -> Vec<u8> {
 /// Returns `Some((data, sw1, sw2))` if processed, `None` if ignored.
 pub fn send_apdu(sim: &mut TestSim, cmd: &[u8]) -> Option<(Vec<u8>, u8, u8)> {
     match sim.process(SimEvent::Apdu(cmd)) {
-        SimResponse::Apdu { data, sw1, sw2 } => Some((data.to_vec(), sw1, sw2)),
+        SimResponse::Apdu { data, sw } => {
+            let [sw1, sw2] = sw.to_bytes();
+            Some((data.to_vec(), sw1, sw2))
+        }
         SimResponse::Ignored | SimResponse::Atr(_) => None,
     }
 }
@@ -233,15 +236,18 @@ pub fn select_ef_iccid(sim: &mut TestSim) -> (u8, u8) {
 /// SQN and AMF, so AUTHENTICATE will accept the MAC.
 pub fn build_valid_autn(challenge: &[u8; 16], sequence_number: [u8; 6], management_field: [u8; 2]) -> [u8; 16] {
     let params = MilenageParams::with_defaults(TEST_K, TEST_OPC);
-    let anonymity_key = params.compute_anonymity_key(challenge);
-    let auth_mac = params.compute_auth_mac(challenge, &sequence_number, &management_field);
+    let ch = AuthChallenge::new(*challenge);
+    let sqn = SequenceNumber::new(sequence_number);
+    let amf = AuthManagementField::new(management_field);
+    let anonymity_key = params.compute_anonymity_key(&ch);
+    let auth_mac = params.compute_auth_mac(&ch, &sqn, &amf);
     let mut auth_token = [0u8; 16];
     for i in 0..6 {
-        auth_token[i] = sequence_number[i] ^ anonymity_key[i];
+        auth_token[i] = sequence_number[i] ^ anonymity_key.as_bytes()[i];
     }
     auth_token[6] = management_field[0];
     auth_token[7] = management_field[1];
-    auth_token[8..16].copy_from_slice(&auth_mac);
+    auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
     auth_token
 }
 

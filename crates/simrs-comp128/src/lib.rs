@@ -41,7 +41,7 @@
 //!
 //! let result: Comp128Result = comp128(&ki, &rand);
 //!
-//! assert_eq!(result.sres, [0x43, 0xFA, 0xD2, 0x08]);
+//! assert_eq!(*result.sres.as_bytes(), [0x43, 0xFA, 0xD2, 0x08]);
 //! assert_eq!(*result.kc.declassify_ref(), [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
 //! ```
 #![no_std]
@@ -55,6 +55,33 @@ extern crate std;
 use simrs_consttime::ct_select_n;
 use simrs_redact::Redact;
 use simrs_secret::Secret;
+
+// ---------------------------------------------------------------------------
+// Newtype: SignedResponse (SRES)
+// ---------------------------------------------------------------------------
+
+/// GSM signed response (4 bytes, COMP128 output).
+///
+/// The authentication response sent from the SIM to the network during
+/// GSM authentication (A3/A8 algorithm).
+///
+/// Per ETSI TS 131 102 / GSM 11.11.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SignedResponse([u8; 4]);
+impl SignedResponse {
+    /// Create a new `SignedResponse` from raw bytes.
+    #[inline] pub const fn new(raw: [u8; 4]) -> Self { Self(raw) }
+    /// Access the raw bytes.
+    #[inline] pub const fn as_bytes(&self) -> &[u8; 4] { &self.0 }
+}
+impl From<[u8; 4]> for SignedResponse { fn from(raw: [u8; 4]) -> Self { Self(raw) } }
+
+/// GSM abbreviation for [`SignedResponse`].
+///
+/// The specs (GSM 11.11 / ETSI TS 131 102) use "SRES" (Signed Response).
+/// We prefer `SignedResponse` for self-documenting code.
+#[deprecated(note = "GSM SRES (TS 131 102) -- prefer SignedResponse")]
+pub type Sres = SignedResponse;
 
 /// Result of the `COMP128v1` algorithm.
 ///
@@ -84,7 +111,7 @@ use simrs_secret::Secret;
 pub struct Comp128Result {
     /// Signed Response (4 bytes).
     /// Sent to the base station to prove knowledge of Ki.
-    pub sres: [u8; 4],
+    pub sres: SignedResponse,
 
     /// Ciphering key (8 bytes, effective 54 bits).
     /// Used as the session key for A5/1 or A5/3 encryption.
@@ -95,7 +122,7 @@ pub struct Comp128Result {
 impl core::fmt::Debug for Comp128Result {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Comp128Result")
-            .field("sres", &self.sres)
+            .field("sres", &self.sres.as_bytes())
             .field("kc", &Redact(self.kc.declassify_ref()))
             .finish()
     }
@@ -137,7 +164,7 @@ impl core::fmt::Debug for Comp128Result {
 /// let rand = [0x22u8; 16];
 /// let r1 = comp128(&ki, &rand);
 /// let r2 = comp128(&ki, &rand);
-/// assert_eq!(r1.sres, r2.sres);
+/// assert_eq!(r1.sres.as_bytes(), r2.sres.as_bytes());
 /// assert_eq!(r1.kc.declassify_ref(), r2.kc.declassify_ref());
 /// ```
 ///
@@ -151,7 +178,7 @@ impl core::fmt::Debug for Comp128Result {
 /// let r1 = comp128(&ki, &[0x00u8; 16]);
 /// let r2 = comp128(&ki, &[0x01u8; 16]);
 /// assert!(
-///     r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
+///     r1.sres.as_bytes() != r2.sres.as_bytes() || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
 ///     "different RAND must produce different results"
 /// );
 /// ```
@@ -173,7 +200,7 @@ impl core::fmt::Debug for Comp128Result {
 ///     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
 /// ];
 /// let result = comp128(&ki, &rand);
-/// assert_eq!(result.sres, [0x46, 0xF0, 0x2D, 0xBA]);
+/// assert_eq!(*result.sres.as_bytes(), [0x46, 0xF0, 0x2D, 0xBA]);
 /// assert_eq!(*result.kc.declassify_ref(), [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
 /// ```
 #[allow(clippy::cast_possible_truncation)] // values bounded by table size / bit masks
@@ -247,7 +274,7 @@ pub fn comp128(ki: &Secret<[u8; 16]>, rand: &[u8; 16]) -> Comp128Result {
     kc[6] = (x[30] << 6) | (x[31] << 2);
     kc[7] = 0x00;
 
-    Comp128Result { sres, kc: Secret::new(kc) }
+    Comp128Result { sres: SignedResponse::new(sres), kc: Secret::new(kc) }
 }
 
 // ---------------------------------------------------------------------------
@@ -376,14 +403,14 @@ mod tests {
     #[test]
     fn swsim_vector_all_zero() {
         let r = comp128(&ki([0x00; 16]), &[0x00; 16]);
-        assert_eq!(r.sres, [0x09, 0xE5, 0x5D, 0xA4]);
+        assert_eq!(*r.sres.as_bytes(), [0x09, 0xE5, 0x5D, 0xA4]);
         assert_eq!(*r.kc.declassify_ref(), [0x17, 0x47, 0x57, 0x78, 0x3D, 0xC4, 0x04, 0x00]);
     }
 
     #[test]
     fn swsim_vector_ab_cd() {
         let r = comp128(&ki([0xAB; 16]), &[0xCD; 16]);
-        assert_eq!(r.sres, [0x43, 0xFA, 0xD2, 0x08]);
+        assert_eq!(*r.sres.as_bytes(), [0x43, 0xFA, 0xD2, 0x08]);
         assert_eq!(*r.kc.declassify_ref(), [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
     }
 
@@ -398,21 +425,21 @@ mod tests {
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
         ];
         let r = comp128(&k, &rand);
-        assert_eq!(r.sres, [0x46, 0xF0, 0x2D, 0xBA]);
+        assert_eq!(*r.sres.as_bytes(), [0x46, 0xF0, 0x2D, 0xBA]);
         assert_eq!(*r.kc.declassify_ref(), [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
     }
 
     #[test]
     fn swsim_vector_11_22() {
         let r = comp128(&ki([0x11; 16]), &[0x22; 16]);
-        assert_eq!(r.sres, [0x67, 0x5B, 0x74, 0xF6]);
+        assert_eq!(*r.sres.as_bytes(), [0x67, 0x5B, 0x74, 0xF6]);
         assert_eq!(*r.kc.declassify_ref(), [0x7E, 0xFC, 0x50, 0xA3, 0xED, 0x03, 0x68, 0x00]);
     }
 
     #[test]
     fn swsim_vector_all_ff() {
         let r = comp128(&ki([0xFF; 16]), &[0xFF; 16]);
-        assert_eq!(r.sres, [0xFE, 0x65, 0xFD, 0x52]);
+        assert_eq!(*r.sres.as_bytes(), [0xFE, 0x65, 0xFD, 0x52]);
         assert_eq!(*r.kc.declassify_ref(), [0x8E, 0xD6, 0x68, 0x0A, 0x9B, 0x77, 0xC4, 0x00]);
     }
 
@@ -423,7 +450,7 @@ mod tests {
         #[allow(clippy::cast_possible_truncation)]
         let rand: [u8; 16] = core::array::from_fn(|i| (i + 16) as u8);
         let r = comp128(&k, &rand);
-        assert_eq!(r.sres, [0x37, 0x38, 0xF8, 0x82]);
+        assert_eq!(*r.sres.as_bytes(), [0x37, 0x38, 0xF8, 0x82]);
         assert_eq!(*r.kc.declassify_ref(), [0x39, 0xCD, 0xA2, 0xDB, 0xBA, 0x4A, 0x7C, 0x00]);
     }
 
@@ -471,7 +498,7 @@ mod tests {
     fn zero_input_not_zero_output() {
         let r = comp128(&ki([0u8; 16]), &[0u8; 16]);
         assert!(
-            r.sres != [0u8; 4] || *r.kc.declassify_ref() != [0u8; 8],
+            *r.sres.as_bytes() != [0u8; 4] || *r.kc.declassify_ref() != [0u8; 8],
             "zero input must not produce all-zero output"
         );
     }
@@ -479,7 +506,7 @@ mod tests {
     #[test]
     fn output_not_all_ff() {
         let r = comp128(&ki([0xFF; 16]), &[0xFF; 16]);
-        let all_ff = r.sres == [0xFF; 4] && *r.kc.declassify_ref() == [0xFF; 8];
+        let all_ff = *r.sres.as_bytes() == [0xFF; 4] && *r.kc.declassify_ref() == [0xFF; 8];
         assert!(!all_ff, "all-FF input must not produce all-FF output");
     }
 

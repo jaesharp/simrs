@@ -8,7 +8,7 @@
 //!   - ETSI TS 102 221 V18.0.0 clause 11.1.10
 
 use cucumber::{given, then, when};
-use simrs_milenage::MilenageParams;
+use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, SequenceNumber};
 use simrs_security_tests::{apdu, build_authenticate_apdu, build_valid_autn, parse_hex, TEST_K, TEST_KI, TEST_OPC};
 
 use super::snapshot::{reserve_auth, reserve_rsp_queue};
@@ -257,10 +257,11 @@ fn then_auts_content_valid(world: &mut SimWorld) {
     let p = MilenageParams::with_defaults(TEST_K, TEST_OPC);
 
     // Recover SQN_MS: AUTS[0..6] = SQN_MS XOR AK*
-    let resync_anonymity_key = p.compute_resync_anonymity_key(&challenge);
+    let ch = AuthChallenge::new(challenge);
+    let resync_anonymity_key = p.compute_resync_anonymity_key(&ch);
     let mut reported_sequence_number = [0u8; 6];
     for i in 0..6 {
-        reported_sequence_number[i] = auts[i] ^ resync_anonymity_key[i];
+        reported_sequence_number[i] = auts[i] ^ resync_anonymity_key.as_bytes()[i];
     }
     // SQN_MS must be 1 (the card's sqn_he after accepting SQN=0).
     let expected_sqn_ms = [0x00, 0x00, 0x00, 0x00, 0x00, 0x01];
@@ -270,10 +271,12 @@ fn then_auts_content_valid(world: &mut SimWorld) {
     );
 
     // MAC-S must equal f1*(RAND, SQN_MS, AMF=0000).
-    let resync_mac = p.compute_resync_mac(&challenge, &reported_sequence_number, &[0x00, 0x00]);
+    let sqn = SequenceNumber::new(reported_sequence_number);
+    let amf = AuthManagementField::new([0x00, 0x00]);
+    let resync_mac = p.compute_resync_mac(&ch, &sqn, &amf);
     assert_eq!(
         &auts[6..14],
-        &resync_mac,
+        resync_mac.as_bytes(),
         "AUTS MAC-S must equal f1*(RAND, SQN_MS, AMF=0000)",
     );
 }

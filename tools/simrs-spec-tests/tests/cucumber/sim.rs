@@ -11,7 +11,7 @@
 //! structure checks.
 
 use cucumber::{given, then, when};
-use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
 use simrs_proactive::{ProactiveCommand, TextCoding};
 use simrs_secret::Secret;
 use simrs_sim::{SimEvent, SimResponse};
@@ -60,17 +60,20 @@ fn build_valid_auth_vectors() -> ([u8; 16], [u8; 16]) {
         OperatorVariant::opc(Secret::new(TEST_OPC)),
     );
 
-    let ak = params.compute_anonymity_key(&rand);
-    let mac_a = params.compute_auth_mac(&rand, &sqn, &amf);
+    let ch = AuthChallenge::new(rand);
+    let sqn_t = SequenceNumber::new(sqn);
+    let amf_t = AuthManagementField::new(amf);
+    let ak = params.compute_anonymity_key(&ch);
+    let mac_a = params.compute_auth_mac(&ch, &sqn_t, &amf_t);
 
     let mut autn = [0u8; 16];
     // AUTN = (SQN XOR AK) || AMF || MAC-A
     for i in 0..6 {
-        autn[i] = sqn[i] ^ ak[i];
+        autn[i] = sqn[i] ^ ak.as_bytes()[i];
     }
     autn[6] = amf[0];
     autn[7] = amf[1];
-    autn[8..16].copy_from_slice(&mac_a);
+    autn[8..16].copy_from_slice(mac_a.as_bytes());
 
     (rand, autn)
 }

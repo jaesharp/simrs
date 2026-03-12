@@ -86,7 +86,7 @@
 //! # Example
 //!
 //! ```
-//! use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+//! use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthChallenge, SequenceNumber, AuthManagementField};
 //! use simrs_secret::Secret;
 //!
 //! // ETSI TS 135 208 V19.0.0 Test Set 1 (clause 4.3.1)
@@ -94,18 +94,18 @@
 //!             0xAA,0x5F,0x0A,0x2E,0xE2,0x38,0xA6,0xBC];
 //! let opc  = [0xCD,0x63,0xCB,0x71,0x95,0x4A,0x9F,0x4E,
 //!             0x48,0xA5,0x99,0x4E,0x37,0xA0,0x2B,0xAF];
-//! let rand = [0x23,0x55,0x3C,0xBE,0x96,0x37,0xA8,0x9D,
-//!             0x21,0x8A,0xE6,0x4D,0xAE,0x47,0xBF,0x35];
-//! let sqn  = [0xFF,0x9B,0xB4,0xD0,0xB6,0x07];
-//! let amf  = [0xB9,0xB9];
+//! let rand = AuthChallenge::new([0x23,0x55,0x3C,0xBE,0x96,0x37,0xA8,0x9D,
+//!             0x21,0x8A,0xE6,0x4D,0xAE,0x47,0xBF,0x35]);
+//! let sqn  = SequenceNumber::new([0xFF,0x9B,0xB4,0xD0,0xB6,0x07]);
+//! let amf  = AuthManagementField::new([0xB9,0xB9]);
 //!
 //! let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::opc(Secret::new(opc)));
 //!
-//! assert_eq!(params.compute_auth_mac(&rand, &sqn, &amf),
+//! assert_eq!(*params.compute_auth_mac(&rand, &sqn, &amf).as_bytes(),
 //!            [0x4A,0x9F,0xFA,0xC3,0x54,0xDF,0xAF,0xB3]);
-//! assert_eq!(params.compute_response(&rand),
+//! assert_eq!(*params.compute_response(&rand).as_bytes(),
 //!            [0xA5,0x42,0x11,0xD5,0xE3,0xBA,0x50,0xBF]);
-//! assert_eq!(params.compute_anonymity_key(&rand),
+//! assert_eq!(*params.compute_anonymity_key(&rand).as_bytes(),
 //!            [0xAA,0x68,0x9C,0x64,0x83,0x70]);
 //! ```
 //!
@@ -121,12 +121,19 @@
 extern crate std;
 
 mod types;
-pub use types::{CipherKey, GsmCipherKey, IntegrityKey, SubscriberKey};
+pub use types::{
+    AuthChallenge, AuthManagementField, AuthResponse, AuthToken,
+    AnonymityKey, CipherKey, GsmCipherKey, IntegrityKey, NetworkMac,
+    ResyncMac, ResyncToken, SequenceNumber, SubscriberKey,
+};
+// Deprecated aliases re-exported for backwards compatibility.
+#[allow(deprecated)]
+pub use types::{Amf, Auts, Autn, MacA, MacS, Rand, Res, Sqn};
 
-// ct_eq is used in the AuthenticationAlgorithm::authenticate default method for
+// ct_eq / CtEq are used in the AuthenticationAlgorithm::authenticate default method for
 // constant-time MAC-A comparison (3GPP TS 33.102 V19.1.0 timing side-channel requirement).
 // Both MilenageParams and TuakParams inherit this through the trait default.
-use simrs_consttime::ct_eq;
+use simrs_consttime::CtEq;
 use simrs_rijndael::Rijndael;
 use simrs_redact::Redact;
 use simrs_secret::Secret;
@@ -233,7 +240,7 @@ impl core::fmt::Debug for MilenageParams {
 /// response (tag `0xDB`) contains RES, CK, IK, and optionally Kc.
 ///
 /// ```
-/// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthenticationAlgorithm};
+/// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthenticationAlgorithm, AuthChallenge, SequenceNumber, AuthManagementField, AuthToken};
 /// use simrs_secret::Secret;
 ///
 /// // Obtain an AuthenticationOutput from a real authentication.
@@ -241,35 +248,35 @@ impl core::fmt::Debug for MilenageParams {
 ///     SubscriberKey::new(Secret::new([0u8; 16])),
 ///     OperatorVariant::opc(Secret::new([0u8; 16])),
 /// );
-/// let rand = [0u8; 16];
-/// let sqn = [0u8; 6];
-/// let amf = [0u8; 2];
-/// let ak = p.compute_anonymity_key(&rand);
+/// let challenge = AuthChallenge::new([0u8; 16]);
+/// let sqn = SequenceNumber::new([0u8; 6]);
+/// let amf = AuthManagementField::new([0u8; 2]);
+/// let ak = p.compute_anonymity_key(&challenge);
 /// let mut autn = [0u8; 16];
-/// for i in 0..6 { autn[i] = sqn[i] ^ ak[i]; }
-/// autn[6..8].copy_from_slice(&amf);
-/// autn[8..16].copy_from_slice(&p.compute_auth_mac(&rand, &sqn, &amf));
-/// let out = p.authenticate(&rand, &autn).unwrap();
-/// assert_eq!(out.response.len(), 8);
+/// for i in 0..6 { autn[i] = sqn.as_bytes()[i] ^ ak.as_bytes()[i]; }
+/// autn[6..8].copy_from_slice(amf.as_bytes());
+/// autn[8..16].copy_from_slice(p.compute_auth_mac(&challenge, &sqn, &amf).as_bytes());
+/// let out = p.authenticate(&challenge, &AuthToken::new(autn)).unwrap();
+/// assert_eq!(out.response.as_bytes().len(), 8);
 /// assert_eq!(out.cipher_key.declassify().len(), 16);
 /// assert_eq!(out.integrity_key.declassify().len(), 16);
 /// assert_eq!(out.gsm_cipher_key.declassify().len(), 8);
 /// ```
 #[derive(Clone, Copy)]
 pub struct AuthenticationOutput {
-    /// RES: authentication response (8 bytes, f2 output).
+    /// Authentication response (8 bytes, f2 output).
     /// Sent to the network to prove knowledge of K.
-    pub response: [u8; 8],
+    pub response: AuthResponse,
 
-    /// CK: ciphering key (16 bytes, f3 output).
+    /// Ciphering key (16 bytes, f3 output).
     /// Used for radio bearer encryption (3G) or as input to KASME derivation (4G/5G).
     pub cipher_key: CipherKey,
 
-    /// IK: integrity key (16 bytes, f4 output).
+    /// Integrity key (16 bytes, f4 output).
     /// Used for radio bearer integrity (3G) or as input to KASME derivation (4G/5G).
     pub integrity_key: IntegrityKey,
 
-    /// Kc: GSM ciphering key (8 bytes, C3 conversion of CK and IK).
+    /// GSM ciphering key (8 bytes, C3 conversion of CK and IK).
     /// For UMTS-GSM interworking per [3GPP TS 33.102 V19.1.0 clause 6.8.1.2](../../../docs/specs/3gpp/ts-33.102/ts_133102v190100p.pdf#%5B%7B%22num%22%3A98%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C250%5D).
     /// `Kc[i] = CK[i] XOR CK[i+8] XOR IK[i] XOR IK[i+8]` for i in 0..8.
     pub gsm_cipher_key: GsmCipherKey,
@@ -302,7 +309,7 @@ pub enum AuthenticationError {
     /// USIM returns tag `0xDC` with AUTS.
     SyncFailure {
         /// AUTS resynchronization token (14 bytes).
-        resync_token: [u8; 14],
+        resync_token: ResyncToken,
     },
 }
 
@@ -468,30 +475,30 @@ pub trait AuthenticationAlgorithm {
 
     /// Compute the network authentication code MAC-A (8 bytes).
     /// 3GPP function designation: f1.
-    fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
+    fn compute_auth_mac(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> NetworkMac;
     /// Compute the resynchronisation authentication code MAC-S (8 bytes).
     /// 3GPP function designation: f1*.
-    fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8];
+    fn compute_resync_mac(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> ResyncMac;
     /// Compute the authentication response RES (8 bytes).
     /// 3GPP function designation: f2.
-    fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8];
+    fn compute_response(&self, challenge: &AuthChallenge) -> AuthResponse;
     /// Compute the ciphering key CK (16 bytes).
     /// 3GPP function designation: f3.
-    fn compute_cipher_key(&self, challenge: &[u8; 16]) -> CipherKey;
+    fn compute_cipher_key(&self, challenge: &AuthChallenge) -> CipherKey;
     /// Compute the integrity key IK (16 bytes).
     /// 3GPP function designation: f4.
-    fn compute_integrity_key(&self, challenge: &[u8; 16]) -> IntegrityKey;
+    fn compute_integrity_key(&self, challenge: &AuthChallenge) -> IntegrityKey;
     /// Compute the anonymity key AK (6 bytes).
     /// 3GPP function designation: f5.
-    fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
+    fn compute_anonymity_key(&self, challenge: &AuthChallenge) -> AnonymityKey;
     /// Compute the resynchronisation anonymity key AK* (6 bytes).
     /// 3GPP function designation: f5*.
-    fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6];
+    fn compute_resync_anonymity_key(&self, challenge: &AuthChallenge) -> AnonymityKey;
 
     /// Return the expected sequence number (SQN_HE, 6 bytes big-endian).
-    fn expected_sequence_number(&self) -> [u8; 6];
+    fn expected_sequence_number(&self) -> SequenceNumber;
     /// Set the expected sequence number (SQN_HE, 6 bytes big-endian).
-    fn set_expected_sequence_number(&mut self, sqn: [u8; 6]);
+    fn set_expected_sequence_number(&mut self, sqn: SequenceNumber);
 
     /// Compute RES (8), CK (16), IK (16) in a single call.
     ///
@@ -499,7 +506,7 @@ pub trait AuthenticationAlgorithm {
     /// individually, which may duplicate shared internal computation.  Override when
     /// the algorithm can produce all three outputs from a single core invocation
     /// (e.g. TUAK's single Keccak call via `tuak_f2345_core`).
-    fn compute_response_and_keys(&self, challenge: &[u8; 16]) -> ([u8; 8], CipherKey, IntegrityKey) {
+    fn compute_response_and_keys(&self, challenge: &AuthChallenge) -> (AuthResponse, CipherKey, IntegrityKey) {
         (
             self.compute_response(challenge),
             self.compute_cipher_key(challenge),
@@ -538,62 +545,71 @@ pub trait AuthenticationAlgorithm {
     /// Per [3GPP TS 33.102 V19.1.0 clause 6.3.3](../../../docs/specs/3gpp/ts-33.102/ts_133102v190100p.pdf#%5B%7B%22num%22%3A58%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C557%5D).
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthenticationError, AuthenticationAlgorithm};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthenticationError, AuthenticationAlgorithm, AuthChallenge, AuthToken};
     /// use simrs_secret::Secret;
     ///
     /// let mut p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
     ///
     /// // Random AUTN will almost certainly fail MAC verification
-    /// let result = p.authenticate(&[0u8; 16], &[0xFFu8; 16]);
+    /// let result = p.authenticate(&AuthChallenge::new([0u8; 16]), &AuthToken::new([0xFFu8; 16]));
     /// assert!(matches!(result, Err(AuthenticationError::MacFailure)));
     /// ```
     fn authenticate(
         &mut self,
-        challenge: &[u8; 16],
-        auth_token: &[u8; 16],
+        challenge: &AuthChallenge,
+        auth_token: &AuthToken,
     ) -> Result<AuthenticationOutput, AuthenticationError> {
+        let at = auth_token.as_bytes();
+
         // 1. Compute AK = f5(RAND)
         let anonymity_key = self.compute_anonymity_key(challenge);
+        let ak_bytes = anonymity_key.as_bytes();
 
         // 2. Recover SQN: AUTN[0..6] = SQN XOR AK
-        let mut sequence_number = [0u8; 6];
+        let mut sqn_bytes = [0u8; 6];
         for i in 0..6 {
-            sequence_number[i] = auth_token[i] ^ anonymity_key[i];
+            sqn_bytes[i] = at[i] ^ ak_bytes[i];
         }
+        let sequence_number = SequenceNumber::new(sqn_bytes);
 
         // 3. Extract AMF from AUTN[6..8]
-        let management_field: [u8; 2] = [auth_token[6], auth_token[7]];
+        let management_field = AuthManagementField::new([at[6], at[7]]);
 
         // 4. Compute XMAC-A
         let expected_mac = self.compute_auth_mac(challenge, &sequence_number, &management_field);
 
         // 5. Compare with MAC-A from AUTN[8..16] (constant-time to prevent
         //    timing side-channel leakage of MAC byte positions)
-        if !ct_eq(&expected_mac, &auth_token[8..16]).into_bool() {
+        let mut received_mac = [0u8; 8];
+        received_mac.copy_from_slice(&at[8..16]);
+        if !expected_mac.ct_eq(&NetworkMac::new(received_mac)).into_bool() {
             return Err(AuthenticationError::MacFailure);
         }
 
         // 5.5. SQN freshness check per 3GPP TS 33.102 V19.1.0 clause 6.3.3
-        let sqn_val = u48_from_be(&sequence_number);
-        let he_val = u48_from_be(&self.expected_sequence_number());
+        let sqn_val = u48_from_be(sequence_number.as_bytes());
+        let he_val = u48_from_be(self.expected_sequence_number().as_bytes());
         if sqn_val < he_val {
             // SQN is stale -- construct AUTS for resynchronization.
             // AUTS = Conc(SQN_MS) || MAC-S  per 3GPP TS 33.102 V19.1.0 clause 6.3.5
             // Snapshot SQN_MS (our current expected SQN) before mutable calls.
-            let reported_sequence_number = self.expected_sequence_number();
-            let resync_anonymity_key = self.compute_resync_anonymity_key(challenge);
-            let resync_mac = self.compute_resync_mac(challenge, &reported_sequence_number, &[0x00, 0x00]);
-            let mut resync_token = [0u8; 14];
-            for i in 0..6 {
-                resync_token[i] = reported_sequence_number[i] ^ resync_anonymity_key[i];
+            let reported_sqn = self.expected_sequence_number();
+            let resync_ak = self.compute_resync_anonymity_key(challenge);
+            let resync_mac = self.compute_resync_mac(challenge, &reported_sqn, &AuthManagementField::new([0x00, 0x00]));
+            let mut resync_token_bytes = [0u8; 14];
+            for (dst, (s, a)) in resync_token_bytes[..6]
+                .iter_mut()
+                .zip(reported_sqn.as_bytes().iter().zip(resync_ak.as_bytes().iter()))
+            {
+                *dst = s ^ a;
             }
-            resync_token[6..14].copy_from_slice(&resync_mac);
-            return Err(AuthenticationError::SyncFailure { resync_token });
+            resync_token_bytes[6..14].copy_from_slice(resync_mac.as_bytes());
+            return Err(AuthenticationError::SyncFailure { resync_token: ResyncToken::new(resync_token_bytes) });
         }
         // Advance expected_sequence_number past the accepted SQN (saturate at max to prevent
         // wrap-around which would re-open the entire SQN window).
         self.set_expected_sequence_number(
-            u48_to_be(sqn_val.saturating_add(1).min(0x0000_FFFF_FFFF_FFFF)),
+            SequenceNumber::new(u48_to_be(sqn_val.saturating_add(1).min(0x0000_FFFF_FFFF_FFFF))),
         );
 
         // 6. Compute RES, CK, IK
@@ -621,37 +637,37 @@ pub trait AuthenticationAlgorithm {
 
     /// Deprecated: use [`compute_auth_mac`](AuthenticationAlgorithm::compute_auth_mac).
     #[deprecated(note = "use `compute_auth_mac` -- f1 is the 3GPP designation for MAC-A (network authentication code) computation")]
-    fn f1(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+    fn f1(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> NetworkMac {
         self.compute_auth_mac(challenge, sequence_number, management_field)
     }
     /// Deprecated: use [`compute_resync_mac`](AuthenticationAlgorithm::compute_resync_mac).
     #[deprecated(note = "use `compute_resync_mac` -- f1* is the 3GPP designation for MAC-S (resync authentication code) computation")]
-    fn f1_star(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+    fn f1_star(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> ResyncMac {
         self.compute_resync_mac(challenge, sequence_number, management_field)
     }
     /// Deprecated: use [`compute_response`](AuthenticationAlgorithm::compute_response).
     #[deprecated(note = "use `compute_response` -- f2 is the 3GPP designation for RES (authentication response) computation")]
-    fn f2(&self, challenge: &[u8; 16]) -> [u8; 8] {
+    fn f2(&self, challenge: &AuthChallenge) -> AuthResponse {
         self.compute_response(challenge)
     }
     /// Deprecated: use [`compute_cipher_key`](AuthenticationAlgorithm::compute_cipher_key).
     #[deprecated(note = "use `compute_cipher_key` -- f3 is the 3GPP designation for CK (ciphering key) computation")]
-    fn f3(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        *self.compute_cipher_key(challenge).declassify()
+    fn f3(&self, challenge: &AuthChallenge) -> CipherKey {
+        self.compute_cipher_key(challenge)
     }
     /// Deprecated: use [`compute_integrity_key`](AuthenticationAlgorithm::compute_integrity_key).
     #[deprecated(note = "use `compute_integrity_key` -- f4 is the 3GPP designation for IK (integrity key) computation")]
-    fn f4(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        *self.compute_integrity_key(challenge).declassify()
+    fn f4(&self, challenge: &AuthChallenge) -> IntegrityKey {
+        self.compute_integrity_key(challenge)
     }
     /// Deprecated: use [`compute_anonymity_key`](AuthenticationAlgorithm::compute_anonymity_key).
     #[deprecated(note = "use `compute_anonymity_key` -- f5 is the 3GPP designation for AK (anonymity key) computation")]
-    fn f5(&self, challenge: &[u8; 16]) -> [u8; 6] {
+    fn f5(&self, challenge: &AuthChallenge) -> AnonymityKey {
         self.compute_anonymity_key(challenge)
     }
     /// Deprecated: use [`compute_resync_anonymity_key`](AuthenticationAlgorithm::compute_resync_anonymity_key).
     #[deprecated(note = "use `compute_resync_anonymity_key` -- f5* is the 3GPP designation for AK* (resync anonymity key) computation")]
-    fn f5_star(&self, challenge: &[u8; 16]) -> [u8; 6] {
+    fn f5_star(&self, challenge: &AuthChallenge) -> AnonymityKey {
         self.compute_resync_anonymity_key(challenge)
     }
 }
@@ -660,36 +676,36 @@ impl AuthenticationAlgorithm for MilenageParams {
     #[allow(clippy::use_self)] // Inherent const vs. trait const -- Self would be circular.
     const SNAPSHOT_SIZE: usize = MilenageParams::SNAPSHOT_SIZE;
 
-    fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+    fn compute_auth_mac(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> NetworkMac {
         self.compute_auth_mac(challenge, sequence_number, management_field)
     }
 
-    fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+    fn compute_resync_mac(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> ResyncMac {
         self.compute_resync_mac(challenge, sequence_number, management_field)
     }
 
-    fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8] {
+    fn compute_response(&self, challenge: &AuthChallenge) -> AuthResponse {
         self.compute_response(challenge)
     }
 
-    fn compute_cipher_key(&self, challenge: &[u8; 16]) -> CipherKey {
+    fn compute_cipher_key(&self, challenge: &AuthChallenge) -> CipherKey {
         self.compute_cipher_key(challenge)
     }
 
-    fn compute_integrity_key(&self, challenge: &[u8; 16]) -> IntegrityKey {
+    fn compute_integrity_key(&self, challenge: &AuthChallenge) -> IntegrityKey {
         self.compute_integrity_key(challenge)
     }
 
-    fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
+    fn compute_anonymity_key(&self, challenge: &AuthChallenge) -> AnonymityKey {
         self.compute_anonymity_key(challenge)
     }
 
-    fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
+    fn compute_resync_anonymity_key(&self, challenge: &AuthChallenge) -> AnonymityKey {
         self.compute_resync_anonymity_key(challenge)
     }
 
-    fn expected_sequence_number(&self) -> [u8; 6] { self.expected_sequence_number }
-    fn set_expected_sequence_number(&mut self, sqn: [u8; 6]) { self.expected_sequence_number = sqn; }
+    fn expected_sequence_number(&self) -> SequenceNumber { SequenceNumber::new(self.expected_sequence_number) }
+    fn set_expected_sequence_number(&mut self, sqn: SequenceNumber) { self.expected_sequence_number = *sqn.as_bytes(); }
 
     fn save_state(&self, buf: &mut [u8]) -> usize {
         self.save_state(buf)
@@ -828,23 +844,23 @@ impl MilenageParams {
     /// 3GPP function designation: f1.
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthChallenge, SequenceNumber, AuthManagementField};
     /// use simrs_secret::Secret;
     ///
     /// let p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
-    /// let mac_a = p.compute_auth_mac(&[0u8; 16], &[0u8; 6], &[0u8; 2]);
-    /// assert_eq!(mac_a.len(), 8);
+    /// let mac_a = p.compute_auth_mac(&AuthChallenge::new([0u8; 16]), &SequenceNumber::new([0u8; 6]), &AuthManagementField::new([0u8; 2]));
+    /// assert_eq!(mac_a.as_bytes().len(), 8);
     /// ```
-    pub fn compute_auth_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
-        let out1 = self.compute_out1(challenge, sequence_number, management_field);
+    pub fn compute_auth_mac(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> NetworkMac {
+        let out1 = self.compute_out1(challenge.as_bytes(), sequence_number.as_bytes(), management_field.as_bytes());
         let mut mac_a = [0u8; 8];
         mac_a.copy_from_slice(&out1[..8]);
-        mac_a
+        NetworkMac::new(mac_a)
     }
 
     /// Deprecated: use [`compute_auth_mac`](MilenageParams::compute_auth_mac).
     #[deprecated(note = "use `compute_auth_mac` -- f1 is the 3GPP designation for MAC-A (network authentication code) computation")]
-    pub fn f1(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+    pub fn f1(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> NetworkMac {
         self.compute_auth_mac(challenge, sequence_number, management_field)
     }
 
@@ -856,16 +872,16 @@ impl MilenageParams {
     /// 3GPP function designation: f1*.
     ///
     /// Used in AUTS construction for SQN resynchronization.
-    pub fn compute_resync_mac(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
-        let out1 = self.compute_out1(challenge, sequence_number, management_field);
+    pub fn compute_resync_mac(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> ResyncMac {
+        let out1 = self.compute_out1(challenge.as_bytes(), sequence_number.as_bytes(), management_field.as_bytes());
         let mut mac_s = [0u8; 8];
         mac_s.copy_from_slice(&out1[8..16]);
-        mac_s
+        ResyncMac::new(mac_s)
     }
 
     /// Deprecated: use [`compute_resync_mac`](MilenageParams::compute_resync_mac).
     #[deprecated(note = "use `compute_resync_mac` -- f1* is the 3GPP designation for MAC-S (resync authentication code) computation")]
-    pub fn f1_star(&self, challenge: &[u8; 16], sequence_number: &[u8; 6], management_field: &[u8; 2]) -> [u8; 8] {
+    pub fn f1_star(&self, challenge: &AuthChallenge, sequence_number: &SequenceNumber, management_field: &AuthManagementField) -> ResyncMac {
         self.compute_resync_mac(challenge, sequence_number, management_field)
     }
 
@@ -877,23 +893,23 @@ impl MilenageParams {
     /// 3GPP function designation: f2.
     ///
     /// ```
-    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+    /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthChallenge};
     /// use simrs_secret::Secret;
     ///
     /// let p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new([0u8; 16])), OperatorVariant::opc(Secret::new([0u8; 16])));
-    /// let response = p.compute_response(&[0u8; 16]);
-    /// assert_eq!(response.len(), 8);
+    /// let response = p.compute_response(&AuthChallenge::new([0u8; 16]));
+    /// assert_eq!(response.as_bytes().len(), 8);
     /// ```
-    pub fn compute_response(&self, challenge: &[u8; 16]) -> [u8; 8] {
-        let out2 = self.compute_outi(challenge, 1); // ci[1] = c2, ri[1] = r2
+    pub fn compute_response(&self, challenge: &AuthChallenge) -> AuthResponse {
+        let out2 = self.compute_outi(challenge.as_bytes(), 1); // ci[1] = c2, ri[1] = r2
         let mut response = [0u8; 8];
         response.copy_from_slice(&out2[8..16]);
-        response
+        AuthResponse::new(response)
     }
 
     /// Deprecated: use [`compute_response`](MilenageParams::compute_response).
     #[deprecated(note = "use `compute_response` -- f2 is the 3GPP designation for RES (authentication response) computation")]
-    pub fn f2(&self, challenge: &[u8; 16]) -> [u8; 8] {
+    pub fn f2(&self, challenge: &AuthChallenge) -> AuthResponse {
         self.compute_response(challenge)
     }
 
@@ -903,14 +919,14 @@ impl MilenageParams {
     /// `CK = OUT3[0..16]` where OUT3 uses (c3, r3).
     ///
     /// 3GPP function designation: f3.
-    pub fn compute_cipher_key(&self, challenge: &[u8; 16]) -> CipherKey {
-        CipherKey::new(self.compute_outi(challenge, 2)) // ci[2] = c3, ri[2] = r3
+    pub fn compute_cipher_key(&self, challenge: &AuthChallenge) -> CipherKey {
+        CipherKey::new(self.compute_outi(challenge.as_bytes(), 2)) // ci[2] = c3, ri[2] = r3
     }
 
     /// Deprecated: use [`compute_cipher_key`](MilenageParams::compute_cipher_key).
     #[deprecated(note = "use `compute_cipher_key` -- f3 is the 3GPP designation for CK (ciphering key) computation")]
-    pub fn f3(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        *self.compute_cipher_key(challenge).declassify()
+    pub fn f3(&self, challenge: &AuthChallenge) -> CipherKey {
+        self.compute_cipher_key(challenge)
     }
 
     /// Compute the integrity key IK (16 bytes).
@@ -919,14 +935,14 @@ impl MilenageParams {
     /// `IK = OUT4[0..16]` where OUT4 uses (c4, r4).
     ///
     /// 3GPP function designation: f4.
-    pub fn compute_integrity_key(&self, challenge: &[u8; 16]) -> IntegrityKey {
-        IntegrityKey::new(self.compute_outi(challenge, 3)) // ci[3] = c4, ri[3] = r4
+    pub fn compute_integrity_key(&self, challenge: &AuthChallenge) -> IntegrityKey {
+        IntegrityKey::new(self.compute_outi(challenge.as_bytes(), 3)) // ci[3] = c4, ri[3] = r4
     }
 
     /// Deprecated: use [`compute_integrity_key`](MilenageParams::compute_integrity_key).
     #[deprecated(note = "use `compute_integrity_key` -- f4 is the 3GPP designation for IK (integrity key) computation")]
-    pub fn f4(&self, challenge: &[u8; 16]) -> [u8; 16] {
-        *self.compute_integrity_key(challenge).declassify()
+    pub fn f4(&self, challenge: &AuthChallenge) -> IntegrityKey {
+        self.compute_integrity_key(challenge)
     }
 
     /// Compute the anonymity key AK (6 bytes).
@@ -937,16 +953,16 @@ impl MilenageParams {
     /// 3GPP function designation: f5.
     ///
     /// Used to conceal SQN in AUTN: `AUTN = (SQN XOR AK) || AMF || MAC-A`.
-    pub fn compute_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
-        let out2 = self.compute_outi(challenge, 1); // same (c2, r2) as f2
+    pub fn compute_anonymity_key(&self, challenge: &AuthChallenge) -> AnonymityKey {
+        let out2 = self.compute_outi(challenge.as_bytes(), 1); // same (c2, r2) as f2
         let mut anonymity_key = [0u8; 6];
         anonymity_key.copy_from_slice(&out2[..6]);
-        anonymity_key
+        AnonymityKey::new(anonymity_key)
     }
 
     /// Deprecated: use [`compute_anonymity_key`](MilenageParams::compute_anonymity_key).
     #[deprecated(note = "use `compute_anonymity_key` -- f5 is the 3GPP designation for AK (anonymity key) computation")]
-    pub fn f5(&self, challenge: &[u8; 16]) -> [u8; 6] {
+    pub fn f5(&self, challenge: &AuthChallenge) -> AnonymityKey {
         self.compute_anonymity_key(challenge)
     }
 
@@ -958,16 +974,16 @@ impl MilenageParams {
     /// 3GPP function designation: f5*.
     ///
     /// Used in AUTS construction: `AUTS = (SQN_MS XOR AK*) || MAC-S`.
-    pub fn compute_resync_anonymity_key(&self, challenge: &[u8; 16]) -> [u8; 6] {
-        let out5 = self.compute_outi(challenge, 4); // ci[4] = c5, ri[4] = r5
+    pub fn compute_resync_anonymity_key(&self, challenge: &AuthChallenge) -> AnonymityKey {
+        let out5 = self.compute_outi(challenge.as_bytes(), 4); // ci[4] = c5, ri[4] = r5
         let mut anonymity_key = [0u8; 6];
         anonymity_key.copy_from_slice(&out5[..6]);
-        anonymity_key
+        AnonymityKey::new(anonymity_key)
     }
 
     /// Deprecated: use [`compute_resync_anonymity_key`](MilenageParams::compute_resync_anonymity_key).
     #[deprecated(note = "use `compute_resync_anonymity_key` -- f5* is the 3GPP designation for AK* (resync anonymity key) computation")]
-    pub fn f5_star(&self, challenge: &[u8; 16]) -> [u8; 6] {
+    pub fn f5_star(&self, challenge: &AuthChallenge) -> AnonymityKey {
         self.compute_resync_anonymity_key(challenge)
     }
 
@@ -1099,7 +1115,7 @@ impl MilenageParams {
 impl AuthenticationOutput {
     /// Deprecated: use field `response` directly.
     #[deprecated(note = "use field `response` -- RES is the 3GPP abbreviation for Authentication Response")]
-    pub const fn res(&self) -> [u8; 8] { self.response }
+    pub const fn res(&self) -> [u8; 8] { *self.response.as_bytes() }
     /// Deprecated: use field `cipher_key` directly.
     #[deprecated(note = "use field `cipher_key` -- CK is the 3GPP abbreviation for Cipher Key")]
     pub const fn ck(&self) -> [u8; 16] { *self.cipher_key.declassify() }
@@ -1114,7 +1130,7 @@ impl AuthenticationOutput {
 impl AuthenticationError {
     /// Deprecated: match on `SyncFailure { resync_token }` instead.
     #[deprecated(note = "match on `SyncFailure { resync_token }` -- AUTS is the 3GPP abbreviation for Authentication Resynchronisation Token")]
-    pub const fn auts(&self) -> Option<[u8; 14]> {
+    pub const fn auts(&self) -> Option<ResyncToken> {
         match self {
             Self::SyncFailure { resync_token } => Some(*resync_token),
             Self::MacFailure => None,
@@ -1151,6 +1167,7 @@ pub use AuthenticationAlgorithm as AuthAlgorithm;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use simrs_consttime::ct_eq;
     use simrs_secret::Secret;
 
     // ---------------------------------------------------------------
@@ -1171,17 +1188,17 @@ mod tests {
         0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E,
         0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B, 0xAF,
     ]));
-    const TS1_RAND: [u8; 16] = [
+    const TS1_RAND: AuthChallenge = AuthChallenge::new([
         0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
         0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
-    ];
-    const TS1_SQN: [u8; 6] = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
-    const TS1_AMF: [u8; 2] = [0xB9, 0xB9];
+    ]);
+    const TS1_SQN: SequenceNumber = SequenceNumber::new([0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07]);
+    const TS1_AMF: AuthManagementField = AuthManagementField::new([0xB9, 0xB9]);
 
     // Expected outputs for Test Set 1
-    const TS1_F1_MAC_A: [u8; 8] = [0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3];
-    const TS1_F1S_MAC_S: [u8; 8] = [0x01, 0xCF, 0xAF, 0x9E, 0xC4, 0xE8, 0x71, 0xE9];
-    const TS1_F2_RES: [u8; 8] = [0xA5, 0x42, 0x11, 0xD5, 0xE3, 0xBA, 0x50, 0xBF];
+    const TS1_F1_MAC_A: NetworkMac = NetworkMac::new([0x4A, 0x9F, 0xFA, 0xC3, 0x54, 0xDF, 0xAF, 0xB3]);
+    const TS1_F1S_MAC_S: ResyncMac = ResyncMac::new([0x01, 0xCF, 0xAF, 0x9E, 0xC4, 0xE8, 0x71, 0xE9]);
+    const TS1_F2_RES: AuthResponse = AuthResponse::new([0xA5, 0x42, 0x11, 0xD5, 0xE3, 0xBA, 0x50, 0xBF]);
     const TS1_F3_CK: [u8; 16] = [
         0xB4, 0x0B, 0xA9, 0xA3, 0xC5, 0x8B, 0x2A, 0x05,
         0xBB, 0xF0, 0xD9, 0x87, 0xB2, 0x1B, 0xF8, 0xCB,
@@ -1190,8 +1207,8 @@ mod tests {
         0xF7, 0x69, 0xBC, 0xD7, 0x51, 0x04, 0x46, 0x04,
         0x12, 0x76, 0x72, 0x71, 0x1C, 0x6D, 0x34, 0x41,
     ];
-    const TS1_F5_AK: [u8; 6] = [0xAA, 0x68, 0x9C, 0x64, 0x83, 0x70];
-    const TS1_F5S_AK: [u8; 6] = [0x45, 0x1E, 0x8B, 0xEC, 0xA4, 0x3B];
+    const TS1_F5_AK: AnonymityKey = AnonymityKey::new([0xAA, 0x68, 0x9C, 0x64, 0x83, 0x70]);
+    const TS1_F5S_AK: AnonymityKey = AnonymityKey::new([0x45, 0x1E, 0x8B, 0xEC, 0xA4, 0x3B]);
 
     // ---------------------------------------------------------------
     // ETSI TS 135 208 V19.0.0 Test Set 2 (clause 4.3.2)
@@ -1209,15 +1226,15 @@ mod tests {
         0x53, 0xC1, 0x56, 0x71, 0xC6, 0x0A, 0x4B, 0x73,
         0x1C, 0x55, 0xB4, 0xA4, 0x41, 0xC0, 0xBD, 0xE2,
     ]));
-    const TS2_RAND: [u8; 16] = [
+    const TS2_RAND: AuthChallenge = AuthChallenge::new([
         0xC0, 0x0D, 0x60, 0x31, 0x03, 0xDC, 0xEE, 0x52,
         0xC4, 0x47, 0x81, 0x19, 0x49, 0x42, 0x02, 0xE8,
-    ];
-    const TS2_SQN: [u8; 6] = [0xFD, 0x8E, 0xEF, 0x40, 0xDF, 0x7D];
-    const TS2_AMF: [u8; 2] = [0xAF, 0x17];
-    const TS2_F1_MAC_A: [u8; 8] = [0x5D, 0xF5, 0xB3, 0x18, 0x07, 0xE2, 0x58, 0xB0];
-    const TS2_F1S_MAC_S: [u8; 8] = [0xA8, 0xC0, 0x16, 0xE5, 0x1E, 0xF4, 0xA3, 0x43];
-    const TS2_F2_RES: [u8; 8] = [0xD3, 0xA6, 0x28, 0xED, 0x98, 0x86, 0x20, 0xF0];
+    ]);
+    const TS2_SQN: SequenceNumber = SequenceNumber::new([0xFD, 0x8E, 0xEF, 0x40, 0xDF, 0x7D]);
+    const TS2_AMF: AuthManagementField = AuthManagementField::new([0xAF, 0x17]);
+    const TS2_F1_MAC_A: NetworkMac = NetworkMac::new([0x5D, 0xF5, 0xB3, 0x18, 0x07, 0xE2, 0x58, 0xB0]);
+    const TS2_F1S_MAC_S: ResyncMac = ResyncMac::new([0xA8, 0xC0, 0x16, 0xE5, 0x1E, 0xF4, 0xA3, 0x43]);
+    const TS2_F2_RES: AuthResponse = AuthResponse::new([0xD3, 0xA6, 0x28, 0xED, 0x98, 0x86, 0x20, 0xF0]);
     const TS2_F3_CK: [u8; 16] = [
         0x58, 0xC4, 0x33, 0xFF, 0x7A, 0x70, 0x82, 0xAC,
         0xD4, 0x24, 0x22, 0x0F, 0x2B, 0x67, 0xC5, 0x56,
@@ -1226,8 +1243,8 @@ mod tests {
         0x21, 0xA8, 0xC1, 0xF9, 0x29, 0x70, 0x2A, 0xDB,
         0x3E, 0x73, 0x84, 0x88, 0xB9, 0xF5, 0xC5, 0xDA,
     ];
-    const TS2_F5_AK: [u8; 6] = [0xC4, 0x77, 0x83, 0x99, 0x5F, 0x72];
-    const TS2_F5S_AK: [u8; 6] = [0x30, 0xF1, 0x19, 0x70, 0x61, 0xC1];
+    const TS2_F5_AK: AnonymityKey = AnonymityKey::new([0xC4, 0x77, 0x83, 0x99, 0x5F, 0x72]);
+    const TS2_F5S_AK: AnonymityKey = AnonymityKey::new([0x30, 0xF1, 0x19, 0x70, 0x61, 0xC1]);
 
     // ---------------------------------------------------------------
     // ETSI TS 135 208 V19.0.0 Test Set 3 (clause 4.3.3)
@@ -1245,15 +1262,15 @@ mod tests {
         0x10, 0x06, 0x02, 0x0F, 0x0A, 0x47, 0x8B, 0xF6,
         0xB6, 0x99, 0xF1, 0x5C, 0x06, 0x2E, 0x42, 0xB3,
     ]));
-    const TS3_RAND: [u8; 16] = [
+    const TS3_RAND: AuthChallenge = AuthChallenge::new([
         0x9F, 0x7C, 0x8D, 0x02, 0x1A, 0xCC, 0xF4, 0xDB,
         0x21, 0x3C, 0xCF, 0xF0, 0xC7, 0xF7, 0x1A, 0x6A,
-    ];
-    const TS3_SQN: [u8; 6] = [0x9D, 0x02, 0x77, 0x59, 0x5F, 0xFC];
-    const TS3_AMF: [u8; 2] = [0x72, 0x5C];
-    const TS3_F1_MAC_A: [u8; 8] = [0x9C, 0xAB, 0xC3, 0xE9, 0x9B, 0xAF, 0x72, 0x81];
-    const TS3_F1S_MAC_S: [u8; 8] = [0x95, 0x81, 0x4B, 0xA2, 0xB3, 0x04, 0x43, 0x24];
-    const TS3_F2_RES: [u8; 8] = [0x80, 0x11, 0xC4, 0x8C, 0x0C, 0x21, 0x4E, 0xD2];
+    ]);
+    const TS3_SQN: SequenceNumber = SequenceNumber::new([0x9D, 0x02, 0x77, 0x59, 0x5F, 0xFC]);
+    const TS3_AMF: AuthManagementField = AuthManagementField::new([0x72, 0x5C]);
+    const TS3_F1_MAC_A: NetworkMac = NetworkMac::new([0x9C, 0xAB, 0xC3, 0xE9, 0x9B, 0xAF, 0x72, 0x81]);
+    const TS3_F1S_MAC_S: ResyncMac = ResyncMac::new([0x95, 0x81, 0x4B, 0xA2, 0xB3, 0x04, 0x43, 0x24]);
+    const TS3_F2_RES: AuthResponse = AuthResponse::new([0x80, 0x11, 0xC4, 0x8C, 0x0C, 0x21, 0x4E, 0xD2]);
     const TS3_F3_CK: [u8; 16] = [
         0x5D, 0xBD, 0xBB, 0x29, 0x54, 0xE8, 0xF3, 0xCD,
         0xE6, 0x65, 0xB0, 0x46, 0x17, 0x9A, 0x50, 0x98,
@@ -1262,8 +1279,8 @@ mod tests {
         0x59, 0xA9, 0x2D, 0x3B, 0x47, 0x6A, 0x04, 0x43,
         0x48, 0x70, 0x55, 0xCF, 0x88, 0xB2, 0x30, 0x7B,
     ];
-    const TS3_F5_AK: [u8; 6] = [0x33, 0x48, 0x4D, 0xC2, 0x13, 0x6B];
-    const TS3_F5S_AK: [u8; 6] = [0xDE, 0xAC, 0xDD, 0x84, 0x8C, 0xC6];
+    const TS3_F5_AK: AnonymityKey = AnonymityKey::new([0x33, 0x48, 0x4D, 0xC2, 0x13, 0x6B]);
+    const TS3_F5S_AK: AnonymityKey = AnonymityKey::new([0xDE, 0xAC, 0xDD, 0x84, 0x8C, 0xC6]);
 
     // ---------------------------------------------------------------
     // ETSI TS 135 208 V19.0.0 Test Set 4 (clause 4.3.4)
@@ -1281,15 +1298,15 @@ mod tests {
         0xA6, 0x4A, 0x50, 0x7A, 0xE1, 0xA2, 0xA9, 0x8B,
         0xB8, 0x8E, 0xB4, 0x21, 0x01, 0x35, 0xDC, 0x87,
     ]));
-    const TS4_RAND: [u8; 16] = [
+    const TS4_RAND: AuthChallenge = AuthChallenge::new([
         0xCE, 0x83, 0xDB, 0xC5, 0x4A, 0xC0, 0x27, 0x4A,
         0x15, 0x7C, 0x17, 0xF8, 0x0D, 0x01, 0x7B, 0xD6,
-    ];
-    const TS4_SQN: [u8; 6] = [0x0B, 0x60, 0x4A, 0x81, 0xEC, 0xA8];
-    const TS4_AMF: [u8; 2] = [0x9E, 0x09];
-    const TS4_F1_MAC_A: [u8; 8] = [0x74, 0xA5, 0x82, 0x20, 0xCB, 0xA8, 0x4C, 0x49];
-    const TS4_F1S_MAC_S: [u8; 8] = [0xAC, 0x2C, 0xC7, 0x4A, 0x96, 0x87, 0x18, 0x37];
-    const TS4_F2_RES: [u8; 8] = [0xF3, 0x65, 0xCD, 0x68, 0x3C, 0xD9, 0x2E, 0x96];
+    ]);
+    const TS4_SQN: SequenceNumber = SequenceNumber::new([0x0B, 0x60, 0x4A, 0x81, 0xEC, 0xA8]);
+    const TS4_AMF: AuthManagementField = AuthManagementField::new([0x9E, 0x09]);
+    const TS4_F1_MAC_A: NetworkMac = NetworkMac::new([0x74, 0xA5, 0x82, 0x20, 0xCB, 0xA8, 0x4C, 0x49]);
+    const TS4_F1S_MAC_S: ResyncMac = ResyncMac::new([0xAC, 0x2C, 0xC7, 0x4A, 0x96, 0x87, 0x18, 0x37]);
+    const TS4_F2_RES: AuthResponse = AuthResponse::new([0xF3, 0x65, 0xCD, 0x68, 0x3C, 0xD9, 0x2E, 0x96]);
     const TS4_F3_CK: [u8; 16] = [
         0xE2, 0x03, 0xED, 0xB3, 0x97, 0x15, 0x74, 0xF5,
         0xA9, 0x4B, 0x0D, 0x61, 0xB8, 0x16, 0x34, 0x5D,
@@ -1298,8 +1315,8 @@ mod tests {
         0x0C, 0x45, 0x24, 0xAD, 0xEA, 0xC0, 0x41, 0xC4,
         0xDD, 0x83, 0x0D, 0x20, 0x85, 0x4F, 0xC4, 0x6B,
     ];
-    const TS4_F5_AK: [u8; 6] = [0xF0, 0xB9, 0xC0, 0x8A, 0xD0, 0x2E];
-    const TS4_F5S_AK: [u8; 6] = [0x60, 0x85, 0xA8, 0x6C, 0x6F, 0x63];
+    const TS4_F5_AK: AnonymityKey = AnonymityKey::new([0xF0, 0xB9, 0xC0, 0x8A, 0xD0, 0x2E]);
+    const TS4_F5S_AK: AnonymityKey = AnonymityKey::new([0x60, 0x85, 0xA8, 0x6C, 0x6F, 0x63]);
 
     // ---------------------------------------------------------------
     // ETSI TS 135 208 V19.0.0 Test Set 5 (clause 4.3.5)
@@ -1317,15 +1334,15 @@ mod tests {
         0xDC, 0xF0, 0x7C, 0xBD, 0x51, 0x85, 0x52, 0x90,
         0xB9, 0x2A, 0x07, 0xA9, 0x89, 0x1E, 0x52, 0x3E,
     ]));
-    const TS5_RAND: [u8; 16] = [
+    const TS5_RAND: AuthChallenge = AuthChallenge::new([
         0x74, 0xB0, 0xCD, 0x60, 0x31, 0xA1, 0xC8, 0x33,
         0x9B, 0x2B, 0x6C, 0xE2, 0xB8, 0xC4, 0xA1, 0x86,
-    ];
-    const TS5_SQN: [u8; 6] = [0xE8, 0x80, 0xA1, 0xB5, 0x80, 0xB6];
-    const TS5_AMF: [u8; 2] = [0x9F, 0x07];
-    const TS5_F1_MAC_A: [u8; 8] = [0x49, 0xE7, 0x85, 0xDD, 0x12, 0x62, 0x6E, 0xF2];
-    const TS5_F1S_MAC_S: [u8; 8] = [0x9E, 0x85, 0x79, 0x03, 0x36, 0xBB, 0x3F, 0xA2];
-    const TS5_F2_RES: [u8; 8] = [0x58, 0x60, 0xFC, 0x1B, 0xCE, 0x35, 0x1E, 0x7E];
+    ]);
+    const TS5_SQN: SequenceNumber = SequenceNumber::new([0xE8, 0x80, 0xA1, 0xB5, 0x80, 0xB6]);
+    const TS5_AMF: AuthManagementField = AuthManagementField::new([0x9F, 0x07]);
+    const TS5_F1_MAC_A: NetworkMac = NetworkMac::new([0x49, 0xE7, 0x85, 0xDD, 0x12, 0x62, 0x6E, 0xF2]);
+    const TS5_F1S_MAC_S: ResyncMac = ResyncMac::new([0x9E, 0x85, 0x79, 0x03, 0x36, 0xBB, 0x3F, 0xA2]);
+    const TS5_F2_RES: AuthResponse = AuthResponse::new([0x58, 0x60, 0xFC, 0x1B, 0xCE, 0x35, 0x1E, 0x7E]);
     const TS5_F3_CK: [u8; 16] = [
         0x76, 0x57, 0x76, 0x6B, 0x37, 0x3D, 0x1C, 0x21,
         0x38, 0xF3, 0x07, 0xE3, 0xDE, 0x92, 0x42, 0xF9,
@@ -1334,8 +1351,8 @@ mod tests {
         0x1C, 0x42, 0xE9, 0x60, 0xD8, 0x9B, 0x8F, 0xA9,
         0x9F, 0x27, 0x44, 0xE0, 0x70, 0x8C, 0xCB, 0x53,
     ];
-    const TS5_F5_AK: [u8; 6] = [0x31, 0xE1, 0x1A, 0x60, 0x91, 0x18];
-    const TS5_F5S_AK: [u8; 6] = [0xFE, 0x25, 0x55, 0xE5, 0x4A, 0xA9];
+    const TS5_F5_AK: AnonymityKey = AnonymityKey::new([0x31, 0xE1, 0x1A, 0x60, 0x91, 0x18]);
+    const TS5_F5S_AK: AnonymityKey = AnonymityKey::new([0xFE, 0x25, 0x55, 0xE5, 0x4A, 0xA9]);
 
     // ---------------------------------------------------------------
     // ETSI TS 135 208 V19.0.0 Test Set 6 (clause 4.3.6)
@@ -1353,15 +1370,15 @@ mod tests {
         0x38, 0x03, 0xEF, 0x53, 0x63, 0xB9, 0x47, 0xC6,
         0xAA, 0xA2, 0x25, 0xE5, 0x8F, 0xAE, 0x39, 0x34,
     ]));
-    const TS6_RAND: [u8; 16] = [
+    const TS6_RAND: AuthChallenge = AuthChallenge::new([
         0xEE, 0x64, 0x66, 0xBC, 0x96, 0x20, 0x2C, 0x5A,
         0x55, 0x7A, 0xBB, 0xEF, 0xF8, 0xBA, 0xBF, 0x63,
-    ];
-    const TS6_SQN: [u8; 6] = [0x41, 0x4B, 0x98, 0x22, 0x21, 0x81];
-    const TS6_AMF: [u8; 2] = [0x44, 0x64];
-    const TS6_F1_MAC_A: [u8; 8] = [0x07, 0x8A, 0xDF, 0xB4, 0x88, 0x24, 0x1A, 0x57];
-    const TS6_F1S_MAC_S: [u8; 8] = [0x80, 0x24, 0x6B, 0x8D, 0x01, 0x86, 0xBC, 0xF1];
-    const TS6_F2_RES: [u8; 8] = [0x16, 0xC8, 0x23, 0x3F, 0x05, 0xA0, 0xAC, 0x28];
+    ]);
+    const TS6_SQN: SequenceNumber = SequenceNumber::new([0x41, 0x4B, 0x98, 0x22, 0x21, 0x81]);
+    const TS6_AMF: AuthManagementField = AuthManagementField::new([0x44, 0x64]);
+    const TS6_F1_MAC_A: NetworkMac = NetworkMac::new([0x07, 0x8A, 0xDF, 0xB4, 0x88, 0x24, 0x1A, 0x57]);
+    const TS6_F1S_MAC_S: ResyncMac = ResyncMac::new([0x80, 0x24, 0x6B, 0x8D, 0x01, 0x86, 0xBC, 0xF1]);
+    const TS6_F2_RES: AuthResponse = AuthResponse::new([0x16, 0xC8, 0x23, 0x3F, 0x05, 0xA0, 0xAC, 0x28]);
     const TS6_F3_CK: [u8; 16] = [
         0x3F, 0x8C, 0x75, 0x87, 0xFE, 0x8E, 0x4B, 0x23,
         0x3A, 0xF6, 0x76, 0xAE, 0xDE, 0x30, 0xBA, 0x3B,
@@ -1370,8 +1387,8 @@ mod tests {
         0xA7, 0x46, 0x6C, 0xC1, 0xE6, 0xB2, 0xA1, 0x33,
         0x7D, 0x49, 0xD3, 0xB6, 0x6E, 0x95, 0xD7, 0xB4,
     ];
-    const TS6_F5_AK: [u8; 6] = [0x45, 0xB0, 0xF6, 0x9A, 0xB0, 0x6C];
-    const TS6_F5S_AK: [u8; 6] = [0x1F, 0x53, 0xCD, 0x2B, 0x11, 0x13];
+    const TS6_F5_AK: AnonymityKey = AnonymityKey::new([0x45, 0xB0, 0xF6, 0x9A, 0xB0, 0x6C]);
+    const TS6_F5S_AK: AnonymityKey = AnonymityKey::new([0x1F, 0x53, 0xCD, 0x2B, 0x11, 0x13]);
 
     #[test]
     fn test_set_1_f1_mac_a() {
@@ -1438,14 +1455,14 @@ mod tests {
         let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
         let mut autn = [0u8; 16];
         for i in 0..6 {
-            autn[i] = TS1_SQN[i] ^ anonymity_key[i];
+            autn[i] = TS1_SQN.as_bytes()[i] ^ anonymity_key.as_bytes()[i];
         }
-        autn[6] = TS1_AMF[0];
-        autn[7] = TS1_AMF[1];
+        autn[6] = TS1_AMF.as_bytes()[0];
+        autn[7] = TS1_AMF.as_bytes()[1];
         let auth_mac = p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF);
-        autn[8..16].copy_from_slice(&auth_mac);
+        autn[8..16].copy_from_slice(auth_mac.as_bytes());
 
-        let result = p.authenticate(&TS1_RAND, &autn);
+        let result = p.authenticate(&TS1_RAND, &AuthToken::new(autn));
         assert!(result.is_ok(), "valid AUTN must authenticate successfully");
         let out = result.unwrap();
         assert_eq!(out.response, TS1_F2_RES);
@@ -1457,35 +1474,35 @@ mod tests {
     fn authenticate_with_bad_mac_fails() {
         let mut p = MilenageParams::with_defaults(TS1_K, TS1_OPC);
         // All-zero AUTN will have wrong MAC-A
-        let result = p.authenticate(&TS1_RAND, &[0u8; 16]);
+        let result = p.authenticate(&TS1_RAND, &AuthToken::new([0u8; 16]));
         assert!(matches!(result, Err(AuthenticationError::MacFailure)));
     }
 
     #[test]
     fn sqn_boundary_accepts_equal_rejects_below() {
         let mut p = MilenageParams::with_defaults(TS1_K, TS1_OPC);
-        let amf = [0x80, 0x00];
+        let amf = AuthManagementField::new([0x80, 0x00]);
 
         // Helper to build valid AUTN for a given SQN.
-        let build_autn = |p: &MilenageParams, sqn: [u8; 6]| -> [u8; 16] {
-            let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
+        let build_autn = |p: &MilenageParams, sqn: SequenceNumber| -> AuthToken {
+            let ak = p.compute_anonymity_key(&TS1_RAND);
             let mut autn = [0u8; 16];
             for i in 0..6 {
-                autn[i] = sqn[i] ^ anonymity_key[i];
+                autn[i] = sqn.as_bytes()[i] ^ ak.as_bytes()[i];
             }
-            autn[6..8].copy_from_slice(&amf);
-            autn[8..16].copy_from_slice(&p.compute_auth_mac(&TS1_RAND, &sqn, &amf));
-            autn
+            autn[6..8].copy_from_slice(amf.as_bytes());
+            autn[8..16].copy_from_slice(p.compute_auth_mac(&TS1_RAND, &sqn, &amf).as_bytes());
+            AuthToken::new(autn)
         };
 
         // SQN=5: accepted (expected_sequence_number starts at 0, so 5 >= 0).
-        let sqn_5 = [0, 0, 0, 0, 0, 5];
+        let sqn_5 = SequenceNumber::new([0, 0, 0, 0, 0, 5]);
         let autn = build_autn(&p, sqn_5);
         assert!(p.authenticate(&TS1_RAND, &autn).is_ok());
         // expected_sequence_number is now 6.
 
         // SQN=6: boundary -- exactly expected_sequence_number, should be accepted.
-        let sqn_6 = [0, 0, 0, 0, 0, 6];
+        let sqn_6 = SequenceNumber::new([0, 0, 0, 0, 0, 6]);
         let autn = build_autn(&p, sqn_6);
         assert!(p.authenticate(&TS1_RAND, &autn).is_ok());
         // expected_sequence_number is now 7.
@@ -1507,13 +1524,13 @@ mod tests {
         let mut p = MilenageParams::with_defaults(TS1_K, TS1_OPC);
 
         // Construct valid AUTN
-        let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
+        let ak = p.compute_anonymity_key(&TS1_RAND);
         let mut autn = [0u8; 16];
-        for i in 0..6 { autn[i] = TS1_SQN[i] ^ anonymity_key[i]; }
-        autn[6..8].copy_from_slice(&TS1_AMF);
-        autn[8..16].copy_from_slice(&p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF));
+        for i in 0..6 { autn[i] = TS1_SQN.as_bytes()[i] ^ ak.as_bytes()[i]; }
+        autn[6..8].copy_from_slice(TS1_AMF.as_bytes());
+        autn[8..16].copy_from_slice(p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF).as_bytes());
 
-        let out = p.authenticate(&TS1_RAND, &autn).unwrap();
+        let out = p.authenticate(&TS1_RAND, &AuthToken::new(autn)).unwrap();
 
         // Verify C3 conversion: Kc[i] = CK[i]^CK[i+8]^IK[i]^IK[i+8]
         let ck = out.cipher_key.declassify();
@@ -1588,10 +1605,10 @@ mod tests {
     #[allow(clippy::too_many_arguments, clippy::trivially_copy_pass_by_ref)]
     fn validate_test_set(
         name: &str,
-        k: SubscriberKey, op: OperatorVariant, opc: OperatorVariant, challenge: &[u8; 16],
-        sequence_number: &[u8; 6], management_field: &[u8; 2],
-        expected_auth_mac: &[u8; 8], expected_resync_mac: &[u8; 8], expected_response: &[u8; 8],
-        expected_cipher_key: &[u8; 16], expected_integrity_key: &[u8; 16], expected_anonymity_key: &[u8; 6], expected_resync_anonymity_key: &[u8; 6],
+        k: SubscriberKey, op: OperatorVariant, opc: OperatorVariant, challenge: &AuthChallenge,
+        sequence_number: &SequenceNumber, management_field: &AuthManagementField,
+        expected_auth_mac: &NetworkMac, expected_resync_mac: &ResyncMac, expected_response: &AuthResponse,
+        expected_cipher_key: &[u8; 16], expected_integrity_key: &[u8; 16], expected_anonymity_key: &AnonymityKey, expected_resync_anonymity_key: &AnonymityKey,
     ) {
         let p = MilenageParams::with_defaults(k, opc);
         assert_eq!(p.compute_auth_mac(challenge, sequence_number, management_field), *expected_auth_mac, "{name}: f1 mismatch");
@@ -1725,14 +1742,15 @@ mod tests {
         let mut p = MilenageParams::with_defaults(TS1_K, TS1_OPC);
 
         // Advance expected_sequence_number by performing a successful authenticate.
-        let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
+        let ak = p.compute_anonymity_key(&TS1_RAND);
         let mut autn = [0u8; 16];
         for i in 0..6 {
-            autn[i] = TS1_SQN[i] ^ anonymity_key[i];
+            autn[i] = TS1_SQN.as_bytes()[i] ^ ak.as_bytes()[i];
         }
-        autn[6..8].copy_from_slice(&TS1_AMF);
-        autn[8..16].copy_from_slice(&p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF));
-        p.authenticate(&TS1_RAND, &autn)
+        autn[6..8].copy_from_slice(TS1_AMF.as_bytes());
+        autn[8..16].copy_from_slice(p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF).as_bytes());
+        let auth_token = AuthToken::new(autn);
+        p.authenticate(&TS1_RAND, &auth_token)
             .expect("setup authenticate must succeed");
 
         let mut snap = [0u8; MilenageParams::SNAPSHOT_SIZE];
@@ -1743,7 +1761,7 @@ mod tests {
 
         // Replaying the same SQN must trigger SyncFailure on the restored
         // instance, proving expected_sequence_number was preserved through save/restore.
-        let result = restored.authenticate(&TS1_RAND, &autn);
+        let result = restored.authenticate(&TS1_RAND, &auth_token);
         assert!(
             matches!(result, Err(AuthenticationError::SyncFailure { .. })),
             "restored instance must reject the already-consumed SQN",
@@ -1811,9 +1829,10 @@ mod proptests {
         fn different_key_changes_response_and_anonymity_key(
             k1 in any::<[u8; 16]>(),
             k2 in any::<[u8; 16]>(),
-            challenge in any::<[u8; 16]>(),
+            rand_raw in any::<[u8; 16]>(),
         ) {
             prop_assume!(k1 != k2);
+            let challenge = AuthChallenge::new(rand_raw);
             let p1 = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k1)), OperatorVariant::opc(Secret::new([0u8; 16])));
             let p2 = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k2)), OperatorVariant::opc(Secret::new([0u8; 16])));
             prop_assert_ne!(p1.compute_response(&challenge), p2.compute_response(&challenge), "different K must produce different RES");
@@ -1824,7 +1843,8 @@ mod proptests {
     proptest! {
         // Kc must always be the C3 conversion of CK and IK.
         #[test]
-        fn kc_is_always_c3(k in any::<[u8; 16]>(), challenge in any::<[u8; 16]>()) {
+        fn kc_is_always_c3(k in any::<[u8; 16]>(), rand_raw in any::<[u8; 16]>()) {
+            let challenge = AuthChallenge::new(rand_raw);
             let mut p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::opc(Secret::new([0u8; 16])));
             let ck = p.compute_cipher_key(&challenge);
             let ik = p.compute_integrity_key(&challenge);
@@ -1836,15 +1856,15 @@ mod proptests {
             }
 
             // Build a valid AUTN to test authenticate()
-            let sqn = [0u8; 6];
-            let amf = [0u8; 2];
-            let anonymity_key = p.compute_anonymity_key(&challenge);
+            let sqn = SequenceNumber::new([0u8; 6]);
+            let amf = AuthManagementField::new([0u8; 2]);
+            let ak = p.compute_anonymity_key(&challenge);
             let mut autn = [0u8; 16];
-            for i in 0..6 { autn[i] = sqn[i] ^ anonymity_key[i]; }
-            autn[6..8].copy_from_slice(&amf);
-            autn[8..16].copy_from_slice(&p.compute_auth_mac(&challenge, &sqn, &amf));
+            for i in 0..6 { autn[i] = sqn.as_bytes()[i] ^ ak.as_bytes()[i]; }
+            autn[6..8].copy_from_slice(amf.as_bytes());
+            autn[8..16].copy_from_slice(p.compute_auth_mac(&challenge, &sqn, &amf).as_bytes());
 
-            let out = p.authenticate(&challenge, &autn).unwrap();
+            let out = p.authenticate(&challenge, &AuthToken::new(autn)).unwrap();
             prop_assert_eq!(*out.gsm_cipher_key.declassify(), expected_gsm_cipher_key);
         }
     }
@@ -1852,7 +1872,8 @@ mod proptests {
     proptest! {
         // OP and pre-computed OPc must produce identical response output.
         #[test]
-        fn op_vs_opc_equivalence(k in any::<[u8; 16]>(), op in any::<[u8; 16]>(), challenge in any::<[u8; 16]>()) {
+        fn op_vs_opc_equivalence(k in any::<[u8; 16]>(), op in any::<[u8; 16]>(), rand_raw in any::<[u8; 16]>()) {
+            let challenge = AuthChallenge::new(rand_raw);
             // Compute OPc manually
             let aes = Rijndael::new(&Secret::new(k));
             let opc = compute_opc(&aes, &op);
@@ -1868,10 +1889,12 @@ mod proptests {
         #[test]
         fn different_rand_different_res(
             k in any::<[u8; 16]>(),
-            challenge1 in any::<[u8; 16]>(),
-            challenge2 in any::<[u8; 16]>(),
+            rand_raw1 in any::<[u8; 16]>(),
+            rand_raw2 in any::<[u8; 16]>(),
         ) {
-            prop_assume!(challenge1 != challenge2);
+            prop_assume!(rand_raw1 != rand_raw2);
+            let challenge1 = AuthChallenge::new(rand_raw1);
+            let challenge2 = AuthChallenge::new(rand_raw2);
             let p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::opc(Secret::new([0u8; 16])));
             // Collision is theoretically possible but astronomically unlikely
             prop_assert_ne!(p.compute_response(&challenge1), p.compute_response(&challenge2));
@@ -1885,21 +1908,25 @@ mod proptests {
         #[test]
         fn f1_neq_f1_star(
             k in any::<[u8; 16]>(),
-            challenge in any::<[u8; 16]>(),
-            sqn in any::<[u8; 6]>(),
-            amf in any::<[u8; 2]>(),
+            rand_raw in any::<[u8; 16]>(),
+            sqn_raw in any::<[u8; 6]>(),
+            amf_raw in any::<[u8; 2]>(),
         ) {
+            let challenge = AuthChallenge::new(rand_raw);
+            let sqn = SequenceNumber::new(sqn_raw);
+            let amf = AuthManagementField::new(amf_raw);
             let p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::opc(Secret::new([0u8; 16])));
             let mac_a = p.compute_auth_mac(&challenge, &sqn, &amf);
             let mac_s = p.compute_resync_mac(&challenge, &sqn, &amf);
-            prop_assert_ne!(mac_a, mac_s, "f1 (MAC-A) must differ from f1* (MAC-S)");
+            prop_assert_ne!(*mac_a.as_bytes(), *mac_s.as_bytes(), "f1 (MAC-A) must differ from f1* (MAC-S)");
         }
     }
 
     proptest! {
         // Output determinism: identical inputs always yield identical outputs.
         #[test]
-        fn output_deterministic(k in any::<[u8; 16]>(), challenge in any::<[u8; 16]>()) {
+        fn output_deterministic(k in any::<[u8; 16]>(), rand_raw in any::<[u8; 16]>()) {
+            let challenge = AuthChallenge::new(rand_raw);
             let p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(k)), OperatorVariant::opc(Secret::new([0u8; 16])));
             prop_assert_eq!(
                 p.compute_response(&challenge),
@@ -1950,7 +1977,7 @@ mod ct_validation {
             },
             |(key, opc, rand_bytes)| {
                 let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(*key)), OperatorVariant::opc(Secret::new(*opc)));
-                let response = params.compute_response(rand_bytes);
+                let response = params.compute_response(&AuthChallenge::new(*rand_bytes));
                 black_box(response);
             },
         );
@@ -1992,7 +2019,7 @@ mod ct_validation {
             },
             |(key, opc, rand_bytes, sqn, amf)| {
                 let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(*key)), OperatorVariant::opc(Secret::new(*opc)));
-                let mac = params.compute_auth_mac(rand_bytes, sqn, amf);
+                let mac = params.compute_auth_mac(&AuthChallenge::new(*rand_bytes), &SequenceNumber::new(*sqn), &AuthManagementField::new(*amf));
                 black_box(mac);
             },
         );
@@ -2034,7 +2061,7 @@ mod ct_validation {
             },
             |(key, opc, rand_bytes, sqn, amf)| {
                 let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(*key)), OperatorVariant::opc(Secret::new(*opc)));
-                let mac = params.compute_resync_mac(rand_bytes, sqn, amf);
+                let mac = params.compute_resync_mac(&AuthChallenge::new(*rand_bytes), &SequenceNumber::new(*sqn), &AuthManagementField::new(*amf));
                 black_box(mac);
             },
         );
@@ -2068,7 +2095,7 @@ mod ct_validation {
             },
             |(key, opc, rand_bytes)| {
                 let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(*key)), OperatorVariant::opc(Secret::new(*opc)));
-                let ck = params.compute_cipher_key(rand_bytes);
+                let ck = params.compute_cipher_key(&AuthChallenge::new(*rand_bytes));
                 black_box(ck);
             },
         );
@@ -2102,7 +2129,7 @@ mod ct_validation {
             },
             |(key, opc, rand_bytes)| {
                 let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(*key)), OperatorVariant::opc(Secret::new(*opc)));
-                let ik = params.compute_integrity_key(rand_bytes);
+                let ik = params.compute_integrity_key(&AuthChallenge::new(*rand_bytes));
                 black_box(ik);
             },
         );
@@ -2136,7 +2163,7 @@ mod ct_validation {
             },
             |(key, opc, rand_bytes)| {
                 let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(*key)), OperatorVariant::opc(Secret::new(*opc)));
-                let ak = params.compute_anonymity_key(rand_bytes);
+                let ak = params.compute_anonymity_key(&AuthChallenge::new(*rand_bytes));
                 black_box(ak);
             },
         );
@@ -2170,7 +2197,7 @@ mod ct_validation {
             },
             |(key, opc, rand_bytes)| {
                 let params = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(*key)), OperatorVariant::opc(Secret::new(*opc)));
-                let ak = params.compute_resync_anonymity_key(rand_bytes);
+                let ak = params.compute_resync_anonymity_key(&AuthChallenge::new(*rand_bytes));
                 black_box(ak);
             },
         );

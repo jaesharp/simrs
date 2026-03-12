@@ -565,7 +565,7 @@ impl GsmApp {
         let result = comp128(self.ki.as_secret(), &rand);
 
         // Queue 12-byte result: 4-byte SRES + 8-byte Kc.
-        self.rsp_queue.buf_mut()[..SRES_LEN].copy_from_slice(&result.sres);
+        self.rsp_queue.buf_mut()[..SRES_LEN].copy_from_slice(result.sres.as_bytes());
         self.rsp_queue.buf_mut()[SRES_LEN..COMP128_RESULT_LEN].copy_from_slice(result.kc.declassify_ref());
         self.rsp_queue.set_len(COMP128_RESULT_LEN);
 
@@ -1051,7 +1051,7 @@ mod tests {
 
         // Verify against direct COMP128 computation.
         let expected = comp128(KI.as_secret(), &rand);
-        assert_eq!(&buf[..4], &expected.sres);
+        assert_eq!(&buf[..4], expected.sres.as_bytes());
         assert_eq!(&buf[4..12], expected.kc.declassify_ref());
     }
 
@@ -2396,7 +2396,7 @@ mod tests {
         let ki = Ki::new(Secret::new([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
                      0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]));
         let expected = comp128(ki.as_secret(), &rand);
-        assert_eq!(&buf[..4], &expected.sres, "SRES mismatch");
+        assert_eq!(&buf[..4], expected.sres.as_bytes(), "SRES mismatch");
         assert_eq!(&buf[4..12], expected.kc.declassify_ref(), "Kc mismatch");
     }
 
@@ -2580,7 +2580,7 @@ mod proptests {
             let mut rand_arr = [0u8; 16];
             rand_arr.copy_from_slice(&rand);
             let expected = comp128(ki.as_secret(), &rand_arr);
-            prop_assert_eq!(&buf[..4], &expected.sres);
+            prop_assert_eq!(&buf[..4], expected.sres.as_bytes());
             prop_assert_eq!(&buf[4..12], expected.kc.declassify_ref());
         }
 

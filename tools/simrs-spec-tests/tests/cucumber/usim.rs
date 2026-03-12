@@ -11,7 +11,7 @@
 
 use cucumber::{given, then, when};
 use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
-use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
 use simrs_proactive::{ProactiveCommand, TextCoding};
 use simrs_secret::Secret;
@@ -162,15 +162,18 @@ fn build_valid_autn(challenge: &[u8; 16], sqn: [u8; 6], amf: [u8; 2]) -> [u8; 16
         SubscriberKey::new(Secret::new(TEST_K)),
         OperatorVariant::opc(Secret::new(TEST_OPC)),
     );
-    let ak = params.compute_anonymity_key(challenge);
-    let mac_a = params.compute_auth_mac(challenge, &sqn, &amf);
+    let ch = AuthChallenge::new(*challenge);
+    let sqn_t = SequenceNumber::new(sqn);
+    let amf_t = AuthManagementField::new(amf);
+    let ak = params.compute_anonymity_key(&ch);
+    let mac_a = params.compute_auth_mac(&ch, &sqn_t, &amf_t);
     let mut autn = [0u8; 16];
     for i in 0..6 {
-        autn[i] = sqn[i] ^ ak[i];
+        autn[i] = sqn[i] ^ ak.as_bytes()[i];
     }
     autn[6] = amf[0];
     autn[7] = amf[1];
-    autn[8..16].copy_from_slice(&mac_a);
+    autn[8..16].copy_from_slice(mac_a.as_bytes());
     autn
 }
 
