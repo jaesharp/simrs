@@ -34,9 +34,9 @@ Feature: 3GPP USIM Application Layer
     When I send APDU [00 A4 00 00 02 3F 00]
     Then the status word is not 6E 00 (class supported)
 
-  Scenario: CLA=0xA0 (GSM proprietary) is rejected
+  Scenario: CLA=0xA0 (GSM proprietary) routes to GSM app in dual-app build
     When I send APDU [A0 A4 00 00 02 3F 00]
-    Then SW is 6E 00 (class not supported)
+    Then the status word is not 6E 00 (dual-app build routes CLA=0xA0 to GSM)
 
   Scenario: CLA=0x80 (ETSI CAT) is accepted for TERMINAL PROFILE
     When I send APDU [80 10 00 00]

@@ -2,6 +2,7 @@
 //! `SpecWorld` state and helper functions shared across all step definition modules.
 
 use cucumber::World;
+use simrs_fs::{FsError, SelectionCtx, SelectedFile};
 use simrs_milenage::{AuthenticationError, AuthenticationOutput, MilenageParams};
 use simrs_pin::{PinError, PinManager, PinResult};
 use simrs_proactive::ProactiveState;
@@ -21,6 +22,11 @@ pub struct SpecWorld {
     pub last_sw: Option<(u8, u8)>,
     pub last_data: Vec<u8>,
     pub last_ignored: bool,
+    /// Set when the last `sim.process()` returned `SimResponse::Atr`.
+    pub last_atr: bool,
+    /// When `true`, CLA-dependent shared steps use GSM CLA (0xA0).
+    /// Set by `Given a GsmApp with:`, cleared by `Given a UsimApp with:`.
+    pub gsm_mode: bool,
 
     // ---- Library-level state slots (unit-style BDD) ----
 
@@ -102,6 +108,20 @@ pub struct SpecWorld {
     /// Stash of multiple PinResult values (for multi-attempt scenarios).
     pub pin_results: Vec<PinResult>,
 
+    // Filesystem (SelectionCtx-level tests)
+    pub fs_ctx: Option<SelectionCtx>,
+    pub fs_result: Option<Result<SelectedFile, FsError>>,
+    pub fs_read_data: Vec<u8>,
+
+    // Transport
+    pub transport_event: Option<simrs_transport::CardEvent>,
+    pub transport_error: Option<simrs_transport::TransportError>,
+
+    // TCP transport (swICC)
+    pub tcp_msg: Option<simrs_transport_tcp::SwIccMessage>,
+    pub tcp_wire: Vec<u8>,
+    pub tcp_decode_error: Option<simrs_transport::TransportError>,
+
     // Generic error slot
     pub last_error: Option<String>,
 }
@@ -144,10 +164,12 @@ pub fn do_send_apdu(world: &mut SpecWorld, cmd: &[u8]) {
         world.last_sw = Some((sw1, sw2));
         world.last_data = data;
         world.last_ignored = false;
+        world.last_atr = false;
     } else {
         world.last_sw = None;
         world.last_data = Vec::new();
         world.last_ignored = true;
+        world.last_atr = false;
     }
 }
 

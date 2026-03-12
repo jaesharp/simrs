@@ -38,7 +38,7 @@ Feature: Proactive UICC Command Encoding & State Machine
   Scenario: Encode DISPLAY TEXT with normal priority
     When I encode DISPLAY TEXT with text "Hello" and normal priority
     Then command_type is 0x21
-    And command_qualifier is 0x01 (normal priority, clear after delay)
+    And command_qualifier is 0x00 (normal priority, clear after delay)
     And destination_device is 0x02 (display)
     And the third TLV has tag 0x8D (text string)
     And text string starts with DCS byte 0x04 (GSM 8-bit) followed by "Hello"

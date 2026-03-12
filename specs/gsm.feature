@@ -35,9 +35,9 @@ Feature: GSM 11.11 SIM Application Layer
     When I send APDU [A0 A4 00 00 02 3F 00]
     Then the status word is not 6E 00 (class supported)
 
-  Scenario: CLA=0x00 is rejected
+  Scenario: CLA=0x00 routes to USIM (dual-app SIM)
     When I send APDU [00 A4 00 00 02 3F 00]
-    Then the status word is 6E 00 (class not supported)
+    Then the status word is not 6E 00 (CLA is valid -- handled by USIM app)
 
   # -- SELECT (INS=0xA4) per GSM 11.11 clause 9.2.1 --
 
@@ -212,5 +212,5 @@ Feature: GSM 11.11 SIM Application Layer
     And I send GET RESPONSE to consume it
     And I send READ BINARY [A0 B0 00 00 09]
     Then I get the 9-byte IMSI data
-    And I send SELECT MF [A0 A4 00 00 02 3F 00]
-    And STATUS returns MF info
+    When I send SELECT MF [A0 A4 00 00 02 3F 00]
+    Then STATUS returns MF info

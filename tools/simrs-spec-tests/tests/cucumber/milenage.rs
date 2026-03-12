@@ -84,7 +84,10 @@ fn given_opc(world: &mut SpecWorld, hex: String) {
 
 #[given(regex = r#"^RAND is "([0-9A-Fa-f]+)"$"#)]
 fn given_rand(world: &mut SpecWorld, hex: String) {
-    world.milenage_challenge = Some(hex_to_array::<16>(&hex));
+    let arr = hex_to_array::<16>(&hex);
+    world.milenage_challenge = Some(arr);
+    // Also populate the COMP128 RAND slot so the step is shared.
+    world.rand_val = Some(arr);
 }
 
 #[given(regex = r#"^SQN is "([0-9A-Fa-f]+)"$"#)]
@@ -359,9 +362,16 @@ fn then_f2_identical(world: &mut SpecWorld) {
 
 #[then(regex = r"^both results are identical$")]
 fn then_results_identical(world: &mut SpecWorld) {
-    let a = world.milenage_response.expect("first result not set");
-    let b = world.milenage_f2_alt.expect("second result not set");
-    assert_eq!(a, b, "results differ: {} vs {}", hex_string(&a), hex_string(&b));
+    // Shared step: check Milenage fields if set, COMP128 fields if set.
+    if let (Some(a), Some(b)) = (world.milenage_response, world.milenage_f2_alt) {
+        assert_eq!(a, b, "Milenage results differ: {} vs {}", hex_string(&a), hex_string(&b));
+    }
+    if let (Some(sres1), Some(sres2)) = (world.sres, world.sres_alt) {
+        assert_eq!(sres1, sres2, "SRES mismatch: {:02X?} != {:02X?}", sres1, sres2);
+    }
+    if let (Some(kc1), Some(kc2)) = (world.kc, world.kc_alt) {
+        assert_eq!(kc1, kc2, "Kc mismatch: {:02X?} != {:02X?}", kc1, kc2);
+    }
 }
 
 #[then(regex = r"^authentication succeeds$")]

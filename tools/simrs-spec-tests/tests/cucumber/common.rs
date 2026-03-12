@@ -76,7 +76,7 @@ fn when_send_apdu_quoted(world: &mut SpecWorld, hex: String) {
     do_send_apdu(world, &cmd);
 }
 
-#[when(regex = r"^I send (?:APDU|SELECT|READ BINARY|UPDATE BINARY|READ RECORD|TERMINAL PROFILE)\b.* \[([^\]]*)\]$")]
+#[when(regex = r"^I send (?:APDU|SELECT|READ BINARY|UPDATE BINARY|READ RECORD|TERMINAL PROFILE|GET RESPONSE|STATUS|FETCH|TERMINAL RESPONSE|ENVELOPE)\b.* \[([^\]]*)\]$")]
 fn when_send_apdu_bracketed(world: &mut SpecWorld, hex: String) {
     let cmd = parse_hex(&hex);
     do_send_apdu(world, &cmd);

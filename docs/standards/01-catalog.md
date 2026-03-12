@@ -34,7 +34,12 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 
 | Spec | Title | Version | simrs Crate | Notes |
 |------|-------|---------|-------------|-------|
+| NIST FIPS 180-4 | SHA-256 | 2015 | [sha256](../../crates/simrs-sha256/) | Cryptographic hash function |
+| NIST FIPS 186-4 | Digital Signature Standard (P-256) | 2013 | [ecies](../../crates/simrs-ecies/) | secp256r1/P-256 ECDH for ECIES Profile B |
 | NIST FIPS 197 | AES (Rijndael) | 2001 | [rijndael](../../crates/simrs-rijndael/) | 128-bit block cipher, encrypt only |
+| NIST FIPS 198-1 | HMAC | 2008 | [kdf](../../crates/simrs-kdf/) | Keyed-hash message authentication code |
+| RFC 2104 | HMAC | 1997 | [kdf](../../crates/simrs-kdf/) | HMAC construction (basis for FIPS 198-1) |
+| RFC 7748 | Elliptic Curves for Security (X25519) | 2016 | [ecies](../../crates/simrs-ecies/) | Curve25519 Diffie-Hellman for ECIES Profile A |
 | 3GPP TS 35.205 | Milenage: General | V19.0.0 | [milenage](../../crates/simrs-milenage/) | Algorithm set overview |
 | 3GPP TS 35.206 | Milenage: Algorithm spec | V19.0.0 | [milenage](../../crates/simrs-milenage/) | f1-f5, f1*, f5*, OPc |
 | 3GPP TS 35.207 | Milenage: Test data | V19.0.0 | [milenage](../../crates/simrs-milenage/) | 6 test sets |
@@ -50,9 +55,9 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 | Spec | Title | Rel-17 | Rel-18 | Rel-19 | simrs Crate | Scope |
 |------|-------|--------|--------|--------|-------------|-------|
 | 3GPP TS 33.102 | 3G Security architecture | V17.0.0 | -- | V19.1.0 | [milenage](../../crates/simrs-milenage/) | AKA procedure, SQN management, C3 conversion |
-| 3GPP TS 33.401 | EPS (4G) Security | V17.7.0 | V18.3.0 | -- | [usim](../../crates/simrs-usim/) | EPS-AKA, KASME hierarchy |
-| 3GPP TS 33.501 | 5G Security | V17.5.0 | V18.9.0 | -- | [usim](../../crates/simrs-usim/) (DF_5GS) | USIM-side: SUCI_Calc_Info, 5GAUTHKEYS, 5G NAS security context EFs. ME-side 5G-AKA/EAP-AKA' key derivation: future |
-| 3GPP TS 33.220 | GBA (Generic Bootstrapping) | V17.x | -- | -- | Future | HMAC-SHA-256 KDF framework |
+| 3GPP TS 33.401 | EPS (4G) Security | V17.7.0 | V18.3.0 | -- | [usim](../../crates/simrs-usim/), [kdf](../../crates/simrs-kdf/) | EPS-AKA, KASME hierarchy; KDF Annex A |
+| 3GPP TS 33.501 | 5G Security | V17.5.0 | V18.9.0 | -- | [usim](../../crates/simrs-usim/), [kdf](../../crates/simrs-kdf/), [ecies](../../crates/simrs-ecies/) | USIM-side: SUCI_Calc_Info, 5GAUTHKEYS, 5G NAS security context EFs; KDF Annex A; ECIES Annex C (Profiles A/B) |
+| 3GPP TS 33.220 | GBA (Generic Bootstrapping) | V17.x | -- | -- | [kdf](../../crates/simrs-kdf/) | Generic 3GPP KDF (Annex B) |
 
 ## SIM Toolkit / OTA
 
