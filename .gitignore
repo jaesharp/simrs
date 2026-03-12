@@ -1,5 +1,6 @@
 /target/
 tools/*/target/
+.claude/worktrees/
 
 # PDF bookmark extraction data (generated from telecom-specs PDFs)
 *_clause_urls.json
