@@ -64,7 +64,9 @@ use simrs_fs::{
 use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
 use simrs_kdf::HmacSha256;
 use simrs_milenage::{AuthenticationAlgorithm, AuthenticationError, CipherKey, IntegrityKey, MilenageParams};
-use simrs_pin::{PinKey, PinManager, PinResult, PinValue};
+use simrs_pin::{PinKey, PinManager};
+#[cfg(test)]
+use simrs_pin::PinValue;
 use simrs_proactive::ProactiveState;
 use simrs_redact::Redact;
 use simrs_secret::Secret;
@@ -320,12 +322,6 @@ impl AuthenticationResult {
     }
 }
 
-// PIN data widths (ETSI TS 102 221 V18.3.0).
-const PIN_DATA_LEN: usize = 8;
-/// PUK(8) + new PIN(8) for RESET RETRY COUNTER.
-const PUK_NEW_PIN_LEN: usize = PIN_DATA_LEN * 2;
-/// Old PIN(8) + new PIN(8) for CHANGE REFERENCE DATA.
-const CHANGE_PIN_DATA_LEN: usize = PIN_DATA_LEN * 2;
 
 // ---------------------------------------------------------------------------
 // SUCI helpers (GET IDENTITY, TS 31.102 V19.4.0 clause 7.5)
@@ -1617,182 +1613,24 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         }
     }
 
-    // -- VERIFY PIN --
-
-    fn handle_verify<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
-        if cmd.p1() != 0x00 {
-            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
-        }
-        let key = PinKey(cmd.p2());
-
-        // Empty data: query retry count.
-        if cmd.data().is_empty() {
-            return match self.pin.retries(key) {
-                Some(n) => write_sw(buf, StatusWord::pin_retries(n & 0x0F)),
-                None => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
-            };
-        }
-
-        if cmd.data().len() != PIN_DATA_LEN {
-            return write_sw(buf, StatusWord::WrongLength);
-        }
-
-        let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
-        pin_bytes.copy_from_slice(cmd.data());
-        let val = PinValue::new(pin_bytes);
-
-        match self.pin.verify(key, &val) {
-            PinResult::Success => write_sw(buf, StatusWord::Success),
-            PinResult::WrongPin { retries_remaining } => {
-                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
-            }
-            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
-            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
-            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
-        }
+    fn handle_verify<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
+        simrs_pin::apdu_verify(&mut self.pin, cmd, buf)
     }
 
-    // -- CHANGE REFERENCE DATA --
-
-    fn handle_change_ref_data<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
-        if cmd.p1() != 0x00 {
-            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
-        }
-        let key = PinKey(cmd.p2());
-
-        if cmd.data().len() != CHANGE_PIN_DATA_LEN {
-            return write_sw(buf, StatusWord::WrongLength);
-        }
-
-        let mut old_bytes = [0xFFu8; PIN_DATA_LEN];
-        old_bytes.copy_from_slice(&cmd.data()[..PIN_DATA_LEN]);
-        let old_pin = PinValue::new(old_bytes);
-
-        let mut new_bytes = [0xFFu8; PIN_DATA_LEN];
-        new_bytes.copy_from_slice(&cmd.data()[PIN_DATA_LEN..CHANGE_PIN_DATA_LEN]);
-        let new_pin = PinValue::new(new_bytes);
-
-        match self.pin.change(key, &old_pin, &new_pin) {
-            PinResult::Success => write_sw(buf, StatusWord::Success),
-            PinResult::WrongPin { retries_remaining } => {
-                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
-            }
-            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
-            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
-            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
-        }
+    fn handle_change_ref_data<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
+        simrs_pin::apdu_change(&mut self.pin, cmd, buf)
     }
 
-    // -- DISABLE PIN --
-
-    fn handle_disable_pin<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
-        if cmd.p1() != 0x00 {
-            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
-        }
-        let key = PinKey(cmd.p2());
-
-        if cmd.data().len() != PIN_DATA_LEN {
-            return write_sw(buf, StatusWord::WrongLength);
-        }
-
-        let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
-        pin_bytes.copy_from_slice(cmd.data());
-        let val = PinValue::new(pin_bytes);
-
-        match self.pin.disable(key, &val) {
-            PinResult::Success => write_sw(buf, StatusWord::Success),
-            PinResult::WrongPin { retries_remaining } => {
-                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
-            }
-            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
-            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
-            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
-        }
+    fn handle_disable_pin<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
+        simrs_pin::apdu_disable(&mut self.pin, cmd, buf)
     }
 
-    // -- ENABLE PIN --
-
-    fn handle_enable_pin<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
-        if cmd.p1() != 0x00 {
-            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
-        }
-        let key = PinKey(cmd.p2());
-
-        if cmd.data().len() != PIN_DATA_LEN {
-            return write_sw(buf, StatusWord::WrongLength);
-        }
-
-        let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
-        pin_bytes.copy_from_slice(cmd.data());
-        let val = PinValue::new(pin_bytes);
-
-        match self.pin.enable(key, &val) {
-            PinResult::Success => write_sw(buf, StatusWord::Success),
-            PinResult::WrongPin { retries_remaining } => {
-                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
-            }
-            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
-            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
-            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
-        }
+    fn handle_enable_pin<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
+        simrs_pin::apdu_enable(&mut self.pin, cmd, buf)
     }
 
-    // -- UNBLOCK PIN --
-
-    fn handle_unblock<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
-        if cmd.p1() != 0x00 {
-            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
-        }
-        let key = PinKey(cmd.p2());
-
-        if cmd.data().is_empty() {
-            return match self.pin.puk_retries(key) {
-                Some(n) => write_sw(buf, StatusWord::pin_retries(n & 0x0F)),
-                None => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
-            };
-        }
-
-        if cmd.data().len() != PUK_NEW_PIN_LEN {
-            return write_sw(buf, StatusWord::WrongLength);
-        }
-
-        let mut puk_bytes = [0xFFu8; PIN_DATA_LEN];
-        puk_bytes.copy_from_slice(&cmd.data()[..PIN_DATA_LEN]);
-        let puk = PinValue::new(puk_bytes);
-
-        let mut new_pin_bytes = [0xFFu8; PIN_DATA_LEN];
-        new_pin_bytes.copy_from_slice(&cmd.data()[PIN_DATA_LEN..PUK_NEW_PIN_LEN]);
-        let new_pin = PinValue::new(new_pin_bytes);
-
-        match self.pin.unblock(key, &puk, &new_pin) {
-            PinResult::Success => write_sw(buf, StatusWord::Success),
-            PinResult::WrongPin { retries_remaining } => {
-                write_sw(buf, StatusWord::pin_retries(retries_remaining & 0x0F))
-            }
-            PinResult::Blocked => write_sw(buf, StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED)),
-            PinResult::NotFound => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
-            PinResult::Disabled => write_sw(buf, StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE)),
-        }
+    fn handle_unblock<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
+        simrs_pin::apdu_unblock(&mut self.pin, cmd, buf)
     }
 
     // -- SEARCH RECORD (7A) --

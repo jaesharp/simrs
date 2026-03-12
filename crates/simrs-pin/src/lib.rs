@@ -868,6 +868,174 @@ impl<const N: usize> PinManager<N> {
 }
 
 // ---------------------------------------------------------------------------
+// APDU-level PIN handlers (shared by GSM and USIM apps)
+// ---------------------------------------------------------------------------
+
+use simrs_iso7816::{sw2, Command, StatusWord, write_sw};
+
+/// PIN data field length (8 bytes, per ETSI TS 102 221 clause 11.1.9).
+pub const PIN_DATA_LEN: usize = 8;
+
+/// PUK(8) + new PIN(8) for RESET RETRY COUNTER.
+pub const UNBLOCK_DATA_LEN: usize = PIN_DATA_LEN * 2;
+
+/// Old PIN(8) + new PIN(8) for CHANGE REFERENCE DATA.
+pub const CHANGE_DATA_LEN: usize = PIN_DATA_LEN * 2;
+
+/// Map a [`PinResult`] to the ISO 7816 [`StatusWord`].
+const fn pin_result_sw(result: PinResult) -> StatusWord {
+    match result {
+        PinResult::Success => StatusWord::Success,
+        PinResult::WrongPin { retries_remaining } => {
+            StatusWord::pin_retries(retries_remaining & 0x0F)
+        }
+        PinResult::Blocked => StatusWord::command_not_allowed(sw2::AUTH_METHOD_BLOCKED),
+        PinResult::Disabled => StatusWord::command_not_allowed(sw2::REF_DATA_NOT_USABLE),
+        PinResult::NotFound => StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND),
+    }
+}
+
+/// Handle VERIFY PIN (INS 0x20) per ETSI TS 102 221 clause 11.1.9.
+///
+/// Empty data queries the retry count. 8-byte data verifies the PIN.
+#[allow(clippy::cast_possible_truncation)]
+pub fn apdu_verify<'b, const N: usize>(
+    pin: &mut PinManager<N>,
+    cmd: &Command<'_>,
+    buf: &'b mut [u8],
+) -> &'b [u8] {
+    if cmd.p1() != 0x00 {
+        return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+    }
+    let key = PinKey(cmd.p2());
+
+    // Empty data: query retry count.
+    if cmd.data().is_empty() {
+        return match pin.retries(key) {
+            Some(n) => write_sw(buf, StatusWord::pin_retries(n & 0x0F)),
+            None => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+        };
+    }
+
+    if cmd.data().len() != PIN_DATA_LEN {
+        return write_sw(buf, StatusWord::WrongLength);
+    }
+
+    let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
+    pin_bytes.copy_from_slice(cmd.data());
+    let val = PinValue::new(pin_bytes);
+
+    write_sw(buf, pin_result_sw(pin.verify(key, &val)))
+}
+
+/// Handle CHANGE REFERENCE DATA (INS 0x24) per ETSI TS 102 221 clause 11.1.10.
+pub fn apdu_change<'b, const N: usize>(
+    pin: &mut PinManager<N>,
+    cmd: &Command<'_>,
+    buf: &'b mut [u8],
+) -> &'b [u8] {
+    if cmd.p1() != 0x00 {
+        return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+    }
+    let key = PinKey(cmd.p2());
+
+    if cmd.data().len() != CHANGE_DATA_LEN {
+        return write_sw(buf, StatusWord::WrongLength);
+    }
+
+    let mut old_bytes = [0xFFu8; PIN_DATA_LEN];
+    old_bytes.copy_from_slice(&cmd.data()[..PIN_DATA_LEN]);
+    let old_pin = PinValue::new(old_bytes);
+
+    let mut new_bytes = [0xFFu8; PIN_DATA_LEN];
+    new_bytes.copy_from_slice(&cmd.data()[PIN_DATA_LEN..CHANGE_DATA_LEN]);
+    let new_pin = PinValue::new(new_bytes);
+
+    write_sw(buf, pin_result_sw(pin.change(key, &old_pin, &new_pin)))
+}
+
+/// Handle DISABLE PIN (INS 0x26) per ETSI TS 102 221 clause 11.1.11.
+pub fn apdu_disable<'b, const N: usize>(
+    pin: &mut PinManager<N>,
+    cmd: &Command<'_>,
+    buf: &'b mut [u8],
+) -> &'b [u8] {
+    if cmd.p1() != 0x00 {
+        return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+    }
+    let key = PinKey(cmd.p2());
+
+    if cmd.data().len() != PIN_DATA_LEN {
+        return write_sw(buf, StatusWord::WrongLength);
+    }
+
+    let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
+    pin_bytes.copy_from_slice(cmd.data());
+    let val = PinValue::new(pin_bytes);
+
+    write_sw(buf, pin_result_sw(pin.disable(key, &val)))
+}
+
+/// Handle ENABLE PIN (INS 0x28) per ETSI TS 102 221 clause 11.1.12.
+pub fn apdu_enable<'b, const N: usize>(
+    pin: &mut PinManager<N>,
+    cmd: &Command<'_>,
+    buf: &'b mut [u8],
+) -> &'b [u8] {
+    if cmd.p1() != 0x00 {
+        return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+    }
+    let key = PinKey(cmd.p2());
+
+    if cmd.data().len() != PIN_DATA_LEN {
+        return write_sw(buf, StatusWord::WrongLength);
+    }
+
+    let mut pin_bytes = [0xFFu8; PIN_DATA_LEN];
+    pin_bytes.copy_from_slice(cmd.data());
+    let val = PinValue::new(pin_bytes);
+
+    write_sw(buf, pin_result_sw(pin.enable(key, &val)))
+}
+
+/// Handle RESET RETRY COUNTER / UNBLOCK PIN (INS 0x2C) per ETSI TS 102 221 clause 11.1.13.
+///
+/// Empty data queries the PUK retry count. 16-byte data (PUK + new PIN) unblocks.
+#[allow(clippy::cast_possible_truncation)]
+pub fn apdu_unblock<'b, const N: usize>(
+    pin: &mut PinManager<N>,
+    cmd: &Command<'_>,
+    buf: &'b mut [u8],
+) -> &'b [u8] {
+    if cmd.p1() != 0x00 {
+        return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+    }
+    let key = PinKey(cmd.p2());
+
+    // Empty data: query PUK retry count.
+    if cmd.data().is_empty() {
+        return match pin.puk_retries(key) {
+            Some(n) => write_sw(buf, StatusWord::pin_retries(n & 0x0F)),
+            None => write_sw(buf, StatusWord::wrong_params(sw2::REFERENCE_NOT_FOUND)),
+        };
+    }
+
+    if cmd.data().len() != UNBLOCK_DATA_LEN {
+        return write_sw(buf, StatusWord::WrongLength);
+    }
+
+    let mut puk_bytes = [0xFFu8; PIN_DATA_LEN];
+    puk_bytes.copy_from_slice(&cmd.data()[..PIN_DATA_LEN]);
+    let puk = PinValue::new(puk_bytes);
+
+    let mut new_pin_bytes = [0xFFu8; PIN_DATA_LEN];
+    new_pin_bytes.copy_from_slice(&cmd.data()[PIN_DATA_LEN..UNBLOCK_DATA_LEN]);
+    let new_pin = PinValue::new(new_pin_bytes);
+
+    write_sw(buf, pin_result_sw(pin.unblock(key, &puk, &new_pin)))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
