@@ -1565,6 +1565,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-consttime-validation",
+ "simrs-milenage",
  "simrs-secret",
  "simrs-sha256",
 ]

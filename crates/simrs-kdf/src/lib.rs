@@ -30,6 +30,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use simrs_milenage::{AuthChallenge, CipherKey, IntegrityKey};
 use simrs_secret::Secret;
 use simrs_sha256::Sha256;
 
@@ -193,14 +194,14 @@ pub fn kdf<K: AsRef<[u8]>>(key: &Secret<K>, fc: u8, params: &[&[u8]]) -> [u8; 32
 /// - P1 = SQN XOR AK (6 bytes)
 /// - Key = CK || IK (32 bytes)
 pub fn derive_kasme(
-    ck: &[u8; 16],
-    ik: &[u8; 16],
+    ck: &CipherKey,
+    ik: &IntegrityKey,
     network_id: &NetworkId,
     concealed_sqn: &ConcealedSequenceNumber,
 ) -> EpsAnchorKey {
     let mut key = [0u8; 32];
-    key[..16].copy_from_slice(ck);
-    key[16..].copy_from_slice(ik);
+    key[..16].copy_from_slice(ck.declassify());
+    key[16..].copy_from_slice(ik.declassify());
     EpsAnchorKey::new(Secret::new(kdf(&Secret::new(key), 0x10, &[network_id.as_bytes(), concealed_sqn.as_bytes()])))
 }
 
@@ -251,14 +252,14 @@ pub fn derive_algorithm_key(
 /// Note: the caller provides CK'/IK' (not raw CK/IK). For 5G-AKA, CK' and IK'
 /// are derived from CK, IK per TS 33.501 C.2 using the serving network name.
 pub fn derive_kausf(
-    ck: &[u8; 16],
-    ik: &[u8; 16],
+    ck: &CipherKey,
+    ik: &IntegrityKey,
     snn: &[u8],
     concealed_sqn: &ConcealedSequenceNumber,
 ) -> AuthServerKey {
     let mut key = [0u8; 32];
-    key[..16].copy_from_slice(ck);
-    key[16..].copy_from_slice(ik);
+    key[..16].copy_from_slice(ck.declassify());
+    key[16..].copy_from_slice(ik.declassify());
     AuthServerKey::new(Secret::new(kdf(&Secret::new(key), 0x6A, &[snn, concealed_sqn.as_bytes()])))
 }
 
@@ -273,16 +274,16 @@ pub fn derive_kausf(
 ///
 /// Returns the 128 least-significant bits (bytes 16..32 of the HMAC output).
 pub fn derive_res_star(
-    ck: &[u8; 16],
-    ik: &[u8; 16],
+    ck: &CipherKey,
+    ik: &IntegrityKey,
     snn: &[u8],
-    rand: &[u8; 16],
+    rand: &AuthChallenge,
     res: &[u8],
 ) -> HashResponse {
     let mut key = [0u8; 32];
-    key[..16].copy_from_slice(ck);
-    key[16..].copy_from_slice(ik);
-    let full = kdf(&Secret::new(key), 0x6B, &[snn, rand, res]);
+    key[..16].copy_from_slice(ck.declassify());
+    key[16..].copy_from_slice(ik.declassify());
+    let full = kdf(&Secret::new(key), 0x6B, &[snn, rand.as_bytes(), res]);
     // 128 LSBs = bytes 16..32
     let mut out = [0u8; 16];
     out.copy_from_slice(&full[16..32]);
@@ -898,8 +899,8 @@ mod tests {
 
     #[test]
     fn derive_kasme_not_zero() {
-        let ck = [0x11u8; 16];
-        let ik = [0x22u8; 16];
+        let ck = CipherKey::from_bytes([0x11u8; 16]);
+        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
         let plmn = NetworkId::new([0x00, 0xF1, 0x10]); // MCC=001, MNC=01
         let sqn_ak = ConcealedSequenceNumber::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
         let kasme = derive_kasme(&ck, &ik, &plmn, &sqn_ak);
@@ -908,8 +909,8 @@ mod tests {
 
     #[test]
     fn derive_kasme_different_plmn() {
-        let ck = [0x11u8; 16];
-        let ik = [0x22u8; 16];
+        let ck = CipherKey::from_bytes([0x11u8; 16]);
+        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
         let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
 
         let k1 = derive_kasme(&ck, &ik, &NetworkId::new([0x00, 0xF1, 0x10]), &sqn_ak);
@@ -920,8 +921,8 @@ mod tests {
     #[test]
     fn derive_kasme_verifies_kdf_construction() {
         // KASME = KDF(CK||IK, FC=0x10, P0=PLMN, P1=SQN^AK)
-        let ck = [0x33u8; 16];
-        let ik = [0x44u8; 16];
+        let ck = CipherKey::from_bytes([0x33u8; 16]);
+        let ik = IntegrityKey::from_bytes([0x44u8; 16]);
         let plmn = NetworkId::new([0x00, 0xF1, 0x10]);
         let sqn_ak = ConcealedSequenceNumber::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
 
@@ -929,8 +930,8 @@ mod tests {
 
         // Manually compute with kdf()
         let mut key = [0u8; 32];
-        key[..16].copy_from_slice(&ck);
-        key[16..].copy_from_slice(&ik);
+        key[..16].copy_from_slice(ck.declassify());
+        key[16..].copy_from_slice(ik.declassify());
         let expected = kdf(&Secret::new(key), 0x10, &[&plmn.as_bytes()[..], &sqn_ak.as_bytes()[..]]);
 
         assert_eq!(*kasme.declassify(), expected);
@@ -955,8 +956,8 @@ mod tests {
 
     #[test]
     fn derive_kausf_not_zero() {
-        let ck = [0x11u8; 16];
-        let ik = [0x22u8; 16];
+        let ck = CipherKey::from_bytes([0x11u8; 16]);
+        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
         let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
         let kausf = derive_kausf(&ck, &ik, snn, &sqn_ak);
@@ -965,8 +966,8 @@ mod tests {
 
     #[test]
     fn derive_kausf_different_snn() {
-        let ck = [0x11u8; 16];
-        let ik = [0x22u8; 16];
+        let ck = CipherKey::from_bytes([0x11u8; 16]);
+        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
         let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
 
         let k1 = derive_kausf(&ck, &ik, b"5G:mnc001.mcc001.3gppnetwork.org", &sqn_ak);
@@ -976,19 +977,19 @@ mod tests {
 
     #[test]
     fn derive_res_star_returns_128_lsb() {
-        let ck = [0x11u8; 16];
-        let ik = [0x22u8; 16];
+        let ck = CipherKey::from_bytes([0x11u8; 16]);
+        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
-        let rand = [0x33u8; 16];
+        let rand = AuthChallenge::new([0x33u8; 16]);
         let res = [0x44u8; 8];
 
         let res_star = derive_res_star(&ck, &ik, snn, &rand, &res);
 
         // Verify it's the 128 LSBs of the full HMAC
         let mut key = [0u8; 32];
-        key[..16].copy_from_slice(&ck);
-        key[16..].copy_from_slice(&ik);
-        let full = kdf(&Secret::new(key), 0x6B, &[snn, &rand[..], &res[..]]);
+        key[..16].copy_from_slice(ck.declassify());
+        key[16..].copy_from_slice(ik.declassify());
+        let full = kdf(&Secret::new(key), 0x6B, &[snn, &rand.as_bytes()[..], &res[..]]);
 
         assert_eq!(*res_star.as_bytes(), full[16..32]);
     }
@@ -996,8 +997,8 @@ mod tests {
     #[test]
     fn full_5g_key_chain() {
         // Verify the full 5G derivation chain produces distinct keys at each step.
-        let ck = [0xAA; 16];
-        let ik = [0xBB; 16];
+        let ck = CipherKey::from_bytes([0xAA; 16]);
+        let ik = IntegrityKey::from_bytes([0xBB; 16]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
         let sqn_ak = ConcealedSequenceNumber::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
         let supi = b"001010000000001"; // IMSI digits
@@ -1294,7 +1295,7 @@ mod proptests {
             sqn_ak in any::<[u8; 6]>(),
         ) {
             let snn = [snn_byte; 8]; // 8-byte SNN placeholder
-            let kausf = derive_kausf(&ck, &ik, &snn, &ConcealedSequenceNumber::new(sqn_ak));
+            let kausf = derive_kausf(&CipherKey::from_bytes(ck), &IntegrityKey::from_bytes(ik), &snn, &ConcealedSequenceNumber::new(sqn_ak));
             let kseaf = derive_kseaf(&kausf, &snn);
             let supi = [0x01, 0x02, 0x03, 0x04, 0x05]; // 5-byte SUPI placeholder
             let abba = [0x00, 0x00];

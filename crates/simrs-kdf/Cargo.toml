@@ -11,8 +11,9 @@ std     = []
 ct-validation = []
 
 [dependencies]
-simrs-sha256 = { workspace = true }
-simrs-secret = { workspace = true }
+simrs-milenage = { workspace = true }
+simrs-sha256   = { workspace = true }
+simrs-secret   = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
