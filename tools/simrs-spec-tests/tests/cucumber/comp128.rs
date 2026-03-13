@@ -40,11 +40,11 @@ fn given_sim_with_ki(world: &mut SpecWorld, hex: String) {
     world.ki = Some(ki_bytes);
 
     // Build a SIM with the specified Ki.
-    let ki = Ki::new(Secret::new(ki_bytes));
+    let ki = Ki::classify(ki_bytes);
     let gsm = simrs_gsm::GsmApp::new(&MF, ki);
     let mil = MilenageParams::with_defaults(
-        SubscriberKey::new(Secret::new(TEST_K)),
-        OperatorVariant::opc(Secret::new(TEST_OPC)),
+        SubscriberKey::classify(TEST_K),
+        OperatorVariant::opc(TEST_OPC),
     );
     let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
     let mut sim = Sim::<MilenageParams, 256>::new(&ATR, gsm, usim);

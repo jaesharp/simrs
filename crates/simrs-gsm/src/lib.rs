@@ -33,7 +33,6 @@
 //! use simrs_iso7816::Command;
 //! use simrs_fs::{DfDef, EfDef, Fid, FileRef};
 //! use simrs_pin::{PinKey, PinValue};
-//! use simrs_secret::Secret;
 //!
 //! static EF: EfDef = EfDef::transparent(
 //!     Fid::new(0x2FE2),
@@ -42,7 +41,7 @@
 //! );
 //! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[FileRef::Ef(&EF)] };
 //!
-//! let ki = Ki::new(Secret::new([0x01; 16]));
+//! let ki = Ki::classify([0x01; 16]);
 //! let mut app = GsmApp::new(&MF, ki);
 //!
 //! // SELECT MF
@@ -104,8 +103,7 @@ use simrs_pin::PinValue;
 ///
 /// ```
 /// use simrs_gsm::Ki;
-/// use simrs_secret::Secret;
-/// let ki = Ki::new(Secret::new([0x11; 16]));
+/// let ki = Ki::classify([0x11; 16]);
 /// assert_eq!(ki.declassify()[0], 0x11);
 /// assert_eq!(ki.declassify().len(), 16);
 /// ```
@@ -113,10 +111,10 @@ use simrs_pin::PinValue;
 pub struct Ki(Secret<[u8; 16]>);
 
 impl Ki {
-    /// Classify a raw 128-bit key.
+    /// Classify a raw 128-bit key as a GSM subscriber key.
     #[inline]
-    pub const fn new(k: Secret<[u8; 16]>) -> Self {
-        Self(k)
+    pub const fn classify(raw: [u8; 16]) -> Self {
+        Self(Secret::new(raw))
     }
 
     /// Borrow the raw key bytes.
@@ -217,10 +215,9 @@ impl GsmApp {
     /// ```
     /// use simrs_gsm::{GsmApp, Ki};
     /// use simrs_fs::{DfDef, Fid};
-    /// use simrs_secret::Secret;
     ///
     /// static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
-    /// let app = GsmApp::new(&MF, Ki::new(Secret::new([0u8; 16])));
+    /// let app = GsmApp::new(&MF, Ki::classify([0u8; 16]));
     /// ```
     pub fn new(mf: &'static DfDef, ki: Ki) -> Self {
         let mut data = FsData::new();
@@ -312,7 +309,7 @@ impl GsmApp {
         off += PinManager::<5>::SNAPSHOT_SIZE;
         let mut ki_bytes = [0u8; 16];
         ki_bytes.copy_from_slice(&buf[off..off + 16]);
-        self.ki = Ki::new(Secret::new(ki_bytes));
+        self.ki = Ki::classify(ki_bytes);
         off += 16;
         if !self.rsp_queue.restore_state(&buf[off..]) {
             return false;
@@ -772,8 +769,8 @@ mod tests {
         ],
     };
 
-    static KI: Ki = Ki::new(Secret::new([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-                         0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]));
+    static KI: Ki = Ki::classify([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+                         0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);
 
     fn app() -> GsmApp {
         let mut a = GsmApp::new(&MF, KI);
@@ -1554,7 +1551,7 @@ mod tests {
         assert_eq!(written, GsmApp::SNAPSHOT_SIZE);
 
         // Create a fresh app and restore into it.
-        let mut restored = GsmApp::new(&MF, Ki::new(Secret::new([0u8; 16])));
+        let mut restored = GsmApp::new(&MF, Ki::classify([0u8; 16]));
         assert!(restored.restore_state(&snap, &[]));
 
         // Verify: PIN retries are 2 (degraded from 3).
@@ -1591,7 +1588,7 @@ mod tests {
         // Save and restore.
         let mut snap = [0u8; GsmApp::SNAPSHOT_SIZE];
         let _ = app.save_state(&mut snap);
-        let mut restored = GsmApp::new(&MF, Ki::new(Secret::new([0u8; 16])));
+        let mut restored = GsmApp::new(&MF, Ki::classify([0u8; 16]));
         assert!(restored.restore_state(&snap, &[]));
 
         // Same RAND must produce same result (Ki preserved).
@@ -2186,8 +2183,8 @@ mod tests {
     /// Create a [`GsmApp`] from the reference GSM profile with PIN1 verified.
     fn ref_app() -> GsmApp {
         use crate::profile;
-        let ki = Ki::new(Secret::new([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
-                     0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]));
+        let ki = Ki::classify([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
+                     0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]);
         let mut a = GsmApp::new(&profile::REFERENCE_MF_GSM, ki);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
@@ -2393,8 +2390,8 @@ mod tests {
         assert_eq!(len, 12 + 2);
 
         // Verify against direct COMP128 computation.
-        let ki = Ki::new(Secret::new([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
-                     0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]));
+        let ki = Ki::classify([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
+                     0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]);
         let expected = comp128(ki.as_secret(), &rand);
         assert_eq!(&buf[..4], expected.sres.as_bytes(), "SRES mismatch");
         assert_eq!(&buf[4..12], expected.kc.declassify_ref(), "Kc mismatch");
@@ -2543,7 +2540,7 @@ mod proptests {
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
             prop_assume!(u16::from(offset) + u16::from(length) <= 8);
-            let mut app = GsmApp::new(&PT_MF, Ki::new(Secret::new([0u8; 16])));
+            let mut app = GsmApp::new(&PT_MF, Ki::classify([0u8; 16]));
             let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
             let mut buf = [0u8; 256];
@@ -2560,7 +2557,7 @@ mod proptests {
         // RUN GSM ALGORITHM always produces 12-byte result matching comp128.
         #[test]
         fn run_gsm_algo_matches_comp128(rand in proptest::collection::vec(any::<u8>(), 16..=16)) {
-            let ki = Ki::new(Secret::new([0xAB; 16]));
+            let ki = Ki::classify([0xAB; 16]);
             let mut app = GsmApp::new(&PT_MF, ki);
             let mut apdu = [0u8; 21];
             apdu[0] = 0xA0;
@@ -2588,7 +2585,7 @@ mod proptests {
         #[test]
         fn read_binary_out_of_bounds_fails(offset in 0u16..256, length in 1u8..=255u8) {
             prop_assume!(u32::from(offset) + u32::from(length) > 8);
-            let mut app = GsmApp::new(&PT_MF, Ki::new(Secret::new([0u8; 16])));
+            let mut app = GsmApp::new(&PT_MF, Ki::classify([0u8; 16]));
             let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
             let mut buf = [0u8; 256];
@@ -2608,7 +2605,7 @@ mod proptests {
         #[test]
         #[allow(clippy::cast_possible_truncation)] // data.len() is 1..=8, fits in u8
         fn update_binary_roundtrip(data in proptest::collection::vec(any::<u8>(), 1..=8)) {
-            let mut app = GsmApp::new(&PT_MF, Ki::new(Secret::new([0u8; 16])));
+            let mut app = GsmApp::new(&PT_MF, Ki::classify([0u8; 16]));
             let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
             let mut buf = [0u8; 256];
@@ -2642,7 +2639,7 @@ mod proptests {
         // For any valid record number, READ RECORD succeeds.
         #[test]
         fn read_record_in_bounds(rec in 1u8..=3u8) {
-            let mut app = GsmApp::new(&PT_MF2, Ki::new(Secret::new([0u8; 16])));
+            let mut app = GsmApp::new(&PT_MF2, Ki::classify([0u8; 16]));
             // Navigate to DF, then EF
             let sel_df = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20];
             let cmd = Command::parse(&sel_df).unwrap();

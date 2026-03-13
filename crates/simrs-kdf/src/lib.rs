@@ -202,7 +202,7 @@ pub fn derive_kasme(
     let mut key = [0u8; 32];
     key[..16].copy_from_slice(ck.declassify());
     key[16..].copy_from_slice(ik.declassify());
-    EpsAnchorKey::new(Secret::new(kdf(&Secret::new(key), 0x10, &[network_id.as_bytes(), concealed_sqn.as_bytes()])))
+    EpsAnchorKey::classify(kdf(&Secret::new(key), 0x10, &[network_id.as_bytes(), concealed_sqn.as_bytes()]))
 }
 
 /// Derive `K_eNB` from `K_ASME` and uplink NAS count.
@@ -212,7 +212,7 @@ pub fn derive_kasme(
 /// - P0 = uplink NAS count (4 bytes, big-endian)
 pub fn derive_kenb(kasme: &EpsAnchorKey, ul_nas_count: u32) -> EpsBaseStationKey {
     let count_be = ul_nas_count.to_be_bytes();
-    EpsBaseStationKey::new(Secret::new(kdf(&Secret::new(*kasme.declassify()), 0x11, &[&count_be])))
+    EpsBaseStationKey::classify(kdf(&Secret::new(*kasme.declassify()), 0x11, &[&count_be]))
 }
 
 /// Derive algorithm-specific key from a parent key.
@@ -234,7 +234,7 @@ pub fn derive_algorithm_key(
     alg_distinguisher: u8,
     alg_id: u8,
 ) -> AlgorithmKey {
-    AlgorithmKey::new(Secret::new(kdf(&Secret::new(*key), 0x15, &[&[alg_distinguisher], &[alg_id]])))
+    AlgorithmKey::classify(kdf(&Secret::new(*key), 0x15, &[&[alg_distinguisher], &[alg_id]]))
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +260,7 @@ pub fn derive_kausf(
     let mut key = [0u8; 32];
     key[..16].copy_from_slice(ck.declassify());
     key[16..].copy_from_slice(ik.declassify());
-    AuthServerKey::new(Secret::new(kdf(&Secret::new(key), 0x6A, &[snn, concealed_sqn.as_bytes()])))
+    AuthServerKey::classify(kdf(&Secret::new(key), 0x6A, &[snn, concealed_sqn.as_bytes()]))
 }
 
 /// Derive RES* from CK', IK', serving network name, RAND, and RES.
@@ -296,7 +296,7 @@ pub fn derive_res_star(
 /// - FC = 0x6C
 /// - P0 = serving network name
 pub fn derive_kseaf(kausf: &AuthServerKey, snn: &[u8]) -> SecurityAnchorKey {
-    SecurityAnchorKey::new(Secret::new(kdf(&Secret::new(*kausf.declassify()), 0x6C, &[snn])))
+    SecurityAnchorKey::classify(kdf(&Secret::new(*kausf.declassify()), 0x6C, &[snn]))
 }
 
 /// Derive `K_AMF` from `K_SEAF`, SUPI, and ABBA parameter.
@@ -306,7 +306,7 @@ pub fn derive_kseaf(kausf: &AuthServerKey, snn: &[u8]) -> SecurityAnchorKey {
 /// - P0 = SUPI (IMSI as ASCII digits)
 /// - P1 = ABBA parameter (2 bytes for primary authentication)
 pub fn derive_kamf(kseaf: &SecurityAnchorKey, supi: &[u8], abba: &[u8]) -> MobilityManagementKey {
-    MobilityManagementKey::new(Secret::new(kdf(&Secret::new(*kseaf.declassify()), 0x6D, &[supi, abba])))
+    MobilityManagementKey::classify(kdf(&Secret::new(*kseaf.declassify()), 0x6D, &[supi, abba]))
 }
 
 /// Derive `K_gNB` from `K_AMF`, uplink NAS count, and access type.
@@ -317,7 +317,7 @@ pub fn derive_kamf(kseaf: &SecurityAnchorKey, supi: &[u8], abba: &[u8]) -> Mobil
 /// - P1 = access type distinguisher (1 byte: 0x01 = 3GPP, 0x02 = non-3GPP)
 pub fn derive_kgnb(kamf: &MobilityManagementKey, ul_nas_count: u32, access_type: u8) -> NrBaseStationKey {
     let count_be = ul_nas_count.to_be_bytes();
-    NrBaseStationKey::new(Secret::new(kdf(&Secret::new(*kamf.declassify()), 0x6E, &[&count_be, &[access_type]])))
+    NrBaseStationKey::classify(kdf(&Secret::new(*kamf.declassify()), 0x6E, &[&count_be, &[access_type]]))
 }
 
 // ---------------------------------------------------------------------------
@@ -384,9 +384,9 @@ pub fn kdf_x963(z: &[u8], shared_info: &[u8], out_len: usize, out: &mut [u8]) {
 pub struct EpsAnchorKey(Secret<[u8; 32]>);
 
 impl EpsAnchorKey {
-    /// Wrap a secret 256-bit value as an EPS anchor key.
+    /// Classify a raw 256-bit value as an EPS anchor key.
     #[inline]
-    pub const fn new(inner: Secret<[u8; 32]>) -> Self { Self(inner) }
+    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
     pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
@@ -416,9 +416,9 @@ pub type Kasme = EpsAnchorKey;
 pub struct EpsBaseStationKey(Secret<[u8; 32]>);
 
 impl EpsBaseStationKey {
-    /// Wrap a secret 256-bit value as an EPS base station key.
+    /// Classify a raw 256-bit value as an EPS base station key.
     #[inline]
-    pub const fn new(inner: Secret<[u8; 32]>) -> Self { Self(inner) }
+    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
     pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
@@ -448,9 +448,9 @@ pub type Kenb = EpsBaseStationKey;
 pub struct AlgorithmKey(Secret<[u8; 32]>);
 
 impl AlgorithmKey {
-    /// Wrap a secret 256-bit value as an algorithm-derived key.
+    /// Classify a raw 256-bit value as an algorithm-derived key.
     #[inline]
-    pub const fn new(inner: Secret<[u8; 32]>) -> Self { Self(inner) }
+    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
     pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
@@ -480,9 +480,9 @@ pub type NasKey = AlgorithmKey;
 pub struct AuthServerKey(Secret<[u8; 32]>);
 
 impl AuthServerKey {
-    /// Wrap a secret 256-bit value as an authentication server key.
+    /// Classify a raw 256-bit value as an authentication server key.
     #[inline]
-    pub const fn new(inner: Secret<[u8; 32]>) -> Self { Self(inner) }
+    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
     pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
@@ -512,9 +512,9 @@ pub type Kausf = AuthServerKey;
 pub struct SecurityAnchorKey(Secret<[u8; 32]>);
 
 impl SecurityAnchorKey {
-    /// Wrap a secret 256-bit value as a security anchor key.
+    /// Classify a raw 256-bit value as a security anchor key.
     #[inline]
-    pub const fn new(inner: Secret<[u8; 32]>) -> Self { Self(inner) }
+    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
     pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
@@ -544,9 +544,9 @@ pub type Kseaf = SecurityAnchorKey;
 pub struct MobilityManagementKey(Secret<[u8; 32]>);
 
 impl MobilityManagementKey {
-    /// Wrap a secret 256-bit value as a mobility management key.
+    /// Classify a raw 256-bit value as a mobility management key.
     #[inline]
-    pub const fn new(inner: Secret<[u8; 32]>) -> Self { Self(inner) }
+    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
     pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
@@ -576,9 +576,9 @@ pub type Kamf = MobilityManagementKey;
 pub struct NrBaseStationKey(Secret<[u8; 32]>);
 
 impl NrBaseStationKey {
-    /// Wrap a secret 256-bit value as an NR base station key.
+    /// Classify a raw 256-bit value as an NR base station key.
     #[inline]
-    pub const fn new(inner: Secret<[u8; 32]>) -> Self { Self(inner) }
+    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
     pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
@@ -899,8 +899,8 @@ mod tests {
 
     #[test]
     fn derive_kasme_not_zero() {
-        let ck = CipherKey::from_bytes([0x11u8; 16]);
-        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
+        let ck = CipherKey::classify([0x11u8; 16]);
+        let ik = IntegrityKey::classify([0x22u8; 16]);
         let plmn = NetworkId::new([0x00, 0xF1, 0x10]); // MCC=001, MNC=01
         let sqn_ak = ConcealedSequenceNumber::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
         let kasme = derive_kasme(&ck, &ik, &plmn, &sqn_ak);
@@ -909,8 +909,8 @@ mod tests {
 
     #[test]
     fn derive_kasme_different_plmn() {
-        let ck = CipherKey::from_bytes([0x11u8; 16]);
-        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
+        let ck = CipherKey::classify([0x11u8; 16]);
+        let ik = IntegrityKey::classify([0x22u8; 16]);
         let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
 
         let k1 = derive_kasme(&ck, &ik, &NetworkId::new([0x00, 0xF1, 0x10]), &sqn_ak);
@@ -921,8 +921,8 @@ mod tests {
     #[test]
     fn derive_kasme_verifies_kdf_construction() {
         // KASME = KDF(CK||IK, FC=0x10, P0=PLMN, P1=SQN^AK)
-        let ck = CipherKey::from_bytes([0x33u8; 16]);
-        let ik = IntegrityKey::from_bytes([0x44u8; 16]);
+        let ck = CipherKey::classify([0x33u8; 16]);
+        let ik = IntegrityKey::classify([0x44u8; 16]);
         let plmn = NetworkId::new([0x00, 0xF1, 0x10]);
         let sqn_ak = ConcealedSequenceNumber::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
 
@@ -939,7 +939,7 @@ mod tests {
 
     #[test]
     fn derive_kenb_different_counts() {
-        let kasme = EpsAnchorKey::new(Secret::new([0x55u8; 32]));
+        let kasme = EpsAnchorKey::classify([0x55u8; 32]);
         let k1 = derive_kenb(&kasme, 0);
         let k2 = derive_kenb(&kasme, 1);
         assert_ne!(*k1.declassify(), *k2.declassify());
@@ -956,8 +956,8 @@ mod tests {
 
     #[test]
     fn derive_kausf_not_zero() {
-        let ck = CipherKey::from_bytes([0x11u8; 16]);
-        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
+        let ck = CipherKey::classify([0x11u8; 16]);
+        let ik = IntegrityKey::classify([0x22u8; 16]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
         let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
         let kausf = derive_kausf(&ck, &ik, snn, &sqn_ak);
@@ -966,8 +966,8 @@ mod tests {
 
     #[test]
     fn derive_kausf_different_snn() {
-        let ck = CipherKey::from_bytes([0x11u8; 16]);
-        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
+        let ck = CipherKey::classify([0x11u8; 16]);
+        let ik = IntegrityKey::classify([0x22u8; 16]);
         let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
 
         let k1 = derive_kausf(&ck, &ik, b"5G:mnc001.mcc001.3gppnetwork.org", &sqn_ak);
@@ -977,8 +977,8 @@ mod tests {
 
     #[test]
     fn derive_res_star_returns_128_lsb() {
-        let ck = CipherKey::from_bytes([0x11u8; 16]);
-        let ik = IntegrityKey::from_bytes([0x22u8; 16]);
+        let ck = CipherKey::classify([0x11u8; 16]);
+        let ik = IntegrityKey::classify([0x22u8; 16]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
         let rand = AuthChallenge::new([0x33u8; 16]);
         let res = [0x44u8; 8];
@@ -997,8 +997,8 @@ mod tests {
     #[test]
     fn full_5g_key_chain() {
         // Verify the full 5G derivation chain produces distinct keys at each step.
-        let ck = CipherKey::from_bytes([0xAA; 16]);
-        let ik = IntegrityKey::from_bytes([0xBB; 16]);
+        let ck = CipherKey::classify([0xAA; 16]);
+        let ik = IntegrityKey::classify([0xBB; 16]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
         let sqn_ak = ConcealedSequenceNumber::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
         let supi = b"001010000000001"; // IMSI digits
@@ -1026,7 +1026,7 @@ mod tests {
 
     #[test]
     fn derive_kgnb_access_type_matters() {
-        let kamf = MobilityManagementKey::new(Secret::new([0xCC; 32]));
+        let kamf = MobilityManagementKey::classify([0xCC; 32]);
         let k_3gpp = derive_kgnb(&kamf, 0, 0x01);
         let k_non3gpp = derive_kgnb(&kamf, 0, 0x02);
         assert_ne!(*k_3gpp.declassify(), *k_non3gpp.declassify());
@@ -1034,7 +1034,7 @@ mod tests {
 
     #[test]
     fn derive_kseaf_verifies_kdf_construction() {
-        let kausf = AuthServerKey::new(Secret::new([0xDD; 32]));
+        let kausf = AuthServerKey::classify([0xDD; 32]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
         let kseaf = derive_kseaf(&kausf, snn);
         let expected = kdf(&Secret::new([0xDD; 32]), 0x6C, &[snn]);
@@ -1043,7 +1043,7 @@ mod tests {
 
     #[test]
     fn derive_kamf_verifies_kdf_construction() {
-        let kseaf = SecurityAnchorKey::new(Secret::new([0xEE; 32]));
+        let kseaf = SecurityAnchorKey::classify([0xEE; 32]);
         let supi = b"001010000000001";
         let abba = [0x00, 0x00];
         let kamf = derive_kamf(&kseaf, supi, &abba);
@@ -1295,7 +1295,7 @@ mod proptests {
             sqn_ak in any::<[u8; 6]>(),
         ) {
             let snn = [snn_byte; 8]; // 8-byte SNN placeholder
-            let kausf = derive_kausf(&CipherKey::from_bytes(ck), &IntegrityKey::from_bytes(ik), &snn, &ConcealedSequenceNumber::new(sqn_ak));
+            let kausf = derive_kausf(&CipherKey::classify(ck), &IntegrityKey::classify(ik), &snn, &ConcealedSequenceNumber::new(sqn_ak));
             let kseaf = derive_kseaf(&kausf, &snn);
             let supi = [0x01, 0x02, 0x03, 0x04, 0x05]; // 5-byte SUPI placeholder
             let abba = [0x00, 0x00];

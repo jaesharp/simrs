@@ -31,8 +31,8 @@ pub struct SubscriberKey(Secret<[u8; 16]>);
 impl SubscriberKey {
     /// Classify a raw 128-bit key as a [`SubscriberKey`].
     #[inline]
-    pub const fn new(k: Secret<[u8; 16]>) -> Self {
-        Self(k)
+    pub const fn classify(raw: [u8; 16]) -> Self {
+        Self(Secret::new(raw))
     }
 
     /// Borrow the raw key bytes.
@@ -80,19 +80,9 @@ impl core::fmt::Debug for SubscriberKey {
 pub struct CipherKey(Secret<[u8; 16]>);
 
 impl CipherKey {
-    /// Wrap raw bytes as a [`CipherKey`].
+    /// Classify raw bytes as a [`CipherKey`].
     #[inline]
-    pub(crate) const fn new(raw: [u8; 16]) -> Self {
-        Self(Secret::new(raw))
-    }
-
-    /// Construct a [`CipherKey`] from a raw 128-bit byte array.
-    ///
-    /// Public equivalent of the crate-internal `new` constructor, for use by
-    /// sibling algorithm crates (e.g. `simrs-tuak`) that compute CK outside
-    /// `simrs-milenage`.
-    #[inline]
-    pub const fn from_bytes(raw: [u8; 16]) -> Self {
+    pub const fn classify(raw: [u8; 16]) -> Self {
         Self(Secret::new(raw))
     }
 
@@ -134,19 +124,9 @@ impl core::fmt::Debug for CipherKey {
 pub struct IntegrityKey(Secret<[u8; 16]>);
 
 impl IntegrityKey {
-    /// Wrap raw bytes as an [`IntegrityKey`].
+    /// Classify raw bytes as an [`IntegrityKey`].
     #[inline]
-    pub(crate) const fn new(raw: [u8; 16]) -> Self {
-        Self(Secret::new(raw))
-    }
-
-    /// Construct an [`IntegrityKey`] from a raw 128-bit byte array.
-    ///
-    /// Public equivalent of the crate-internal `new` constructor, for use by
-    /// sibling algorithm crates (e.g. `simrs-tuak`) that compute IK outside
-    /// `simrs-milenage`.
-    #[inline]
-    pub const fn from_bytes(raw: [u8; 16]) -> Self {
+    pub const fn classify(raw: [u8; 16]) -> Self {
         Self(Secret::new(raw))
     }
 
@@ -188,9 +168,9 @@ impl core::fmt::Debug for IntegrityKey {
 pub struct GsmCipherKey(Secret<[u8; 8]>);
 
 impl GsmCipherKey {
-    /// Wrap raw bytes as a [`GsmCipherKey`].
+    /// Classify raw bytes as a [`GsmCipherKey`].
     #[inline]
-    pub(crate) const fn new(raw: [u8; 8]) -> Self {
+    pub(crate) const fn classify(raw: [u8; 8]) -> Self {
         Self(Secret::new(raw))
     }
 

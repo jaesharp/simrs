@@ -238,12 +238,11 @@ mod tests {
         AnonymityKey, AuthChallenge, AuthManagementField, AuthResponse, MilenageParams,
         NetworkMac, OperatorVariant, ResyncMac, SequenceNumber, SubscriberKey,
     };
-    use simrs_secret::Secret;
 
     #[test]
     fn all_vectors_match() {
         for (i, v) in VECTORS.iter().enumerate() {
-            let p = MilenageParams::with_defaults(SubscriberKey::new(Secret::new(v.k)), OperatorVariant::opc(Secret::new(v.opc)));
+            let p = MilenageParams::with_defaults(SubscriberKey::classify(v.k), OperatorVariant::opc(v.opc));
             let rand = AuthChallenge::new(v.rand);
             let sqn = SequenceNumber::new(v.sqn);
             let amf = AuthManagementField::new(v.amf);

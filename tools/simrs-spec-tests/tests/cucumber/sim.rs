@@ -13,7 +13,6 @@
 use cucumber::{given, then, when};
 use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
 use simrs_proactive::{ProactiveCommand, TextCoding};
-use simrs_secret::Secret;
 use simrs_sim::{SimEvent, SimResponse};
 use simrs_spec_tests::{create_sim, parse_hex, verify_pin1, TEST_K, TEST_OPC};
 
@@ -56,8 +55,8 @@ fn build_valid_auth_vectors() -> ([u8; 16], [u8; 16]) {
     let amf = [0x80, 0x00]; // standard AMF
 
     let params = MilenageParams::with_defaults(
-        SubscriberKey::new(Secret::new(TEST_K)),
-        OperatorVariant::opc(Secret::new(TEST_OPC)),
+        SubscriberKey::classify(TEST_K),
+        OperatorVariant::opc(TEST_OPC),
     );
 
     let ch = AuthChallenge::new(rand);

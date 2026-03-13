@@ -14,7 +14,6 @@ use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
 use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
 use simrs_proactive::{ProactiveCommand, TextCoding};
-use simrs_secret::Secret;
 use simrs_sim::{Sim, SimEvent};
 use simrs_spec_tests::{
     parse_hex, verify_pin1,
@@ -91,12 +90,12 @@ const AID_USIM: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
 /// Create a SIM configured per the usim.feature Background, powered on.
 fn create_usim_sim() -> Sim<MilenageParams, 256> {
     let mil = MilenageParams::with_defaults(
-        SubscriberKey::new(Secret::new(TEST_K)),
-        OperatorVariant::opc(Secret::new(TEST_OPC)),
+        SubscriberKey::classify(TEST_K),
+        OperatorVariant::opc(TEST_OPC),
     );
     let gsm = simrs_gsm::GsmApp::new(
         &USIM_MF,
-        simrs_gsm::Ki::new(Secret::new([0x11; 16])),
+        simrs_gsm::Ki::classify([0x11; 16]),
     );
     let mut usim = simrs_usim::UsimApp::new(&USIM_MF, &ADF_TABLE, mil);
 
@@ -159,8 +158,8 @@ fn select_aid_and_get_fcp(world: &mut SpecWorld) {
 /// Build a valid AUTN for the test Milenage credentials.
 fn build_valid_autn(challenge: &[u8; 16], sqn: [u8; 6], amf: [u8; 2]) -> [u8; 16] {
     let params = MilenageParams::with_defaults(
-        SubscriberKey::new(Secret::new(TEST_K)),
-        OperatorVariant::opc(Secret::new(TEST_OPC)),
+        SubscriberKey::classify(TEST_K),
+        OperatorVariant::opc(TEST_OPC),
     );
     let ch = AuthChallenge::new(*challenge);
     let sqn_t = SequenceNumber::new(sqn);

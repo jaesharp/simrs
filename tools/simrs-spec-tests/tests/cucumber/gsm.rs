@@ -110,7 +110,7 @@ const FEATURE_KI: [u8; 16] = [
 /// - PUK1 = "12345678", 10 retries
 /// - Both GSM and USIM apps (USIM required by Sim<MilenageParams, 256>)
 fn create_gsm_test_sim() -> Sim<MilenageParams, 256> {
-    let ki = Ki::new(Secret::new(FEATURE_KI));
+    let ki = Ki::classify(FEATURE_KI);
     let mut gsm = simrs_gsm::GsmApp::new(&GSM_TEST_MF, ki);
 
     // Configure PIN1 on the GSM app.
@@ -129,8 +129,8 @@ fn create_gsm_test_sim() -> Sim<MilenageParams, 256> {
 
     // USIM app is required by the Sim type but won't be used for CLA=0xA0.
     let mil = MilenageParams::with_defaults(
-        SubscriberKey::new(Secret::new(TEST_K)),
-        OperatorVariant::opc(Secret::new(TEST_OPC)),
+        SubscriberKey::classify(TEST_K),
+        OperatorVariant::opc(TEST_OPC),
     );
     let mut usim = simrs_usim::UsimApp::new(&GSM_TEST_MF, &[], mil);
     let pin_val2 = PinValue::new(CORRECT_PIN);

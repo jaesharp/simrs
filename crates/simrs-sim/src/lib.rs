@@ -40,15 +40,14 @@
 //! use simrs_sim::{Sim, SimEvent, SimResponse};
 //! use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 //! use simrs_fs::{DfDef, Fid};
-//! use simrs_secret::Secret;
 //!
 //! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
 //! static ATR: [u8; 2] = [0x3B, 0x00];
 //!
-//! let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::new(Secret::new([0u8; 16])));
+//! let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::classify([0u8; 16]));
 //! let mil = MilenageParams::with_defaults(
-//!     SubscriberKey::new(Secret::new([0u8; 16])),
-//!     OperatorVariant::opc(Secret::new([0u8; 16])),
+//!     SubscriberKey::classify([0u8; 16]),
+//!     OperatorVariant::opc([0u8; 16]),
 //! );
 //! let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
 //! let mut sim = Sim::<MilenageParams, 256>::new(&ATR, gsm, usim);
@@ -477,7 +476,7 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     ///
     /// Use this to replace the app with configured credentials:
     /// ```ignore
-    /// *sim.gsm_app_mut() = GsmApp::new(mf, Ki::new(ki));
+    /// *sim.gsm_app_mut() = GsmApp::new(mf, Ki::classify(ki));
     /// sim.gsm_app_mut().pin_manager().add_pin(...);
     /// ```
     #[cfg(feature = "gsm")]
@@ -824,7 +823,7 @@ mod tests {
         #[cfg(feature = "gsm")]
         let gsm = {
             use simrs_gsm::GsmApp;
-            let mut g = GsmApp::new(&MF, simrs_gsm::Ki::new(simrs_secret::Secret::new([0x11u8; 16])));
+            let mut g = GsmApp::new(&MF, simrs_gsm::Ki::classify([0x11u8; 16]));
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
             let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
             let _ = g.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
@@ -834,7 +833,7 @@ mod tests {
         #[cfg(feature = "usim")]
         let usim = {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(SubscriberKey::new(simrs_secret::Secret::new([0u8; 16])), OperatorVariant::opc(simrs_secret::Secret::new([0u8; 16])));
+            let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
             let mut u = UsimApp::new(&MF, &ADF_TABLE, mil);
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
             let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
