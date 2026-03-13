@@ -117,6 +117,12 @@ impl Ki {
         Self(Secret::new(raw))
     }
 
+    /// Adopt an already-classified [`Secret`] as a [`Ki`].
+    #[inline]
+    pub const fn reclassify(secret: Secret<[u8; 16]>) -> Self {
+        Self(secret)
+    }
+
     /// Borrow the raw key bytes.
     ///
     /// Each call site is a visible acknowledgement that secret key

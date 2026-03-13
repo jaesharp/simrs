@@ -35,6 +35,15 @@ impl SubscriberKey {
         Self(Secret::new(raw))
     }
 
+    /// Adopt an already-classified [`Secret`] as a [`SubscriberKey`].
+    ///
+    /// Use when the source is already in the secret domain (e.g. a
+    /// configuration field typed as `Secret<[u8; 16]>`).
+    #[inline]
+    pub const fn reclassify(secret: Secret<[u8; 16]>) -> Self {
+        Self(secret)
+    }
+
     /// Borrow the raw key bytes.
     ///
     /// Each call site is a visible acknowledgement that secret key material
@@ -86,6 +95,12 @@ impl CipherKey {
         Self(Secret::new(raw))
     }
 
+    /// Adopt an already-classified [`Secret`] as a [`CipherKey`].
+    #[inline]
+    pub const fn reclassify(secret: Secret<[u8; 16]>) -> Self {
+        Self(secret)
+    }
+
     /// Borrow the raw key bytes.
     ///
     /// Each call site is a visible acknowledgement that secret key material
@@ -128,6 +143,12 @@ impl IntegrityKey {
     #[inline]
     pub const fn classify(raw: [u8; 16]) -> Self {
         Self(Secret::new(raw))
+    }
+
+    /// Adopt an already-classified [`Secret`] as an [`IntegrityKey`].
+    #[inline]
+    pub const fn reclassify(secret: Secret<[u8; 16]>) -> Self {
+        Self(secret)
     }
 
     /// Borrow the raw key bytes.

@@ -167,10 +167,22 @@ impl OperatorVariant {
         Self::Opc(Secret::new(raw))
     }
 
+    /// Reclassify an already-secret value as [`OperatorVariant::Opc`].
+    #[inline]
+    pub const fn reclassify_opc(secret: Secret<[u8; 16]>) -> Self {
+        Self::Opc(secret)
+    }
+
     /// Classify raw bytes as [`OperatorVariant::Op`].
     #[inline]
     pub const fn op(raw: [u8; 16]) -> Self {
         Self::Op(Secret::new(raw))
+    }
+
+    /// Reclassify an already-secret value as [`OperatorVariant::Op`].
+    #[inline]
+    pub const fn reclassify_op(secret: Secret<[u8; 16]>) -> Self {
+        Self::Op(secret)
     }
 }
 
