@@ -21,7 +21,7 @@
 //! | `usim`         | `simrs-usim`, `simrs-milenage` |
 
 use simrs_fs::{DfDef, EfDef, Fid, FileRef};
-use simrs_gsm::Ki;
+use simrs_gsm::SubscriberKey as GsmSubscriberKey;
 use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
 use simrs_sim::{Sim, SimEvent, SimResponse};
@@ -50,7 +50,7 @@ pub static ATR: [u8; 2] = [0x3B, 0x00];
 // ---- Test credentials -----------------------------------------------------------
 
 /// Test Ki (all 0x11).
-pub const TEST_KI: Ki = Ki::classify([0x11; 16]);
+pub const TEST_KI: GsmSubscriberKey = GsmSubscriberKey::classify([0x11; 16]);
 /// Test K (all 0x22).
 pub const TEST_K: [u8; 16] = [0x22; 16];
 /// Test OPc (all 0x33).
@@ -117,7 +117,7 @@ pub fn parse_hex(s: &str) -> Vec<u8> {
 ///
 /// Panics if `add_pin` fails (should not happen with valid test data).
 pub fn create_sim() -> Sim<MilenageParams, 256> {
-    let mil = MilenageParams::with_defaults(SubscriberKey::classify(TEST_K), OperatorVariant::opc(TEST_OPC));
+    let mil = MilenageParams::with_defaults(SubscriberKey::classify(TEST_K), OperatorVariant::operator_cipher(TEST_OPC));
     let gsm = simrs_gsm::GsmApp::new(&MF, TEST_KI);
     let mut usim = simrs_usim::UsimApp::new(&MF, &[], mil);
 
@@ -152,7 +152,10 @@ pub fn create_sim_powered_on() -> Sim<MilenageParams, 256> {
 /// Returns `Some((data, sw1, sw2))` if processed, `None` if ignored.
 pub fn send_apdu(sim: &mut Sim<MilenageParams, 256>, cmd: &[u8]) -> Option<(Vec<u8>, u8, u8)> {
     match sim.process(SimEvent::Apdu(cmd)) {
-        SimResponse::Apdu { data, sw1, sw2 } => Some((data.to_vec(), sw1, sw2)),
+        SimResponse::Apdu { data, sw } => {
+            let [sw1, sw2] = sw.to_bytes();
+            Some((data.to_vec(), sw1, sw2))
+        }
         SimResponse::Ignored | SimResponse::Atr(_) => None,
     }
 }

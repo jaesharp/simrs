@@ -8,7 +8,7 @@
 //!   - ETSI TS 102 221 V18.0.0 clause 11.2
 
 use cucumber::{given, then, when};
-use simrs_ota::{CommandPacketHeader, KeyId, OtaError, Spi};
+use simrs_ota::{CommandPacketHeader, KeyIdentifier, OtaError, SecurityParameters};
 use simrs_secret::Secret;
 use simrs_security_tests::apdu;
 
@@ -150,12 +150,12 @@ const OTA_MAC_KEY: [u8; 16] = [0xAA; 16];
 /// Build a test OTA command packet with AES-CBC-MAC.
 fn build_test_ota_packet() -> (Vec<u8>, Vec<u8>) {
     let mut hdr = CommandPacketHeader::new();
-    // SPI1 = 0x02: CC (cryptographic checksum), no ciphering
-    // SPI2 = 0x01: PoR required
-    hdr.spi = Spi { spi1: 0x02, spi2: 0x01 };
-    hdr.kic = KeyId::new(0x01); // AES CBC
-    hdr.kid = KeyId::new(0x01); // AES CBC MAC
-    hdr.tar = [0xB0, 0x00, 0x10].into();
+    // command_header = 0x02: CC (cryptographic checksum), no ciphering
+    // response_header = 0x01: PoR required
+    hdr.security_parameters = SecurityParameters { command_header: 0x02, response_header: 0x01 };
+    hdr.ciphering_key_id = KeyIdentifier::new(0x01); // AES CBC
+    hdr.integrity_key_id = KeyIdentifier::new(0x01); // AES CBC MAC
+    hdr.target_app = [0xB0, 0x00, 0x10].into();
     hdr.counter = [0x00, 0x00, 0x00, 0x00, 0x01].into();
 
     let payload = b"Hello SIM";

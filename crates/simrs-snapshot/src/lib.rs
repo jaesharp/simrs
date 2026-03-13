@@ -73,8 +73,8 @@ mod tests {
     static ATR: [u8; 2] = [0x3B, 0x00];
 
     fn make_sim() -> Sim<MilenageParams, 256> {
-        let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::classify([0u8; 16]));
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
+        let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::SubscriberKey::classify([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
         let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
         Sim::<MilenageParams, 256>::new(&ATR, gsm, usim)
     }
@@ -134,13 +134,13 @@ mod tests {
     #[test]
     fn different_rsp_cap_sizes() {
         // Verify the trait works with a different RSP_CAP.
-        let gsm1 = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::classify([0u8; 16]));
-        let mil1 = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
+        let gsm1 = simrs_gsm::GsmApp::new(&MF, simrs_gsm::SubscriberKey::classify([0u8; 16]));
+        let mil1 = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
         let usim1 = simrs_usim::UsimApp::new(&MF, &[], mil1);
         let sim_small = Sim::<MilenageParams, 64>::new(&ATR, gsm1, usim1);
 
-        let gsm2 = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::classify([0u8; 16]));
-        let mil2 = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
+        let gsm2 = simrs_gsm::GsmApp::new(&MF, simrs_gsm::SubscriberKey::classify([0u8; 16]));
+        let mil2 = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
         let usim2 = simrs_usim::UsimApp::new(&MF, &[], mil2);
         let sim_large = Sim::<MilenageParams, 512>::new(&ATR, gsm2, usim2);
 

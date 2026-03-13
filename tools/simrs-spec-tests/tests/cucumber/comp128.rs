@@ -5,7 +5,7 @@
 
 use cucumber::{given, then, when};
 use simrs_comp128::comp128;
-use simrs_gsm::Ki;
+use simrs_gsm::SubscriberKey as GsmSubscriberKey;
 use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_secret::Secret;
 use simrs_sim::{Sim, SimEvent};
@@ -40,11 +40,11 @@ fn given_sim_with_ki(world: &mut SpecWorld, hex: String) {
     world.ki = Some(ki_bytes);
 
     // Build a SIM with the specified Ki.
-    let ki = Ki::classify(ki_bytes);
+    let ki = GsmSubscriberKey::classify(ki_bytes);
     let gsm = simrs_gsm::GsmApp::new(&MF, ki);
     let mil = MilenageParams::with_defaults(
         SubscriberKey::classify(TEST_K),
-        OperatorVariant::opc(TEST_OPC),
+        OperatorVariant::operator_cipher(TEST_OPC),
     );
     let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
     let mut sim = Sim::<MilenageParams, 256>::new(&ATR, gsm, usim);
@@ -62,8 +62,8 @@ fn when_comp128_computed(world: &mut SpecWorld) {
     let ki = world.ki.expect("Ki not set");
     let rand = world.rand_val.expect("RAND not set");
     let result = comp128(&Secret::new(ki), &rand);
-    world.sres = Some(result.sres);
-    world.kc = Some(*result.kc.declassify_ref());
+    world.sres = Some(*result.signed_response.as_bytes());
+    world.kc = Some(*result.cipher_key.declassify_ref());
 }
 
 #[when(regex = r"^COMP128v1 is computed twice$")]
@@ -72,10 +72,10 @@ fn when_comp128_computed_twice(world: &mut SpecWorld) {
     let rand = world.rand_val.expect("RAND not set");
     let r1 = comp128(&Secret::new(ki), &rand);
     let r2 = comp128(&Secret::new(ki), &rand);
-    world.sres = Some(r1.sres);
-    world.kc = Some(*r1.kc.declassify_ref());
-    world.sres_alt = Some(r2.sres);
-    world.kc_alt = Some(*r2.kc.declassify_ref());
+    world.sres = Some(*r1.signed_response.as_bytes());
+    world.kc = Some(*r1.cipher_key.declassify_ref());
+    world.sres_alt = Some(*r2.signed_response.as_bytes());
+    world.kc_alt = Some(*r2.cipher_key.declassify_ref());
 }
 
 #[when(regex = r#"^COMP128v1 is computed with RAND "([0-9A-Fa-f]{32})"$"#)]
@@ -91,8 +91,8 @@ fn when_comp128_with_rand(world: &mut SpecWorld, hex: String) {
         world.sres_alt = world.sres;
         world.kc_alt = world.kc;
     }
-    world.sres = Some(result.sres);
-    world.kc = Some(*result.kc.declassify_ref());
+    world.sres = Some(*result.signed_response.as_bytes());
+    world.kc = Some(*result.cipher_key.declassify_ref());
 }
 
 #[when(regex = r#"^COMP128v1 is computed with Ki "([0-9A-Fa-f]{32})"$"#)]
@@ -108,8 +108,8 @@ fn when_comp128_with_ki(world: &mut SpecWorld, hex: String) {
         world.sres_alt = world.sres;
         world.kc_alt = world.kc;
     }
-    world.sres = Some(result.sres);
-    world.kc = Some(*result.kc.declassify_ref());
+    world.sres = Some(*result.signed_response.as_bytes());
+    world.kc = Some(*result.cipher_key.declassify_ref());
 }
 
 #[when(regex = r#"^the terminal sends RUN GSM ALGORITHM with RAND "([0-9A-Fa-f]{32})"$"#)]
@@ -278,9 +278,9 @@ fn then_first_4_bytes_are_sres(world: &mut SpecWorld) {
     let actual_sres = &world.last_data[..4];
     assert_eq!(
         actual_sres,
-        &expected.sres,
+        expected.signed_response.as_bytes().as_slice(),
         "SRES mismatch: got {actual_sres:02X?}, expected {:02X?}",
-        expected.sres,
+        expected.signed_response.as_bytes(),
     );
 }
 
@@ -297,8 +297,8 @@ fn then_last_8_bytes_are_kc(world: &mut SpecWorld) {
     let actual_kc = &world.last_data[4..12];
     assert_eq!(
         actual_kc,
-        expected.kc.declassify_ref().as_slice(),
+        expected.cipher_key.declassify_ref().as_slice(),
         "Kc mismatch: got {actual_kc:02X?}, expected {:02X?}",
-        expected.kc.declassify_ref(),
+        expected.cipher_key.declassify_ref(),
     );
 }

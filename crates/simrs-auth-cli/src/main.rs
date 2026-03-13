@@ -97,7 +97,7 @@ fn cmd_gen_vector(k_hex: &str, opc_hex: &str, sqn_hex: &str, amf_hex: &str, rand
     );
 
     // Standard ETSI TS 135 206 clause 4 operator constants (c1..c5, r1..r5).
-    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc(opc));
+    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc));
 
     // MME-side auth vector computation:
     // anonymity_key  = f5(RAND)
@@ -224,7 +224,7 @@ mod tests {
         let management_field: [u8; 2] = parse_hex(TS1_AMF, "AMF").unwrap();
         let rand_bytes: [u8; 16] = parse_hex(TS1_RAND, "RAND").unwrap();
 
-        let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc(opc));
+        let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc));
         let ch = AuthChallenge::new(rand_bytes);
         let sqn = SequenceNumber::new(sequence_number);
         let amf = AuthManagementField::new(management_field);

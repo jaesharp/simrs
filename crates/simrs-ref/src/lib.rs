@@ -16,8 +16,8 @@
 //!
 //! for v in vectors() {
 //!     let result = simrs_comp128::comp128(&Secret::new(v.ki), &v.rand);
-//!     assert_eq!(result.sres, v.expected_sres);
-//!     assert_eq!(*result.kc.declassify_ref(), v.expected_kc);
+//!     assert_eq!(result.signed_response, v.expected_sres);
+//!     assert_eq!(*result.cipher_key.declassify_ref(), v.expected_kc);
 //! }
 //! ```
 

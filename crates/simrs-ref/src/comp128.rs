@@ -170,8 +170,8 @@ mod tests {
     fn vector_all_zero() {
         let v = &VECTORS[0];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
-        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
+        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: all 0xAB Ki, all 0xCD RAND.
@@ -179,8 +179,8 @@ mod tests {
     fn vector_ab_cd() {
         let v = &VECTORS[1];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
-        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
+        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: doctest vector (Ki=FF...FF07, RAND=0123...EF).
@@ -188,8 +188,8 @@ mod tests {
     fn vector_doctest() {
         let v = &VECTORS[2];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
-        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
+        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: Ki=0x11..., RAND=0x22...
@@ -197,8 +197,8 @@ mod tests {
     fn vector_11_22() {
         let v = &VECTORS[3];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
-        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
+        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: all 0xFF Ki and RAND.
@@ -206,8 +206,8 @@ mod tests {
     fn vector_all_ff() {
         let v = &VECTORS[4];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
-        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
+        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// Test: sequential Ki and RAND.
@@ -215,8 +215,8 @@ mod tests {
     fn vector_sequential() {
         let v = &VECTORS[5];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.sres, SignedResponse::new(v.expected_sres), "SRES mismatch");
-        assert_eq!(*r.kc.declassify_ref(), v.expected_kc, "Kc mismatch");
+        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
     /// ETSI and swsim sources must agree on expected outputs for the same inputs.

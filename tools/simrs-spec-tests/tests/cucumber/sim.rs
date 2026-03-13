@@ -34,7 +34,8 @@ fn process_event(world: &mut SpecWorld, event: SimEvent<'_>) {
     // Extract into owned values while the borrow on `sim` is still live.
     let (is_atr, is_ignored, sw, data) = match rsp {
         SimResponse::Atr(_) => (true, false, None, Vec::new()),
-        SimResponse::Apdu { data, sw1, sw2 } => {
+        SimResponse::Apdu { data, sw } => {
+            let [sw1, sw2] = sw.to_bytes();
             (false, false, Some((sw1, sw2)), data.to_vec())
         }
         SimResponse::Ignored => (false, true, None, Vec::new()),
@@ -56,7 +57,7 @@ fn build_valid_auth_vectors() -> ([u8; 16], [u8; 16]) {
 
     let params = MilenageParams::with_defaults(
         SubscriberKey::classify(TEST_K),
-        OperatorVariant::opc(TEST_OPC),
+        OperatorVariant::operator_cipher(TEST_OPC),
     );
 
     let ch = AuthChallenge::new(rand);

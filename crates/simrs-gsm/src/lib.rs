@@ -29,7 +29,7 @@
 //! # Example
 //!
 //! ```
-//! use simrs_gsm::{GsmApp, Ki};
+//! use simrs_gsm::{GsmApp, SubscriberKey};
 //! use simrs_iso7816::Command;
 //! use simrs_fs::{DfDef, EfDef, Fid, FileRef};
 //! use simrs_pin::{PinKey, PinValue};
@@ -41,7 +41,7 @@
 //! );
 //! static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[FileRef::Ef(&EF)] };
 //!
-//! let ki = Ki::classify([0x01; 16]);
+//! let ki = SubscriberKey::classify([0x01; 16]);
 //! let mut app = GsmApp::new(&MF, ki);
 //!
 //! // SELECT MF
@@ -95,29 +95,29 @@ use simrs_pin::PinValue;
 // Types
 // ---------------------------------------------------------------------------
 
-/// COMP128 authentication key (Ki), 128 bits.
+/// GSM individual subscriber authentication key (128 bits).
 ///
 /// Wraps the raw key in [`Secret`] to prevent accidental leakage via
 /// `Debug`, `Display`, `PartialEq`, or implicit dereference. Use
-/// [`declassify`](Ki::declassify) to access the raw bytes.
+/// [`declassify`](SubscriberKey::declassify) to access the raw bytes.
 ///
 /// ```
-/// use simrs_gsm::Ki;
-/// let ki = Ki::classify([0x11; 16]);
+/// use simrs_gsm::SubscriberKey;
+/// let ki = SubscriberKey::classify([0x11; 16]);
 /// assert_eq!(ki.declassify()[0], 0x11);
 /// assert_eq!(ki.declassify().len(), 16);
 /// ```
 #[derive(Clone, Copy)]
-pub struct Ki(Secret<[u8; 16]>);
+pub struct SubscriberKey(Secret<[u8; 16]>);
 
-impl Ki {
+impl SubscriberKey {
     /// Classify a raw 128-bit key as a GSM subscriber key.
     #[inline]
     pub const fn classify(raw: [u8; 16]) -> Self {
         Self(Secret::new(raw))
     }
 
-    /// Adopt an already-classified [`Secret`] as a [`Ki`].
+    /// Adopt an already-classified [`Secret`] as a [`SubscriberKey`].
     #[inline]
     pub const fn reclassify(secret: Secret<[u8; 16]>) -> Self {
         Self(secret)
@@ -139,11 +139,18 @@ impl Ki {
     }
 }
 
-impl core::fmt::Debug for Ki {
+impl core::fmt::Debug for SubscriberKey {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("Ki").field(&Redact(self.0.declassify_ref())).finish()
+        f.debug_tuple("SubscriberKey").field(&Redact(self.0.declassify_ref())).finish()
     }
 }
+
+/// GSM abbreviation for [`SubscriberKey`].
+///
+/// The specs (GSM 11.11 / ETSI TS 131 102) use "Ki" (Individual Subscriber
+/// Authentication Key). We prefer `SubscriberKey` for self-documenting code.
+#[deprecated(note = "GSM Ki (TS 131 102) -- prefer SubscriberKey")]
+pub type Ki = SubscriberKey;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -204,7 +211,7 @@ pub struct GsmApp {
     data: FsData<FS_CAP, FS_MAX_EFS>,
     mf: &'static DfDef,
     pin: PinManager<5>,
-    ki: Ki,
+    ki: SubscriberKey,
     rsp_queue: ResponseQueue<23>,
 }
 
@@ -219,13 +226,13 @@ impl GsmApp {
     /// # Example
     ///
     /// ```
-    /// use simrs_gsm::{GsmApp, Ki};
+    /// use simrs_gsm::{GsmApp, SubscriberKey};
     /// use simrs_fs::{DfDef, Fid};
     ///
     /// static MF: DfDef = DfDef { fid: Fid::new(0x3F00), children: &[] };
-    /// let app = GsmApp::new(&MF, Ki::classify([0u8; 16]));
+    /// let app = GsmApp::new(&MF, SubscriberKey::classify([0u8; 16]));
     /// ```
-    pub fn new(mf: &'static DfDef, ki: Ki) -> Self {
+    pub fn new(mf: &'static DfDef, ki: SubscriberKey) -> Self {
         let mut data = FsData::new();
         data.init(mf).expect("FsData::init failed: filesystem too large for buffer");
         Self {
@@ -315,7 +322,7 @@ impl GsmApp {
         off += PinManager::<5>::SNAPSHOT_SIZE;
         let mut ki_bytes = [0u8; 16];
         ki_bytes.copy_from_slice(&buf[off..off + 16]);
-        self.ki = Ki::classify(ki_bytes);
+        self.ki = SubscriberKey::classify(ki_bytes);
         off += 16;
         if !self.rsp_queue.restore_state(&buf[off..]) {
             return false;
@@ -568,8 +575,8 @@ impl GsmApp {
         let result = comp128(self.ki.as_secret(), &rand);
 
         // Queue 12-byte result: 4-byte SRES + 8-byte Kc.
-        self.rsp_queue.buf_mut()[..SRES_LEN].copy_from_slice(result.sres.as_bytes());
-        self.rsp_queue.buf_mut()[SRES_LEN..COMP128_RESULT_LEN].copy_from_slice(result.kc.declassify_ref());
+        self.rsp_queue.buf_mut()[..SRES_LEN].copy_from_slice(result.signed_response.as_bytes());
+        self.rsp_queue.buf_mut()[SRES_LEN..COMP128_RESULT_LEN].copy_from_slice(result.cipher_key.declassify_ref());
         self.rsp_queue.set_len(COMP128_RESULT_LEN);
 
         write_sw_raw(buf, SW1_RESPONSE_AVAILABLE, COMP128_RESULT_LEN as u8)
@@ -775,7 +782,7 @@ mod tests {
         ],
     };
 
-    static KI: Ki = Ki::classify([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+    static KI: SubscriberKey = SubscriberKey::classify([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
                          0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);
 
     fn app() -> GsmApp {
@@ -1054,8 +1061,8 @@ mod tests {
 
         // Verify against direct COMP128 computation.
         let expected = comp128(KI.as_secret(), &rand);
-        assert_eq!(&buf[..4], expected.sres.as_bytes());
-        assert_eq!(&buf[4..12], expected.kc.declassify_ref());
+        assert_eq!(&buf[..4], expected.signed_response.as_bytes());
+        assert_eq!(&buf[4..12], expected.cipher_key.declassify_ref());
     }
 
     #[test]
@@ -1557,7 +1564,7 @@ mod tests {
         assert_eq!(written, GsmApp::SNAPSHOT_SIZE);
 
         // Create a fresh app and restore into it.
-        let mut restored = GsmApp::new(&MF, Ki::classify([0u8; 16]));
+        let mut restored = GsmApp::new(&MF, SubscriberKey::classify([0u8; 16]));
         assert!(restored.restore_state(&snap, &[]));
 
         // Verify: PIN retries are 2 (degraded from 3).
@@ -1594,7 +1601,7 @@ mod tests {
         // Save and restore.
         let mut snap = [0u8; GsmApp::SNAPSHOT_SIZE];
         let _ = app.save_state(&mut snap);
-        let mut restored = GsmApp::new(&MF, Ki::classify([0u8; 16]));
+        let mut restored = GsmApp::new(&MF, SubscriberKey::classify([0u8; 16]));
         assert!(restored.restore_state(&snap, &[]));
 
         // Same RAND must produce same result (Ki preserved).
@@ -2189,7 +2196,7 @@ mod tests {
     /// Create a [`GsmApp`] from the reference GSM profile with PIN1 verified.
     fn ref_app() -> GsmApp {
         use crate::profile;
-        let ki = Ki::classify([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
+        let ki = SubscriberKey::classify([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
                      0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]);
         let mut a = GsmApp::new(&profile::REFERENCE_MF_GSM, ki);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
@@ -2396,11 +2403,11 @@ mod tests {
         assert_eq!(len, 12 + 2);
 
         // Verify against direct COMP128 computation.
-        let ki = Ki::classify([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
+        let ki = SubscriberKey::classify([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
                      0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]);
         let expected = comp128(ki.as_secret(), &rand);
-        assert_eq!(&buf[..4], expected.sres.as_bytes(), "SRES mismatch");
-        assert_eq!(&buf[4..12], expected.kc.declassify_ref(), "Kc mismatch");
+        assert_eq!(&buf[..4], expected.signed_response.as_bytes(), "SRES mismatch");
+        assert_eq!(&buf[4..12], expected.cipher_key.declassify_ref(), "Kc mismatch");
     }
 
     // -----------------------------------------------------------------------
@@ -2546,7 +2553,7 @@ mod proptests {
         #[test]
         fn read_binary_in_bounds(offset in 0u8..8, length in 0u8..=8u8) {
             prop_assume!(u16::from(offset) + u16::from(length) <= 8);
-            let mut app = GsmApp::new(&PT_MF, Ki::classify([0u8; 16]));
+            let mut app = GsmApp::new(&PT_MF, SubscriberKey::classify([0u8; 16]));
             let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
             let mut buf = [0u8; 256];
@@ -2563,7 +2570,7 @@ mod proptests {
         // RUN GSM ALGORITHM always produces 12-byte result matching comp128.
         #[test]
         fn run_gsm_algo_matches_comp128(rand in proptest::collection::vec(any::<u8>(), 16..=16)) {
-            let ki = Ki::classify([0xAB; 16]);
+            let ki = SubscriberKey::classify([0xAB; 16]);
             let mut app = GsmApp::new(&PT_MF, ki);
             let mut apdu = [0u8; 21];
             apdu[0] = 0xA0;
@@ -2583,15 +2590,15 @@ mod proptests {
             let mut rand_arr = [0u8; 16];
             rand_arr.copy_from_slice(&rand);
             let expected = comp128(ki.as_secret(), &rand_arr);
-            prop_assert_eq!(&buf[..4], expected.sres.as_bytes());
-            prop_assert_eq!(&buf[4..12], expected.kc.declassify_ref());
+            prop_assert_eq!(&buf[..4], expected.signed_response.as_bytes());
+            prop_assert_eq!(&buf[4..12], expected.cipher_key.declassify_ref());
         }
 
         // Out-of-bounds READ BINARY always fails.
         #[test]
         fn read_binary_out_of_bounds_fails(offset in 0u16..256, length in 1u8..=255u8) {
             prop_assume!(u32::from(offset) + u32::from(length) > 8);
-            let mut app = GsmApp::new(&PT_MF, Ki::classify([0u8; 16]));
+            let mut app = GsmApp::new(&PT_MF, SubscriberKey::classify([0u8; 16]));
             let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
             let mut buf = [0u8; 256];
@@ -2611,7 +2618,7 @@ mod proptests {
         #[test]
         #[allow(clippy::cast_possible_truncation)] // data.len() is 1..=8, fits in u8
         fn update_binary_roundtrip(data in proptest::collection::vec(any::<u8>(), 1..=8)) {
-            let mut app = GsmApp::new(&PT_MF, Ki::classify([0u8; 16]));
+            let mut app = GsmApp::new(&PT_MF, SubscriberKey::classify([0u8; 16]));
             let sel = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2];
             let cmd = Command::parse(&sel).unwrap();
             let mut buf = [0u8; 256];
@@ -2645,7 +2652,7 @@ mod proptests {
         // For any valid record number, READ RECORD succeeds.
         #[test]
         fn read_record_in_bounds(rec in 1u8..=3u8) {
-            let mut app = GsmApp::new(&PT_MF2, Ki::classify([0u8; 16]));
+            let mut app = GsmApp::new(&PT_MF2, SubscriberKey::classify([0u8; 16]));
             // Navigate to DF, then EF
             let sel_df = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20];
             let cmd = Command::parse(&sel_df).unwrap();

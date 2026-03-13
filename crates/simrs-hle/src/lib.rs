@@ -40,9 +40,9 @@ use simrs_profile::{AuthConfig, ProfileConfig};
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_tuak::{OperatorVariant as TuakOp, TuakParams};
 
-/// Re-export [`simrs_gsm::Ki`] so callers of [`hle_init`] don't need a
-/// direct dependency on `simrs-gsm`.
-pub use simrs_gsm::Ki;
+/// Re-export [`simrs_gsm::SubscriberKey`] so callers of [`hle_init`] don't
+/// need a direct dependency on `simrs-gsm`.
+pub use simrs_gsm::SubscriberKey as GsmSubscriberKey;
 
 // ---------------------------------------------------------------------------
 // SimInstance enum -- runtime-selected authentication algorithm
@@ -103,12 +103,12 @@ pub const MAX_SNAPSHOT_SIZE: usize = 1 + {
 pub fn hle_init(
     atr: &'static [u8],
     mf: &'static DfDef,
-    ki: Ki,
+    ki: GsmSubscriberKey,
     k: [u8; 16],
     opc: [u8; 16],
 ) {
     SIM.with(|cell| {
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::opc(opc));
+        let mil = MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, &[], mil);
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
@@ -125,12 +125,12 @@ pub fn hle_init(
 pub fn hle_init_tuak(
     atr: &'static [u8],
     mf: &'static DfDef,
-    ki: Ki,
+    ki: GsmSubscriberKey,
     k: [u8; 16],
     topc: [u8; 32],
 ) {
     SIM.with(|cell| {
-        let tuak = TuakParams::new(SubscriberKey::classify(k), TuakOp::topc(topc));
+        let tuak = TuakParams::new(SubscriberKey::classify(k), TuakOp::operator_cipher(topc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, &[], tuak);
         let sim = Sim::<TuakParams, 256>::new(atr, gsm, usim);
@@ -145,13 +145,13 @@ pub fn hle_init_tuak(
 pub fn hle_init_with_adf(
     atr: &'static [u8],
     mf: &'static DfDef,
-    ki: Ki,
+    ki: GsmSubscriberKey,
     k: [u8; 16],
     opc: [u8; 16],
     adf_table: &'static [AdfSlot],
 ) {
     SIM.with(|cell| {
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::opc(opc));
+        let mil = MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, adf_table, mil);
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
@@ -166,13 +166,13 @@ pub fn hle_init_with_adf(
 pub fn hle_init_tuak_with_adf(
     atr: &'static [u8],
     mf: &'static DfDef,
-    ki: Ki,
+    ki: GsmSubscriberKey,
     k: [u8; 16],
     topc: [u8; 32],
     adf_table: &'static [AdfSlot],
 ) {
     SIM.with(|cell| {
-        let tuak = TuakParams::new(SubscriberKey::classify(k), TuakOp::topc(topc));
+        let tuak = TuakParams::new(SubscriberKey::classify(k), TuakOp::operator_cipher(topc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, adf_table, tuak);
         let sim = Sim::<TuakParams, 256>::new(atr, gsm, usim);
@@ -183,7 +183,7 @@ pub fn hle_init_tuak_with_adf(
 /// Initialize the thread-local SIM from a parsed [`ProfileConfig`].
 ///
 /// Dispatches to [`hle_init_with_adf`] or [`hle_init_tuak_with_adf`]
-/// based on the authentication algorithm in the profile. The `Ki` for
+/// based on the authentication algorithm in the profile. The subscriber key for
 /// the GSM app layer is derived from the first 16 bytes of the auth key.
 ///
 /// If the profile has `AuthConfig::None`, a zeroed Milenage configuration
@@ -194,7 +194,7 @@ pub fn hle_init_from_profile(config: &ProfileConfig) {
             hle_init_with_adf(
                 config.atr,
                 config.mf,
-                Ki::classify(*k),
+                GsmSubscriberKey::classify(*k),
                 *k,
                 *opc,
                 config.adf_table,
@@ -204,7 +204,7 @@ pub fn hle_init_from_profile(config: &ProfileConfig) {
             hle_init_tuak_with_adf(
                 config.atr,
                 config.mf,
-                Ki::classify(*k),
+                GsmSubscriberKey::classify(*k),
                 *k,
                 *topc,
                 config.adf_table,
@@ -215,7 +215,7 @@ pub fn hle_init_from_profile(config: &ProfileConfig) {
             hle_init_with_adf(
                 config.atr,
                 config.mf,
-                Ki::classify([0u8; 16]),
+                GsmSubscriberKey::classify([0u8; 16]),
                 [0u8; 16],
                 [0u8; 16],
                 config.adf_table,
@@ -382,11 +382,11 @@ mod tests {
     static ATR: [u8; 2] = [0x3B, 0x00];
 
     fn init() {
-        hle_init(&ATR, &MF, Ki::classify([0x11; 16]), [0x22; 16], [0x33; 16]);
+        hle_init(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 16]);
     }
 
     fn init_tuak() {
-        hle_init_tuak(&ATR, &MF, Ki::classify([0x11; 16]), [0x22; 16], [0x33; 32]);
+        hle_init_tuak(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 32]);
     }
 
     // -------------------------------------------------------------------
@@ -651,7 +651,7 @@ mod tests {
 
     #[test]
     fn hle_init_with_adf_table() {
-        hle_init_with_adf(&ATR, &MF, Ki::classify([0x11; 16]), [0x22; 16], [0x33; 16], &ADF_TABLE);
+        hle_init_with_adf(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 16], &ADF_TABLE);
         hle_reset();
         let mut rsp = [0u8; 256];
         // SELECT by AID: 00 A4 04 00 07 [AID] 00

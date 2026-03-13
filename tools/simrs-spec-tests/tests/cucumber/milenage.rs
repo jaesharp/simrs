@@ -31,9 +31,9 @@ fn hex_to_array<const N: usize>(hex: &str) -> [u8; N] {
 fn build_params(world: &SpecWorld) -> MilenageParams {
     let k = world.milenage_k.expect("K not set");
     let op_variant = if let Some(opc) = world.milenage_opc {
-        OperatorVariant::opc(opc)
+        OperatorVariant::operator_cipher(opc)
     } else if let Some(op) = world.milenage_op {
-        OperatorVariant::op(op)
+        OperatorVariant::operator_parameter(op)
     } else {
         panic!("neither OPc nor OP is set");
     };
@@ -140,7 +140,7 @@ fn given_custom_constants(world: &mut SpecWorld, c_hex: String, r_val: String) {
     let ci = [c_val, c_val, [0u8; 16], [0u8; 16], [0u8; 16]];
     let ri = [r, r, 32, 64, 96];
 
-    let result = MilenageParams::new(SubscriberKey::classify(k), OperatorVariant::opc(opc), ci, ri);
+    let result = MilenageParams::new(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc), ci, ri);
     world.milenage_param_result = Some(result);
 }
 
@@ -206,7 +206,7 @@ fn when_f2_with_opc(world: &mut SpecWorld, opc_hex: String) {
     let k = world.milenage_k.expect("K not set");
     let opc = hex_to_array::<16>(&opc_hex);
     let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
-    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc(opc));
+    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc));
     world.milenage_response = Some(*params.compute_response(&ch).as_bytes());
 }
 
@@ -215,7 +215,7 @@ fn when_f2_with_op(world: &mut SpecWorld, op_hex: String) {
     let k = world.milenage_k.expect("K not set");
     let op = hex_to_array::<16>(&op_hex);
     let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
-    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::op(op));
+    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_parameter(op));
     world.milenage_f2_alt = Some(*params.compute_response(&ch).as_bytes());
 }
 
@@ -245,7 +245,7 @@ fn when_params_constructed(world: &mut SpecWorld) {
         // Use default constants via `new` -- this should succeed.
         let ci = [[0u8; 16]; 5];
         let ri = [0u8; 5];
-        let result = MilenageParams::new(SubscriberKey::classify(k), OperatorVariant::opc(opc), ci, ri);
+        let result = MilenageParams::new(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc), ci, ri);
         world.milenage_param_result = Some(result);
     }
 }
@@ -255,7 +255,7 @@ fn when_params_defaults(world: &mut SpecWorld) {
     let k = world.milenage_k.expect("K not set");
     let opc = world.milenage_opc.expect("OPc not set");
     // with_defaults never fails -- wrap in Ok for the Then step.
-    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc(opc));
+    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc));
     world.milenage_param_result = Some(Ok(params));
 }
 

@@ -98,7 +98,7 @@
 //! let sqn  = SequenceNumber::new([0xFF,0x9B,0xB4,0xD0,0xB6,0x07]);
 //! let amf  = AuthManagementField::new([0xB9,0xB9]);
 //!
-//! let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc(opc));
+//! let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc));
 //!
 //! assert_eq!(*params.compute_auth_mac(&rand, &sqn, &amf).as_bytes(),
 //!            [0x4A,0x9F,0xFA,0xC3,0x54,0xDF,0xAF,0xB3]);
@@ -146,51 +146,71 @@ use simrs_secret::Secret;
 /// ```
 /// use simrs_milenage::OperatorVariant;
 ///
-/// // Pre-computed OPc (recommended for production)
-/// let _opc = OperatorVariant::opc([0xCD; 16]);
+/// // Pre-computed operator cipher (recommended for production)
+/// let _opc = OperatorVariant::operator_cipher([0xCD; 16]);
 ///
-/// // Raw OP (OPc computed at runtime from K and OP)
-/// let _op = OperatorVariant::op([0xAB; 16]);
+/// // Raw operator parameter (cipher computed at runtime from K)
+/// let _op = OperatorVariant::operator_parameter([0xAB; 16]);
 /// ```
 #[derive(Clone, Copy)]
 pub enum OperatorVariant {
-    /// Pre-computed OPc (128 bits). Preferred -- avoids runtime AES call.
-    Opc(Secret<[u8; 16]>),
-    /// Raw OP. OPc will be derived as `E_K[OP] XOR OP` when needed.
-    Op(Secret<[u8; 16]>),
+    /// Pre-computed operator cipher (128 bits). Preferred -- avoids runtime AES call.
+    OperatorCipher(Secret<[u8; 16]>),
+    /// Raw operator parameter. Cipher will be derived as `E_K[OP] XOR OP` when needed.
+    OperatorParameter(Secret<[u8; 16]>),
 }
 
 impl OperatorVariant {
-    /// Classify raw bytes as [`OperatorVariant::Opc`].
+    /// Classify raw bytes as a pre-computed operator cipher.
     #[inline]
-    pub const fn opc(raw: [u8; 16]) -> Self {
-        Self::Opc(Secret::new(raw))
+    pub const fn operator_cipher(raw: [u8; 16]) -> Self {
+        Self::OperatorCipher(Secret::new(raw))
     }
 
-    /// Reclassify an already-secret value as [`OperatorVariant::Opc`].
+    /// Reclassify an already-secret value as an operator cipher.
     #[inline]
-    pub const fn reclassify_opc(secret: Secret<[u8; 16]>) -> Self {
-        Self::Opc(secret)
+    pub const fn reclassify_operator_cipher(secret: Secret<[u8; 16]>) -> Self {
+        Self::OperatorCipher(secret)
     }
 
-    /// Classify raw bytes as [`OperatorVariant::Op`].
+    /// Classify raw bytes as a raw operator parameter.
     #[inline]
-    pub const fn op(raw: [u8; 16]) -> Self {
-        Self::Op(Secret::new(raw))
+    pub const fn operator_parameter(raw: [u8; 16]) -> Self {
+        Self::OperatorParameter(Secret::new(raw))
     }
 
-    /// Reclassify an already-secret value as [`OperatorVariant::Op`].
+    /// Reclassify an already-secret value as an operator parameter.
     #[inline]
-    pub const fn reclassify_op(secret: Secret<[u8; 16]>) -> Self {
-        Self::Op(secret)
+    pub const fn reclassify_operator_parameter(secret: Secret<[u8; 16]>) -> Self {
+        Self::OperatorParameter(secret)
     }
+
+    /// 3GPP abbreviation for [`OperatorVariant::operator_cipher`].
+    #[deprecated(note = "3GPP OPc (TS 35.206 Annex 1) -- prefer operator_cipher()")]
+    #[inline]
+    pub const fn opc(raw: [u8; 16]) -> Self { Self::operator_cipher(raw) }
+
+    /// 3GPP abbreviation for [`OperatorVariant::reclassify_operator_cipher`].
+    #[deprecated(note = "3GPP OPc (TS 35.206 Annex 1) -- prefer reclassify_operator_cipher()")]
+    #[inline]
+    pub const fn reclassify_opc(secret: Secret<[u8; 16]>) -> Self { Self::reclassify_operator_cipher(secret) }
+
+    /// 3GPP abbreviation for [`OperatorVariant::operator_parameter`].
+    #[deprecated(note = "3GPP OP (TS 35.206) -- prefer operator_parameter()")]
+    #[inline]
+    pub const fn op(raw: [u8; 16]) -> Self { Self::operator_parameter(raw) }
+
+    /// 3GPP abbreviation for [`OperatorVariant::reclassify_operator_parameter`].
+    #[deprecated(note = "3GPP OP (TS 35.206) -- prefer reclassify_operator_parameter()")]
+    #[inline]
+    pub const fn reclassify_op(secret: Secret<[u8; 16]>) -> Self { Self::reclassify_operator_parameter(secret) }
 }
 
 impl core::fmt::Debug for OperatorVariant {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Opc(v) => f.debug_tuple("OperatorVariant::Opc").field(&Redact(v.declassify_ref())).finish(),
-            Self::Op(v) => f.debug_tuple("OperatorVariant::Op").field(&Redact(v.declassify_ref())).finish(),
+            Self::OperatorCipher(v) => f.debug_tuple("OperatorVariant::OperatorCipher").field(&Redact(v.declassify_ref())).finish(),
+            Self::OperatorParameter(v) => f.debug_tuple("OperatorVariant::OperatorParameter").field(&Redact(v.declassify_ref())).finish(),
         }
     }
 }
@@ -210,15 +230,15 @@ impl core::fmt::Debug for OperatorVariant {
 ///
 /// let params = MilenageParams::with_defaults(
 ///     SubscriberKey::classify([0xFF; 16]),  // K
-///     OperatorVariant::opc([0xAA; 16]), // OPc
+///     OperatorVariant::operator_cipher([0xAA; 16]), // OPc
 /// );
 /// ```
 #[derive(Clone)]
 pub struct MilenageParams {
     /// Subscriber key K (128 bits).
     k: SubscriberKey,
-    /// Pre-computed OPc (128 bits). Derived from OP if OperatorVariant::Op was given.
-    opc: Secret<[u8; 16]>,
+    /// Pre-computed operator cipher (128 bits). Derived from operator parameter if given.
+    operator_cipher: Secret<[u8; 16]>,
     /// Per-function XOR constants c1..c5 (128 bits each).
     ci: [[u8; 16]; 5],
     /// Per-function rotation constants r1..r5 (in bits).
@@ -235,7 +255,7 @@ impl core::fmt::Debug for MilenageParams {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("MilenageParams")
             .field("k", &self.k) // SubscriberKey::Debug always prints [REDACTED]
-            .field("opc", &Redact(self.opc.declassify_ref()))
+            .field("operator_cipher", &Redact(self.operator_cipher.declassify_ref()))
             .field("ci", &self.ci)
             .field("ri", &self.ri)
             .field("expected_sequence_number", &self.expected_sequence_number)
@@ -254,7 +274,7 @@ impl core::fmt::Debug for MilenageParams {
 /// // Obtain an AuthenticationOutput from a real authentication.
 /// let mut p = MilenageParams::with_defaults(
 ///     SubscriberKey::classify([0u8; 16]),
-///     OperatorVariant::opc([0u8; 16]),
+///     OperatorVariant::operator_cipher([0u8; 16]),
 /// );
 /// let challenge = AuthChallenge::new([0u8; 16]);
 /// let sqn = SequenceNumber::new([0u8; 6]);
@@ -555,7 +575,7 @@ pub trait AuthenticationAlgorithm {
     /// ```
     /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthenticationError, AuthenticationAlgorithm, AuthChallenge, AuthToken};
     ///
-    /// let mut p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
+    /// let mut p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
     ///
     /// // Random AUTN will almost certainly fail MAC verification
     /// let result = p.authenticate(&AuthChallenge::new([0u8; 16]), &AuthToken::new([0xFFu8; 16]));
@@ -762,20 +782,20 @@ impl MilenageParams {
     /// ```
     /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
     ///
-    /// let p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
+    /// let p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
     /// // Default params always succeed (no duplicate ci/ri pairs)
     /// ```
     pub const fn with_defaults(k: SubscriberKey, op: OperatorVariant) -> Self {
         // Default constants are guaranteed distinct, so unwrap is safe.
         // But we don't call new() to avoid the O(n^2) check for a known-good set.
         let aes = Rijndael::new(k.as_secret());
-        let opc = match op {
-            OperatorVariant::Opc(opc) => opc,
-            OperatorVariant::Op(op_val) => Secret::new(compute_opc(&aes, op_val.declassify_ref())),
+        let operator_cipher = match op {
+            OperatorVariant::OperatorCipher(v) => v,
+            OperatorVariant::OperatorParameter(op_val) => Secret::new(compute_opc(&aes, op_val.declassify_ref())),
         };
         Self {
             k,
-            opc,
+            operator_cipher,
             ci: DEFAULT_CI,
             ri: DEFAULT_RI,
             expected_sequence_number: [0u8; 6],
@@ -800,13 +820,13 @@ impl MilenageParams {
     /// let ci = [c1, c2, c3, c4, c5];
     /// let ri = [64, 0, 32, 64, 96];
     ///
-    /// let result = MilenageParams::new(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]), ci, ri);
+    /// let result = MilenageParams::new(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]), ci, ri);
     /// assert!(result.is_ok());
     ///
     /// // Duplicate (ci, ri) pair is rejected
     /// let ci_dup = [[0u8; 16]; 5]; // all zero
     /// let ri_dup = [0, 0, 32, 64, 96]; // r1==r2==0 with c1==c2
-    /// let err = MilenageParams::new(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]), ci_dup, ri_dup);
+    /// let err = MilenageParams::new(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]), ci_dup, ri_dup);
     /// assert!(matches!(err, Err(ParamError::DuplicateCiRi { first: 0, second: 1 })));
     /// ```
     pub const fn new(
@@ -834,11 +854,11 @@ impl MilenageParams {
         }
 
         let aes = Rijndael::new(k.as_secret());
-        let opc = match op {
-            OperatorVariant::Opc(opc) => opc,
-            OperatorVariant::Op(op_val) => Secret::new(compute_opc(&aes, op_val.declassify_ref())),
+        let operator_cipher = match op {
+            OperatorVariant::OperatorCipher(v) => v,
+            OperatorVariant::OperatorParameter(op_val) => Secret::new(compute_opc(&aes, op_val.declassify_ref())),
         };
-        Ok(Self { k, opc, ci, ri, expected_sequence_number: [0u8; 6] })
+        Ok(Self { k, operator_cipher, ci, ri, expected_sequence_number: [0u8; 6] })
     }
 
     /// Compute the network authentication code MAC-A (8 bytes).
@@ -851,7 +871,7 @@ impl MilenageParams {
     /// ```
     /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthChallenge, SequenceNumber, AuthManagementField};
     ///
-    /// let p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
+    /// let p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
     /// let mac_a = p.compute_auth_mac(&AuthChallenge::new([0u8; 16]), &SequenceNumber::new([0u8; 6]), &AuthManagementField::new([0u8; 2]));
     /// assert_eq!(mac_a.as_bytes().len(), 8);
     /// ```
@@ -899,7 +919,7 @@ impl MilenageParams {
     /// ```
     /// use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey, AuthChallenge};
     ///
-    /// let p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
+    /// let p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
     /// let response = p.compute_response(&AuthChallenge::new([0u8; 16]));
     /// assert_eq!(response.as_bytes().len(), 8);
     /// ```
@@ -995,7 +1015,7 @@ impl MilenageParams {
     /// Compute TEMP = E_K[RAND XOR OPc] (shared by all functions).
     const fn compute_temp(&self, challenge: &[u8; 16]) -> [u8; 16] {
         let aes = Rijndael::new(self.k.as_secret());
-        aes.encrypt(&xor128(challenge, self.opc.declassify_ref()))
+        aes.encrypt(&xor128(challenge, self.operator_cipher.declassify_ref()))
     }
 
     /// Compute OUT_i for f2/f3/f4/f5/f5* (index 0-based into ci/ri arrays).
@@ -1005,11 +1025,11 @@ impl MilenageParams {
         let aes = Rijndael::new(self.k.as_secret());
         let temp = self.compute_temp(challenge);
 
-        let temp_xor_opc = xor128(&temp, self.opc.declassify_ref());
+        let temp_xor_opc = xor128(&temp, self.operator_cipher.declassify_ref());
         let rotated = rotl128(&temp_xor_opc, self.ri[idx]);
         let input = xor128(&rotated, &self.ci[idx]);
 
-        xor128(&aes.encrypt(&input), self.opc.declassify_ref())
+        xor128(&aes.encrypt(&input), self.operator_cipher.declassify_ref())
     }
 
     /// Compute OUT1 for f1/f1* (uses SQN, AMF, and (c1, r1)).
@@ -1037,7 +1057,7 @@ impl MilenageParams {
         sqn_amf[14..16].copy_from_slice(management_field);
 
         // (SQN||AMF||SQN||AMF) XOR OPc
-        let xored = xor128(&sqn_amf, self.opc.declassify_ref());
+        let xored = xor128(&sqn_amf, self.operator_cipher.declassify_ref());
 
         // rot(..., r1)
         let rotated = rotl128(&xored, self.ri[0]);
@@ -1049,7 +1069,7 @@ impl MilenageParams {
         let enc_input = xor128(&temp, &with_c);
 
         // E_K[...] XOR OPc
-        xor128(&aes.encrypt(&enc_input), self.opc.declassify_ref())
+        xor128(&aes.encrypt(&enc_input), self.operator_cipher.declassify_ref())
     }
 
     // -- snapshot --
@@ -1067,7 +1087,7 @@ impl MilenageParams {
         }
         let mut w = SnapWriter::new(buf);
         w.put_bytes(self.k.declassify());
-        w.put_bytes(self.opc.declassify_ref());
+        w.put_bytes(self.operator_cipher.declassify_ref());
         for c in &self.ci {
             w.put_bytes(c);
         }
@@ -1090,7 +1110,7 @@ impl MilenageParams {
         let k = SubscriberKey::classify(k_bytes);
         let mut opc_bytes = [0u8; 16];
         r.get_bytes(&mut opc_bytes);
-        let opc = Secret::new(opc_bytes);
+        let operator_cipher = Secret::new(opc_bytes);
         let mut ci = [[0u8; 16]; 5];
         for c in &mut ci {
             r.get_bytes(c);
@@ -1099,7 +1119,7 @@ impl MilenageParams {
         r.get_bytes(&mut ri);
         let mut expected_sequence_number = [0u8; 6];
         r.get_bytes(&mut expected_sequence_number);
-        Some(Self { k, opc, ci, ri, expected_sequence_number })
+        Some(Self { k, operator_cipher, ci, ri, expected_sequence_number })
     }
 
     /// Restore the Milenage parameters from `buf`.
@@ -1182,11 +1202,11 @@ mod tests {
         0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
         0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC,
     ]);
-    const TS1_OP: OperatorVariant = OperatorVariant::op([
+    const TS1_OP: OperatorVariant = OperatorVariant::operator_parameter([
         0xCD, 0xC2, 0x02, 0xD5, 0x12, 0x3E, 0x20, 0xF6,
         0x2B, 0x6D, 0x67, 0x6A, 0xC7, 0x2C, 0xB3, 0x18,
     ]);
-    const TS1_OPC: OperatorVariant = OperatorVariant::opc([
+    const TS1_OPC: OperatorVariant = OperatorVariant::operator_cipher([
         0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E,
         0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B, 0xAF,
     ]);
@@ -1220,11 +1240,11 @@ mod tests {
         0x03, 0x96, 0xEB, 0x31, 0x7B, 0x6D, 0x1C, 0x36,
         0xF1, 0x9C, 0x1C, 0x84, 0xCD, 0x6F, 0xFD, 0x16,
     ]);
-    const TS2_OP: OperatorVariant = OperatorVariant::op([
+    const TS2_OP: OperatorVariant = OperatorVariant::operator_parameter([
         0xFF, 0x53, 0xBA, 0xDE, 0x17, 0xDF, 0x5D, 0x4E,
         0x79, 0x30, 0x73, 0xCE, 0x9D, 0x75, 0x79, 0xFA,
     ]);
-    const TS2_OPC: OperatorVariant = OperatorVariant::opc([
+    const TS2_OPC: OperatorVariant = OperatorVariant::operator_cipher([
         0x53, 0xC1, 0x56, 0x71, 0xC6, 0x0A, 0x4B, 0x73,
         0x1C, 0x55, 0xB4, 0xA4, 0x41, 0xC0, 0xBD, 0xE2,
     ]);
@@ -1256,11 +1276,11 @@ mod tests {
         0xFE, 0xC8, 0x6B, 0xA6, 0xEB, 0x70, 0x7E, 0xD0,
         0x89, 0x05, 0x75, 0x7B, 0x1B, 0xB4, 0x4B, 0x8F,
     ]);
-    const TS3_OP: OperatorVariant = OperatorVariant::op([
+    const TS3_OP: OperatorVariant = OperatorVariant::operator_parameter([
         0xDB, 0xC5, 0x9A, 0xDC, 0xB6, 0xF9, 0xA0, 0xEF,
         0x73, 0x54, 0x77, 0xB7, 0xFA, 0xDF, 0x83, 0x74,
     ]);
-    const TS3_OPC: OperatorVariant = OperatorVariant::opc([
+    const TS3_OPC: OperatorVariant = OperatorVariant::operator_cipher([
         0x10, 0x06, 0x02, 0x0F, 0x0A, 0x47, 0x8B, 0xF6,
         0xB6, 0x99, 0xF1, 0x5C, 0x06, 0x2E, 0x42, 0xB3,
     ]);
@@ -1292,11 +1312,11 @@ mod tests {
         0x9E, 0x59, 0x44, 0xAE, 0xA9, 0x4B, 0x81, 0x16,
         0x5C, 0x82, 0xFB, 0xF9, 0xF3, 0x2D, 0xB7, 0x51,
     ]);
-    const TS4_OP: OperatorVariant = OperatorVariant::op([
+    const TS4_OP: OperatorVariant = OperatorVariant::operator_parameter([
         0x22, 0x30, 0x14, 0xC5, 0x80, 0x66, 0x94, 0xC0,
         0x07, 0xCA, 0x1E, 0xEE, 0xF5, 0x7F, 0x00, 0x4F,
     ]);
-    const TS4_OPC: OperatorVariant = OperatorVariant::opc([
+    const TS4_OPC: OperatorVariant = OperatorVariant::operator_cipher([
         0xA6, 0x4A, 0x50, 0x7A, 0xE1, 0xA2, 0xA9, 0x8B,
         0xB8, 0x8E, 0xB4, 0x21, 0x01, 0x35, 0xDC, 0x87,
     ]);
@@ -1328,11 +1348,11 @@ mod tests {
         0x4A, 0xB1, 0xDE, 0xB0, 0x5C, 0xA6, 0xCE, 0xB0,
         0x51, 0xFC, 0x98, 0xE7, 0x7D, 0x02, 0x6A, 0x84,
     ]);
-    const TS5_OP: OperatorVariant = OperatorVariant::op([
+    const TS5_OP: OperatorVariant = OperatorVariant::operator_parameter([
         0x2D, 0x16, 0xC5, 0xCD, 0x1F, 0xDF, 0x6B, 0x22,
         0x38, 0x35, 0x84, 0xE3, 0xBE, 0xF2, 0xA8, 0xD8,
     ]);
-    const TS5_OPC: OperatorVariant = OperatorVariant::opc([
+    const TS5_OPC: OperatorVariant = OperatorVariant::operator_cipher([
         0xDC, 0xF0, 0x7C, 0xBD, 0x51, 0x85, 0x52, 0x90,
         0xB9, 0x2A, 0x07, 0xA9, 0x89, 0x1E, 0x52, 0x3E,
     ]);
@@ -1364,11 +1384,11 @@ mod tests {
         0x6C, 0x38, 0xA1, 0x16, 0xAC, 0x28, 0x0C, 0x45,
         0x4F, 0x59, 0x33, 0x2E, 0xE3, 0x5C, 0x8C, 0x4F,
     ]);
-    const TS6_OP: OperatorVariant = OperatorVariant::op([
+    const TS6_OP: OperatorVariant = OperatorVariant::operator_parameter([
         0x1B, 0xA0, 0x0A, 0x1A, 0x7C, 0x67, 0x00, 0xAC,
         0x8C, 0x3F, 0xF3, 0xE9, 0x6A, 0xD0, 0x87, 0x25,
     ]);
-    const TS6_OPC: OperatorVariant = OperatorVariant::opc([
+    const TS6_OPC: OperatorVariant = OperatorVariant::operator_cipher([
         0x38, 0x03, 0xEF, 0x53, 0x63, 0xB9, 0x47, 0xC6,
         0xAA, 0xA2, 0x25, 0xE5, 0x8F, 0xAE, 0x39, 0x34,
     ]);
@@ -1568,14 +1588,14 @@ mod tests {
         let ci = [[0u8; 16]; 5]; // all zero
         let ri = [0, 0, 32, 64, 96]; // r1==r2==0
 
-        let result = MilenageParams::new(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]), ci, ri);
+        let result = MilenageParams::new(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]), ci, ri);
         assert!(matches!(result, Err(ParamError::DuplicateCiRi { first: 0, second: 1 })));
     }
 
     #[test]
     fn defaults_always_valid() {
         // with_defaults should never fail
-        let p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
+        let p = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
         let _ = p; // just verify construction succeeds
     }
 
@@ -1588,7 +1608,7 @@ mod tests {
     /// boundary).
     fn ov_bytes(ov: &OperatorVariant) -> &[u8; 16] {
         match ov {
-            OperatorVariant::Op(s) | OperatorVariant::Opc(s) => s.declassify_ref(),
+            OperatorVariant::OperatorParameter(s) | OperatorVariant::OperatorCipher(s) => s.declassify_ref(),
         }
     }
 
@@ -1834,8 +1854,8 @@ mod proptests {
         ) {
             prop_assume!(k1 != k2);
             let challenge = AuthChallenge::new(rand_raw);
-            let p1 = MilenageParams::with_defaults(SubscriberKey::classify(k1), OperatorVariant::opc([0u8; 16]));
-            let p2 = MilenageParams::with_defaults(SubscriberKey::classify(k2), OperatorVariant::opc([0u8; 16]));
+            let p1 = MilenageParams::with_defaults(SubscriberKey::classify(k1), OperatorVariant::operator_cipher([0u8; 16]));
+            let p2 = MilenageParams::with_defaults(SubscriberKey::classify(k2), OperatorVariant::operator_cipher([0u8; 16]));
             prop_assert_ne!(p1.compute_response(&challenge), p2.compute_response(&challenge), "different K must produce different RES");
             prop_assert_ne!(p1.compute_anonymity_key(&challenge), p2.compute_anonymity_key(&challenge), "different K must produce different AK");
         }
@@ -1846,7 +1866,7 @@ mod proptests {
         #[test]
         fn kc_is_always_c3(k in any::<[u8; 16]>(), rand_raw in any::<[u8; 16]>()) {
             let challenge = AuthChallenge::new(rand_raw);
-            let mut p = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc([0u8; 16]));
+            let mut p = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher([0u8; 16]));
             let ck = p.compute_cipher_key(&challenge);
             let ik = p.compute_integrity_key(&challenge);
             let ck_bytes = ck.declassify();
@@ -1879,8 +1899,8 @@ mod proptests {
             let aes = Rijndael::new(&Secret::new(k));
             let opc = compute_opc(&aes, &op);
 
-            let p_op = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::op(op));
-            let p_opc = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc(opc));
+            let p_op = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_parameter(op));
+            let p_opc = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc));
             prop_assert_eq!(p_op.compute_response(&challenge), p_opc.compute_response(&challenge));
         }
     }
@@ -1896,7 +1916,7 @@ mod proptests {
             prop_assume!(rand_raw1 != rand_raw2);
             let challenge1 = AuthChallenge::new(rand_raw1);
             let challenge2 = AuthChallenge::new(rand_raw2);
-            let p = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc([0u8; 16]));
+            let p = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher([0u8; 16]));
             // Collision is theoretically possible but astronomically unlikely
             prop_assert_ne!(p.compute_response(&challenge1), p.compute_response(&challenge2));
         }
@@ -1916,7 +1936,7 @@ mod proptests {
             let challenge = AuthChallenge::new(rand_raw);
             let sqn = SequenceNumber::new(sqn_raw);
             let amf = AuthManagementField::new(amf_raw);
-            let p = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc([0u8; 16]));
+            let p = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher([0u8; 16]));
             let mac_a = p.compute_auth_mac(&challenge, &sqn, &amf);
             let mac_s = p.compute_resync_mac(&challenge, &sqn, &amf);
             prop_assert_ne!(*mac_a.as_bytes(), *mac_s.as_bytes(), "f1 (MAC-A) must differ from f1* (MAC-S)");
@@ -1928,7 +1948,7 @@ mod proptests {
         #[test]
         fn output_deterministic(k in any::<[u8; 16]>(), rand_raw in any::<[u8; 16]>()) {
             let challenge = AuthChallenge::new(rand_raw);
-            let p = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::opc([0u8; 16]));
+            let p = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher([0u8; 16]));
             prop_assert_eq!(
                 p.compute_response(&challenge),
                 p.compute_response(&challenge)
@@ -1977,7 +1997,7 @@ mod ct_validation {
                 (key, opc, rand_bytes)
             },
             |(key, opc, rand_bytes)| {
-                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::opc(*opc));
+                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*opc));
                 let response = params.compute_response(&AuthChallenge::new(*rand_bytes));
                 black_box(response);
             },
@@ -2019,7 +2039,7 @@ mod ct_validation {
                 (key, opc, rand_bytes, sqn, amf)
             },
             |(key, opc, rand_bytes, sqn, amf)| {
-                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::opc(*opc));
+                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*opc));
                 let mac = params.compute_auth_mac(&AuthChallenge::new(*rand_bytes), &SequenceNumber::new(*sqn), &AuthManagementField::new(*amf));
                 black_box(mac);
             },
@@ -2061,7 +2081,7 @@ mod ct_validation {
                 (key, opc, rand_bytes, sqn, amf)
             },
             |(key, opc, rand_bytes, sqn, amf)| {
-                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::opc(*opc));
+                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*opc));
                 let mac = params.compute_resync_mac(&AuthChallenge::new(*rand_bytes), &SequenceNumber::new(*sqn), &AuthManagementField::new(*amf));
                 black_box(mac);
             },
@@ -2095,7 +2115,7 @@ mod ct_validation {
                 (key, opc, rand_bytes)
             },
             |(key, opc, rand_bytes)| {
-                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::opc(*opc));
+                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*opc));
                 let ck = params.compute_cipher_key(&AuthChallenge::new(*rand_bytes));
                 black_box(ck);
             },
@@ -2129,7 +2149,7 @@ mod ct_validation {
                 (key, opc, rand_bytes)
             },
             |(key, opc, rand_bytes)| {
-                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::opc(*opc));
+                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*opc));
                 let ik = params.compute_integrity_key(&AuthChallenge::new(*rand_bytes));
                 black_box(ik);
             },
@@ -2163,7 +2183,7 @@ mod ct_validation {
                 (key, opc, rand_bytes)
             },
             |(key, opc, rand_bytes)| {
-                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::opc(*opc));
+                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*opc));
                 let ak = params.compute_anonymity_key(&AuthChallenge::new(*rand_bytes));
                 black_box(ak);
             },
@@ -2197,7 +2217,7 @@ mod ct_validation {
                 (key, opc, rand_bytes)
             },
             |(key, opc, rand_bytes)| {
-                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::opc(*opc));
+                let params = MilenageParams::with_defaults(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*opc));
                 let ak = params.compute_resync_anonymity_key(&AuthChallenge::new(*rand_bytes));
                 black_box(ak);
             },

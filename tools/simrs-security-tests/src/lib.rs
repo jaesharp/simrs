@@ -28,7 +28,7 @@
 
 pub mod apdu;
 
-use simrs_gsm::Ki;
+use simrs_gsm::SubscriberKey as GsmSubscriberKey;
 use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
 use simrs_sim::{Sim, SimEvent, SimResponse};
@@ -44,11 +44,11 @@ pub static ATR: [u8; 2] = [0x3B, 0x00];
 // ---- Test credentials ----
 
 /// Test Ki (all 0x11).
-pub const TEST_KI: Ki = Ki::classify([0x11; 16]);
+pub const TEST_KI: GsmSubscriberKey = GsmSubscriberKey::classify([0x11; 16]);
 /// Test K (all 0x22).
 pub const TEST_K: SubscriberKey = SubscriberKey::classify([0x22; 16]);
 /// Test `OPc` (all 0x33).
-pub const TEST_OPC: OperatorVariant = OperatorVariant::opc([0x33; 16]);
+pub const TEST_OPC: OperatorVariant = OperatorVariant::operator_cipher([0x33; 16]);
 /// Test SUCI DRBG seed (all 0x44).
 pub const TEST_SUCI_SEED: SuciSeed = SuciSeed::new([0x44; 32]);
 

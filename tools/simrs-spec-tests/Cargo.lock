@@ -815,6 +815,7 @@ version = "0.1.0"
 name = "simrs-kdf"
 version = "0.1.0"
 dependencies = [
+ "simrs-milenage",
  "simrs-secret",
  "simrs-sha256",
 ]
@@ -834,6 +835,7 @@ name = "simrs-pin"
 version = "0.1.0"
 dependencies = [
  "simrs-consttime",
+ "simrs-iso7816",
  "simrs-secret",
 ]
 

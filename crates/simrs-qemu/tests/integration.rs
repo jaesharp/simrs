@@ -100,7 +100,7 @@ static MF: DfDef = DfDef {
 
 static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
 
-static KI: simrs_gsm::Ki = simrs_gsm::Ki::classify([
+static KI: simrs_gsm::SubscriberKey = simrs_gsm::SubscriberKey::classify([
     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
 ]);
@@ -110,7 +110,7 @@ static USIM_K: SubscriberKey = SubscriberKey::classify([
     0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
     0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC,
 ]);
-static USIM_OPC: OperatorVariant = OperatorVariant::opc([
+static USIM_OPC: OperatorVariant = OperatorVariant::operator_cipher([
     0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E,
     0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B, 0xAF,
 ]);
@@ -275,8 +275,8 @@ fn gsm_run_gsm_algorithm_comp128() {
 
     // Verify against independent COMP128 computation.
     let result = simrs_comp128::comp128(KI.as_secret(), &rand_val);
-    assert_eq!(&data[..4], result.sres.as_bytes());
-    assert_eq!(&data[4..12], result.kc.declassify_ref());
+    assert_eq!(&data[..4], result.signed_response.as_bytes());
+    assert_eq!(&data[4..12], result.cipher_key.declassify_ref());
 }
 
 #[test]

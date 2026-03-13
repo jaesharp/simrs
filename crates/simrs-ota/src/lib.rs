@@ -6,7 +6,7 @@
 //!
 //! # Supported Security Modes
 //!
-//! - No security (SPI indicates no redundancy check and no ciphering)
+//! - No security (security parameters indicate no redundancy check and no ciphering)
 //! - Cryptographic Checksum (CC) using AES-128 CBC-MAC
 //! - AES-128 CBC encryption for ciphering
 //!
@@ -16,7 +16,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![deny(clippy::all, clippy::pedantic)]
-#![allow(clippy::doc_markdown)]        // ETSI/3GPP terms: OTA, SPI, KIc, KID, TAR, etc.
+#![allow(clippy::doc_markdown)]        // ETSI/3GPP terms: OTA, SecurityParameters, KeyIdentifier, ToolkitAppReference, etc.
 #![allow(clippy::missing_errors_doc)]  // Error types are self-documenting
 #![allow(clippy::must_use_candidate)]  // matches workspace lint config
 #![allow(clippy::module_name_repetitions)]
@@ -118,12 +118,12 @@ impl core::fmt::Display for OtaError {
 pub enum RedundancyCheck {
     /// No redundancy check.
     None,
-    /// Redundancy Check (CRC).
-    Rc,
+    /// Cyclic Redundancy Check (CRC).
+    Crc,
     /// Cryptographic Checksum (MAC).
-    Cc,
+    CryptographicChecksum,
     /// Digital Signature.
-    Ds,
+    DigitalSignature,
 }
 
 // ---------------------------------------------------------------------------
@@ -142,33 +142,37 @@ pub enum CryptoAlgo {
 }
 
 // ---------------------------------------------------------------------------
-// SPI (Security Parameter Indicator)
+// Security Parameters (TS 102 225 clause 5.1.1)
 // ---------------------------------------------------------------------------
 
-/// Security Parameter Indicator (SPI).
+/// Security parameters.
 ///
 /// [ETSI TS 102 225 V19.0.0 clause 5.1.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A124%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C514%5D).
 /// Two bytes controlling the security applied to a command or response packet.
 ///
 /// ```
-/// use simrs_ota::{Spi, RedundancyCheck};
+/// use simrs_ota::{SecurityParameters, RedundancyCheck};
 ///
-/// // SPI with CC integrity and ciphering enabled
-/// let spi = Spi { spi1: 0x06, spi2: 0x01 };
-/// assert_eq!(spi.redundancy_check(), RedundancyCheck::Cc);
-/// assert!(spi.ciphering());
-/// assert!(spi.por_required());
+/// // Security parameters with cryptographic checksum integrity and ciphering enabled
+/// let sp = SecurityParameters { command_header: 0x06, response_header: 0x01 };
+/// assert_eq!(sp.redundancy_check(), RedundancyCheck::CryptographicChecksum);
+/// assert!(sp.ciphering());
+/// assert!(sp.por_required());
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Spi {
-    /// First SPI byte (redundancy check, ciphering, counter indicators).
-    pub spi1: u8,
-    /// Second SPI byte (PoR settings).
-    pub spi2: u8,
+pub struct SecurityParameters {
+    /// First byte (redundancy check, ciphering, counter indicators).
+    pub command_header: u8,
+    /// Second byte (PoR settings).
+    pub response_header: u8,
 }
 
-impl Spi {
-    /// Redundancy check mode (SPI1 bits 1-0).
+/// ETSI abbreviation for [`SecurityParameters`].
+#[deprecated(note = "ETSI SPI (TS 102 225 cl. 5.1.1) -- prefer SecurityParameters")]
+pub type Spi = SecurityParameters;
+
+impl SecurityParameters {
+    /// Redundancy check mode (command_header bits 1-0).
     ///
     /// Per [ETSI TS 102 225 V19.0.0 clause 5.1.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A124%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C514%5D):
     /// - `00` = No redundancy check
@@ -176,52 +180,56 @@ impl Spi {
     /// - `10` = Cryptographic Checksum (CC)
     /// - `11` = Digital Signature (DS)
     pub const fn redundancy_check(&self) -> RedundancyCheck {
-        match self.spi1 & 0x03 {
+        match self.command_header & 0x03 {
             0x00 => RedundancyCheck::None,
-            0x01 => RedundancyCheck::Rc,
-            0x02 => RedundancyCheck::Cc,
-            0x03 => RedundancyCheck::Ds,
+            0x01 => RedundancyCheck::Crc,
+            0x02 => RedundancyCheck::CryptographicChecksum,
+            0x03 => RedundancyCheck::DigitalSignature,
             _ => RedundancyCheck::None, // unreachable but keeps const fn happy
         }
     }
 
-    /// Whether ciphering is indicated (SPI1 bit 2).
+    /// Whether ciphering is indicated (command_header bit 2).
     pub const fn ciphering(&self) -> bool {
-        self.spi1 & 0x04 != 0
+        self.command_header & 0x04 != 0
     }
 
-    /// Whether a replay counter is available (SPI1 bit 3).
+    /// Whether a replay counter is available (command_header bit 3).
     pub const fn counter_available(&self) -> bool {
-        self.spi1 & 0x08 != 0
+        self.command_header & 0x08 != 0
     }
 
-    /// Whether a Proof of Receipt (PoR) is required (SPI2 bit 0).
+    /// Whether a Proof of Receipt (PoR) is required (response_header bit 0).
     pub const fn por_required(&self) -> bool {
-        self.spi2 & 0x01 != 0
+        self.response_header & 0x01 != 0
     }
 
-    /// Whether the PoR shall be ciphered (SPI2 bit 2).
+    /// Whether the PoR shall be ciphered (response_header bit 2).
     pub const fn por_ciphered(&self) -> bool {
-        self.spi2 & 0x04 != 0
+        self.response_header & 0x04 != 0
     }
 }
 
 // ---------------------------------------------------------------------------
-// KIc / KID (Key Identifier)
+// Key Identifier (TS 102 225 clause 5.1.2)
 // ---------------------------------------------------------------------------
 
-/// Key Identifier byte (KIc or KID).
+/// Key identifier byte.
 ///
 /// [ETSI TS 102 225 V19.0.0 clause 5.1.2](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A126%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C430%5D).
 /// Encodes both the cryptographic algorithm and the key index used for
-/// ciphering (KIc) or integrity (KID).
+/// ciphering or integrity protection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KeyId {
+pub struct KeyIdentifier {
     raw: u8,
 }
 
-impl KeyId {
-    /// Create a `KeyId` from a raw byte.
+/// ETSI abbreviation for [`KeyIdentifier`].
+#[deprecated(note = "ETSI KIc/KID (TS 102 225 cl. 5.1.2) -- prefer KeyIdentifier")]
+pub type KeyId = KeyIdentifier;
+
+impl KeyIdentifier {
+    /// Create a `KeyIdentifier` from a raw byte.
     pub const fn new(raw: u8) -> Self {
         Self { raw }
     }
@@ -255,10 +263,10 @@ impl KeyId {
 // Command Packet Header
 // ---------------------------------------------------------------------------
 
-/// Size of the full header: SPI(2) + KIc(1) + KID(1) + TAR(3) + CNTR(5) + PCNTR(1) = 13.
+/// Size of the full header: SecurityParameters(2) + CipheringKeyId(1) + IntegrityKeyId(1) + TargetApp(3) + CNTR(5) + PCNTR(1) = 13.
 const HEADER_SIZE: usize = 13;
 
-/// Size of the pre-TAR portion: SPI(2) + KIc(1) + KID(1) = 4.
+/// Size of the pre-target-app portion: SecurityParameters(2) + CipheringKeyId(1) + IntegrityKeyId(1) = 4.
 const PRE_TAR_SIZE: usize = 4;
 
 /// Command packet header.
@@ -268,14 +276,14 @@ const PRE_TAR_SIZE: usize = 4;
 /// reference (TAR), replay counter, and padding counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommandPacketHeader {
-    /// Security Parameter Indicator.
-    pub spi: Spi,
-    /// Key Identifier for ciphering (KIc).
-    pub kic: KeyId,
-    /// Key Identifier for integrity (KID).
-    pub kid: KeyId,
+    /// Security parameters controlling redundancy check, ciphering, and PoR.
+    pub security_parameters: SecurityParameters,
+    /// Key identifier for ciphering.
+    pub ciphering_key_id: KeyIdentifier,
+    /// Key identifier for integrity.
+    pub integrity_key_id: KeyIdentifier,
     /// Toolkit Application Reference (3 bytes).
-    pub tar: ToolkitAppReference,
+    pub target_app: ToolkitAppReference,
     /// Replay detection counter (5 bytes).
     pub counter: OtaCounter,
     /// Padding counter (number of padding bytes appended).
@@ -286,10 +294,10 @@ impl CommandPacketHeader {
     /// Create a default (empty) header.
     pub const fn new() -> Self {
         Self {
-            spi: Spi { spi1: 0, spi2: 0 },
-            kic: KeyId::new(0),
-            kid: KeyId::new(0),
-            tar: ToolkitAppReference::new([0; 3]),
+            security_parameters: SecurityParameters { command_header: 0, response_header: 0 },
+            ciphering_key_id: KeyIdentifier::new(0),
+            integrity_key_id: KeyIdentifier::new(0),
+            target_app: ToolkitAppReference::new([0; 3]),
             counter: OtaCounter::new([0; 5]),
             padding_counter: 0,
         }
@@ -519,13 +527,13 @@ const CC_SIZE: usize = 8;
 /// Per [ETSI TS 102 225 V19.0.0 clause 5.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A118%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
 /// The packet layout in `buf` is:
 /// ```text
-/// CPL(2) | CHL(1) | SPI(2) | KIc(1) | KID(1) | TAR(3) | CNTR(5) | PCNTR(1) | CC(8)? | data...
+/// CPL(2) | CHL(1) | SecurityParameters(2) | CipheringKeyId(1) | IntegrityKeyId(1) | TargetApp(3) | CNTR(5) | PCNTR(1) | CC(8)? | data...
 /// ```
 ///
-/// - `hdr`: Command packet header (SPI, keys, TAR, counter).
+/// - `hdr`: Command packet header (security parameters, key identifiers, target app, counter).
 /// - `data`: Remote APDU payload ([ETSI TS 102 226 V19.0.0](../../../docs/specs/etsi/ts-102-226/ts_102226v190000p.pdf) encoded).
-/// - `key_cipher`: AES-128 key for ciphering (if SPI indicates ciphering).
-/// - `key_mac`: AES-128 key for CC (if SPI indicates CC).
+/// - `key_cipher`: AES-128 key for ciphering (if security parameters indicate ciphering).
+/// - `key_mac`: AES-128 key for CC (if security parameters indicate CC).
 /// - `buf`: Output buffer, must be large enough to hold the complete packet.
 ///
 /// Returns the total number of bytes written to `buf`.
@@ -533,14 +541,14 @@ const CC_SIZE: usize = 8;
 /// # Example: Encode and decode a command packet without security
 ///
 /// ```
-/// use simrs_ota::{CommandPacketHeader, Spi, KeyId, ToolkitAppReference, OtaCounter,
+/// use simrs_ota::{CommandPacketHeader, SecurityParameters, KeyIdentifier, ToolkitAppReference, OtaCounter,
 ///                  encode_command_packet, decode_command_packet};
 ///
 /// let hdr = CommandPacketHeader {
-///     spi: Spi { spi1: 0x00, spi2: 0x00 },
-///     kic: KeyId::new(0x00),
-///     kid: KeyId::new(0x00),
-///     tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+///     security_parameters: SecurityParameters { command_header: 0x00, response_header: 0x00 },
+///     ciphering_key_id: KeyIdentifier::new(0x00),
+///     integrity_key_id: KeyIdentifier::new(0x00),
+///     target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
 ///     counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
 ///     padding_counter: 0,
 /// };
@@ -557,7 +565,7 @@ const CC_SIZE: usize = 8;
 ///     &buf[..len], None, None, &mut dec_hdr, &mut dec_data,
 /// ).unwrap();
 /// assert_eq!(&dec_data[..dlen], &payload);
-/// assert_eq!(*dec_hdr.tar.as_bytes(), [0xB0, 0x00, 0x10]);
+/// assert_eq!(*dec_hdr.target_app.as_bytes(), [0xB0, 0x00, 0x10]);
 /// ```
 pub fn encode_command_packet(
     hdr: &CommandPacketHeader,
@@ -566,12 +574,12 @@ pub fn encode_command_packet(
     key_mac: Option<&Secret<[u8; 16]>>,
     buf: &mut [u8],
 ) -> Result<usize, OtaError> {
-    let has_cc = matches!(hdr.spi.redundancy_check(), RedundancyCheck::Cc);
-    let has_cipher = hdr.spi.ciphering();
+    let has_cc = matches!(hdr.security_parameters.redundancy_check(), RedundancyCheck::CryptographicChecksum);
+    let has_cipher = hdr.security_parameters.ciphering();
 
     let rc_size = if has_cc { CC_SIZE } else { 0 };
 
-    // The secured data region (after TAR) that gets ciphered:
+    // The secured data region (after target app) that gets ciphered:
     // CNTR(5) + PCNTR(1) + CC? + data
     let secured_data_len = 5 + 1 + rc_size + data.len();
 
@@ -583,18 +591,18 @@ pub fn encode_command_packet(
         (secured_data_len, 0_usize)
     };
 
-    // CHL = header bytes from SPI through CC (inclusive):
-    // SPI(2) + KIc(1) + KID(1) + TAR(3) + CNTR(5) + PCNTR(1) + CC = 13 + rc_size
+    // CHL = header bytes from SecurityParameters through CC (inclusive):
+    // SecurityParameters(2) + CipheringKeyId(1) + IntegrityKeyId(1) + TargetApp(3) + CNTR(5) + PCNTR(1) + CC = 13 + rc_size
     #[allow(clippy::cast_possible_truncation)]
     let chl: u8 = (HEADER_SIZE + rc_size) as u8;
 
     // Packet layout:
     //   Offset 0-1:   CPL (2 bytes, big-endian)
     //   Offset 2:     CHL (1 byte)
-    //   Offset 3-4:   SPI (2 bytes)
-    //   Offset 5:     KIc
-    //   Offset 6:     KID
-    //   Offset 7-9:   TAR (3 bytes)
+    //   Offset 3-4:   SecurityParameters (2 bytes)
+    //   Offset 5:     CipheringKeyId
+    //   Offset 6:     IntegrityKeyId
+    //   Offset 7-9:   TargetApp (3 bytes)
     //   Offset 10-14: CNTR (5 bytes)
     //   Offset 15:    PCNTR
     //   Offset 16..:  CC (8 bytes if present)
@@ -616,13 +624,13 @@ pub fn encode_command_packet(
     buf[2] = chl;
 
     // Header fields
-    buf[3] = hdr.spi.spi1;
-    buf[4] = hdr.spi.spi2;
-    buf[5] = hdr.kic.raw();
-    buf[6] = hdr.kid.raw();
-    buf[7] = hdr.tar.as_bytes()[0];
-    buf[8] = hdr.tar.as_bytes()[1];
-    buf[9] = hdr.tar.as_bytes()[2];
+    buf[3] = hdr.security_parameters.command_header;
+    buf[4] = hdr.security_parameters.response_header;
+    buf[5] = hdr.ciphering_key_id.raw();
+    buf[6] = hdr.integrity_key_id.raw();
+    buf[7] = hdr.target_app.as_bytes()[0];
+    buf[8] = hdr.target_app.as_bytes()[1];
+    buf[9] = hdr.target_app.as_bytes()[2];
     buf[10] = hdr.counter.as_bytes()[0];
     buf[11] = hdr.counter.as_bytes()[1];
     buf[12] = hdr.counter.as_bytes()[2];
@@ -650,7 +658,7 @@ pub fn encode_command_packet(
             for b in &mut buf[cc_offset..cc_offset + CC_SIZE] {
                 *b = 0x00;
             }
-            // MAC input: header fields from SPI through end of data+padding
+            // MAC input: header fields from SecurityParameters through end of data+padding
             let mac_region = &buf[3..total];
             let mut mac_buf = [0u8; 1024];
             let padded_len = apply_padding(mac_region, &mut mac_buf)?;
@@ -685,8 +693,8 @@ pub fn encode_command_packet(
 /// Encoding order is MAC-then-encrypt, so decoding is decrypt-then-verify-MAC.
 ///
 /// - `packet`: The complete received packet bytes.
-/// - `key_cipher`: AES-128 key for deciphering (required if SPI indicates ciphering).
-/// - `key_mac`: AES-128 key for CC verification (required if SPI indicates CC).
+/// - `key_cipher`: AES-128 key for deciphering (required if security parameters indicate ciphering).
+/// - `key_mac`: AES-128 key for CC verification (required if security parameters indicate CC).
 /// - `hdr_out`: Decoded header is written here.
 /// - `data_out`: Decoded command data is written here.
 ///
@@ -698,7 +706,7 @@ pub fn decode_command_packet(
     hdr_out: &mut CommandPacketHeader,
     data_out: &mut [u8],
 ) -> Result<usize, OtaError> {
-    // Minimum: CPL(2) + CHL(1) + SPI(2) + KIc(1) + KID(1) + TAR(3) + CNTR(5) + PCNTR(1) = 16
+    // Minimum: CPL(2) + CHL(1) + SecurityParameters(2) + CipheringKeyId(1) + IntegrityKeyId(1) + TargetApp(3) + CNTR(5) + PCNTR(1) = 16
     if packet.len() < 16 {
         return Err(OtaError::InvalidLength);
     }
@@ -711,14 +719,14 @@ pub fn decode_command_packet(
     // CHL at packet[2] is not needed for decoding (we use fixed offsets)
     let total = cpl + 2;
 
-    // Decode SPI, KIc, KID, TAR
-    hdr_out.spi = Spi { spi1: packet[3], spi2: packet[4] };
-    hdr_out.kic = KeyId::new(packet[5]);
-    hdr_out.kid = KeyId::new(packet[6]);
-    hdr_out.tar = ToolkitAppReference::new([packet[7], packet[8], packet[9]]);
+    // Decode SecurityParameters, CipheringKeyId, IntegrityKeyId, TargetApp
+    hdr_out.security_parameters = SecurityParameters { command_header: packet[3], response_header: packet[4] };
+    hdr_out.ciphering_key_id = KeyIdentifier::new(packet[5]);
+    hdr_out.integrity_key_id = KeyIdentifier::new(packet[6]);
+    hdr_out.target_app = ToolkitAppReference::new([packet[7], packet[8], packet[9]]);
 
-    let has_cc = matches!(hdr_out.spi.redundancy_check(), RedundancyCheck::Cc);
-    let has_cipher = hdr_out.spi.ciphering();
+    let has_cc = matches!(hdr_out.security_parameters.redundancy_check(), RedundancyCheck::CryptographicChecksum);
+    let has_cipher = hdr_out.security_parameters.ciphering();
     let rc_size = if has_cc { CC_SIZE } else { 0 };
 
     // The secured region (CNTR through end of packet) starts at offset 10.
@@ -752,7 +760,7 @@ pub fn decode_command_packet(
     let data_offset = cc_offset + rc_size;
 
     // Verify MAC if CC mode.
-    // MAC input = SPI(2) + KIc(1) + KID(1) + TAR(3) + CNTR(5) + PCNTR(1) + CC_zeros(8) + data + padding
+    // MAC input = SecurityParameters(2) + CipheringKeyId(1) + IntegrityKeyId(1) + TargetApp(3) + CNTR(5) + PCNTR(1) + CC_zeros(8) + data + padding
     // = packet[3..10] (always clear) concatenated with work[..secured_len] (CC zeroed).
     if has_cc {
         if let Some(km) = key_mac {
@@ -816,7 +824,7 @@ pub fn decode_command_packet(
 /// - `counter`: Replay counter (echoed or incremented).
 /// - `status_code`: Response status code per [ETSI TS 102 225 V19.0.0 clause 5.2.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A143%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
 /// - `data`: Response data.
-/// - `spi`: SPI from the original command (determines security applied to response).
+/// - `security_params`: Security parameters from the original command (determines security applied to response).
 /// - `key_cipher`: AES-128 key for ciphering the response.
 /// - `key_mac`: AES-128 key for CC on the response.
 /// - `buf`: Output buffer.
@@ -824,15 +832,15 @@ pub fn decode_command_packet(
 /// Returns the total number of bytes written.
 ///
 /// ```
-/// use simrs_ota::{Spi, ToolkitAppReference, OtaCounter, encode_response_packet};
+/// use simrs_ota::{SecurityParameters, ToolkitAppReference, OtaCounter, encode_response_packet};
 ///
 /// let tar = ToolkitAppReference::new([0xB0, 0x00, 0x10]);
 /// let counter = OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]);
-/// let spi = Spi { spi1: 0x00, spi2: 0x00 }; // no security
+/// let sp = SecurityParameters { command_header: 0x00, response_header: 0x00 }; // no security
 ///
 /// let mut buf = [0u8; 256];
 /// let len = encode_response_packet(
-///     &tar, &counter, 0x00, &[], &spi, None, None, &mut buf,
+///     &tar, &counter, 0x00, &[], &sp, None, None, &mut buf,
 /// ).unwrap();
 ///
 /// // RPL(2) + RHL(1) + TAR(3) + CNTR(5) + PCNTR(1) + STATUS(1) = 13
@@ -846,13 +854,13 @@ pub fn encode_response_packet(
     counter: &OtaCounter,
     status_code: u8,
     data: &[u8],
-    spi: &Spi,
+    security_params: &SecurityParameters,
     key_cipher: Option<&Secret<[u8; 16]>>,
     key_mac: Option<&Secret<[u8; 16]>>,
     buf: &mut [u8],
 ) -> Result<usize, OtaError> {
-    let has_cc = matches!(spi.redundancy_check(), RedundancyCheck::Cc);
-    let has_cipher = spi.por_ciphered();
+    let has_cc = matches!(security_params.redundancy_check(), RedundancyCheck::CryptographicChecksum);
+    let has_cipher = security_params.por_ciphered();
     let rc_size = if has_cc { CC_SIZE } else { 0 };
 
     // Secured data region (from CNTR): CNTR(5) + PCNTR(1) + STATUS(1) + CC? + data
@@ -913,7 +921,7 @@ pub fn encode_response_packet(
             for b in &mut buf[cc_offset..cc_offset + CC_SIZE] {
                 *b = 0x00;
             }
-            // MAC over: TAR + CNTR + PCNTR + STATUS + CC(zeros) + data + padding
+            // MAC over: TargetApp + CNTR + PCNTR + STATUS + CC(zeros) + data + padding
             let mac_region = &buf[3..total];
             let mut mac_buf = [0u8; 1024];
             let padded_len = apply_padding(mac_region, &mut mac_buf)?;
@@ -946,56 +954,56 @@ pub fn encode_response_packet(
 mod tests {
     use super::*;
 
-    // 1. SPI redundancy check = None
+    // 1. Security parameters redundancy check = None
     #[test]
-    fn spi_redundancy_check_none() {
-        let spi = Spi { spi1: 0x00, spi2: 0x00 };
-        assert_eq!(spi.redundancy_check(), RedundancyCheck::None);
+    fn security_parameters_redundancy_check_none() {
+        let sp = SecurityParameters { command_header: 0x00, response_header: 0x00 };
+        assert_eq!(sp.redundancy_check(), RedundancyCheck::None);
     }
 
-    // 2. SPI redundancy check = CC
+    // 2. Security parameters redundancy check = CryptographicChecksum
     #[test]
-    fn spi_redundancy_check_cc() {
-        let spi = Spi { spi1: 0x02, spi2: 0x00 };
-        assert_eq!(spi.redundancy_check(), RedundancyCheck::Cc);
+    fn security_parameters_redundancy_check_cc() {
+        let sp = SecurityParameters { command_header: 0x02, response_header: 0x00 };
+        assert_eq!(sp.redundancy_check(), RedundancyCheck::CryptographicChecksum);
     }
 
-    // 3. SPI ciphering flag
+    // 3. Security parameters ciphering flag
     #[test]
-    fn spi_ciphering_enabled() {
-        let spi_on = Spi { spi1: 0x04, spi2: 0x00 };
-        assert!(spi_on.ciphering());
-        let spi_off = Spi { spi1: 0x00, spi2: 0x00 };
-        assert!(!spi_off.ciphering());
+    fn security_parameters_ciphering_enabled() {
+        let sp_on = SecurityParameters { command_header: 0x04, response_header: 0x00 };
+        assert!(sp_on.ciphering());
+        let sp_off = SecurityParameters { command_header: 0x00, response_header: 0x00 };
+        assert!(!sp_off.ciphering());
     }
 
-    // 4. SPI counter available flag
+    // 4. Security parameters counter available flag
     #[test]
-    fn spi_counter_available() {
-        let spi_on = Spi { spi1: 0x08, spi2: 0x00 };
-        assert!(spi_on.counter_available());
-        let spi_off = Spi { spi1: 0x00, spi2: 0x00 };
-        assert!(!spi_off.counter_available());
+    fn security_parameters_counter_available() {
+        let sp_on = SecurityParameters { command_header: 0x08, response_header: 0x00 };
+        assert!(sp_on.counter_available());
+        let sp_off = SecurityParameters { command_header: 0x00, response_header: 0x00 };
+        assert!(!sp_off.counter_available());
     }
 
-    // 5. KID/KIc AES algorithm
+    // 5. Key identifier AES algorithm
     #[test]
-    fn key_id_aes_algorithm() {
-        let kid = KeyId::new(0x12); // bits 2-0 = 0x02 = AES, key_index = 1
+    fn key_identifier_aes_algorithm() {
+        let kid = KeyIdentifier::new(0x12); // bits 2-0 = 0x02 = AES, key_index = 1
         assert_eq!(kid.algorithm(), CryptoAlgo::Aes);
     }
 
-    // 6. KID/KIc DES algorithm
+    // 6. Key identifier DES algorithm
     #[test]
-    fn key_id_des_algorithm() {
-        let kid = KeyId::new(0x01); // bits 2-0 = 0x01 = DES
+    fn key_identifier_des_algorithm() {
+        let kid = KeyIdentifier::new(0x01); // bits 2-0 = 0x01 = DES
         assert_eq!(kid.algorithm(), CryptoAlgo::Des);
     }
 
     // 7. Key index extraction
     #[test]
-    fn key_id_key_index_extraction() {
-        let kid = KeyId::new(0x32); // key_index = 3 (bits 7-4), algo = AES (bits 2-0 = 2)
+    fn key_identifier_key_index_extraction() {
+        let kid = KeyIdentifier::new(0x32); // key_index = 3 (bits 7-4), algo = AES (bits 2-0 = 2)
         assert_eq!(kid.key_index(), 3);
         assert_eq!(kid.algorithm(), CryptoAlgo::Aes);
     }
@@ -1025,10 +1033,10 @@ mod tests {
     #[test]
     fn encode_command_packet_no_security() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x00, spi2: 0x00 },
-            kic: KeyId::new(0x00),
-            kid: KeyId::new(0x00),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x00, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x00),
+            integrity_key_id: KeyIdentifier::new(0x00),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };
@@ -1041,7 +1049,7 @@ mod tests {
         let cpl = u16::from_be_bytes([buf[0], buf[1]]) as usize;
         assert_eq!(cpl + 2, len);
 
-        // TAR at offset 7-9
+        // TargetApp at offset 7-9
         assert_eq!(&buf[7..10], &[0xB0, 0x00, 0x10]);
 
         // Data at offset 16 (no CC), 7 bytes
@@ -1052,10 +1060,10 @@ mod tests {
     #[test]
     fn encode_command_packet_with_mac() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x02, spi2: 0x00 }, // CC mode
-            kic: KeyId::new(0x02),
-            kid: KeyId::new(0x02),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 }, // CC mode
+            ciphering_key_id: KeyIdentifier::new(0x02),
+            integrity_key_id: KeyIdentifier::new(0x02),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
             padding_counter: 0,
         };
@@ -1080,10 +1088,10 @@ mod tests {
     #[test]
     fn decode_command_packet_roundtrip() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x00, spi2: 0x00 },
-            kic: KeyId::new(0x00),
-            kid: KeyId::new(0x00),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x00, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x00),
+            integrity_key_id: KeyIdentifier::new(0x00),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x05]),
             padding_counter: 0,
         };
@@ -1098,7 +1106,7 @@ mod tests {
             &buf[..enc_len], None, None, &mut decoded_hdr, &mut decoded_data,
         ).unwrap();
 
-        assert_eq!(*decoded_hdr.tar.as_bytes(), *hdr.tar.as_bytes());
+        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
         assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1107,10 +1115,10 @@ mod tests {
     #[test]
     fn decode_command_packet_mac_verify() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x02, spi2: 0x00 },
-            kic: KeyId::new(0x02),
-            kid: KeyId::new(0x02),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x02),
+            integrity_key_id: KeyIdentifier::new(0x02),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
             padding_counter: 0,
         };
@@ -1133,10 +1141,10 @@ mod tests {
     #[test]
     fn decode_command_packet_bad_mac_fails() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x02, spi2: 0x00 },
-            kic: KeyId::new(0x02),
-            kid: KeyId::new(0x02),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x02),
+            integrity_key_id: KeyIdentifier::new(0x02),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };
@@ -1162,11 +1170,11 @@ mod tests {
     fn encode_response_packet_basic() {
         let tar = ToolkitAppReference::new([0xB0, 0x00, 0x10]);
         let counter = OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]);
-        let spi = Spi { spi1: 0x00, spi2: 0x00 };
+        let sp = SecurityParameters { command_header: 0x00, response_header: 0x00 };
 
         let mut buf = [0u8; 256];
         let len = encode_response_packet(
-            &tar, &counter, 0x00, &[], &spi, None, None, &mut buf,
+            &tar, &counter, 0x00, &[], &sp, None, None, &mut buf,
         ).unwrap();
 
         // RPL(2) + RHL(1) + TAR(3) + CNTR(5) + PCNTR(1) + STATUS(1) = 13
@@ -1227,10 +1235,10 @@ mod tests {
     #[test]
     fn command_packet_with_counter() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x08, spi2: 0x00 }, // counter available
-            kic: KeyId::new(0x00),
-            kid: KeyId::new(0x00),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x08, response_header: 0x00 }, // counter available
+            ciphering_key_id: KeyIdentifier::new(0x00),
+            integrity_key_id: KeyIdentifier::new(0x00),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00, 0x00, 0x00, 0x01, 0x23]),
             padding_counter: 0,
         };
@@ -1246,7 +1254,7 @@ mod tests {
         ).unwrap();
 
         assert_eq!(*decoded_hdr.counter.as_bytes(), [0x00, 0x00, 0x00, 0x01, 0x23]);
-        assert!(decoded_hdr.spi.counter_available());
+        assert!(decoded_hdr.security_parameters.counter_available());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
 
@@ -1254,10 +1262,10 @@ mod tests {
     #[test]
     fn buffer_too_small_error() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x00, spi2: 0x00 },
-            kic: KeyId::new(0x00),
-            kid: KeyId::new(0x00),
-            tar: ToolkitAppReference::new([0x00; 3]),
+            security_parameters: SecurityParameters { command_header: 0x00, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x00),
+            integrity_key_id: KeyIdentifier::new(0x00),
+            target_app: ToolkitAppReference::new([0x00; 3]),
             counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };
@@ -1296,10 +1304,10 @@ mod tests {
     #[test]
     fn decode_command_packet_cipher_roundtrip() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x04, spi2: 0x00 }, // cipher, no CC
-            kic: KeyId::new(0x02),
-            kid: KeyId::new(0x00),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x04, response_header: 0x00 }, // cipher, no CC
+            ciphering_key_id: KeyIdentifier::new(0x02),
+            integrity_key_id: KeyIdentifier::new(0x00),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
             padding_counter: 0,
         };
@@ -1317,7 +1325,7 @@ mod tests {
             &buf[..enc_len], Some(&key_cipher), None, &mut decoded_hdr, &mut decoded_data,
         ).unwrap();
 
-        assert_eq!(*decoded_hdr.tar.as_bytes(), *hdr.tar.as_bytes());
+        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
         assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1326,10 +1334,10 @@ mod tests {
     #[test]
     fn decode_command_packet_cipher_mac_roundtrip() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x06, spi2: 0x00 }, // cipher + CC
-            kic: KeyId::new(0x02),
-            kid: KeyId::new(0x02),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x06, response_header: 0x00 }, // cipher + CC
+            ciphering_key_id: KeyIdentifier::new(0x02),
+            integrity_key_id: KeyIdentifier::new(0x02),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
             padding_counter: 0,
         };
@@ -1351,7 +1359,7 @@ mod tests {
             &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
         ).unwrap();
 
-        assert_eq!(*decoded_hdr.tar.as_bytes(), *hdr.tar.as_bytes());
+        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
         assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1360,10 +1368,10 @@ mod tests {
     #[test]
     fn decode_command_packet_cipher_mac_tampered() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x06, spi2: 0x00 },
-            kic: KeyId::new(0x02),
-            kid: KeyId::new(0x02),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x06, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x02),
+            integrity_key_id: KeyIdentifier::new(0x02),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };
@@ -1391,10 +1399,10 @@ mod tests {
     #[test]
     fn decode_command_packet_cipher_no_key() {
         let hdr = CommandPacketHeader {
-            spi: Spi { spi1: 0x04, spi2: 0x00 },
-            kic: KeyId::new(0x02),
-            kid: KeyId::new(0x00),
-            tar: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            security_parameters: SecurityParameters { command_header: 0x04, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x02),
+            integrity_key_id: KeyIdentifier::new(0x00),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00; 5]),
             padding_counter: 0,
         };

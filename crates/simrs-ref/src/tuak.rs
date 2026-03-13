@@ -108,9 +108,9 @@ mod tests {
             let mut k16 = [0u8; 16];
             k16.copy_from_slice(&v.k[..16]);
             let top_variant = if v.use_topc {
-                OperatorVariant::topc(v.top)
+                OperatorVariant::operator_cipher(v.top)
             } else {
-                OperatorVariant::top(v.top)
+                OperatorVariant::operator_parameter(v.top)
             };
             let p = TuakParams::new(SubscriberKey::classify(k16), top_variant);
             let rand = AuthChallenge::new(v.rand);
@@ -137,9 +137,9 @@ mod tests {
             let mut k16 = [0u8; 16];
             k16.copy_from_slice(&v.k[..16]);
             let top_variant = if v.use_topc {
-                OperatorVariant::topc(v.top)
+                OperatorVariant::operator_cipher(v.top)
             } else {
-                OperatorVariant::top(v.top)
+                OperatorVariant::operator_parameter(v.top)
             };
             let p = TuakParams::new(SubscriberKey::classify(k16), top_variant);
             let rand = AuthChallenge::new(v.rand);

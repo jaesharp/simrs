@@ -5,10 +5,12 @@
 //!   per [RFC 2104](../../../docs/specs/ietf/rfc2104.txt) / NIST FIPS 198-1
 //! - [`kdf`] generic 3GPP KDF per
 //!   [TS 33.220](../../../docs/specs/3gpp/ts-33.220/ts_133220v150200p.pdf) Annex B
-//! - 4G EPS-AKA derivations ([`derive_kasme`], [`derive_kenb`], [`derive_algorithm_key`])
-//!   per [TS 33.401](../../../docs/specs/3gpp/ts-33.401/ts_133401v180300p.pdf) Annex A
-//! - 5G NR derivations ([`derive_kausf`], [`derive_res_star`], [`derive_kseaf`],
-//!   [`derive_kamf`], [`derive_kgnb`]) per
+//! - 4G EPS-AKA derivations ([`derive_eps_anchor_key`], [`derive_eps_base_station_key`],
+//!   [`derive_algorithm_key`]) per
+//!   [TS 33.401](../../../docs/specs/3gpp/ts-33.401/ts_133401v180300p.pdf) Annex A
+//! - 5G NR derivations ([`derive_auth_server_key`], [`derive_hash_response`],
+//!   [`derive_security_anchor_key`], [`derive_mobility_management_key`],
+//!   [`derive_nr_base_station_key`]) per
 //!   [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A
 //!
 //! # `no_std`
@@ -186,14 +188,14 @@ pub fn kdf<K: AsRef<[u8]>>(key: &Secret<K>, fc: u8, params: &[&[u8]]) -> [u8; 32
 // 4G EPS-AKA key derivations (TS 33.401 Annex A)
 // ---------------------------------------------------------------------------
 
-/// Derive `K_ASME` from CK, IK, PLMN-ID, and SQN XOR AK.
+/// Derive the EPS anchor key from CK, IK, PLMN-ID, and SQN XOR AK.
 ///
 /// Per [TS 33.401](../../../docs/specs/3gpp/ts-33.401/ts_133401v180300p.pdf) Annex A.2:
 /// - FC = 0x10
 /// - P0 = PLMN-ID (3 bytes, MCC/MNC encoded per TS 24.008)
 /// - P1 = SQN XOR AK (6 bytes)
 /// - Key = CK || IK (32 bytes)
-pub fn derive_kasme(
+pub fn derive_eps_anchor_key(
     ck: &CipherKey,
     ik: &IntegrityKey,
     network_id: &NetworkId,
@@ -205,14 +207,31 @@ pub fn derive_kasme(
     EpsAnchorKey::classify(kdf(&Secret::new(key), 0x10, &[network_id.as_bytes(), concealed_sqn.as_bytes()]))
 }
 
-/// Derive `K_eNB` from `K_ASME` and uplink NAS count.
+/// 3GPP abbreviation for [`derive_eps_anchor_key`].
+#[deprecated(note = "3GPP K_ASME (TS 33.401 A.2) -- prefer derive_eps_anchor_key()")]
+pub fn derive_kasme(
+    ck: &CipherKey,
+    ik: &IntegrityKey,
+    network_id: &NetworkId,
+    concealed_sqn: &ConcealedSequenceNumber,
+) -> EpsAnchorKey {
+    derive_eps_anchor_key(ck, ik, network_id, concealed_sqn)
+}
+
+/// Derive the EPS base station key from the EPS anchor key and uplink NAS count.
 ///
 /// Per [TS 33.401](../../../docs/specs/3gpp/ts-33.401/ts_133401v180300p.pdf) Annex A.3:
 /// - FC = 0x11
 /// - P0 = uplink NAS count (4 bytes, big-endian)
-pub fn derive_kenb(kasme: &EpsAnchorKey, ul_nas_count: u32) -> EpsBaseStationKey {
+pub fn derive_eps_base_station_key(kasme: &EpsAnchorKey, ul_nas_count: u32) -> EpsBaseStationKey {
     let count_be = ul_nas_count.to_be_bytes();
     EpsBaseStationKey::classify(kdf(&Secret::new(*kasme.declassify()), 0x11, &[&count_be]))
+}
+
+/// 3GPP abbreviation for [`derive_eps_base_station_key`].
+#[deprecated(note = "3GPP K_eNB (TS 33.401 A.3) -- prefer derive_eps_base_station_key()")]
+pub fn derive_kenb(kasme: &EpsAnchorKey, ul_nas_count: u32) -> EpsBaseStationKey {
+    derive_eps_base_station_key(kasme, ul_nas_count)
 }
 
 /// Derive algorithm-specific key from a parent key.
@@ -241,7 +260,8 @@ pub fn derive_algorithm_key(
 // 5G NR key derivations (TS 33.501 Annex A)
 // ---------------------------------------------------------------------------
 
-/// Derive `K_AUSF` from CK', IK', serving network name, and SQN XOR AK.
+/// Derive the authentication server key from CK', IK', serving network name,
+/// and SQN XOR AK.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.2:
 /// - FC = 0x6A
@@ -251,19 +271,30 @@ pub fn derive_algorithm_key(
 ///
 /// Note: the caller provides CK'/IK' (not raw CK/IK). For 5G-AKA, CK' and IK'
 /// are derived from CK, IK per TS 33.501 C.2 using the serving network name.
+pub fn derive_auth_server_key(
+    ck: &CipherKey,
+    ik: &IntegrityKey,
+    serving_network_name: &[u8],
+    concealed_sqn: &ConcealedSequenceNumber,
+) -> AuthServerKey {
+    let mut key = [0u8; 32];
+    key[..16].copy_from_slice(ck.declassify());
+    key[16..].copy_from_slice(ik.declassify());
+    AuthServerKey::classify(kdf(&Secret::new(key), 0x6A, &[serving_network_name, concealed_sqn.as_bytes()]))
+}
+
+/// 3GPP abbreviation for [`derive_auth_server_key`].
+#[deprecated(note = "3GPP K_AUSF (TS 33.501 A.2) -- prefer derive_auth_server_key()")]
 pub fn derive_kausf(
     ck: &CipherKey,
     ik: &IntegrityKey,
     snn: &[u8],
     concealed_sqn: &ConcealedSequenceNumber,
 ) -> AuthServerKey {
-    let mut key = [0u8; 32];
-    key[..16].copy_from_slice(ck.declassify());
-    key[16..].copy_from_slice(ik.declassify());
-    AuthServerKey::classify(kdf(&Secret::new(key), 0x6A, &[snn, concealed_sqn.as_bytes()]))
+    derive_auth_server_key(ck, ik, snn, concealed_sqn)
 }
 
-/// Derive RES* from CK', IK', serving network name, RAND, and RES.
+/// Derive the hash response from CK', IK', serving network name, RAND, and RES.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.4:
 /// - FC = 0x6B
@@ -273,6 +304,25 @@ pub fn derive_kausf(
 /// - Key = CK' || IK' (32 bytes)
 ///
 /// Returns the 128 least-significant bits (bytes 16..32 of the HMAC output).
+pub fn derive_hash_response(
+    ck: &CipherKey,
+    ik: &IntegrityKey,
+    serving_network_name: &[u8],
+    rand: &AuthChallenge,
+    res: &[u8],
+) -> HashResponse {
+    let mut key = [0u8; 32];
+    key[..16].copy_from_slice(ck.declassify());
+    key[16..].copy_from_slice(ik.declassify());
+    let full = kdf(&Secret::new(key), 0x6B, &[serving_network_name, rand.as_bytes(), res]);
+    // 128 LSBs = bytes 16..32
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&full[16..32]);
+    HashResponse::new(out)
+}
+
+/// 3GPP abbreviation for [`derive_hash_response`].
+#[deprecated(note = "3GPP RES* (TS 33.501 A.4) -- prefer derive_hash_response()")]
 pub fn derive_res_star(
     ck: &CipherKey,
     ik: &IntegrityKey,
@@ -280,44 +330,58 @@ pub fn derive_res_star(
     rand: &AuthChallenge,
     res: &[u8],
 ) -> HashResponse {
-    let mut key = [0u8; 32];
-    key[..16].copy_from_slice(ck.declassify());
-    key[16..].copy_from_slice(ik.declassify());
-    let full = kdf(&Secret::new(key), 0x6B, &[snn, rand.as_bytes(), res]);
-    // 128 LSBs = bytes 16..32
-    let mut out = [0u8; 16];
-    out.copy_from_slice(&full[16..32]);
-    HashResponse::new(out)
+    derive_hash_response(ck, ik, snn, rand, res)
 }
 
-/// Derive `K_SEAF` from `K_AUSF` and serving network name.
+/// Derive the security anchor key from the authentication server key and
+/// serving network name.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.6:
 /// - FC = 0x6C
 /// - P0 = serving network name
-pub fn derive_kseaf(kausf: &AuthServerKey, snn: &[u8]) -> SecurityAnchorKey {
-    SecurityAnchorKey::classify(kdf(&Secret::new(*kausf.declassify()), 0x6C, &[snn]))
+pub fn derive_security_anchor_key(kausf: &AuthServerKey, serving_network_name: &[u8]) -> SecurityAnchorKey {
+    SecurityAnchorKey::classify(kdf(&Secret::new(*kausf.declassify()), 0x6C, &[serving_network_name]))
 }
 
-/// Derive `K_AMF` from `K_SEAF`, SUPI, and ABBA parameter.
+/// 3GPP abbreviation for [`derive_security_anchor_key`].
+#[deprecated(note = "3GPP K_SEAF (TS 33.501 A.6) -- prefer derive_security_anchor_key()")]
+pub fn derive_kseaf(kausf: &AuthServerKey, snn: &[u8]) -> SecurityAnchorKey {
+    derive_security_anchor_key(kausf, snn)
+}
+
+/// Derive the mobility management key from the security anchor key, SUPI,
+/// and ABBA parameter.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.7:
 /// - FC = 0x6D
 /// - P0 = SUPI (IMSI as ASCII digits)
 /// - P1 = ABBA parameter (2 bytes for primary authentication)
-pub fn derive_kamf(kseaf: &SecurityAnchorKey, supi: &[u8], abba: &[u8]) -> MobilityManagementKey {
+pub fn derive_mobility_management_key(kseaf: &SecurityAnchorKey, supi: &[u8], abba: &[u8]) -> MobilityManagementKey {
     MobilityManagementKey::classify(kdf(&Secret::new(*kseaf.declassify()), 0x6D, &[supi, abba]))
 }
 
-/// Derive `K_gNB` from `K_AMF`, uplink NAS count, and access type.
+/// 3GPP abbreviation for [`derive_mobility_management_key`].
+#[deprecated(note = "3GPP K_AMF (TS 33.501 A.7) -- prefer derive_mobility_management_key()")]
+pub fn derive_kamf(kseaf: &SecurityAnchorKey, supi: &[u8], abba: &[u8]) -> MobilityManagementKey {
+    derive_mobility_management_key(kseaf, supi, abba)
+}
+
+/// Derive the NR base station key from the mobility management key, uplink
+/// NAS count, and access type.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.9:
 /// - FC = 0x6E
 /// - P0 = uplink NAS count (4 bytes, big-endian)
 /// - P1 = access type distinguisher (1 byte: 0x01 = 3GPP, 0x02 = non-3GPP)
-pub fn derive_kgnb(kamf: &MobilityManagementKey, ul_nas_count: u32, access_type: u8) -> NrBaseStationKey {
+pub fn derive_nr_base_station_key(kamf: &MobilityManagementKey, ul_nas_count: u32, access_type: u8) -> NrBaseStationKey {
     let count_be = ul_nas_count.to_be_bytes();
     NrBaseStationKey::classify(kdf(&Secret::new(*kamf.declassify()), 0x6E, &[&count_be, &[access_type]]))
+}
+
+/// 3GPP abbreviation for [`derive_nr_base_station_key`].
+#[deprecated(note = "3GPP K_gNB (TS 33.501 A.9) -- prefer derive_nr_base_station_key()")]
+pub fn derive_kgnb(kamf: &MobilityManagementKey, ul_nas_count: u32, access_type: u8) -> NrBaseStationKey {
+    derive_nr_base_station_key(kamf, ul_nas_count, access_type)
 }
 
 // ---------------------------------------------------------------------------
@@ -898,35 +962,35 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn derive_kasme_not_zero() {
+    fn derive_eps_anchor_key_not_zero() {
         let ck = CipherKey::classify([0x11u8; 16]);
         let ik = IntegrityKey::classify([0x22u8; 16]);
         let plmn = NetworkId::new([0x00, 0xF1, 0x10]); // MCC=001, MNC=01
         let sqn_ak = ConcealedSequenceNumber::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
-        let kasme = derive_kasme(&ck, &ik, &plmn, &sqn_ak);
+        let kasme = derive_eps_anchor_key(&ck, &ik, &plmn, &sqn_ak);
         assert_ne!(*kasme.declassify(), [0u8; 32]);
     }
 
     #[test]
-    fn derive_kasme_different_plmn() {
+    fn derive_eps_anchor_key_different_plmn() {
         let ck = CipherKey::classify([0x11u8; 16]);
         let ik = IntegrityKey::classify([0x22u8; 16]);
         let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
 
-        let k1 = derive_kasme(&ck, &ik, &NetworkId::new([0x00, 0xF1, 0x10]), &sqn_ak);
-        let k2 = derive_kasme(&ck, &ik, &NetworkId::new([0x00, 0xF1, 0x20]), &sqn_ak);
+        let k1 = derive_eps_anchor_key(&ck, &ik, &NetworkId::new([0x00, 0xF1, 0x10]), &sqn_ak);
+        let k2 = derive_eps_anchor_key(&ck, &ik, &NetworkId::new([0x00, 0xF1, 0x20]), &sqn_ak);
         assert_ne!(*k1.declassify(), *k2.declassify());
     }
 
     #[test]
-    fn derive_kasme_verifies_kdf_construction() {
-        // KASME = KDF(CK||IK, FC=0x10, P0=PLMN, P1=SQN^AK)
+    fn derive_eps_anchor_key_verifies_kdf_construction() {
+        // EPS anchor key = KDF(CK||IK, FC=0x10, P0=PLMN, P1=SQN^AK)
         let ck = CipherKey::classify([0x33u8; 16]);
         let ik = IntegrityKey::classify([0x44u8; 16]);
         let plmn = NetworkId::new([0x00, 0xF1, 0x10]);
         let sqn_ak = ConcealedSequenceNumber::new([0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
 
-        let kasme = derive_kasme(&ck, &ik, &plmn, &sqn_ak);
+        let kasme = derive_eps_anchor_key(&ck, &ik, &plmn, &sqn_ak);
 
         // Manually compute with kdf()
         let mut key = [0u8; 32];
@@ -938,10 +1002,10 @@ mod tests {
     }
 
     #[test]
-    fn derive_kenb_different_counts() {
+    fn derive_eps_base_station_key_different_counts() {
         let kasme = EpsAnchorKey::classify([0x55u8; 32]);
-        let k1 = derive_kenb(&kasme, 0);
-        let k2 = derive_kenb(&kasme, 1);
+        let k1 = derive_eps_base_station_key(&kasme, 0);
+        let k2 = derive_eps_base_station_key(&kasme, 1);
         assert_ne!(*k1.declassify(), *k2.declassify());
     }
 
@@ -955,35 +1019,35 @@ mod tests {
     }
 
     #[test]
-    fn derive_kausf_not_zero() {
+    fn derive_auth_server_key_not_zero() {
         let ck = CipherKey::classify([0x11u8; 16]);
         let ik = IntegrityKey::classify([0x22u8; 16]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
         let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
-        let kausf = derive_kausf(&ck, &ik, snn, &sqn_ak);
+        let kausf = derive_auth_server_key(&ck, &ik, snn, &sqn_ak);
         assert_ne!(*kausf.declassify(), [0u8; 32]);
     }
 
     #[test]
-    fn derive_kausf_different_snn() {
+    fn derive_auth_server_key_different_snn() {
         let ck = CipherKey::classify([0x11u8; 16]);
         let ik = IntegrityKey::classify([0x22u8; 16]);
         let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
 
-        let k1 = derive_kausf(&ck, &ik, b"5G:mnc001.mcc001.3gppnetwork.org", &sqn_ak);
-        let k2 = derive_kausf(&ck, &ik, b"5G:mnc002.mcc001.3gppnetwork.org", &sqn_ak);
+        let k1 = derive_auth_server_key(&ck, &ik, b"5G:mnc001.mcc001.3gppnetwork.org", &sqn_ak);
+        let k2 = derive_auth_server_key(&ck, &ik, b"5G:mnc002.mcc001.3gppnetwork.org", &sqn_ak);
         assert_ne!(*k1.declassify(), *k2.declassify());
     }
 
     #[test]
-    fn derive_res_star_returns_128_lsb() {
+    fn derive_hash_response_returns_128_lsb() {
         let ck = CipherKey::classify([0x11u8; 16]);
         let ik = IntegrityKey::classify([0x22u8; 16]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
         let rand = AuthChallenge::new([0x33u8; 16]);
         let res = [0x44u8; 8];
 
-        let res_star = derive_res_star(&ck, &ik, snn, &rand, &res);
+        let res_star = derive_hash_response(&ck, &ik, snn, &rand, &res);
 
         // Verify it's the 128 LSBs of the full HMAC
         let mut key = [0u8; 32];
@@ -1004,10 +1068,10 @@ mod tests {
         let supi = b"001010000000001"; // IMSI digits
         let abba = [0x00, 0x00];
 
-        let kausf = derive_kausf(&ck, &ik, snn, &sqn_ak);
-        let kseaf = derive_kseaf(&kausf, snn);
-        let kamf = derive_kamf(&kseaf, supi, &abba);
-        let kgnb = derive_kgnb(&kamf, 0, 0x01); // 3GPP access
+        let kausf = derive_auth_server_key(&ck, &ik, snn, &sqn_ak);
+        let kseaf = derive_security_anchor_key(&kausf, snn);
+        let kamf = derive_mobility_management_key(&kseaf, supi, &abba);
+        let kgnb = derive_nr_base_station_key(&kamf, 0, 0x01); // 3GPP access
 
         // All keys must be distinct
         assert_ne!(*kausf.declassify(), *kseaf.declassify());
@@ -1025,28 +1089,28 @@ mod tests {
     }
 
     #[test]
-    fn derive_kgnb_access_type_matters() {
+    fn derive_nr_base_station_key_access_type_matters() {
         let kamf = MobilityManagementKey::classify([0xCC; 32]);
-        let k_3gpp = derive_kgnb(&kamf, 0, 0x01);
-        let k_non3gpp = derive_kgnb(&kamf, 0, 0x02);
+        let k_3gpp = derive_nr_base_station_key(&kamf, 0, 0x01);
+        let k_non3gpp = derive_nr_base_station_key(&kamf, 0, 0x02);
         assert_ne!(*k_3gpp.declassify(), *k_non3gpp.declassify());
     }
 
     #[test]
-    fn derive_kseaf_verifies_kdf_construction() {
+    fn derive_security_anchor_key_verifies_kdf_construction() {
         let kausf = AuthServerKey::classify([0xDD; 32]);
         let snn = b"5G:mnc001.mcc001.3gppnetwork.org";
-        let kseaf = derive_kseaf(&kausf, snn);
+        let kseaf = derive_security_anchor_key(&kausf, snn);
         let expected = kdf(&Secret::new([0xDD; 32]), 0x6C, &[snn]);
         assert_eq!(*kseaf.declassify(), expected);
     }
 
     #[test]
-    fn derive_kamf_verifies_kdf_construction() {
+    fn derive_mobility_management_key_verifies_kdf_construction() {
         let kseaf = SecurityAnchorKey::classify([0xEE; 32]);
         let supi = b"001010000000001";
         let abba = [0x00, 0x00];
-        let kamf = derive_kamf(&kseaf, supi, &abba);
+        let kamf = derive_mobility_management_key(&kseaf, supi, &abba);
         let expected = kdf(&Secret::new([0xEE; 32]), 0x6D, &[supi, &abba]);
         assert_eq!(*kamf.declassify(), expected);
     }
@@ -1184,8 +1248,8 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn kasme_vs_kausf_different_fc() {
-        // 4G KASME (FC=0x10) and 5G KAUSF (FC=0x6A) with same CK/IK must differ.
+    fn eps_anchor_key_vs_auth_server_key_different_fc() {
+        // 4G EPS anchor key (FC=0x10) and 5G auth server key (FC=0x6A) with same CK/IK must differ.
         let ck = [0x11u8; 16];
         let ik = [0x22u8; 16];
         let sqn_ak = [0x00; 6];
@@ -1295,12 +1359,12 @@ mod proptests {
             sqn_ak in any::<[u8; 6]>(),
         ) {
             let snn = [snn_byte; 8]; // 8-byte SNN placeholder
-            let kausf = derive_kausf(&CipherKey::classify(ck), &IntegrityKey::classify(ik), &snn, &ConcealedSequenceNumber::new(sqn_ak));
-            let kseaf = derive_kseaf(&kausf, &snn);
+            let kausf = derive_auth_server_key(&CipherKey::classify(ck), &IntegrityKey::classify(ik), &snn, &ConcealedSequenceNumber::new(sqn_ak));
+            let kseaf = derive_security_anchor_key(&kausf, &snn);
             let supi = [0x01, 0x02, 0x03, 0x04, 0x05]; // 5-byte SUPI placeholder
             let abba = [0x00, 0x00];
-            let kamf = derive_kamf(&kseaf, &supi, &abba);
-            let kgnb = derive_kgnb(&kamf, 0, 0x01);
+            let kamf = derive_mobility_management_key(&kseaf, &supi, &abba);
+            let kgnb = derive_nr_base_station_key(&kamf, 0, 0x01);
 
             // All four keys must be distinct.
             prop_assert_ne!(*kausf.declassify(), *kseaf.declassify(), "KAUSF != KSEAF");

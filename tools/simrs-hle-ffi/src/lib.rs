@@ -15,7 +15,7 @@
 
 use std::cell::Cell;
 
-use simrs_gsm::Ki;
+use simrs_gsm::SubscriberKey as GsmSubscriberKey;
 use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
 
 /// ATR matching a common reference card.
@@ -68,7 +68,7 @@ pub unsafe extern "C" fn simrs_init(
     simrs_hle::hle_init_with_adf(
         &ATR,
         &REFERENCE_MF,
-        Ki::new(ki_arr),
+        GsmSubscriberKey::classify(ki_arr),
         k_arr,
         opc_arr,
         &ADF_TABLE,
@@ -85,7 +85,7 @@ pub extern "C" fn simrs_init_default() {
     simrs_hle::hle_init_with_adf(
         &ATR,
         &REFERENCE_MF,
-        Ki::new([0u8; 16]),
+        GsmSubscriberKey::classify([0u8; 16]),
         [0u8; 16],
         [0u8; 16],
         &ADF_TABLE,

@@ -17,7 +17,7 @@
 use cucumber::{given, then, when};
 use simrs_comp128::comp128;
 use simrs_fs::{DfDef, EfDef, Fid, FileRef};
-use simrs_gsm::Ki;
+use simrs_gsm::SubscriberKey as GsmSubscriberKey;
 use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
 use simrs_secret::Secret;
@@ -110,7 +110,7 @@ const FEATURE_KI: [u8; 16] = [
 /// - PUK1 = "12345678", 10 retries
 /// - Both GSM and USIM apps (USIM required by Sim<MilenageParams, 256>)
 fn create_gsm_test_sim() -> Sim<MilenageParams, 256> {
-    let ki = Ki::classify(FEATURE_KI);
+    let ki = GsmSubscriberKey::classify(FEATURE_KI);
     let mut gsm = simrs_gsm::GsmApp::new(&GSM_TEST_MF, ki);
 
     // Configure PIN1 on the GSM app.
@@ -130,7 +130,7 @@ fn create_gsm_test_sim() -> Sim<MilenageParams, 256> {
     // USIM app is required by the Sim type but won't be used for CLA=0xA0.
     let mil = MilenageParams::with_defaults(
         SubscriberKey::classify(TEST_K),
-        OperatorVariant::opc(TEST_OPC),
+        OperatorVariant::operator_cipher(TEST_OPC),
     );
     let mut usim = simrs_usim::UsimApp::new(&GSM_TEST_MF, &[], mil);
     let pin_val2 = PinValue::new(CORRECT_PIN);
@@ -635,15 +635,15 @@ fn then_values_match_comp128(world: &mut SpecWorld) {
 
     assert_eq!(
         sres,
-        &result.sres[..],
+        result.signed_response.as_bytes().as_slice(),
         "SRES mismatch: expected {:02X?}, got {:02X?}",
-        result.sres, sres,
+        result.signed_response, sres,
     );
     assert_eq!(
         kc,
-        result.kc.declassify_ref().as_slice(),
+        result.cipher_key.declassify_ref().as_slice(),
         "Kc mismatch: expected {:02X?}, got {:02X?}",
-        result.kc.declassify_ref(), kc,
+        result.cipher_key.declassify_ref(), kc,
     );
 }
 

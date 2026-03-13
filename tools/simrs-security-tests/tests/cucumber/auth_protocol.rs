@@ -329,7 +329,7 @@ fn when_compute_comp128(world: &mut SimWorld, hex: String) {
     rand.copy_from_slice(&rand_bytes);
     let result = simrs_comp128::comp128(TEST_KI.as_secret(), &rand);
     // Store Kc in response for Then assertions.
-    world.record_response((0x90, 0x00), result.kc.declassify_ref().to_vec());
+    world.record_response((0x90, 0x00), result.cipher_key.declassify_ref().to_vec());
 }
 
 #[then(regex = r"^the Kc byte (\d+) is (0x[0-9A-Fa-f]+)$")]

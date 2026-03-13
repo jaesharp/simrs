@@ -29,8 +29,8 @@ pub struct SimTerminal {
 impl SimTerminal {
     /// Create a new SimTerminal with the given auth config and filesystem.
     pub fn new(config: &AuthConfig, atr: &'static [u8], mf: &'static DfDef) -> Self {
-        let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::Ki::reclassify(config.ki));
-        let mil = MilenageParams::with_defaults(SubscriberKey::reclassify(config.k), OperatorVariant::reclassify_opc(config.opc));
+        let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::SubscriberKey::reclassify(config.ki));
+        let mil = MilenageParams::with_defaults(SubscriberKey::reclassify(config.k), OperatorVariant::reclassify_operator_cipher(config.opc));
         let usim = simrs_usim::UsimApp::new(mf, &[], mil);
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
 
@@ -128,8 +128,8 @@ impl ShadowSim {
         atr: &'static [u8],
         mf: &'static DfDef,
     ) -> Self {
-        let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::Ki::reclassify(config.ki));
-        let mil = MilenageParams::with_defaults(SubscriberKey::reclassify(config.k), OperatorVariant::reclassify_opc(config.opc));
+        let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::SubscriberKey::reclassify(config.ki));
+        let mil = MilenageParams::with_defaults(SubscriberKey::reclassify(config.k), OperatorVariant::reclassify_operator_cipher(config.opc));
         let usim = simrs_usim::UsimApp::new(mf, &[], mil);
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
 

@@ -420,8 +420,8 @@ mod tests {
 
     fn make_sim() -> Sim<MilenageParams, 256> {
         use simrs_milenage::{OperatorVariant, SubscriberKey};
-        let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::Ki::classify([0u8; 16]));
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::opc([0u8; 16]));
+        let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::SubscriberKey::classify([0u8; 16]));
+        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
         let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
         Sim::<MilenageParams, 256>::new(&ATR, gsm, usim)
     }

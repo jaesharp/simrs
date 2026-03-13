@@ -91,11 +91,11 @@ const AID_USIM: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
 fn create_usim_sim() -> Sim<MilenageParams, 256> {
     let mil = MilenageParams::with_defaults(
         SubscriberKey::classify(TEST_K),
-        OperatorVariant::opc(TEST_OPC),
+        OperatorVariant::operator_cipher(TEST_OPC),
     );
     let gsm = simrs_gsm::GsmApp::new(
         &USIM_MF,
-        simrs_gsm::Ki::classify([0x11; 16]),
+        simrs_gsm::SubscriberKey::classify([0x11; 16]),
     );
     let mut usim = simrs_usim::UsimApp::new(&USIM_MF, &ADF_TABLE, mil);
 
@@ -159,7 +159,7 @@ fn select_aid_and_get_fcp(world: &mut SpecWorld) {
 fn build_valid_autn(challenge: &[u8; 16], sqn: [u8; 6], amf: [u8; 2]) -> [u8; 16] {
     let params = MilenageParams::with_defaults(
         SubscriberKey::classify(TEST_K),
-        OperatorVariant::opc(TEST_OPC),
+        OperatorVariant::operator_cipher(TEST_OPC),
     );
     let ch = AuthChallenge::new(*challenge);
     let sqn_t = SequenceNumber::new(sqn);

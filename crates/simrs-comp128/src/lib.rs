@@ -32,17 +32,17 @@
 //! # Example
 //!
 //! ```
-//! use simrs_comp128::{comp128, Comp128Result};
+//! use simrs_comp128::{comp128, GsmAuthResult};
 //! use simrs_secret::Secret;
 //!
 //! // Cross-validated against reference implementation
 //! let ki   = Secret::new([0xABu8; 16]);
 //! let rand = [0xCDu8; 16];
 //!
-//! let result: Comp128Result = comp128(&ki, &rand);
+//! let result: GsmAuthResult = comp128(&ki, &rand);
 //!
-//! assert_eq!(*result.sres.as_bytes(), [0x43, 0xFA, 0xD2, 0x08]);
-//! assert_eq!(*result.kc.declassify_ref(), [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
+//! assert_eq!(*result.signed_response.as_bytes(), [0x43, 0xFA, 0xD2, 0x08]);
+//! assert_eq!(*result.cipher_key.declassify_ref(), [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
 //! ```
 #![no_std]
 #![deny(unsafe_code)]
@@ -83,47 +83,54 @@ impl From<[u8; 4]> for SignedResponse { fn from(raw: [u8; 4]) -> Self { Self(raw
 #[deprecated(note = "GSM SRES (TS 131 102) -- prefer SignedResponse")]
 pub type Sres = SignedResponse;
 
-/// Result of the `COMP128v1` algorithm.
+/// Result of the `COMP128v1` GSM authentication algorithm.
 ///
-/// Contains the Signed Response (SRES) used for network authentication
-/// and the ciphering key (Kc) used for A5 stream cipher encryption.
+/// Contains the signed response used for network authentication
+/// and the cipher key used for A5 stream cipher encryption.
 ///
 /// # Layout
 ///
 /// Per [ETSI TS 151 011 V4.15.0 clause 11](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A327%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C689%5D):
-/// - SRES: 4 bytes (32 bits) -- sent to the network as the authentication response
-/// - Kc: 8 bytes (64 bits) -- used as the A5 ciphering key
+/// - Signed response: 4 bytes (32 bits) -- sent to the network
+/// - Cipher key: 8 bytes (64 bits) -- used as the A5 key
 ///
 /// # Invariants
 ///
-/// - `kc[7]` is always `0x00` (COMP128v1 only produces 54 effective bits of Kc)
-/// - `kc[6] & 0x03 == 0` (bottom 2 bits of byte 6 are always zero)
+/// - `cipher_key[7]` is always `0x00` (COMP128v1 only produces 54 effective bits)
+/// - `cipher_key[6] & 0x03 == 0` (bottom 2 bits of byte 6 are always zero)
 ///
 /// ```
-/// use simrs_comp128::{comp128, Comp128Result};
+/// use simrs_comp128::{comp128, GsmAuthResult};
 /// use simrs_secret::Secret;
 ///
 /// let r = comp128(&Secret::new([0u8; 16]), &[0u8; 16]);
-/// assert_eq!(r.kc.declassify_ref()[7], 0x00);
-/// assert_eq!(r.kc.declassify_ref()[6] & 0x03, 0x00);
+/// assert_eq!(r.cipher_key.declassify_ref()[7], 0x00);
+/// assert_eq!(r.cipher_key.declassify_ref()[6] & 0x03, 0x00);
 /// ```
 #[derive(Clone, Copy)]
-pub struct Comp128Result {
-    /// Signed Response (4 bytes).
+pub struct GsmAuthResult {
+    /// Signed response (4 bytes).
     /// Sent to the base station to prove knowledge of Ki.
-    pub sres: SignedResponse,
+    pub signed_response: SignedResponse,
 
-    /// Ciphering key (8 bytes, effective 54 bits).
+    /// Cipher key (8 bytes, effective 54 bits).
     /// Used as the session key for A5/1 or A5/3 encryption.
     /// Byte 7 is always 0x00; byte 6 bottom 2 bits are always 0.
-    pub kc: Secret<[u8; 8]>,
+    pub cipher_key: Secret<[u8; 8]>,
 }
 
-impl core::fmt::Debug for Comp128Result {
+/// GSM abbreviation for [`GsmAuthResult`].
+///
+/// The algorithm literature uses "Comp128Result". We prefer `GsmAuthResult`
+/// for consistency with the descriptive naming convention.
+#[deprecated(note = "renamed to GsmAuthResult")]
+pub type Comp128Result = GsmAuthResult;
+
+impl core::fmt::Debug for GsmAuthResult {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Comp128Result")
-            .field("sres", &self.sres.as_bytes())
-            .field("kc", &Redact(self.kc.declassify_ref()))
+        f.debug_struct("GsmAuthResult")
+            .field("signed_response", &self.signed_response.as_bytes())
+            .field("cipher_key", &Redact(self.cipher_key.declassify_ref()))
             .finish()
     }
 }
@@ -140,7 +147,7 @@ impl core::fmt::Debug for Comp128Result {
 ///
 /// # Returns
 ///
-/// [`Comp128Result`] containing the 4-byte SRES and 8-byte Kc.
+/// [`GsmAuthResult`] containing the 4-byte signed response and 8-byte cipher key.
 ///
 /// # Algorithm
 ///
@@ -164,8 +171,8 @@ impl core::fmt::Debug for Comp128Result {
 /// let rand = [0x22u8; 16];
 /// let r1 = comp128(&ki, &rand);
 /// let r2 = comp128(&ki, &rand);
-/// assert_eq!(r1.sres.as_bytes(), r2.sres.as_bytes());
-/// assert_eq!(r1.kc.declassify_ref(), r2.kc.declassify_ref());
+/// assert_eq!(r1.signed_response.as_bytes(), r2.signed_response.as_bytes());
+/// assert_eq!(r1.cipher_key.declassify_ref(), r2.cipher_key.declassify_ref());
 /// ```
 ///
 /// # Different inputs produce different outputs
@@ -178,7 +185,7 @@ impl core::fmt::Debug for Comp128Result {
 /// let r1 = comp128(&ki, &[0x00u8; 16]);
 /// let r2 = comp128(&ki, &[0x01u8; 16]);
 /// assert!(
-///     r1.sres.as_bytes() != r2.sres.as_bytes() || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
+///     r1.signed_response.as_bytes() != r2.signed_response.as_bytes() || r1.cipher_key.declassify_ref() != r2.cipher_key.declassify_ref(),
 ///     "different RAND must produce different results"
 /// );
 /// ```
@@ -200,12 +207,12 @@ impl core::fmt::Debug for Comp128Result {
 ///     0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
 /// ];
 /// let result = comp128(&ki, &rand);
-/// assert_eq!(*result.sres.as_bytes(), [0x46, 0xF0, 0x2D, 0xBA]);
-/// assert_eq!(*result.kc.declassify_ref(), [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
+/// assert_eq!(*result.signed_response.as_bytes(), [0x46, 0xF0, 0x2D, 0xBA]);
+/// assert_eq!(*result.cipher_key.declassify_ref(), [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
 /// ```
 #[allow(clippy::cast_possible_truncation)] // values bounded by table size / bit masks
 #[allow(clippy::many_single_char_names)]  // matches C reference variable names
-pub fn comp128(ki: &Secret<[u8; 16]>, rand: &[u8; 16]) -> Comp128Result {
+pub fn comp128(ki: &Secret<[u8; 16]>, rand: &[u8; 16]) -> GsmAuthResult {
     let ki_bytes = ki.declassify_ref();
     let tables: [&[u8]; 5] = [&TABLE_0, &TABLE_1, &TABLE_2, &TABLE_3, &TABLE_4];
 
@@ -274,7 +281,7 @@ pub fn comp128(ki: &Secret<[u8; 16]>, rand: &[u8; 16]) -> Comp128Result {
     kc[6] = (x[30] << 6) | (x[31] << 2);
     kc[7] = 0x00;
 
-    Comp128Result { sres: SignedResponse::new(sres), kc: Secret::new(kc) }
+    GsmAuthResult { signed_response: SignedResponse::new(sres), cipher_key: Secret::new(kc) }
 }
 
 // ---------------------------------------------------------------------------
@@ -403,15 +410,15 @@ mod tests {
     #[test]
     fn swsim_vector_all_zero() {
         let r = comp128(&ki([0x00; 16]), &[0x00; 16]);
-        assert_eq!(*r.sres.as_bytes(), [0x09, 0xE5, 0x5D, 0xA4]);
-        assert_eq!(*r.kc.declassify_ref(), [0x17, 0x47, 0x57, 0x78, 0x3D, 0xC4, 0x04, 0x00]);
+        assert_eq!(*r.signed_response.as_bytes(), [0x09, 0xE5, 0x5D, 0xA4]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x17, 0x47, 0x57, 0x78, 0x3D, 0xC4, 0x04, 0x00]);
     }
 
     #[test]
     fn swsim_vector_ab_cd() {
         let r = comp128(&ki([0xAB; 16]), &[0xCD; 16]);
-        assert_eq!(*r.sres.as_bytes(), [0x43, 0xFA, 0xD2, 0x08]);
-        assert_eq!(*r.kc.declassify_ref(), [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
+        assert_eq!(*r.signed_response.as_bytes(), [0x43, 0xFA, 0xD2, 0x08]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x8F, 0x6E, 0x14, 0x88, 0x18, 0x39, 0xD4, 0x00]);
     }
 
     #[test]
@@ -425,22 +432,22 @@ mod tests {
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
         ];
         let r = comp128(&k, &rand);
-        assert_eq!(*r.sres.as_bytes(), [0x46, 0xF0, 0x2D, 0xBA]);
-        assert_eq!(*r.kc.declassify_ref(), [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
+        assert_eq!(*r.signed_response.as_bytes(), [0x46, 0xF0, 0x2D, 0xBA]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00]);
     }
 
     #[test]
     fn swsim_vector_11_22() {
         let r = comp128(&ki([0x11; 16]), &[0x22; 16]);
-        assert_eq!(*r.sres.as_bytes(), [0x67, 0x5B, 0x74, 0xF6]);
-        assert_eq!(*r.kc.declassify_ref(), [0x7E, 0xFC, 0x50, 0xA3, 0xED, 0x03, 0x68, 0x00]);
+        assert_eq!(*r.signed_response.as_bytes(), [0x67, 0x5B, 0x74, 0xF6]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x7E, 0xFC, 0x50, 0xA3, 0xED, 0x03, 0x68, 0x00]);
     }
 
     #[test]
     fn swsim_vector_all_ff() {
         let r = comp128(&ki([0xFF; 16]), &[0xFF; 16]);
-        assert_eq!(*r.sres.as_bytes(), [0xFE, 0x65, 0xFD, 0x52]);
-        assert_eq!(*r.kc.declassify_ref(), [0x8E, 0xD6, 0x68, 0x0A, 0x9B, 0x77, 0xC4, 0x00]);
+        assert_eq!(*r.signed_response.as_bytes(), [0xFE, 0x65, 0xFD, 0x52]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x8E, 0xD6, 0x68, 0x0A, 0x9B, 0x77, 0xC4, 0x00]);
     }
 
     #[test]
@@ -450,8 +457,8 @@ mod tests {
         #[allow(clippy::cast_possible_truncation)]
         let rand: [u8; 16] = core::array::from_fn(|i| (i + 16) as u8);
         let r = comp128(&k, &rand);
-        assert_eq!(*r.sres.as_bytes(), [0x37, 0x38, 0xF8, 0x82]);
-        assert_eq!(*r.kc.declassify_ref(), [0x39, 0xCD, 0xA2, 0xDB, 0xBA, 0x4A, 0x7C, 0x00]);
+        assert_eq!(*r.signed_response.as_bytes(), [0x37, 0x38, 0xF8, 0x82]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x39, 0xCD, 0xA2, 0xDB, 0xBA, 0x4A, 0x7C, 0x00]);
     }
 
     // -- Structural invariants --
@@ -459,13 +466,13 @@ mod tests {
     #[test]
     fn kc_byte7_always_zero() {
         let r = comp128(&ki([0xAB; 16]), &[0xCD; 16]);
-        assert_eq!(r.kc.declassify_ref()[7], 0x00);
+        assert_eq!(r.cipher_key.declassify_ref()[7], 0x00);
     }
 
     #[test]
     fn kc_byte6_bottom_bits_zero() {
         let r = comp128(&ki([0xAB; 16]), &[0xCD; 16]);
-        assert_eq!(r.kc.declassify_ref()[6] & 0x03, 0x00);
+        assert_eq!(r.cipher_key.declassify_ref()[6] & 0x03, 0x00);
     }
 
     #[test]
@@ -474,8 +481,8 @@ mod tests {
         let rand = [0x22; 16];
         let r1 = comp128(&k, &rand);
         let r2 = comp128(&k, &rand);
-        assert_eq!(r1.sres, r2.sres);
-        assert_eq!(r1.kc.declassify_ref(), r2.kc.declassify_ref());
+        assert_eq!(r1.signed_response, r2.signed_response);
+        assert_eq!(r1.cipher_key.declassify_ref(), r2.cipher_key.declassify_ref());
     }
 
     #[test]
@@ -483,7 +490,7 @@ mod tests {
         let k = ki([0x11; 16]);
         let r1 = comp128(&k, &[0x00; 16]);
         let r2 = comp128(&k, &[0x01; 16]);
-        assert!(r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref());
+        assert!(r1.signed_response != r2.signed_response || r1.cipher_key.declassify_ref() != r2.cipher_key.declassify_ref());
     }
 
     #[test]
@@ -491,14 +498,14 @@ mod tests {
         let rand = [0x33; 16];
         let r1 = comp128(&ki([0x00; 16]), &rand);
         let r2 = comp128(&ki([0x01; 16]), &rand);
-        assert!(r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref());
+        assert!(r1.signed_response != r2.signed_response || r1.cipher_key.declassify_ref() != r2.cipher_key.declassify_ref());
     }
 
     #[test]
     fn zero_input_not_zero_output() {
         let r = comp128(&ki([0u8; 16]), &[0u8; 16]);
         assert!(
-            *r.sres.as_bytes() != [0u8; 4] || *r.kc.declassify_ref() != [0u8; 8],
+            *r.signed_response.as_bytes() != [0u8; 4] || *r.cipher_key.declassify_ref() != [0u8; 8],
             "zero input must not produce all-zero output"
         );
     }
@@ -506,7 +513,7 @@ mod tests {
     #[test]
     fn output_not_all_ff() {
         let r = comp128(&ki([0xFF; 16]), &[0xFF; 16]);
-        let all_ff = *r.sres.as_bytes() == [0xFF; 4] && *r.kc.declassify_ref() == [0xFF; 8];
+        let all_ff = *r.signed_response.as_bytes() == [0xFF; 4] && *r.cipher_key.declassify_ref() == [0xFF; 8];
         assert!(!all_ff, "all-FF input must not produce all-FF output");
     }
 
@@ -552,7 +559,7 @@ mod proptests {
             let r1 = comp128(&ki, &rand1);
             let r2 = comp128(&ki, &rand2);
             prop_assert!(
-                r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
+                r1.signed_response != r2.signed_response || r1.cipher_key.declassify_ref() != r2.cipher_key.declassify_ref(),
                 "same Ki with different RAND must produce different outputs"
             );
         }
@@ -563,7 +570,7 @@ mod proptests {
         #[test]
         fn kc_byte7_zero(ki_bytes in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
             let r = comp128(&Secret::new(ki_bytes), &rand);
-            prop_assert_eq!(r.kc.declassify_ref()[7], 0x00);
+            prop_assert_eq!(r.cipher_key.declassify_ref()[7], 0x00);
         }
     }
 
@@ -572,7 +579,7 @@ mod proptests {
         #[test]
         fn kc_byte6_bottom_bits(ki_bytes in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
             let r = comp128(&Secret::new(ki_bytes), &rand);
-            prop_assert_eq!(r.kc.declassify_ref()[6] & 0x03, 0x00);
+            prop_assert_eq!(r.cipher_key.declassify_ref()[6] & 0x03, 0x00);
         }
     }
 
@@ -591,7 +598,7 @@ mod proptests {
             rand2[bit_idx / 8] ^= 1 << (bit_idx % 8);
             let r2 = comp128(&ki, &rand2);
             prop_assert!(
-                r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
+                r1.signed_response != r2.signed_response || r1.cipher_key.declassify_ref() != r2.cipher_key.declassify_ref(),
                 "flipping bit {} in RAND should change output", bit_idx
             );
         }
@@ -609,7 +616,7 @@ mod proptests {
             let r1 = comp128(&Secret::new(ki1_bytes), &rand);
             let r2 = comp128(&Secret::new(ki2_bytes), &rand);
             prop_assert!(
-                r1.sres != r2.sres || r1.kc.declassify_ref() != r2.kc.declassify_ref(),
+                r1.signed_response != r2.signed_response || r1.cipher_key.declassify_ref() != r2.cipher_key.declassify_ref(),
                 "different Ki must produce different outputs"
             );
         }

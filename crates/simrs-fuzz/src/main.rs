@@ -7,7 +7,7 @@
 //! Set `SIMRS_FUZZ_PCAP=path` to write interesting APDU sequences to a PCAP file.
 
 use simrs_fs::{DfDef, EfDef, Fid, FileRef, Sfi};
-use simrs_hle::{hle_apdu, hle_init, hle_init_tuak, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_snapshot_size, hle_state_hash, hle_tick, Ki};
+use simrs_hle::{hle_apdu, hle_init, hle_init_tuak, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_snapshot_size, hle_state_hash, hle_tick, GsmSubscriberKey};
 use simrs_pcap::{Direction, LinkType, PcapEncoder};
 use std::collections::HashSet;
 use std::fs::File;
@@ -300,10 +300,10 @@ fn main() {
 
     if use_tuak {
         eprintln!("[simrs-fuzz] initializing SIM (TUAK)...");
-        hle_init_tuak(&ATR, &MF, Ki::classify([0x11; 16]), [0x22; 16], [0x33; 32]);
+        hle_init_tuak(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 32]);
     } else {
         eprintln!("[simrs-fuzz] initializing SIM (Milenage)...");
-        hle_init(&ATR, &MF, Ki::classify([0x11; 16]), [0x22; 16], [0x33; 16]);
+        hle_init(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 16]);
     }
     hle_reset();
 
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn smoke_test_short_fuzz_run() {
-        hle_init(&ATR, &MF, Ki::classify([0x11; 16]), [0x22; 16], [0x33; 16]);
+        hle_init(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 16]);
         hle_reset();
 
         let snap_size = hle_snapshot_size();
