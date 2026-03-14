@@ -56,7 +56,8 @@
 
 pub mod profile;
 
-use simrs_comp128::comp128;
+pub use simrs_comp128::Comp128Version;
+use simrs_comp128::comp128_versioned;
 use simrs_fs::{
     AdfSlot, DfDef, EfDef, Fid, FsData, FsError, SelectionCtx, SelectedFile,
 };
@@ -212,6 +213,7 @@ pub struct GsmApp {
     mf: &'static DfDef,
     pin: PinManager<5>,
     ki: SubscriberKey,
+    version: Comp128Version,
     rsp_queue: ResponseQueue<23>,
 }
 
@@ -233,6 +235,16 @@ impl GsmApp {
     /// let app = GsmApp::new(&MF, SubscriberKey::classify([0u8; 16]));
     /// ```
     pub fn new(mf: &'static DfDef, ki: SubscriberKey) -> Self {
+        Self::with_version(mf, ki, Comp128Version::V1)
+    }
+
+    /// Create a new GSM application with a specific COMP128 algorithm version.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the total EF data in `mf` exceeds the profile-dependent
+    /// `FsData` buffer capacity or the EF count limit.
+    pub fn with_version(mf: &'static DfDef, ki: SubscriberKey, version: Comp128Version) -> Self {
         let mut data = FsData::new();
         data.init(mf).expect("FsData::init failed: filesystem too large for buffer");
         Self {
@@ -241,6 +253,7 @@ impl GsmApp {
             mf,
             pin: PinManager::new(),
             ki,
+            version,
             rsp_queue: ResponseQueue::new(),
         }
     }
@@ -264,7 +277,7 @@ impl GsmApp {
 
     /// Snapshot buffer size in bytes.
     pub const SNAPSHOT_SIZE: usize =
-        SelectionCtx::SNAPSHOT_SIZE + FsData::<FS_CAP, FS_MAX_EFS>::SNAPSHOT_SIZE + PinManager::<5>::SNAPSHOT_SIZE + 16 + ResponseQueue::<23>::SNAPSHOT_SIZE;
+        SelectionCtx::SNAPSHOT_SIZE + FsData::<FS_CAP, FS_MAX_EFS>::SNAPSHOT_SIZE + PinManager::<5>::SNAPSHOT_SIZE + 16 + 1 + ResponseQueue::<23>::SNAPSHOT_SIZE;
 
     /// Byte offset of the `PinManager` region within a `GsmApp` snapshot.
     pub const PIN_SNAPSHOT_OFFSET: usize =
@@ -284,6 +297,8 @@ impl GsmApp {
         off += self.pin.save_state(&mut buf[off..]);
         buf[off..off + 16].copy_from_slice(self.ki.declassify());
         off += 16;
+        buf[off] = self.version as u8;
+        off += 1;
         off += self.rsp_queue.save_state(&mut buf[off..]);
         let _ = off;
         Self::SNAPSHOT_SIZE
@@ -324,6 +339,13 @@ impl GsmApp {
         ki_bytes.copy_from_slice(&buf[off..off + 16]);
         self.ki = SubscriberKey::classify(ki_bytes);
         off += 16;
+        self.version = match buf[off] {
+            0 => Comp128Version::V1,
+            1 => Comp128Version::V2,
+            2 => Comp128Version::V3,
+            _ => return false,
+        };
+        off += 1;
         if !self.rsp_queue.restore_state(&buf[off..]) {
             return false;
         }
@@ -572,7 +594,7 @@ impl GsmApp {
 
         let mut rand = [0u8; 16];
         rand.copy_from_slice(cmd.data());
-        let result = comp128(self.ki.as_secret(), &rand);
+        let result = comp128_versioned(self.ki.as_secret(), &rand, self.version);
 
         // Queue 12-byte result: 4-byte SRES + 8-byte Kc.
         self.rsp_queue.buf_mut()[..SRES_LEN].copy_from_slice(result.signed_response.as_bytes());
@@ -1060,7 +1082,7 @@ mod tests {
         assert_eq!(len, 12 + 2);
 
         // Verify against direct COMP128 computation.
-        let expected = comp128(KI.as_secret(), &rand);
+        let expected = comp128_versioned(KI.as_secret(), &rand, Comp128Version::V1);
         assert_eq!(&buf[..4], expected.signed_response.as_bytes());
         assert_eq!(&buf[4..12], expected.cipher_key.declassify_ref());
     }
@@ -1538,11 +1560,12 @@ mod tests {
 
     #[test]
     fn snapshot_size_correct() {
-        // SelectionCtx + FsData + PinManager<5> + Ki(16) + ResponseQueue<23>
+        // SelectionCtx + FsData + PinManager<5> + Ki(16) + Version(1) + ResponseQueue<23>
         let expected = simrs_fs::SelectionCtx::SNAPSHOT_SIZE
             + simrs_fs::FsData::<{ super::FS_CAP }, { super::FS_MAX_EFS }>::SNAPSHOT_SIZE
             + simrs_pin::PinManager::<5>::SNAPSHOT_SIZE
             + 16
+            + 1
             + simrs_iso7816::ResponseQueue::<23>::SNAPSHOT_SIZE;
         assert_eq!(GsmApp::SNAPSHOT_SIZE, expected);
     }
@@ -2405,7 +2428,7 @@ mod tests {
         // Verify against direct COMP128 computation.
         let ki = SubscriberKey::classify([0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
                      0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]);
-        let expected = comp128(ki.as_secret(), &rand);
+        let expected = comp128_versioned(ki.as_secret(), &rand, Comp128Version::V1);
         assert_eq!(&buf[..4], expected.signed_response.as_bytes(), "SRES mismatch");
         assert_eq!(&buf[4..12], expected.cipher_key.declassify_ref(), "Kc mismatch");
     }
@@ -2589,7 +2612,7 @@ mod proptests {
 
             let mut rand_arr = [0u8; 16];
             rand_arr.copy_from_slice(&rand);
-            let expected = comp128(ki.as_secret(), &rand_arr);
+            let expected = comp128_versioned(ki.as_secret(), &rand_arr, Comp128Version::V1);
             prop_assert_eq!(&buf[..4], expected.signed_response.as_bytes());
             prop_assert_eq!(&buf[4..12], expected.cipher_key.declassify_ref());
         }

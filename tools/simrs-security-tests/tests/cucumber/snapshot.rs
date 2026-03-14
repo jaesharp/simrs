@@ -45,6 +45,7 @@ pub enum GsmField {
     FsData,
     Pin(PinId, PinField),
     Ki,
+    Version,
     RspQueue,
 }
 
@@ -128,7 +129,7 @@ impl std::hash::Hash for GsmField {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            Self::SelectionCtx | Self::FsData | Self::Ki | Self::RspQueue => {}
+            Self::SelectionCtx | Self::FsData | Self::Ki | Self::Version | Self::RspQueue => {}
             Self::Pin(id, f) => {
                 id.hash(state);
                 f.hash(state);
@@ -193,6 +194,7 @@ impl fmt::Display for GsmField {
             Self::FsData => write!(f, "fs_data"),
             Self::Pin(id, field) => write!(f, "pin.{id}.{field}"),
             Self::Ki => write!(f, "ki"),
+            Self::Version => write!(f, "version"),
             Self::RspQueue => write!(f, "rsp_queue"),
         }
     }
@@ -366,6 +368,13 @@ impl SnapshotRegistry {
             path: StatePath::Gsm(GsmField::Ki),
         });
         off += 16;
+
+        // Comp128Version (1 byte)
+        entries.push(Entry {
+            range: off..off + 1,
+            path: StatePath::Gsm(GsmField::Version),
+        });
+        off += 1;
 
         // ResponseQueue<23> (24 bytes)
         entries.push(Entry {
