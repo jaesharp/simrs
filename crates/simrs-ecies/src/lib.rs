@@ -1083,15 +1083,14 @@ mod ct_validation {
             |rng| {
                 // Class 0: generate a random scalar (burn rng), but use the fixed one.
                 let _ = gen_valid_scalar(rng);
-                (fixed_scalar, hn_pk)
+                fixed_scalar
             },
             |rng| {
                 // Class 1: use the random scalar.
-                let scalar = gen_valid_scalar(rng);
-                (scalar, hn_pk)
+                gen_valid_scalar(rng)
             },
-            |(scalar, pk)| {
-                black_box(p256::p256_ecdh(&Secret::new(*scalar), pk));
+            |scalar| {
+                black_box(p256::p256_ecdh(&Secret::new(*scalar), &hn_pk));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1169,7 +1168,7 @@ mod ct_validation {
             |rng| {
                 let mut _discard = [0u8; 32];
                 rng.fill_bytes(&mut _discard);
-                (n_minus_1, hn_pk)
+                n_minus_1
             },
             |rng| {
                 let mut s = [0u8; 32];
@@ -1179,10 +1178,10 @@ mod ct_validation {
                         break;
                     }
                 }
-                (s, hn_pk)
+                s
             },
-            |(scalar, pk)| {
-                black_box(p256::p256_ecdh(&Secret::new(*scalar), pk));
+            |scalar| {
+                black_box(p256::p256_ecdh(&Secret::new(*scalar), &hn_pk));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1217,7 +1216,7 @@ mod ct_validation {
                 // Class 0: burn RNG to keep symmetric, use sparse scalar.
                 let mut _discard = [0u8; 32];
                 rng.fill_bytes(&mut _discard);
-                (sparse_scalar, hn_pk)
+                sparse_scalar
             },
             |rng| {
                 // Class 1: random valid scalar.
@@ -1228,10 +1227,10 @@ mod ct_validation {
                         break;
                     }
                 }
-                (s, hn_pk)
+                s
             },
-            |(scalar, pk)| {
-                black_box(p256::p256_ecdh(&Secret::new(*scalar), pk));
+            |scalar| {
+                black_box(p256::p256_ecdh(&Secret::new(*scalar), &hn_pk));
             },
         );
         assert_no_timing_leak!(outcome);

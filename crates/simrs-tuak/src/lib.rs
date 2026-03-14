@@ -1347,7 +1347,7 @@ mod ct_validation {
             },
             |(key, topc, challenge)| {
                 let p = TuakParams::new(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*topc));
-                black_box(p.compute_response(challenge));
+                black_box(p.compute_response(&AuthChallenge::new(*challenge)));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1382,7 +1382,7 @@ mod ct_validation {
             },
             |(key, topc, challenge, sqn, amf)| {
                 let p = TuakParams::new(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*topc));
-                black_box(p.compute_auth_mac(challenge, sqn, amf));
+                black_box(p.compute_auth_mac(&AuthChallenge::new(*challenge), &SequenceNumber::new(*sqn), &AuthManagementField::new(*amf)));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1417,7 +1417,7 @@ mod ct_validation {
             },
             |(key, topc, challenge, sqn, amf)| {
                 let p = TuakParams::new(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*topc));
-                black_box(p.compute_resync_mac(challenge, sqn, amf));
+                black_box(p.compute_resync_mac(&AuthChallenge::new(*challenge), &SequenceNumber::new(*sqn), &AuthManagementField::new(*amf)));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1444,7 +1444,7 @@ mod ct_validation {
             },
             |(key, topc, challenge)| {
                 let p = TuakParams::new(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*topc));
-                black_box(p.compute_cipher_key(challenge));
+                black_box(p.compute_cipher_key(&AuthChallenge::new(*challenge)));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1471,7 +1471,7 @@ mod ct_validation {
             },
             |(key, topc, challenge)| {
                 let p = TuakParams::new(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*topc));
-                black_box(p.compute_integrity_key(challenge));
+                black_box(p.compute_integrity_key(&AuthChallenge::new(*challenge)));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1498,7 +1498,7 @@ mod ct_validation {
             },
             |(key, topc, challenge)| {
                 let p = TuakParams::new(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*topc));
-                black_box(p.compute_anonymity_key(challenge));
+                black_box(p.compute_anonymity_key(&AuthChallenge::new(*challenge)));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1525,7 +1525,7 @@ mod ct_validation {
             },
             |(key, topc, challenge)| {
                 let p = TuakParams::new(SubscriberKey::classify(*key), OperatorVariant::operator_cipher(*topc));
-                black_box(p.compute_resync_anonymity_key(challenge));
+                black_box(p.compute_resync_anonymity_key(&AuthChallenge::new(*challenge)));
             },
         );
         assert_no_timing_leak!(outcome);

@@ -743,20 +743,20 @@ mod ct_validation {
     fn test_des_encrypt_ct() {
         let outcome = ct_test(0xDE5E_0CC7,
             |rng| {
-                let key = Secret::new([0u8; 8]);
+                let key = [0u8; 8];
                 let mut plaintext = [0u8; 8];
                 rng.fill_bytes(&mut plaintext);
                 (key, plaintext)
             },
             |rng| {
-                let mut key_bytes = [0u8; 8];
-                rng.fill_bytes(&mut key_bytes);
+                let mut key = [0u8; 8];
+                rng.fill_bytes(&mut key);
                 let mut plaintext = [0u8; 8];
                 rng.fill_bytes(&mut plaintext);
-                (Secret::new(key_bytes), plaintext)
+                (key, plaintext)
             },
             |(key, plaintext)| {
-                let cipher = Des::new(key);
+                let cipher = Des::new(&Secret::new(*key));
                 let ct = cipher.encrypt(plaintext);
                 black_box(ct);
             },
@@ -769,20 +769,20 @@ mod ct_validation {
     fn test_des_decrypt_ct() {
         let outcome = ct_test(0xDE5D_ECC7,
             |rng| {
-                let key = Secret::new([0u8; 8]);
+                let key = [0u8; 8];
                 let mut ct = [0u8; 8];
                 rng.fill_bytes(&mut ct);
                 (key, ct)
             },
             |rng| {
-                let mut key_bytes = [0u8; 8];
-                rng.fill_bytes(&mut key_bytes);
+                let mut key = [0u8; 8];
+                rng.fill_bytes(&mut key);
                 let mut ct = [0u8; 8];
                 rng.fill_bytes(&mut ct);
-                (Secret::new(key_bytes), ct)
+                (key, ct)
             },
             |(key, ct)| {
-                let cipher = Des::new(key);
+                let cipher = Des::new(&Secret::new(*key));
                 let pt = cipher.decrypt(ct);
                 black_box(pt);
             },

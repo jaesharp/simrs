@@ -138,7 +138,7 @@ where
         .seed(seed)
         .time_budget_secs(10)
         .test(
-            InputPair::new(
+            InputPair::new_untracked(
                 move || prepare_class0(&mut rng0),
                 move || prepare_class1(&mut rng1),
             ),

@@ -701,10 +701,11 @@ mod ct_validation {
     #[test]
     fn ct_mux_u8_timing() {
         let outcome = ct_test(7,
-            |rng| (CtBool::TRUE, rng.next_u8(), rng.next_u8()),
-            |rng| (CtBool::FALSE, rng.next_u8(), rng.next_u8()),
+            |rng| (true, rng.next_u8(), rng.next_u8()),
+            |rng| (false, rng.next_u8(), rng.next_u8()),
             |&(cond, a, b)| {
-                black_box(ct_mux_u8(cond, a, b));
+                let ct_cond = if cond { CtBool::TRUE } else { CtBool::FALSE };
+                black_box(ct_mux_u8(ct_cond, a, b));
             },
         );
         assert_no_timing_leak!(outcome);

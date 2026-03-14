@@ -1052,7 +1052,7 @@ mod ct_validation {
 
     #[test]
     fn test_comp128_ct() {
-        let fixed_ki = Secret::new([0xABu8; 16]);
+        let fixed_ki = [0xABu8; 16];
 
         let outcome = ct_test(42,
             |rng| {
@@ -1063,14 +1063,14 @@ mod ct_validation {
             },
             |rng| {
                 // Class 1: random Ki, random RAND
-                let mut ki_bytes = [0u8; 16];
+                let mut ki = [0u8; 16];
                 let mut rand = [0u8; 16];
-                rng.fill_bytes(&mut ki_bytes);
+                rng.fill_bytes(&mut ki);
                 rng.fill_bytes(&mut rand);
-                (Secret::new(ki_bytes), rand)
+                (ki, rand)
             },
             |(ki, rand)| {
-                let r = comp128(ki, rand);
+                let r = comp128(&Secret::new(*ki), rand);
                 core::hint::black_box(r);
             },
         );
@@ -1088,7 +1088,7 @@ mod ct_validation {
     /// makes this a single AND instruction regardless of value.
     #[test]
     fn test_comp128_rand_independence_ct() {
-        let fixed_ki = Secret::new([0xABu8; 16]);
+        let fixed_ki = [0xABu8; 16];
 
         // Fixed RAND with boundary-probing values: bytes near 0xFF produce
         // intermediates (x[m] + 2*x[n]) near the modulus boundary.
@@ -1111,7 +1111,7 @@ mod ct_validation {
                 (fixed_ki, rand)
             },
             |(ki, rand)| {
-                let r = comp128(ki, rand);
+                let r = comp128(&Secret::new(*ki), rand);
                 core::hint::black_box(r);
             },
         );
@@ -1121,7 +1121,7 @@ mod ct_validation {
     /// COMP128v3 timing must be independent of Ki content.
     #[test]
     fn test_comp128v3_ct() {
-        let fixed_ki = Secret::new([0xABu8; 16]);
+        let fixed_ki = [0xABu8; 16];
 
         let outcome = ct_test(0xC128_0003,
             |rng| {
@@ -1130,14 +1130,14 @@ mod ct_validation {
                 (fixed_ki, rand)
             },
             |rng| {
-                let mut ki_bytes = [0u8; 16];
+                let mut ki = [0u8; 16];
                 let mut rand = [0u8; 16];
-                rng.fill_bytes(&mut ki_bytes);
+                rng.fill_bytes(&mut ki);
                 rng.fill_bytes(&mut rand);
-                (Secret::new(ki_bytes), rand)
+                (ki, rand)
             },
             |(ki, rand)| {
-                let r = comp128v3(ki, rand);
+                let r = comp128v3(&Secret::new(*ki), rand);
                 core::hint::black_box(r);
             },
         );
@@ -1147,7 +1147,7 @@ mod ct_validation {
     /// COMP128v3 timing must be independent of RAND content.
     #[test]
     fn test_comp128v3_rand_independence_ct() {
-        let fixed_ki = Secret::new([0xABu8; 16]);
+        let fixed_ki = [0xABu8; 16];
         let boundary_rand: [u8; 16] = [
             0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8,
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
@@ -1165,7 +1165,7 @@ mod ct_validation {
                 (fixed_ki, rand)
             },
             |(ki, rand)| {
-                let r = comp128v3(ki, rand);
+                let r = comp128v3(&Secret::new(*ki), rand);
                 core::hint::black_box(r);
             },
         );

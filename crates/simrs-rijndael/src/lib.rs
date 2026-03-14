@@ -807,20 +807,20 @@ mod ct_validation {
     fn test_aes_encrypt_ct() {
         let outcome = ct_test(0xAE5E_0CC7,
             |rng| {
-                let key = Secret::new([0u8; 16]);
+                let key = [0u8; 16];
                 let mut plaintext = [0u8; 16];
                 rng.fill_bytes(&mut plaintext);
                 (key, plaintext)
             },
             |rng| {
-                let mut key_bytes = [0u8; 16];
-                rng.fill_bytes(&mut key_bytes);
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
                 let mut plaintext = [0u8; 16];
                 rng.fill_bytes(&mut plaintext);
-                (Secret::new(key_bytes), plaintext)
+                (key, plaintext)
             },
             |(key, plaintext)| {
-                let cipher = Rijndael::new(key);
+                let cipher = Rijndael::new(&Secret::new(*key));
                 let ct = cipher.encrypt(plaintext);
                 black_box(ct);
             },
@@ -839,20 +839,20 @@ mod ct_validation {
     fn test_aes_decrypt_ct() {
         let outcome = ct_test(0xAE5D_ECC7,
             |rng| {
-                let key = Secret::new([0u8; 16]);
+                let key = [0u8; 16];
                 let mut ciphertext = [0u8; 16];
                 rng.fill_bytes(&mut ciphertext);
                 (key, ciphertext)
             },
             |rng| {
-                let mut key_bytes = [0u8; 16];
-                rng.fill_bytes(&mut key_bytes);
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
                 let mut ciphertext = [0u8; 16];
                 rng.fill_bytes(&mut ciphertext);
-                (Secret::new(key_bytes), ciphertext)
+                (key, ciphertext)
             },
             |(key, ciphertext)| {
-                let cipher = Rijndael::new(key);
+                let cipher = Rijndael::new(&Secret::new(*key));
                 let pt = cipher.decrypt(ciphertext);
                 black_box(pt);
             },
