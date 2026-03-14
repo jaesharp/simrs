@@ -1608,6 +1608,7 @@ dependencies = [
  "proptest",
  "simrs-consttime",
  "simrs-consttime-validation",
+ "simrs-des",
  "simrs-iso7816",
  "simrs-rijndael",
  "simrs-secret",

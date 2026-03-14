@@ -8,7 +8,7 @@
 //!   - ETSI TS 102 221 V18.0.0 clause 11.2
 
 use cucumber::{given, then, when};
-use simrs_ota::{CommandPacketHeader, KeyIdentifier, OtaError, SecurityParameters};
+use simrs_ota::{CommandPacketHeader, KeyIdentifier, OtaCryptoKey, OtaError, SecurityParameters};
 use simrs_secret::Secret;
 use simrs_security_tests::apdu;
 
@@ -161,7 +161,7 @@ fn build_test_ota_packet() -> (Vec<u8>, Vec<u8>) {
     let payload = b"Hello SIM";
     let mut buf = [0u8; 512];
     let len = simrs_ota::encode_command_packet(
-        &hdr, payload, None, Some(&Secret::new(OTA_MAC_KEY)), &mut buf,
+        &hdr, payload, None, Some(&OtaCryptoKey::Aes(Secret::new(OTA_MAC_KEY))), &mut buf,
     )
     .expect("encode_command_packet must succeed");
 
@@ -179,8 +179,9 @@ fn when_decode_correct_key(world: &mut SimWorld) {
     let packet = world.ota_packet.clone();
     let mut hdr = CommandPacketHeader::new();
     let mut data = [0u8; 256];
+    let mac_key = OtaCryptoKey::Aes(Secret::new(OTA_MAC_KEY));
     let result = simrs_ota::decode_command_packet(
-        &packet, None, Some(&Secret::new(OTA_MAC_KEY)), &mut hdr, &mut data,
+        &packet, None, Some(&mac_key), &mut hdr, &mut data,
     );
     match result {
         Ok(len) => {
@@ -202,8 +203,9 @@ fn when_decode_tampered_mac(world: &mut SimWorld) {
     }
     let mut hdr = CommandPacketHeader::new();
     let mut data = [0u8; 256];
+    let mac_key = OtaCryptoKey::Aes(Secret::new(OTA_MAC_KEY));
     let result = simrs_ota::decode_command_packet(
-        &packet, None, Some(&Secret::new(OTA_MAC_KEY)), &mut hdr, &mut data,
+        &packet, None, Some(&mac_key), &mut hdr, &mut data,
     );
     // Store result for Then assertion.
     match result {
@@ -222,7 +224,7 @@ fn when_decode_tampered_mac(world: &mut SimWorld) {
 #[when("the packet is decoded with a different key")]
 fn when_decode_wrong_key(world: &mut SimWorld) {
     let packet = world.ota_packet.clone();
-    let wrong_key = Secret::new([0xBB; 16]); // different from OTA_MAC_KEY
+    let wrong_key = OtaCryptoKey::Aes(Secret::new([0xBB; 16])); // different from OTA_MAC_KEY
     let mut hdr = CommandPacketHeader::new();
     let mut data = [0u8; 256];
     let result = simrs_ota::decode_command_packet(

@@ -7,8 +7,8 @@
 //! # Supported Security Modes
 //!
 //! - No security (security parameters indicate no redundancy check and no ciphering)
-//! - Cryptographic Checksum (CC) using AES-128 CBC-MAC
-//! - AES-128 CBC encryption for ciphering
+//! - Cryptographic Checksum (CC) using AES-128 CBC-MAC or DES/3DES CBC-MAC
+//! - AES-128 CBC or DES/3DES CBC encryption for ciphering
 //!
 //! # `no_std`
 //! This crate is fully `no_std`. No heap allocation.
@@ -26,6 +26,7 @@
 extern crate std;
 
 use simrs_consttime::ct_eq;
+use simrs_des::{Des, TripleDes};
 use simrs_rijndael::Rijndael;
 use simrs_secret::Secret;
 
@@ -69,7 +70,10 @@ impl OtaCounter {
 impl From<[u8; 5]> for OtaCounter { fn from(raw: [u8; 5]) -> Self { Self(raw) } }
 
 /// AES block size in bytes.
-const BLOCK_SIZE: usize = 16;
+const AES_BLOCK: usize = 16;
+
+/// DES/3DES block size in bytes.
+const DES_BLOCK: usize = 8;
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -260,6 +264,37 @@ impl KeyIdentifier {
 }
 
 // ---------------------------------------------------------------------------
+// OTA cryptographic key
+// ---------------------------------------------------------------------------
+
+/// Typed OTA cryptographic key.
+///
+/// Wraps the key material with its algorithm tag for compile-time safety.
+/// DES keys use 8-byte blocks, AES keys use 16-byte blocks; the block size
+/// affects padding, MAC size, and CBC region alignment.
+#[derive(Clone)]
+pub enum OtaCryptoKey {
+    /// AES-128 (16-byte key, 16-byte block).
+    Aes(Secret<[u8; 16]>),
+    /// DES (8-byte key, 8-byte block).
+    Des(Secret<[u8; 8]>),
+    /// Triple-DES 2-key mode (16-byte key = K1||K2, K3=K1).
+    TripleDes(Secret<[u8; 16]>),
+    /// Triple-DES 3-key mode (24-byte key = K1||K2||K3).
+    TripleDes3(Secret<[u8; 24]>),
+}
+
+impl OtaCryptoKey {
+    /// Block size for this key's algorithm.
+    pub const fn block_size(&self) -> usize {
+        match self {
+            Self::Aes(_) => AES_BLOCK,
+            Self::Des(_) | Self::TripleDes(_) | Self::TripleDes3(_) => DES_BLOCK,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Command Packet Header
 // ---------------------------------------------------------------------------
 
@@ -409,16 +444,16 @@ pub fn encode_remote_apdus(
 // Padding (ETSI TS 102 225 V19.0.0 clause 5.1.4)
 // ---------------------------------------------------------------------------
 
-/// Apply zero-byte padding to make `data` a multiple of `BLOCK_SIZE` (16).
+/// Apply zero-byte padding to make `data` a multiple of `block_size`.
 ///
 /// Copies `data` into `padded` and appends `0x00` bytes as needed.
 /// Returns the padded length. If `data` is already block-aligned,
 /// no padding is added.
-fn apply_padding(data: &[u8], padded: &mut [u8]) -> Result<usize, OtaError> {
-    let pad_len = if data.len().is_multiple_of(BLOCK_SIZE) && !data.is_empty() {
+fn apply_padding(data: &[u8], padded: &mut [u8], block_size: usize) -> Result<usize, OtaError> {
+    let pad_len = if data.len().is_multiple_of(block_size) && !data.is_empty() {
         data.len()
     } else {
-        (data.len() / BLOCK_SIZE + 1) * BLOCK_SIZE
+        (data.len() / block_size + 1) * block_size
     };
     if padded.len() < pad_len {
         return Err(OtaError::BufferTooSmall);
@@ -444,7 +479,7 @@ fn aes_cbc_mac(key: &Secret<[u8; 16]>, data: &[u8]) -> [u8; 8] {
     let mut cv = [0u8; 16]; // IV = 0
 
     let mut off = 0;
-    while off + BLOCK_SIZE <= data.len() {
+    while off + AES_BLOCK <= data.len() {
         let mut block = [0u8; 16];
         block.copy_from_slice(&data[off..off + 16]);
         // XOR with previous ciphertext (or IV)
@@ -474,7 +509,7 @@ fn aes_cbc_encrypt(key: &Secret<[u8; 16]>, data: &mut [u8]) {
     let mut cv = [0u8; 16];
 
     let mut off = 0;
-    while off + BLOCK_SIZE <= data.len() {
+    while off + AES_BLOCK <= data.len() {
         let mut block = [0u8; 16];
         block.copy_from_slice(&data[off..off + 16]);
         for i in 0..16 {
@@ -498,7 +533,7 @@ fn aes_cbc_decrypt(key: &Secret<[u8; 16]>, data: &mut [u8]) {
     let mut prev_ct = [0u8; 16];
 
     let mut off = 0;
-    while off + BLOCK_SIZE <= data.len() {
+    while off + AES_BLOCK <= data.len() {
         let mut ct_block = [0u8; 16];
         ct_block.copy_from_slice(&data[off..off + 16]);
 
@@ -516,24 +551,133 @@ fn aes_cbc_decrypt(key: &Secret<[u8; 16]>, data: &mut [u8]) {
 }
 
 // ---------------------------------------------------------------------------
+// DES/3DES-CBC-MAC, encrypt, decrypt
+// ---------------------------------------------------------------------------
+
+/// Trait-like helper: encrypt a single DES-sized block with the appropriate
+/// DES/3DES variant selected by an `OtaCryptoKey`.
+fn des_encrypt_block(key: &OtaCryptoKey, block: [u8; 8]) -> [u8; 8] {
+    match key {
+        OtaCryptoKey::Des(k) => Des::new(k).encrypt(&block),
+        OtaCryptoKey::TripleDes(k) => TripleDes::new_2key(k).encrypt(&block),
+        OtaCryptoKey::TripleDes3(k) => TripleDes::new_3key(k).encrypt(&block),
+        OtaCryptoKey::Aes(_) => unreachable!(),
+    }
+}
+
+/// Trait-like helper: decrypt a single DES-sized block.
+fn des_decrypt_block(key: &OtaCryptoKey, block: [u8; 8]) -> [u8; 8] {
+    match key {
+        OtaCryptoKey::Des(k) => Des::new(k).decrypt(&block),
+        OtaCryptoKey::TripleDes(k) => TripleDes::new_2key(k).decrypt(&block),
+        OtaCryptoKey::TripleDes3(k) => TripleDes::new_3key(k).decrypt(&block),
+        OtaCryptoKey::Aes(_) => unreachable!(),
+    }
+}
+
+/// Compute DES/3DES CBC-MAC over `data`.
+///
+/// `data` must be a multiple of 8 bytes (caller pads first). IV is all-zeros.
+/// Returns the 4-byte MAC (left half of the final CBC block) per
+/// [ETSI TS 102 225 V19.0.0 clause 5.1.3.2](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf).
+fn des_cbc_mac(key: &OtaCryptoKey, data: &[u8]) -> [u8; 4] {
+    let mut cv = [0u8; 8]; // IV = 0
+
+    let mut off = 0;
+    while off + DES_BLOCK <= data.len() {
+        let mut block = [0u8; 8];
+        block.copy_from_slice(&data[off..off + 8]);
+        for i in 0..8 {
+            block[i] ^= cv[i];
+        }
+        cv = des_encrypt_block(key, block);
+        off += 8;
+    }
+
+    let mut mac = [0u8; 4];
+    mac.copy_from_slice(&cv[..4]);
+    mac
+}
+
+/// DES/3DES CBC encrypt `data` in-place.
+///
+/// `data` must be a multiple of 8 bytes. IV is all-zeros.
+fn des_cbc_encrypt(key: &OtaCryptoKey, data: &mut [u8]) {
+    let mut cv = [0u8; 8];
+
+    let mut off = 0;
+    while off + DES_BLOCK <= data.len() {
+        let mut block = [0u8; 8];
+        block.copy_from_slice(&data[off..off + 8]);
+        for i in 0..8 {
+            block[i] ^= cv[i];
+        }
+        cv = des_encrypt_block(key, block);
+        data[off..off + 8].copy_from_slice(&cv);
+        off += 8;
+    }
+}
+
+/// DES/3DES CBC decrypt `data` in-place.
+///
+/// `data` must be a multiple of 8 bytes. IV is all-zeros.
+fn des_cbc_decrypt(key: &OtaCryptoKey, data: &mut [u8]) {
+    let mut prev_ct = [0u8; 8];
+
+    let mut off = 0;
+    while off + DES_BLOCK <= data.len() {
+        let mut ct_block = [0u8; 8];
+        ct_block.copy_from_slice(&data[off..off + 8]);
+
+        let mut pt_block = des_decrypt_block(key, ct_block);
+        for i in 0..8 {
+            pt_block[i] ^= prev_ct[i];
+        }
+
+        data[off..off + 8].copy_from_slice(&pt_block);
+        prev_ct = ct_block;
+        off += 8;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Command packet encoding (ETSI TS 102 225 V19.0.0 clause 5.1)
 // ---------------------------------------------------------------------------
 
-/// MAC size in bytes (8-byte CC per [ETSI TS 102 225 V19.0.0 Annex B](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf) for AES).
-const CC_SIZE: usize = 8;
+/// CC size for AES (8 bytes -- left half of final AES-CBC block).
+const AES_CC_SIZE: usize = 8;
+
+/// CC size for DES/3DES (4 bytes -- left half of final DES-CBC block).
+const DES_CC_SIZE: usize = 4;
+
+/// Returns the CC size for the given key, or 0 (AES default) if no key.
+const fn cc_size_for(key: Option<&OtaCryptoKey>) -> usize {
+    match key {
+        Some(OtaCryptoKey::Des(_) | OtaCryptoKey::TripleDes(_) | OtaCryptoKey::TripleDes3(_)) => DES_CC_SIZE,
+        _ => AES_CC_SIZE,
+    }
+}
+
+/// Returns the block size for the given key, or AES default if no key.
+const fn block_size_for(key: Option<&OtaCryptoKey>) -> usize {
+    match key {
+        Some(k) => k.block_size(),
+        None => AES_BLOCK,
+    }
+}
 
 /// Encode a command packet.
 ///
 /// Per [ETSI TS 102 225 V19.0.0 clause 5.1](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf#%5B%7B%22num%22%3A118%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
 /// The packet layout in `buf` is:
 /// ```text
-/// CPL(2) | CHL(1) | SecurityParameters(2) | CipheringKeyId(1) | IntegrityKeyId(1) | TargetApp(3) | CNTR(5) | PCNTR(1) | CC(8)? | data...
+/// CPL(2) | CHL(1) | SecurityParameters(2) | CipheringKeyId(1) | IntegrityKeyId(1) | TargetApp(3) | CNTR(5) | PCNTR(1) | CC(4|8)? | data...
 /// ```
 ///
 /// - `hdr`: Command packet header (security parameters, key identifiers, target app, counter).
 /// - `data`: Remote APDU payload ([ETSI TS 102 226 V19.0.0](../../../docs/specs/etsi/ts-102-226/ts_102226v190000p.pdf) encoded).
-/// - `key_cipher`: AES-128 key for ciphering (if security parameters indicate ciphering).
-/// - `key_mac`: AES-128 key for CC (if security parameters indicate CC).
+/// - `key_cipher`: Cryptographic key for ciphering (if security parameters indicate ciphering).
+/// - `key_mac`: Cryptographic key for CC (if security parameters indicate CC).
 /// - `buf`: Output buffer, must be large enough to hold the complete packet.
 ///
 /// Returns the total number of bytes written to `buf`.
@@ -570,14 +714,16 @@ const CC_SIZE: usize = 8;
 pub fn encode_command_packet(
     hdr: &CommandPacketHeader,
     data: &[u8],
-    key_cipher: Option<&Secret<[u8; 16]>>,
-    key_mac: Option<&Secret<[u8; 16]>>,
+    key_cipher: Option<&OtaCryptoKey>,
+    key_mac: Option<&OtaCryptoKey>,
     buf: &mut [u8],
 ) -> Result<usize, OtaError> {
     let has_cc = matches!(hdr.security_parameters.redundancy_check(), RedundancyCheck::CryptographicChecksum);
     let has_cipher = hdr.security_parameters.ciphering();
 
-    let rc_size = if has_cc { CC_SIZE } else { 0 };
+    let cc_sz = cc_size_for(key_mac);
+    let rc_size = if has_cc { cc_sz } else { 0 };
+    let blk = block_size_for(key_cipher.or(key_mac));
 
     // The secured data region (after target app) that gets ciphered:
     // CNTR(5) + PCNTR(1) + CC? + data
@@ -585,7 +731,7 @@ pub fn encode_command_packet(
 
     // If ciphering, pad the secured data to a block boundary.
     let (padded_secured_len, padding_count) = if has_cipher {
-        let padded = secured_data_len.div_ceil(BLOCK_SIZE) * BLOCK_SIZE;
+        let padded = secured_data_len.div_ceil(blk) * blk;
         (padded, padded - secured_data_len)
     } else {
         (secured_data_len, 0_usize)
@@ -605,7 +751,7 @@ pub fn encode_command_packet(
     //   Offset 7-9:   TargetApp (3 bytes)
     //   Offset 10-14: CNTR (5 bytes)
     //   Offset 15:    PCNTR
-    //   Offset 16..:  CC (8 bytes if present)
+    //   Offset 16..:  CC (cc_sz bytes if present)
     //   After CC:     data + padding
 
     let data_with_padding_len = data.len() + padding_count;
@@ -655,15 +801,23 @@ pub fn encode_command_packet(
     if has_cc {
         if let Some(km) = key_mac {
             // Zero the CC field before MAC computation
-            for b in &mut buf[cc_offset..cc_offset + CC_SIZE] {
+            for b in &mut buf[cc_offset..cc_offset + cc_sz] {
                 *b = 0x00;
             }
             // MAC input: header fields from SecurityParameters through end of data+padding
             let mac_region = &buf[3..total];
             let mut mac_buf = [0u8; 1024];
-            let padded_len = apply_padding(mac_region, &mut mac_buf)?;
-            let mac = aes_cbc_mac(km, &mac_buf[..padded_len]);
-            buf[cc_offset..cc_offset + CC_SIZE].copy_from_slice(&mac);
+            let padded_len = apply_padding(mac_region, &mut mac_buf, blk)?;
+            match km {
+                OtaCryptoKey::Aes(k) => {
+                    let mac = aes_cbc_mac(k, &mac_buf[..padded_len]);
+                    buf[cc_offset..cc_offset + cc_sz].copy_from_slice(&mac);
+                }
+                des_key => {
+                    let mac = des_cbc_mac(des_key, &mac_buf[..padded_len]);
+                    buf[cc_offset..cc_offset + cc_sz].copy_from_slice(&mac);
+                }
+            }
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
@@ -674,7 +828,10 @@ pub fn encode_command_packet(
         if let Some(kc) = key_cipher {
             let cipher_region = &mut buf[10..total];
             debug_assert!(cipher_region.len() == padded_secured_len);
-            aes_cbc_encrypt(kc, cipher_region);
+            match kc {
+                OtaCryptoKey::Aes(k) => aes_cbc_encrypt(k, cipher_region),
+                des_key => des_cbc_encrypt(des_key, cipher_region),
+            }
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
@@ -693,16 +850,16 @@ pub fn encode_command_packet(
 /// Encoding order is MAC-then-encrypt, so decoding is decrypt-then-verify-MAC.
 ///
 /// - `packet`: The complete received packet bytes.
-/// - `key_cipher`: AES-128 key for deciphering (required if security parameters indicate ciphering).
-/// - `key_mac`: AES-128 key for CC verification (required if security parameters indicate CC).
+/// - `key_cipher`: Cryptographic key for deciphering (required if security parameters indicate ciphering).
+/// - `key_mac`: Cryptographic key for CC verification (required if security parameters indicate CC).
 /// - `hdr_out`: Decoded header is written here.
 /// - `data_out`: Decoded command data is written here.
 ///
 /// Returns the number of data bytes written to `data_out`.
 pub fn decode_command_packet(
     packet: &[u8],
-    key_cipher: Option<&Secret<[u8; 16]>>,
-    key_mac: Option<&Secret<[u8; 16]>>,
+    key_cipher: Option<&OtaCryptoKey>,
+    key_mac: Option<&OtaCryptoKey>,
     hdr_out: &mut CommandPacketHeader,
     data_out: &mut [u8],
 ) -> Result<usize, OtaError> {
@@ -727,7 +884,9 @@ pub fn decode_command_packet(
 
     let has_cc = matches!(hdr_out.security_parameters.redundancy_check(), RedundancyCheck::CryptographicChecksum);
     let has_cipher = hdr_out.security_parameters.ciphering();
-    let rc_size = if has_cc { CC_SIZE } else { 0 };
+    let cc_sz = cc_size_for(key_mac);
+    let rc_size = if has_cc { cc_sz } else { 0 };
+    let blk = block_size_for(key_cipher.or(key_mac));
 
     // The secured region (CNTR through end of packet) starts at offset 10.
     // Copy into a working buffer so we can decrypt in-place when ciphered.
@@ -742,14 +901,17 @@ pub fn decode_command_packet(
     // Encode order is MAC-then-encrypt, so decode is decrypt-then-verify-MAC.
     if has_cipher {
         if let Some(kc) = key_cipher {
-            aes_cbc_decrypt(kc, &mut work[..secured_len]);
+            match kc {
+                OtaCryptoKey::Aes(k) => aes_cbc_decrypt(k, &mut work[..secured_len]),
+                des_key => des_cbc_decrypt(des_key, &mut work[..secured_len]),
+            }
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
     }
 
     // Parse CNTR and PCNTR from the (possibly decrypted) working buffer.
-    // Layout: CNTR(5) + PCNTR(1) + CC(8)? + data + padding
+    // Layout: CNTR(5) + PCNTR(1) + CC(cc_sz)? + data + padding
     if secured_len < 6 + rc_size {
         return Err(OtaError::InvalidLength);
     }
@@ -760,13 +922,11 @@ pub fn decode_command_packet(
     let data_offset = cc_offset + rc_size;
 
     // Verify MAC if CC mode.
-    // MAC input = SecurityParameters(2) + CipheringKeyId(1) + IntegrityKeyId(1) + TargetApp(3) + CNTR(5) + PCNTR(1) + CC_zeros(8) + data + padding
-    // = packet[3..10] (always clear) concatenated with work[..secured_len] (CC zeroed).
     if has_cc {
         if let Some(km) = key_mac {
             // Extract the received MAC from the (decrypted) work buffer
-            let mut received_mac = [0u8; CC_SIZE];
-            received_mac.copy_from_slice(&work[cc_offset..cc_offset + CC_SIZE]);
+            let mut received_mac = [0u8; AES_CC_SIZE]; // oversized for DES (4), fine
+            received_mac[..cc_sz].copy_from_slice(&work[cc_offset..cc_offset + cc_sz]);
 
             // Re-build the MAC input: header fields (clear) + secured region (decrypted, CC zeroed)
             let mac_input_len = 7 + secured_len;
@@ -778,15 +938,24 @@ pub fn decode_command_packet(
             recompute_buf[7..7 + secured_len].copy_from_slice(&work[..secured_len]);
             // Zero the CC field (at offset 7 + 6 = 13 in the recompute buffer)
             let cc_in_buf = 7 + cc_offset;
-            for b in &mut recompute_buf[cc_in_buf..cc_in_buf + CC_SIZE] {
+            for b in &mut recompute_buf[cc_in_buf..cc_in_buf + cc_sz] {
                 *b = 0x00;
             }
             let mut mac_padded = [0u8; 1024];
-            let padded_len = apply_padding(&recompute_buf[..mac_input_len], &mut mac_padded)?;
-            let computed_mac = aes_cbc_mac(km, &mac_padded[..padded_len]);
-
-            if !ct_eq(&computed_mac, &received_mac).into_bool() {
-                return Err(OtaError::MacVerifyFailed);
+            let padded_len = apply_padding(&recompute_buf[..mac_input_len], &mut mac_padded, blk)?;
+            match km {
+                OtaCryptoKey::Aes(k) => {
+                    let computed_mac = aes_cbc_mac(k, &mac_padded[..padded_len]);
+                    if !ct_eq(&computed_mac, &received_mac[..cc_sz]).into_bool() {
+                        return Err(OtaError::MacVerifyFailed);
+                    }
+                }
+                des_key => {
+                    let computed_mac = des_cbc_mac(des_key, &mac_padded[..padded_len]);
+                    if !ct_eq(&computed_mac, &received_mac[..cc_sz]).into_bool() {
+                        return Err(OtaError::MacVerifyFailed);
+                    }
+                }
             }
         } else {
             return Err(OtaError::UnknownAlgorithm);
@@ -855,18 +1024,20 @@ pub fn encode_response_packet(
     status_code: u8,
     data: &[u8],
     security_params: &SecurityParameters,
-    key_cipher: Option<&Secret<[u8; 16]>>,
-    key_mac: Option<&Secret<[u8; 16]>>,
+    key_cipher: Option<&OtaCryptoKey>,
+    key_mac: Option<&OtaCryptoKey>,
     buf: &mut [u8],
 ) -> Result<usize, OtaError> {
     let has_cc = matches!(security_params.redundancy_check(), RedundancyCheck::CryptographicChecksum);
     let has_cipher = security_params.por_ciphered();
-    let rc_size = if has_cc { CC_SIZE } else { 0 };
+    let cc_sz = cc_size_for(key_mac);
+    let rc_size = if has_cc { cc_sz } else { 0 };
+    let blk = block_size_for(key_cipher.or(key_mac));
 
     // Secured data region (from CNTR): CNTR(5) + PCNTR(1) + STATUS(1) + CC? + data
     let secured_data_len = 5 + 1 + 1 + rc_size + data.len();
     let (padded_secured_len, padding_count) = if has_cipher {
-        let padded = secured_data_len.div_ceil(BLOCK_SIZE) * BLOCK_SIZE;
+        let padded = secured_data_len.div_ceil(blk) * blk;
         (padded, padded - secured_data_len)
     } else {
         (secured_data_len, 0_usize)
@@ -918,15 +1089,22 @@ pub fn encode_response_packet(
     // Compute CBC-MAC if CC mode
     if has_cc {
         if let Some(km) = key_mac {
-            for b in &mut buf[cc_offset..cc_offset + CC_SIZE] {
+            for b in &mut buf[cc_offset..cc_offset + cc_sz] {
                 *b = 0x00;
             }
-            // MAC over: TargetApp + CNTR + PCNTR + STATUS + CC(zeros) + data + padding
             let mac_region = &buf[3..total];
             let mut mac_buf = [0u8; 1024];
-            let padded_len = apply_padding(mac_region, &mut mac_buf)?;
-            let mac = aes_cbc_mac(km, &mac_buf[..padded_len]);
-            buf[cc_offset..cc_offset + CC_SIZE].copy_from_slice(&mac);
+            let padded_len = apply_padding(mac_region, &mut mac_buf, blk)?;
+            match km {
+                OtaCryptoKey::Aes(k) => {
+                    let mac = aes_cbc_mac(k, &mac_buf[..padded_len]);
+                    buf[cc_offset..cc_offset + cc_sz].copy_from_slice(&mac);
+                }
+                des_key => {
+                    let mac = des_cbc_mac(des_key, &mac_buf[..padded_len]);
+                    buf[cc_offset..cc_offset + cc_sz].copy_from_slice(&mac);
+                }
+            }
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
@@ -937,7 +1115,10 @@ pub fn encode_response_packet(
         if let Some(kc) = key_cipher {
             let cipher_region = &mut buf[6..total];
             debug_assert!(cipher_region.len() == padded_secured_len);
-            aes_cbc_encrypt(kc, cipher_region);
+            match kc {
+                OtaCryptoKey::Aes(k) => aes_cbc_encrypt(k, cipher_region),
+                des_key => des_cbc_encrypt(des_key, cipher_region),
+            }
         } else {
             return Err(OtaError::UnknownAlgorithm);
         }
@@ -1013,7 +1194,7 @@ mod tests {
     fn padding_exact_block_no_pad() {
         let data = [0xAAu8; 16];
         let mut padded = [0u8; 32];
-        let len = apply_padding(&data, &mut padded).unwrap();
+        let len = apply_padding(&data, &mut padded, AES_BLOCK).unwrap();
         assert_eq!(len, 16);
         assert_eq!(&padded[..16], &data);
     }
@@ -1023,7 +1204,7 @@ mod tests {
     fn padding_adds_zeros() {
         let data = [0xBBu8; 10];
         let mut padded = [0xFFu8; 32];
-        let len = apply_padding(&data, &mut padded).unwrap();
+        let len = apply_padding(&data, &mut padded, AES_BLOCK).unwrap();
         assert_eq!(len, 16);
         assert_eq!(&padded[..10], &data);
         assert_eq!(&padded[10..16], &[0x00; 6]);
@@ -1068,7 +1249,7 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
-        let key_mac = Secret::new([0x40u8; 16]);
+        let key_mac = OtaCryptoKey::Aes(Secret::new([0x40u8; 16]));
 
         let mut buf = [0u8; 256];
         let len = encode_command_packet(&hdr, &data, None, Some(&key_mac), &mut buf).unwrap();
@@ -1123,7 +1304,7 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
-        let key_mac = Secret::new([0x40u8; 16]);
+        let key_mac = OtaCryptoKey::Aes(Secret::new([0x40u8; 16]));
 
         let mut buf = [0u8; 256];
         let enc_len = encode_command_packet(&hdr, &data, None, Some(&key_mac), &mut buf).unwrap();
@@ -1149,7 +1330,7 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
-        let key_mac = Secret::new([0x40u8; 16]);
+        let key_mac = OtaCryptoKey::Aes(Secret::new([0x40u8; 16]));
 
         let mut buf = [0u8; 256];
         let enc_len = encode_command_packet(&hdr, &data, None, Some(&key_mac), &mut buf).unwrap();
@@ -1312,7 +1493,7 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
-        let key_cipher = Secret::new([0x11u8; 16]);
+        let key_cipher = OtaCryptoKey::Aes(Secret::new([0x11u8; 16]));
 
         let mut buf = [0u8; 256];
         let enc_len = encode_command_packet(
@@ -1342,8 +1523,8 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
-        let key_cipher = Secret::new([0x11u8; 16]);
-        let key_mac = Secret::new([0x22u8; 16]);
+        let key_cipher = OtaCryptoKey::Aes(Secret::new([0x11u8; 16]));
+        let key_mac = OtaCryptoKey::Aes(Secret::new([0x22u8; 16]));
 
         let mut buf = [0u8; 256];
         let enc_len = encode_command_packet(
@@ -1376,8 +1557,8 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4, 0x00, 0x00];
-        let key_cipher = Secret::new([0x11u8; 16]);
-        let key_mac = Secret::new([0x22u8; 16]);
+        let key_cipher = OtaCryptoKey::Aes(Secret::new([0x11u8; 16]));
+        let key_mac = OtaCryptoKey::Aes(Secret::new([0x22u8; 16]));
 
         let mut buf = [0u8; 256];
         let enc_len = encode_command_packet(
@@ -1407,7 +1588,7 @@ mod tests {
             padding_counter: 0,
         };
         let data = [0xA0, 0xA4];
-        let key_cipher = Secret::new([0x11u8; 16]);
+        let key_cipher = OtaCryptoKey::Aes(Secret::new([0x11u8; 16]));
 
         let mut buf = [0u8; 256];
         let enc_len = encode_command_packet(
@@ -1420,6 +1601,209 @@ mod tests {
             &buf[..enc_len], None, None, &mut decoded_hdr, &mut decoded_data,
         );
         assert_eq!(result, Err(OtaError::UnknownAlgorithm));
+    }
+
+    // -----------------------------------------------------------------------
+    // DES/3DES roundtrip tests
+    // -----------------------------------------------------------------------
+
+    // 25. 3DES (2-key) MAC-only roundtrip
+    #[test]
+    fn des_mac_roundtrip() {
+        let hdr = CommandPacketHeader {
+            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x01),  // DES algo
+            integrity_key_id: KeyIdentifier::new(0x01),  // DES algo
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
+            padding_counter: 0,
+        };
+        let data = [0xA0, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+        let key_mac = OtaCryptoKey::TripleDes(Secret::new([0x55u8; 16]));
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, None, Some(&key_mac), &mut buf,
+        ).unwrap();
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let dec_len = decode_command_packet(
+            &buf[..enc_len], None, Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+        ).unwrap();
+
+        assert_eq!(&decoded_data[..dec_len], &data);
+        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
+    }
+
+    // 26. 3DES (2-key) MAC tampered -> MacVerifyFailed
+    #[test]
+    fn des_mac_tampered() {
+        let hdr = CommandPacketHeader {
+            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x01),
+            integrity_key_id: KeyIdentifier::new(0x01),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00; 5]),
+            padding_counter: 0,
+        };
+        let data = [0xA0, 0xA4, 0x00, 0x00];
+        let key_mac = OtaCryptoKey::TripleDes(Secret::new([0x55u8; 16]));
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, None, Some(&key_mac), &mut buf,
+        ).unwrap();
+
+        // Tamper with DES MAC (4 bytes at offset 16)
+        buf[16] ^= 0xFF;
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let result = decode_command_packet(
+            &buf[..enc_len], None, Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+        );
+        assert_eq!(result, Err(OtaError::MacVerifyFailed));
+    }
+
+    // 27. 3DES (2-key) cipher-only roundtrip
+    #[test]
+    fn des_cipher_roundtrip() {
+        let hdr = CommandPacketHeader {
+            security_parameters: SecurityParameters { command_header: 0x04, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x01),
+            integrity_key_id: KeyIdentifier::new(0x00),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x02]),
+            padding_counter: 0,
+        };
+        let data = [0xA0, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+        let key_cipher = OtaCryptoKey::TripleDes(Secret::new([0x33u8; 16]));
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, Some(&key_cipher), None, &mut buf,
+        ).unwrap();
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let dec_len = decode_command_packet(
+            &buf[..enc_len], Some(&key_cipher), None, &mut decoded_hdr, &mut decoded_data,
+        ).unwrap();
+
+        assert_eq!(&decoded_data[..dec_len], &data);
+        assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
+    }
+
+    // 28. 3DES (2-key) cipher + MAC roundtrip
+    #[test]
+    fn des_cipher_mac_roundtrip() {
+        let hdr = CommandPacketHeader {
+            security_parameters: SecurityParameters { command_header: 0x06, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x01),
+            integrity_key_id: KeyIdentifier::new(0x01),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x03]),
+            padding_counter: 0,
+        };
+        let data = [0xA0, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00, 0xC0, 0x00, 0x00, 0x10];
+        let key_cipher = OtaCryptoKey::TripleDes(Secret::new([0x33u8; 16]));
+        let key_mac = OtaCryptoKey::TripleDes(Secret::new([0x55u8; 16]));
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf,
+        ).unwrap();
+
+        // Ciphertext should not contain plaintext counter
+        assert_ne!(&buf[10..15], hdr.counter.as_bytes());
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let dec_len = decode_command_packet(
+            &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+        ).unwrap();
+
+        assert_eq!(&decoded_data[..dec_len], &data);
+        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
+        assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
+    }
+
+    // 29. 3DES (3-key) cipher + MAC roundtrip
+    #[test]
+    fn des3_3key_cipher_mac_roundtrip() {
+        let hdr = CommandPacketHeader {
+            security_parameters: SecurityParameters { command_header: 0x06, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x01),
+            integrity_key_id: KeyIdentifier::new(0x01),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x04]),
+            padding_counter: 0,
+        };
+        let data = [0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
+        let key_cipher = OtaCryptoKey::TripleDes3(Secret::new([0x11u8; 24]));
+        let key_mac = OtaCryptoKey::TripleDes3(Secret::new([0x22u8; 24]));
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf,
+        ).unwrap();
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let dec_len = decode_command_packet(
+            &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+        ).unwrap();
+
+        assert_eq!(&decoded_data[..dec_len], &data);
+    }
+
+    // 30. Single-DES MAC roundtrip
+    #[test]
+    fn des_single_key_mac_roundtrip() {
+        let hdr = CommandPacketHeader {
+            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
+            ciphering_key_id: KeyIdentifier::new(0x01),
+            integrity_key_id: KeyIdentifier::new(0x01),
+            target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
+            counter: OtaCounter::new([0x00; 5]),
+            padding_counter: 0,
+        };
+        let data = [0xA0, 0xC0, 0x00, 0x00, 0x10];
+        let key_mac = OtaCryptoKey::Des(Secret::new([0x77u8; 8]));
+
+        let mut buf = [0u8; 256];
+        let enc_len = encode_command_packet(
+            &hdr, &data, None, Some(&key_mac), &mut buf,
+        ).unwrap();
+
+        let mut decoded_hdr = CommandPacketHeader::new();
+        let mut decoded_data = [0u8; 256];
+        let dec_len = decode_command_packet(
+            &buf[..enc_len], None, Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+        ).unwrap();
+
+        assert_eq!(&decoded_data[..dec_len], &data);
+    }
+
+    // 31. DES response packet with CC
+    #[test]
+    fn des_response_packet_roundtrip() {
+        let tar = ToolkitAppReference::new([0xB0, 0x00, 0x10]);
+        let counter = OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]);
+        // command_header 0x02 = CC mode (redundancy_check bits)
+        let sp = SecurityParameters { command_header: 0x02, response_header: 0x01 };
+        let key_mac = OtaCryptoKey::TripleDes(Secret::new([0x55u8; 16]));
+
+        let mut buf = [0u8; 256];
+        let len = encode_response_packet(
+            &tar, &counter, 0x00, &[], &sp, None, Some(&key_mac), &mut buf,
+        ).unwrap();
+
+        // Total: RPL(2) + RHL(1) + TAR(3) + CNTR(5) + PCNTR(1) + STATUS(1) + CC(4) = 17
+        assert_eq!(len, 17);
+        // Verify CC bytes are non-zero (actual MAC was computed)
+        assert_ne!(&buf[13..17], &[0u8; 4]);
     }
 }
 
