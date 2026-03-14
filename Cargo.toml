@@ -2,6 +2,7 @@
 members = [
     "crates/simrs-consttime-macros",
     "crates/simrs-consttime",
+    "crates/simrs-des",
     "crates/simrs-iso7816",
     "crates/simrs-bertlv",
     "crates/simrs-rijndael",
@@ -56,6 +57,7 @@ simrs-iso7816             = { path = "crates/simrs-iso7816",             default
 simrs-bertlv              = { path = "crates/simrs-bertlv",              default-features = false }
 simrs-rijndael            = { path = "crates/simrs-rijndael",            default-features = false }
 simrs-comp128             = { path = "crates/simrs-comp128",             default-features = false }
+simrs-des                 = { path = "crates/simrs-des",                 default-features = false }
 simrs-keccak              = { path = "crates/simrs-keccak",              default-features = false }
 simrs-sha256              = { path = "crates/simrs-sha256",              default-features = false }
 simrs-kdf                 = { path = "crates/simrs-kdf",                 default-features = false }

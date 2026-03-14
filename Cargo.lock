@@ -1481,6 +1481,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-des"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-consttime",
+ "simrs-consttime-validation",
+ "simrs-redact",
+ "simrs-secret",
+]
+
+[[package]]
 name = "simrs-ecies"
 version = "0.1.0"
 dependencies = [
