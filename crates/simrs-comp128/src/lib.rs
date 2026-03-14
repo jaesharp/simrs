@@ -52,7 +52,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-use simrs_consttime::ct_select_n;
+use simrs_consttime::{ct_select, ct_select_n};
 use simrs_redact::Redact;
 use simrs_secret::Secret;
 
@@ -125,6 +125,33 @@ pub struct GsmAuthResult {
 /// for consistency with the descriptive naming convention.
 #[deprecated(note = "renamed to GsmAuthResult")]
 pub type Comp128Result = GsmAuthResult;
+
+/// COMP128 algorithm version selector.
+///
+/// GSM operators deployed different COMP128 versions over time:
+/// - **V1**: Original (Briceno/Goldberg/Wagner 1998 reversal). Vulnerable to
+///   Ki extraction via ~150,000 chosen-challenge queries.
+/// - **V2**: Strengthened round function, but still zeroes the last 10 bits
+///   of Kc (54-bit effective cipher key), matching V1's output weakness.
+/// - **V3**: Same strengthened round function as V2, but with full 64-bit Kc.
+///
+/// V2 and V3 are structurally different from V1 (different substitution tables,
+/// different internal computation). They are NOT merely V1 with a modified
+/// output stage.
+///
+/// # Standards
+///
+/// - COMP128v1: ETSI TS 155 205
+/// - COMP128v2/v3: proprietary (reverse-engineered by Tamas Jos / skelsec)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Comp128Version {
+    /// Version 1: original algorithm, vulnerable to Ki extraction.
+    V1,
+    /// Version 2: strengthened core, 54-bit effective Kc (last 10 bits zeroed).
+    V2,
+    /// Version 3: strengthened core, full 64-bit Kc.
+    V3,
+}
 
 impl core::fmt::Debug for GsmAuthResult {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -284,6 +311,172 @@ pub fn comp128(ki: &Secret<[u8; 16]>, rand: &[u8; 16]) -> GsmAuthResult {
     GsmAuthResult { signed_response: SignedResponse::new(sres), cipher_key: Secret::new(kc) }
 }
 
+/// Run the COMP128v3 A3/A8 GSM authentication algorithm.
+///
+/// COMP128v3 uses a completely different internal structure from V1: two
+/// 256-entry substitution tables, byte-reversed inputs, and a different
+/// bit-extraction stage. The output includes a full 64-bit Kc (no bit zeroing).
+///
+/// # Reference
+///
+/// Ported from Osmocom libosmocore `comp128v23.c` (Tamas Jos / skelsec).
+///
+/// ```
+/// use simrs_comp128::comp128v3;
+/// use simrs_secret::Secret;
+///
+/// let ki   = Secret::new([0x00u8; 16]);
+/// let rand = [0x00u8; 16];
+/// let r = comp128v3(&ki, &rand);
+/// assert_eq!(*r.signed_response.as_bytes(), [0xB2, 0x4C, 0x2D, 0xAC]);
+/// assert_eq!(*r.cipher_key.declassify_ref(), [0x7C, 0x82, 0xC3, 0xEC, 0x44, 0x95, 0x35, 0x61]);
+/// ```
+#[allow(clippy::cast_possible_truncation)]
+pub fn comp128v3(ki: &Secret<[u8; 16]>, rand: &[u8; 16]) -> GsmAuthResult {
+    let ki_bytes = ki.declassify_ref();
+
+    // Byte reversal of Ki and RAND.
+    let mut k_mix = [0u8; 16];
+    let mut rand_mix = [0u8; 16];
+    for i in 0..8 {
+        k_mix[i] = ki_bytes[15 - i];
+        k_mix[15 - i] = ki_bytes[i];
+    }
+    for i in 0..8 {
+        rand_mix[i] = rand[15 - i];
+        rand_mix[15 - i] = rand[i];
+    }
+
+    // XOR key and rand.
+    let mut katyvasz = [0u8; 16];
+    for i in 0..16 {
+        katyvasz[i] = k_mix[i] ^ rand_mix[i];
+    }
+
+    // 8 iterations of the internal function.
+    for _ in 0..8 {
+        rand_mix = comp128v23_internal(&rand_mix, &katyvasz);
+    }
+
+    // Byte reversal of output.
+    let mut output = [0u8; 16];
+    for i in 0..16 {
+        output[i] = rand_mix[15 - i];
+    }
+
+    // Skip bytes 4..7 (memmove(output+4, output+8, 8) in the C reference).
+    let mut sres = [0u8; 4];
+    sres.copy_from_slice(&output[..4]);
+
+    let mut kc = [0u8; 8];
+    kc.copy_from_slice(&output[8..16]);
+
+    GsmAuthResult { signed_response: SignedResponse::new(sres), cipher_key: Secret::new(kc) }
+}
+
+/// Run the COMP128v2 A3/A8 GSM authentication algorithm.
+///
+/// Identical to COMP128v3 but forces the last 10 bits of Kc to zero,
+/// producing a 54-bit effective cipher key (same constraint as V1).
+///
+/// ```
+/// use simrs_comp128::comp128v2;
+/// use simrs_secret::Secret;
+///
+/// let ki   = Secret::new([0x00u8; 16]);
+/// let rand = [0x00u8; 16];
+/// let r = comp128v2(&ki, &rand);
+/// assert_eq!(*r.signed_response.as_bytes(), [0xB2, 0x4C, 0x2D, 0xAC]);
+/// // Kc last 10 bits zeroed vs V3:
+/// assert_eq!(r.cipher_key.declassify_ref()[7], 0x00);
+/// assert_eq!(r.cipher_key.declassify_ref()[6] & 0x03, 0x00);
+/// ```
+pub fn comp128v2(ki: &Secret<[u8; 16]>, rand: &[u8; 16]) -> GsmAuthResult {
+    let result = comp128v3(ki, rand);
+    let mut kc = *result.cipher_key.declassify_ref();
+    kc[7] = 0x00;
+    kc[6] &= 0xFC;
+    GsmAuthResult {
+        signed_response: result.signed_response,
+        cipher_key: Secret::new(kc),
+    }
+}
+
+/// Run the COMP128 A3/A8 algorithm for a specified version.
+///
+/// Dispatches to [`comp128`] (V1), [`comp128v2`], or [`comp128v3`].
+///
+/// ```
+/// use simrs_comp128::{comp128, comp128_versioned, Comp128Version};
+/// use simrs_secret::Secret;
+///
+/// let ki = Secret::new([0x11u8; 16]);
+/// let rand = [0x22u8; 16];
+/// let r_direct = comp128(&ki, &rand);
+/// let r_versioned = comp128_versioned(&ki, &rand, Comp128Version::V1);
+/// assert_eq!(r_direct.signed_response, r_versioned.signed_response);
+/// ```
+pub fn comp128_versioned(
+    ki: &Secret<[u8; 16]>,
+    rand: &[u8; 16],
+    version: Comp128Version,
+) -> GsmAuthResult {
+    match version {
+        Comp128Version::V1 => comp128(ki, rand),
+        Comp128Version::V2 => comp128v2(ki, rand),
+        Comp128Version::V3 => comp128v3(ki, rand),
+    }
+}
+
+/// COMP128v2/v3 internal round function.
+///
+/// Applies two-table substitution and bit extraction to produce a 16-byte
+/// output from the current state (`rand_in`) and key-XOR material (`kxor`).
+#[allow(clippy::cast_possible_truncation)]
+fn comp128v23_internal(rand_in: &[u8; 16], kxor: &[u8; 16]) -> [u8; 16] {
+    let mut temp = [0u8; 16];
+    let mut km_rm = [0u8; 32];
+
+    km_rm[..16].copy_from_slice(rand_in);
+    km_rm[16..32].copy_from_slice(kxor);
+
+    for i in 0..5u32 {
+        for z in 0..16usize {
+            let t1 = ct_select(&TABLE_V23_1, km_rm[16 + z]);
+            temp[z] = ct_select(&TABLE_V23_0, t1 ^ km_rm[z]);
+        }
+
+        let mut j = 0u32;
+        while (1u32 << i) > j {
+            let mut k = 0u32;
+            while (1u32 << (4 - i)) > k {
+                let src = ((k << i) + j) as usize;
+                let src_k = ((k << i) + 16 + j) as usize;
+                let dst1 = (((2 * k + 1) << i) + j) as usize;
+                let dst2 = ((k << (i + 1)) + j) as usize;
+
+                let t1 = ct_select(&TABLE_V23_1, temp[src]);
+                km_rm[dst1] = ct_select(&TABLE_V23_0, t1 ^ km_rm[src_k]);
+                km_rm[dst2] = temp[src];
+
+                k += 1;
+            }
+            j += 1;
+        }
+    }
+
+    let mut output = [0u8; 16];
+    for i in 0..16u32 {
+        for j in 0..8u32 {
+            let idx = ((19 * (j + 8 * i) + 19) % 256 / 8) as usize;
+            let shift = (3 * j + 3) % 8;
+            output[i as usize] ^= ((km_rm[idx] >> shift) & 1) << j;
+        }
+    }
+
+    output
+}
+
 // ---------------------------------------------------------------------------
 // Substitution tables (Briceno/Goldberg/Wagner 1998 reversal)
 // ---------------------------------------------------------------------------
@@ -391,6 +584,54 @@ static TABLE_4: [u8; 32] = [
     0x0F, 0x0C, 0x0A, 0x04, 0x01, 0x0E, 0x0B, 0x07, 0x05, 0x00, 0x0E,
     0x07, 0x01, 0x02, 0x0D, 0x08, 0x0A, 0x03, 0x04, 0x09, 0x06, 0x00,
     0x03, 0x02, 0x05, 0x06, 0x08, 0x09, 0x0B, 0x0D, 0x0F, 0x0C,
+];
+
+// ---------------------------------------------------------------------------
+// COMP128v2/v3 substitution tables (Tamas Jos / skelsec / Osmocom)
+// ---------------------------------------------------------------------------
+
+/// V2/V3 table 0: 256 entries (8-bit input -> 8-bit output).
+///
+/// Values transcribed from Osmocom libosmocore `comp128v23.c`.
+static TABLE_V23_0: [u8; 256] = [
+    197, 235,  60, 151,  98,  96,   3, 100, 248, 118,  42, 117, 172, 211, 181, 203,
+     61, 126, 156,  87, 149, 224,  55, 132, 186,  63, 238, 255,  85,  83, 152,  33,
+    160, 184, 210, 219, 159,  11, 180, 194, 130, 212, 147,   5, 215,  92,  27,  46,
+    113, 187,  52,  25, 185,  79, 221,  48,  70,  31, 101,  15, 195, 201,  50, 222,
+    137, 233, 229, 106, 122, 183, 178, 177, 144, 207, 234, 182,  37, 254, 227, 231,
+     54, 209, 133,  65, 202,  69, 237, 220, 189, 146, 120,  68,  21, 125,  38,  30,
+      2, 155,  53, 196, 174, 176,  51, 246, 167,  76, 110,  20,  82, 121, 103, 112,
+     56, 173,  49, 217, 252,   0, 114, 228, 123,  12,  93, 161, 253, 232, 240, 175,
+     67, 128,  22, 158,  89,  18,  77, 109, 190,  17,  62,   4, 153, 163,  59, 145,
+    138,   7,  74, 205,  10, 162,  80,  45, 104, 111, 150, 214, 154,  28, 191, 169,
+    213,  88, 193, 198, 200, 245,  39, 164, 124,  84,  78,   1, 188, 170,  23,  86,
+    226, 141,  32,   6, 131, 127, 199,  40, 135,  16,  57,  71,  91, 225, 168, 242,
+    206,  97, 166,  44,  14,  90, 236, 239, 230, 244, 223, 108, 102, 119, 148, 251,
+     29, 216,   8,   9, 249, 208,  24, 105,  94,  34,  64,  95, 115,  72, 134, 204,
+     43, 247, 243, 218,  47,  58,  73, 107, 241, 179, 116,  66,  36, 143,  81, 250,
+    139,  19,  13, 142, 140, 129, 192,  99, 171, 157, 136,  41,  75,  35, 165,  26,
+];
+
+/// V2/V3 table 1: 256 entries (8-bit input -> 8-bit output).
+///
+/// Values transcribed from Osmocom libosmocore `comp128v23.c`.
+static TABLE_V23_1: [u8; 256] = [
+    170,  42,  95, 141, 109,  30,  71,  89,  26, 147, 231, 205, 239, 212, 124, 129,
+    216,  79,  15, 185, 153,  14, 251, 162,   0, 241, 172, 197,  43,  10, 194, 235,
+      6,  20,  72,  45, 143, 104, 161, 119,  41, 136,  38, 189, 135,  25,  93,  18,
+    224, 171, 252, 195,  63,  19,  58, 165,  23,  55, 133, 254, 214, 144, 220, 178,
+    156,  52, 110, 225,  97, 183, 140,  39,  53,  88, 219, 167,  16, 198,  62, 222,
+     76, 139, 175,  94,  51, 134, 115,  22,  67,   1, 249, 217,   3,   5, 232, 138,
+     31,  56, 116, 163,  70, 128, 234, 132, 229, 184, 244,  13,  34,  73, 233, 154,
+    179, 131, 215, 236, 142, 223,  27,  57, 246, 108, 211,   8, 253,  85,  66, 245,
+    193,  78, 190,   4,  17,   7, 150, 127, 152, 213,  37, 186,   2, 243,  46, 169,
+     68, 101,  60, 174, 208, 158, 176,  69, 238, 191,  90,  83, 166, 125,  77,  59,
+     21,  92,  49, 151, 168,  99,   9,  50, 146, 113, 117, 228,  65, 230,  40,  82,
+     54, 237, 227, 102,  28,  36, 107,  24,  44, 126, 206, 201,  61, 114, 164, 207,
+    181,  29,  91,  64, 221, 255,  48, 155, 192, 111, 180, 210, 182, 247, 203, 148,
+    209,  98, 173,  11,  75, 123, 250, 118,  32,  47, 240, 202,  74, 177, 100,  80,
+    196,  33, 248,  86, 157, 137, 120, 130,  84, 204, 122,  81, 242, 188, 200, 149,
+    226, 218, 160, 187, 106,  35,  87, 105,  96, 145, 199, 159,  12, 121, 103, 112,
 ];
 
 // ---------------------------------------------------------------------------
@@ -517,6 +758,127 @@ mod tests {
         assert!(!all_ff, "all-FF input must not produce all-FF output");
     }
 
+    // -- COMP128v2/v3 cross-validation vectors (Osmocom comp128v23.c) --
+
+    #[test]
+    fn v3_vector_all_zero() {
+        let r = comp128v3(&ki([0x00; 16]), &[0x00; 16]);
+        assert_eq!(*r.signed_response.as_bytes(), [0xB2, 0x4C, 0x2D, 0xAC]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x7C, 0x82, 0xC3, 0xEC, 0x44, 0x95, 0x35, 0x61]);
+    }
+
+    #[test]
+    fn v3_vector_ab_cd() {
+        let r = comp128v3(&ki([0xAB; 16]), &[0xCD; 16]);
+        assert_eq!(*r.signed_response.as_bytes(), [0xCC, 0xC1, 0xBD, 0x74]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x1E, 0x85, 0x1D, 0xE6, 0x76, 0xF4, 0xF7, 0xB3]);
+    }
+
+    #[test]
+    fn v3_vector_doctest() {
+        let k = ki([
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x07,
+        ]);
+        let rand = [
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+        ];
+        let r = comp128v3(&k, &rand);
+        assert_eq!(*r.signed_response.as_bytes(), [0x54, 0xA0, 0xC1, 0x93]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x88, 0xF1, 0x3E, 0x4C, 0x97, 0xC0, 0x31, 0x49]);
+    }
+
+    #[test]
+    fn v3_vector_11_22() {
+        let r = comp128v3(&ki([0x11; 16]), &[0x22; 16]);
+        assert_eq!(*r.signed_response.as_bytes(), [0x4C, 0x4E, 0x54, 0x32]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0xF0, 0x32, 0xA8, 0x6E, 0x4C, 0x45, 0xE6, 0x32]);
+    }
+
+    #[test]
+    fn v3_vector_all_ff() {
+        let r = comp128v3(&ki([0xFF; 16]), &[0xFF; 16]);
+        assert_eq!(*r.signed_response.as_bytes(), [0xED, 0x20, 0x1E, 0x4B]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x82, 0x4B, 0x86, 0x0B, 0x02, 0x2B, 0x87, 0x55]);
+    }
+
+    #[test]
+    fn v3_vector_sequential() {
+        #[allow(clippy::cast_possible_truncation)]
+        let k = ki(core::array::from_fn(|i| i as u8));
+        #[allow(clippy::cast_possible_truncation)]
+        let rand: [u8; 16] = core::array::from_fn(|i| (i + 16) as u8);
+        let r = comp128v3(&k, &rand);
+        assert_eq!(*r.signed_response.as_bytes(), [0x6F, 0x67, 0x6F, 0x06]);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x6D, 0x8A, 0xFA, 0x70, 0x72, 0x3F, 0xF3, 0x78]);
+    }
+
+    #[test]
+    fn v2_zeroes_kc_bottom_10_bits() {
+        let r = comp128v2(&ki([0xAB; 16]), &[0xCD; 16]);
+        // SRES identical to V3
+        assert_eq!(*r.signed_response.as_bytes(), [0xCC, 0xC1, 0xBD, 0x74]);
+        // Kc: last 10 bits zeroed
+        assert_eq!(r.cipher_key.declassify_ref()[7], 0x00);
+        assert_eq!(r.cipher_key.declassify_ref()[6] & 0x03, 0x00);
+        assert_eq!(*r.cipher_key.declassify_ref(), [0x1E, 0x85, 0x1D, 0xE6, 0x76, 0xF4, 0xF4, 0x00]);
+    }
+
+    #[test]
+    fn v2_all_vectors_kc_bottom_10_zeroed() {
+        // Verify the V2 constraint holds across all test vectors.
+        let cases: [([u8; 16], [u8; 16]); 4] = [
+            ([0x00; 16], [0x00; 16]),
+            ([0xAB; 16], [0xCD; 16]),
+            ([0x11; 16], [0x22; 16]),
+            ([0xFF; 16], [0xFF; 16]),
+        ];
+        for (k, rand) in &cases {
+            let r = comp128v2(&ki(*k), rand);
+            assert_eq!(r.cipher_key.declassify_ref()[7], 0x00, "kc[7] must be 0x00");
+            assert_eq!(r.cipher_key.declassify_ref()[6] & 0x03, 0x00, "kc[6] bottom 2 bits must be 0");
+        }
+    }
+
+    #[test]
+    fn v2_v3_sres_identical() {
+        let k = ki([0x11; 16]);
+        let rand = [0x22; 16];
+        let r2 = comp128v2(&k, &rand);
+        let r3 = comp128v3(&k, &rand);
+        assert_eq!(r2.signed_response, r3.signed_response, "V2 and V3 SRES must be identical");
+    }
+
+    #[test]
+    fn versioned_dispatch_matches_direct() {
+        let k = ki([0xAB; 16]);
+        let rand = [0xCD; 16];
+        let r1 = comp128(&k, &rand);
+        let rv1 = comp128_versioned(&k, &rand, Comp128Version::V1);
+        assert_eq!(r1.signed_response, rv1.signed_response);
+        assert_eq!(r1.cipher_key.declassify_ref(), rv1.cipher_key.declassify_ref());
+
+        let r2 = comp128v2(&k, &rand);
+        let rv2 = comp128_versioned(&k, &rand, Comp128Version::V2);
+        assert_eq!(r2.signed_response, rv2.signed_response);
+        assert_eq!(r2.cipher_key.declassify_ref(), rv2.cipher_key.declassify_ref());
+
+        let r3 = comp128v3(&k, &rand);
+        let rv3 = comp128_versioned(&k, &rand, Comp128Version::V3);
+        assert_eq!(r3.signed_response, rv3.signed_response);
+        assert_eq!(r3.cipher_key.declassify_ref(), rv3.cipher_key.declassify_ref());
+    }
+
+    #[test]
+    fn v1_v3_produce_different_output() {
+        let k = ki([0x11; 16]);
+        let rand = [0x22; 16];
+        let r1 = comp128(&k, &rand);
+        let r3 = comp128v3(&k, &rand);
+        assert_ne!(r1.signed_response, r3.signed_response, "V1 and V3 must differ");
+    }
+
     // -- ct_select_n correctness --
 
     #[test]
@@ -621,6 +983,62 @@ mod proptests {
             );
         }
     }
+
+    // -- COMP128v3 property tests --
+
+    proptest! {
+        #[test]
+        fn v3_different_rand_different_output(
+            ki_bytes in any::<[u8; 16]>(),
+            rand1 in any::<[u8; 16]>(),
+            rand2 in any::<[u8; 16]>(),
+        ) {
+            prop_assume!(rand1 != rand2);
+            let ki = Secret::new(ki_bytes);
+            let r1 = comp128v3(&ki, &rand1);
+            let r2 = comp128v3(&ki, &rand2);
+            prop_assert!(
+                r1.signed_response != r2.signed_response || r1.cipher_key.declassify_ref() != r2.cipher_key.declassify_ref(),
+                "V3: same Ki with different RAND must produce different outputs"
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn v2_kc_bottom_10_bits_zero(ki_bytes in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
+            let r = comp128v2(&Secret::new(ki_bytes), &rand);
+            prop_assert_eq!(r.cipher_key.declassify_ref()[7], 0x00, "V2 kc[7] must be 0x00");
+            prop_assert_eq!(r.cipher_key.declassify_ref()[6] & 0x03, 0x00, "V2 kc[6] bottom 2 bits must be 0");
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn v2_v3_sres_always_identical(ki_bytes in any::<[u8; 16]>(), rand in any::<[u8; 16]>()) {
+            let ki = Secret::new(ki_bytes);
+            let r2 = comp128v2(&ki, &rand);
+            let r3 = comp128v3(&ki, &rand);
+            prop_assert_eq!(r2.signed_response, r3.signed_response, "V2 and V3 SRES must always match");
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn v3_different_ki_different_output(
+            ki1_bytes in any::<[u8; 16]>(),
+            ki2_bytes in any::<[u8; 16]>(),
+            rand in any::<[u8; 16]>(),
+        ) {
+            prop_assume!(ki1_bytes != ki2_bytes);
+            let r1 = comp128v3(&Secret::new(ki1_bytes), &rand);
+            let r2 = comp128v3(&Secret::new(ki2_bytes), &rand);
+            prop_assert!(
+                r1.signed_response != r2.signed_response || r1.cipher_key.declassify_ref() != r2.cipher_key.declassify_ref(),
+                "V3: different Ki must produce different outputs"
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -694,6 +1112,60 @@ mod ct_validation {
             },
             |(ki, rand)| {
                 let r = comp128(ki, rand);
+                core::hint::black_box(r);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// COMP128v3 timing must be independent of Ki content.
+    #[test]
+    fn test_comp128v3_ct() {
+        let fixed_ki = Secret::new([0xABu8; 16]);
+
+        let outcome = ct_test(0xC128_0003,
+            |rng| {
+                let mut rand = [0u8; 16];
+                rng.fill_bytes(&mut rand);
+                (fixed_ki, rand)
+            },
+            |rng| {
+                let mut ki_bytes = [0u8; 16];
+                let mut rand = [0u8; 16];
+                rng.fill_bytes(&mut ki_bytes);
+                rng.fill_bytes(&mut rand);
+                (Secret::new(ki_bytes), rand)
+            },
+            |(ki, rand)| {
+                let r = comp128v3(ki, rand);
+                core::hint::black_box(r);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// COMP128v3 timing must be independent of RAND content.
+    #[test]
+    fn test_comp128v3_rand_independence_ct() {
+        let fixed_ki = Secret::new([0xABu8; 16]);
+        let boundary_rand: [u8; 16] = [
+            0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        ];
+
+        let outcome = ct_test(0xC128_0004,
+            |rng| {
+                let mut _discard = [0u8; 16];
+                rng.fill_bytes(&mut _discard);
+                (fixed_ki, boundary_rand)
+            },
+            |rng| {
+                let mut rand = [0u8; 16];
+                rng.fill_bytes(&mut rand);
+                (fixed_ki, rand)
+            },
+            |(ki, rand)| {
+                let r = comp128v3(ki, rand);
                 core::hint::black_box(r);
             },
         );
