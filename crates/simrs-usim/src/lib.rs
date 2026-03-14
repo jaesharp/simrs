@@ -124,14 +124,23 @@ const PS_DO_TAG: u8 = 0x90;
 // 3GPP TS 31.102 V19.4.0 clause 7.1.2: AUTHENTICATE protocol constants.
 const P2_GSM_CONTEXT: u8 = 0x00;
 const P2_UMTS_CONTEXT: u8 = 0x81;
-// 3GPP TS 31.103 V19.0.0 clause 7.1.2: IMS AKA uses the same Milenage/TUAK
-// computation as UMTS AKA; routed to the same handler.
-const P2_IMS_AKA_CONTEXT: u8 = 0x84;
+// 3GPP TS 31.102 V19.4.0 clause 7.1.2: GBA security context (bootstrap mode).
+// Same AKA computation as UMTS; UICC keeps CK/IK internally (Ks = CK||IK),
+// returns only RES.
+#[cfg(feature = "gba")]
+const P2_GBA_BOOTSTRAP: u8 = 0x82;
+// 3GPP TS 31.102 V19.4.0 clause 7.1.2: GBA security context (NAF derivation).
+// Derives Ks_ext_NAF from stored Ks using RAND, IMPI, NAF_ID per TS 33.220 B.3.
+#[cfg(feature = "gba")]
+const P2_GBA_NAF: u8 = 0x84;
 const AUTH_DATA_LEN: usize = 34;
 const GSM_AUTH_DATA_LEN: usize = 17; // 0x10 || RAND(16)
 const AUTH_VECTOR_LEN_PREFIX: u8 = 0x10;
 const AUTH_SUCCESS_TAG: u8 = 0xDB;
 const AUTH_SYNC_FAILURE_TAG: u8 = 0xDC;
+// GBA NAF derivation response tag (TS 31.102 Annex D).
+#[cfg(feature = "gba")]
+const GBA_NAF_RESPONSE_TAG: u8 = 0xDD;
 const RESYNC_TOKEN_LEN: u8 = 0x0E;
 const AUTH_RESPONSE_LEN: u8 = 0x08;
 const AUTH_KEY_LEN: u8 = 0x10;
@@ -495,6 +504,16 @@ pub struct UsimApp<A: AuthenticationAlgorithm = MilenageParams> {
     /// GET IDENTITY with P2=0x01 uses this state to derive fresh ephemeral
     /// keys for ECIES encryption.
     suci: Option<SuciState>,
+    /// GBA session key (Ks = CK || IK) stored after a GBA bootstrap procedure.
+    ///
+    /// Set by AUTHENTICATE with P2=0x82 (GBA bootstrap mode). Used by
+    /// subsequent AUTHENTICATE with P2=0x84 (GBA NAF derivation mode) to
+    /// derive NAF-specific keys per TS 33.220 Annex B.3.
+    #[cfg(feature = "gba")]
+    gba_ks: Option<simrs_kdf::GbaSessionKey>,
+    /// RAND stored during GBA bootstrap, needed for NAF key derivation.
+    #[cfg(feature = "gba")]
+    gba_rand: Option<[u8; 16]>,
 }
 
 impl<A: AuthenticationAlgorithm> UsimApp<A> {
@@ -535,7 +554,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         let mut data = FsData::<FS_CAP, FS_MAX_EFS>::new();
         // Panic on init failure: the static filesystem tree must fit in CAP.
         if let Err(e) = data.init_with_adfs(mf, adfs) {
-            panic!("FsData init failed: {}", e);
+            panic!("FsData init failed: {e}");
         }
 
         Self {
@@ -554,6 +573,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             last_aid_match: false,
             proactive_session_active: false,
             suci: None,
+            #[cfg(feature = "gba")]
+            gba_ks: None,
+            #[cfg(feature = "gba")]
+            gba_rand: None,
         }
     }
 
@@ -644,6 +667,14 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     // -- snapshot --
 
     /// Snapshot buffer size in bytes.
+    /// GBA snapshot size: 1 flag byte + 32 (Ks) + 16 (RAND) = 49 bytes when present.
+    /// When GBA is disabled, this is 0.
+    #[cfg(feature = "gba")]
+    const GBA_SNAPSHOT_SIZE: usize = 1 + 32 + 16; // has_ks flag + Ks + RAND
+    #[cfg(not(feature = "gba"))]
+    const GBA_SNAPSHOT_SIZE: usize = 0;
+
+    /// Total snapshot buffer size in bytes (deterministic, feature-dependent).
     pub const SNAPSHOT_SIZE: usize =
         SelectionCtx::SNAPSHOT_SIZE
         + FsData::<FS_CAP, FS_MAX_EFS>::SNAPSHOT_SIZE
@@ -654,7 +685,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         + 17 // terminal_capability (16 bytes) + terminal_capability_len (1 byte)
         + DeactivationTracker::SNAPSHOT_SIZE
         + 4 * (SelectionCtx::SNAPSHOT_SIZE + 1) // channels: 4 * (snapshot + is_open flag)
-        + 1; // last_aid_match
+        + 1 // last_aid_match
+        + Self::GBA_SNAPSHOT_SIZE;
 
     /// Byte offset of the `PinManager` region within a `UsimApp` snapshot.
     pub const PIN_SNAPSHOT_OFFSET: usize =
@@ -701,6 +733,23 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // last_aid_match
         buf[off] = u8::from(self.last_aid_match);
         off += 1;
+        // GBA state (feature-gated)
+        #[cfg(feature = "gba")]
+        {
+            if let (Some(ks), Some(rand)) = (&self.gba_ks, &self.gba_rand) {
+                buf[off] = 1;
+                off += 1;
+                buf[off..off + 32].copy_from_slice(ks.declassify());
+                off += 32;
+                buf[off..off + 16].copy_from_slice(rand);
+                off += 16;
+            } else {
+                buf[off] = 0;
+                off += 1;
+                buf[off..off + 48].fill(0);
+                off += 48;
+            }
+        }
         let _ = off;
         Self::SNAPSHOT_SIZE
     }
@@ -772,6 +821,26 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // last_aid_match
         self.last_aid_match = buf[off] != 0;
         off += 1;
+        // GBA state (feature-gated)
+        #[cfg(feature = "gba")]
+        {
+            let has_ks = buf[off] != 0;
+            off += 1;
+            if has_ks {
+                let mut ks_bytes = [0u8; 32];
+                ks_bytes.copy_from_slice(&buf[off..off + 32]);
+                self.gba_ks = Some(simrs_kdf::GbaSessionKey::classify(ks_bytes));
+                off += 32;
+                let mut rand = [0u8; 16];
+                rand.copy_from_slice(&buf[off..off + 16]);
+                self.gba_rand = Some(rand);
+                off += 16;
+            } else {
+                self.gba_ks = None;
+                self.gba_rand = None;
+                off += 48;
+            }
+        }
         let _ = off;
         true
     }
@@ -1309,7 +1378,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         }
     }
 
-    // -- AUTHENTICATE (Milenage UMTS / GSM context) --
+    // -- AUTHENTICATE (Milenage UMTS / GSM / GBA context) --
 
     #[allow(clippy::cast_possible_truncation)]
     fn handle_authenticate<'buf>(
@@ -1320,8 +1389,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // Note: AUTHENTICATE does not require PIN1 verification per
         // ETSI TS 102 221 -- it has its own security context.
         match cmd.p2() {
-            P2_UMTS_CONTEXT | P2_IMS_AKA_CONTEXT => self.handle_authenticate_umts(cmd, buf),
+            P2_UMTS_CONTEXT => self.handle_authenticate_umts(cmd, buf),
             P2_GSM_CONTEXT => self.handle_authenticate_gsm(cmd, buf),
+            #[cfg(feature = "gba")]
+            P2_GBA_BOOTSTRAP => self.handle_authenticate_gba_bootstrap(cmd, buf),
+            #[cfg(feature = "gba")]
+            P2_GBA_NAF => self.handle_authenticate_gba_naf(cmd, buf),
             _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         }
     }
@@ -1423,6 +1496,120 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         q[6..14].copy_from_slice(&gsm_cipher_key);
         self.rsp_queue.set_len(GSM_AUTH_RSP_LEN);
         write_sw(buf, StatusWord::bytes_available(GSM_AUTH_RSP_LEN as u8))
+    }
+
+    // -- GBA AUTHENTICATE (TS 31.102 clause 7.1.2, TS 33.220) --
+
+    /// GBA bootstrap mode (P2=0x82): same AKA as UMTS, but the UICC stores
+    /// Ks = CK || IK internally and returns only RES to the ME.
+    ///
+    /// Per [TS 31.102 V19.4.0 clause 7.1.2](https://www.3gpp.org/DynaReport/31102.htm)
+    /// and [TS 33.220](https://www.3gpp.org/DynaReport/33220.htm) clause 4.5.3.
+    #[cfg(feature = "gba")]
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_authenticate_gba_bootstrap<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        let data = cmd.data();
+        // Same format as UMTS: 0x10 [RAND:16] 0x10 [AUTN:16] = 34 bytes.
+        if data.len() != AUTH_DATA_LEN {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+        if data[0] != AUTH_VECTOR_LEN_PREFIX || data[17] != AUTH_VECTOR_LEN_PREFIX {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        let mut challenge_bytes = [0u8; 16];
+        challenge_bytes.copy_from_slice(&data[1..17]);
+        let challenge = AuthChallenge::new(challenge_bytes);
+        let mut auth_token_bytes = [0u8; 16];
+        auth_token_bytes.copy_from_slice(&data[18..34]);
+        let auth_token = AuthToken::new(auth_token_bytes);
+
+        match self.auth.authenticate(&challenge, &auth_token) {
+            Ok(output) => {
+                // Store Ks = CK || IK and RAND for subsequent NAF derivation.
+                self.gba_ks = Some(simrs_kdf::GbaSessionKey::from_ck_ik(
+                    &output.cipher_key,
+                    &output.integrity_key,
+                ));
+                self.gba_rand = Some(challenge_bytes);
+
+                // Response: 0xDB || inner_len || res_len || RES (only RES, no CK/IK).
+                let q = self.rsp_queue.buf_mut();
+                let res_bytes = output.response.as_bytes();
+                let inner_len: u8 = 1 + AUTH_RESPONSE_LEN; // res_len + RES
+                q[0] = AUTH_SUCCESS_TAG; // 0xDB
+                q[1] = inner_len;
+                q[2] = AUTH_RESPONSE_LEN; // 0x08
+                q[3..11].copy_from_slice(res_bytes);
+                let total: usize = 2 + inner_len as usize; // tag + len + inner
+                self.rsp_queue.set_len(total);
+                write_sw(buf, StatusWord::bytes_available(total as u8))
+            }
+            Err(AuthenticationError::MacFailure) => {
+                write_sw(buf, StatusWord::AuthenticationError)
+            }
+            Err(AuthenticationError::SyncFailure { resync_token }) => {
+                // Sync failure: 0xDC || 0x0E || AUTS(14).
+                let q = self.rsp_queue.buf_mut();
+                q[0] = AUTH_SYNC_FAILURE_TAG;
+                q[1] = RESYNC_TOKEN_LEN;
+                q[2..16].copy_from_slice(resync_token.as_bytes());
+                let total: usize = 16;
+                self.rsp_queue.set_len(total);
+                write_sw(buf, StatusWord::bytes_available(total as u8))
+            }
+        }
+    }
+
+    /// GBA NAF derivation mode (P2=0x84): derive Ks_ext_NAF from stored Ks
+    /// using the provided NAF_ID and the IMPI from the card's profile.
+    ///
+    /// Per [TS 31.102 V19.4.0 clause 7.1.2](https://www.3gpp.org/DynaReport/31102.htm)
+    /// and [TS 33.220](https://www.3gpp.org/DynaReport/33220.htm) Annex B.3.
+    #[cfg(feature = "gba")]
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_authenticate_gba_naf<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        let data = cmd.data();
+
+        // Must have Ks from a prior GBA bootstrap.
+        let (Some(ks), Some(rand)) = (&self.gba_ks, &self.gba_rand) else {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+        };
+
+        // Command data: NAF_ID_len(1) || NAF_ID || IMPI_len(1) || IMPI
+        if data.len() < 2 {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+        let naf_id_len = data[0] as usize;
+        if data.len() < 1 + naf_id_len + 1 {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+        let naf_id = &data[1..=naf_id_len];
+        let impi_len = data[1 + naf_id_len] as usize;
+        if data.len() < 1 + naf_id_len + 1 + impi_len {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+        let impi = &data[1 + naf_id_len + 1..1 + naf_id_len + 1 + impi_len];
+
+        // Derive Ks_ext_NAF = KDF(Ks, FC=0x01, "gba-me", RAND, IMPI, NAF_ID).
+        let ks_ext_naf = simrs_kdf::derive_gba_ext_naf_key(ks, rand, impi, naf_id);
+
+        // Response: 0xDD || 0x20 || Ks_ext_NAF(32).
+        let q = self.rsp_queue.buf_mut();
+        q[0] = GBA_NAF_RESPONSE_TAG; // 0xDD
+        q[1] = 0x20; // 32 bytes
+        q[2..34].copy_from_slice(ks_ext_naf.declassify());
+        let total: usize = 34;
+        self.rsp_queue.set_len(total);
+        write_sw(buf, StatusWord::bytes_available(total as u8))
     }
 
     // -- GET IDENTITY (SUCI computation, TS 31.102 V19.4.0 clause 7.5) --
@@ -3575,6 +3762,7 @@ mod tests {
         // Snapshot = SelectionCtx + FsData<FS_CAP, FS_MAX_EFS> + PinManager<5> + Milenage
         //          + ProactiveState + ResponseQueue<64> + terminal_cap(17)
         //          + DeactivationTracker + channels(4*9=36) + last_aid_match(1)
+        //          + GBA state (feature-gated: 49 bytes when enabled)
         let expected =
             simrs_fs::SelectionCtx::SNAPSHOT_SIZE
             + simrs_fs::FsData::<{ super::FS_CAP }, { super::FS_MAX_EFS }>::SNAPSHOT_SIZE
@@ -3585,7 +3773,8 @@ mod tests {
             + 17 // terminal_capability (16) + len (1)
             + simrs_fs::DeactivationTracker::SNAPSHOT_SIZE
             + 4 * (simrs_fs::SelectionCtx::SNAPSHOT_SIZE + 1) // channels
-            + 1; // last_aid_match
+            + 1 // last_aid_match
+            + UsimApp::<MilenageParams>::GBA_SNAPSHOT_SIZE;
         assert_eq!(UsimApp::<MilenageParams>::SNAPSHOT_SIZE, expected);
     }
 
@@ -5084,29 +5273,40 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x61, 0x0E),
             "P2=0x00 must route to GSM AUTHENTICATE and return 14 bytes");
 
-        // P2=0x84 (IMS-AKA context): same as UMTS, should return 98 62 (MAC fail).
-        let mut ims_apdu = [0u8; 5 + 34];
-        ims_apdu[0] = 0x00;
-        ims_apdu[1] = 0x88;
-        ims_apdu[3] = 0x84; // IMS-AKA
-        ims_apdu[4] = 0x22;
-        ims_apdu[5] = 0x10;
-        ims_apdu[22] = 0x10;
-        let (buf, len) = send(&mut app, &ims_apdu);
-        assert_eq!(sw(&buf, len), (0x98, 0x62),
-            "P2=0x84 must route to UMTS AUTHENTICATE (IMS-AKA uses same algorithm)");
-
-        // P2=0x82 (GBA_U/bootstrap, not supported): should return 6A 86.
+        // P2=0x82 (GBA bootstrap): behaviour depends on `gba` feature.
         let mut gba_apdu = [0u8; 5 + 34];
         gba_apdu[0] = 0x00;
         gba_apdu[1] = 0x88;
-        gba_apdu[3] = 0x82; // GBA_U -- not supported
+        gba_apdu[3] = 0x82;
         gba_apdu[4] = 0x22;
         gba_apdu[5] = 0x10;
         gba_apdu[22] = 0x10;
         let (buf, len) = send(&mut app, &gba_apdu);
+        #[cfg(feature = "gba")]
+        assert_eq!(sw(&buf, len), (0x98, 0x62),
+            "P2=0x82 with gba feature must route to GBA bootstrap (MAC fail with garbage AUTN)");
+        #[cfg(not(feature = "gba"))]
         assert_eq!(sw(&buf, len), (0x6A, 0x86),
-            "P2=0x82 (unsupported context) must return 6A 86");
+            "P2=0x82 without gba feature must return 6A 86");
+
+        // P2=0x84 (GBA NAF derivation): behaviour depends on `gba` feature.
+        let mut naf_apdu = [0u8; 5 + 10];
+        naf_apdu[0] = 0x00;
+        naf_apdu[1] = 0x88;
+        naf_apdu[3] = 0x84;
+        naf_apdu[4] = 0x0A; // Lc = 10
+        // NAF_ID_len=4, NAF_ID="test", IMPI_len=4, IMPI="user"
+        naf_apdu[5] = 0x04;
+        naf_apdu[6..10].copy_from_slice(b"test");
+        naf_apdu[10] = 0x04;
+        naf_apdu[11..15].copy_from_slice(b"user");
+        let (buf, len) = send(&mut app, &naf_apdu);
+        #[cfg(feature = "gba")]
+        assert_eq!(sw(&buf, len), (0x69, 0x85),
+            "P2=0x84 with gba feature but no prior bootstrap must return 69 85");
+        #[cfg(not(feature = "gba"))]
+        assert_eq!(sw(&buf, len), (0x6A, 0x86),
+            "P2=0x84 without gba feature must return 6A 86");
 
         // P2=0xFF (invalid): should also return 6A 86.
         let mut inv_apdu = [0u8; 5 + 34];
@@ -5362,6 +5562,308 @@ mod tests {
             "different RAND must produce different CK");
         assert_ne!(&buf1[29..45], &buf2[29..45],
             "different RAND must produce different IK");
+    }
+
+    // -----------------------------------------------------------------------
+    // GBA bootstrap + NAF derivation integration tests
+    // -----------------------------------------------------------------------
+
+    /// GBA bootstrap (P2=0x82) returns only RES (no CK/IK), stores Ks internally.
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_bootstrap_returns_res_only() {
+        let mut app = app();
+        let params = MilenageParams::with_defaults(K, OPC);
+
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let management_field = [0xB9, 0xB9];
+        let auth_token = build_autn(&params, &rand_val, sequence_number, management_field);
+
+        // Build GBA bootstrap APDU (P2=0x82)
+        let mut apdu = [0u8; 5 + 34];
+        apdu[0] = 0x00; // CLA
+        apdu[1] = 0x88; // INS = AUTHENTICATE
+        apdu[2] = 0x00; // P1
+        apdu[3] = 0x82; // P2 = GBA bootstrap
+        apdu[4] = 0x22; // Lc = 34
+        apdu[5] = 0x10; // RAND length prefix
+        apdu[6..22].copy_from_slice(&rand_val);
+        apdu[22] = 0x10; // AUTN length prefix
+        apdu[23..39].copy_from_slice(&auth_token);
+
+        let (buf, _len) = send(&mut app, &apdu);
+        assert_eq!(buf[0], 0x61, "GBA bootstrap must succeed (61 XX)");
+        let rsp_len = buf[1];
+        // Response: 0xDB || inner_len || 0x08 || RES(8) = 11 bytes
+        assert_eq!(rsp_len, 11, "GBA bootstrap response must be 11 bytes (tag+len+res_len+RES)");
+
+        // GET RESPONSE
+        let (rsp, rsp_total) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, rsp_len]);
+        assert_eq!(sw(&rsp, rsp_total), (0x90, 0x00));
+        assert_eq!(rsp[0], 0xDB, "success tag");
+        assert_eq!(rsp[1], 0x09, "inner length = 1 + 8");
+        assert_eq!(rsp[2], 0x08, "RES length");
+
+        // Verify RES matches independent Milenage computation
+        let mut check = MilenageParams::with_defaults(K, OPC);
+        let expected = check.authenticate(
+            &AuthChallenge::new(rand_val),
+            &AuthToken::new(auth_token),
+        ).unwrap();
+        assert_eq!(&rsp[3..11], expected.response.as_bytes(),
+            "RES must match independent Milenage");
+
+        // Verify NO CK/IK in the response (only 11 bytes total, not 45)
+        assert_eq!(rsp_len, 11, "GBA must NOT return CK/IK (UMTS returns 45 bytes)");
+    }
+
+    /// GBA NAF derivation (P2=0x84) after bootstrap returns Ks_ext_NAF.
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_naf_derivation_after_bootstrap() {
+        let mut app = app();
+        let params = MilenageParams::with_defaults(K, OPC);
+
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let management_field = [0xB9, 0xB9];
+        let auth_token = build_autn(&params, &rand_val, sequence_number, management_field);
+
+        // Step 1: GBA bootstrap
+        let mut boot_apdu = [0u8; 5 + 34];
+        boot_apdu[0] = 0x00;
+        boot_apdu[1] = 0x88;
+        boot_apdu[3] = 0x82;
+        boot_apdu[4] = 0x22;
+        boot_apdu[5] = 0x10;
+        boot_apdu[6..22].copy_from_slice(&rand_val);
+        boot_apdu[22] = 0x10;
+        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let (buf, _) = send(&mut app, &boot_apdu);
+        assert_eq!(buf[0], 0x61, "bootstrap must succeed");
+        // Consume the GET RESPONSE for bootstrap
+        send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+
+        // Step 2: NAF derivation
+        let naf_id = b"naf.example.com";
+        let impi = b"user@ims.example.com";
+        let mut naf_apdu = [0u8; 5 + 1 + 15 + 1 + 20]; // header + NAF_ID_len + NAF_ID + IMPI_len + IMPI
+        naf_apdu[0] = 0x00;
+        naf_apdu[1] = 0x88;
+        naf_apdu[3] = 0x84; // GBA NAF derivation
+        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
+        naf_apdu[4] = lc;
+        naf_apdu[5] = naf_id.len() as u8;
+        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
+        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
+        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
+
+        let (buf, _) = send(&mut app, &naf_apdu[..5 + lc as usize]);
+        assert_eq!(buf[0], 0x61, "NAF derivation must succeed (61 XX)");
+        let naf_rsp_len = buf[1];
+        assert_eq!(naf_rsp_len, 34, "NAF response: tag(1) + len(1) + Ks_ext_NAF(32) = 34");
+
+        // GET RESPONSE
+        let (rsp, rsp_total) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, naf_rsp_len]);
+        assert_eq!(sw(&rsp, rsp_total), (0x90, 0x00));
+        assert_eq!(rsp[0], 0xDD, "NAF derivation response tag");
+        assert_eq!(rsp[1], 0x20, "Ks_ext_NAF length = 32");
+
+        // Verify Ks_ext_NAF against independent KDF computation
+        let mut check_params = MilenageParams::with_defaults(K, OPC);
+        let check_auth = check_params.authenticate(
+            &AuthChallenge::new(rand_val),
+            &AuthToken::new(auth_token),
+        ).unwrap();
+        let ks = simrs_kdf::GbaSessionKey::from_ck_ik(
+            &check_auth.cipher_key,
+            &check_auth.integrity_key,
+        );
+        let expected_key = simrs_kdf::derive_gba_ext_naf_key(&ks, &rand_val, impi, naf_id);
+        assert_eq!(&rsp[2..34], expected_key.declassify(),
+            "Ks_ext_NAF must match independent KDF computation");
+    }
+
+    /// GBA NAF derivation without prior bootstrap returns 69 85.
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_naf_without_bootstrap_fails() {
+        let mut app = app();
+
+        let naf_id = b"naf.example.com";
+        let impi = b"user@example.com";
+        let mut apdu = [0u8; 5 + 1 + 15 + 1 + 16];
+        apdu[0] = 0x00;
+        apdu[1] = 0x88;
+        apdu[3] = 0x84;
+        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
+        apdu[4] = lc;
+        apdu[5] = naf_id.len() as u8;
+        apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
+        apdu[6 + naf_id.len()] = impi.len() as u8;
+        apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
+
+        let (buf, len) = send(&mut app, &apdu[..5 + lc as usize]);
+        assert_eq!(sw(&buf, len), (0x69, 0x85),
+            "NAF derivation without prior bootstrap must return 69 85");
+    }
+
+    /// GBA bootstrap with wrong AUTN returns MAC failure (98 62).
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_bootstrap_mac_failure() {
+        let mut app = app();
+
+        let mut apdu = [0u8; 5 + 34];
+        apdu[0] = 0x00;
+        apdu[1] = 0x88;
+        apdu[3] = 0x82;
+        apdu[4] = 0x22;
+        apdu[5] = 0x10; // RAND prefix
+        apdu[22] = 0x10; // AUTN prefix
+        // RAND and AUTN are zeros (invalid AUTN)
+
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x98, 0x62),
+            "GBA bootstrap with bad AUTN must return 98 62");
+    }
+
+    /// GBA NAF derivation with different NAF_IDs produces different keys.
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_different_naf_ids_produce_different_keys() {
+        let mut app = app();
+        let params = MilenageParams::with_defaults(K, OPC);
+
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
+        let management_field = [0xB9, 0xB9];
+        let auth_token = build_autn(&params, &rand_val, sequence_number, management_field);
+
+        // Bootstrap
+        let mut boot_apdu = [0u8; 5 + 34];
+        boot_apdu[0] = 0x00;
+        boot_apdu[1] = 0x88;
+        boot_apdu[3] = 0x82;
+        boot_apdu[4] = 0x22;
+        boot_apdu[5] = 0x10;
+        boot_apdu[6..22].copy_from_slice(&rand_val);
+        boot_apdu[22] = 0x10;
+        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let (buf, _) = send(&mut app, &boot_apdu);
+        assert_eq!(buf[0], 0x61);
+        send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+
+        // NAF derivation 1: naf1.example.com
+        let impi = b"user@example.com";
+        let naf1 = b"naf1.example.com";
+        let mut apdu1 = [0u8; 64];
+        apdu1[0] = 0x00;
+        apdu1[1] = 0x88;
+        apdu1[3] = 0x84;
+        let lc1 = (1 + naf1.len() + 1 + impi.len()) as u8;
+        apdu1[4] = lc1;
+        apdu1[5] = naf1.len() as u8;
+        apdu1[6..6 + naf1.len()].copy_from_slice(naf1);
+        apdu1[6 + naf1.len()] = impi.len() as u8;
+        apdu1[7 + naf1.len()..7 + naf1.len() + impi.len()].copy_from_slice(impi);
+        let (buf, _) = send(&mut app, &apdu1[..5 + lc1 as usize]);
+        assert_eq!(buf[0], 0x61);
+        let (rsp1, _) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+        let mut key1 = [0u8; 32];
+        key1.copy_from_slice(&rsp1[2..34]);
+
+        // NAF derivation 2: naf2.example.com
+        let naf2 = b"naf2.example.com";
+        let mut apdu2 = [0u8; 64];
+        apdu2[0] = 0x00;
+        apdu2[1] = 0x88;
+        apdu2[3] = 0x84;
+        let lc2 = (1 + naf2.len() + 1 + impi.len()) as u8;
+        apdu2[4] = lc2;
+        apdu2[5] = naf2.len() as u8;
+        apdu2[6..6 + naf2.len()].copy_from_slice(naf2);
+        apdu2[6 + naf2.len()] = impi.len() as u8;
+        apdu2[7 + naf2.len()..7 + naf2.len() + impi.len()].copy_from_slice(impi);
+        let (buf, _) = send(&mut app, &apdu2[..5 + lc2 as usize]);
+        assert_eq!(buf[0], 0x61);
+        let (rsp2, _) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+        let mut key2 = [0u8; 32];
+        key2.copy_from_slice(&rsp2[2..34]);
+
+        // Keys must differ
+        assert_ne!(key1, key2, "different NAF_IDs must produce different Ks_ext_NAF keys");
+        assert_ne!(key1, [0u8; 32], "key must not be all-zeros");
+        assert_ne!(key2, [0u8; 32], "key must not be all-zeros");
+    }
+
+    /// GBA snapshot roundtrip preserves Ks and RAND.
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_snapshot_roundtrip() {
+        let mut app = app();
+        let params = MilenageParams::with_defaults(K, OPC);
+
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let auth_token = build_autn(&params, &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+
+        // Bootstrap
+        let mut boot_apdu = [0u8; 5 + 34];
+        boot_apdu[0] = 0x00;
+        boot_apdu[1] = 0x88;
+        boot_apdu[3] = 0x82;
+        boot_apdu[4] = 0x22;
+        boot_apdu[5] = 0x10;
+        boot_apdu[6..22].copy_from_slice(&rand_val);
+        boot_apdu[22] = 0x10;
+        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let (buf, _) = send(&mut app, &boot_apdu);
+        assert_eq!(buf[0], 0x61);
+        send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+
+        // Snapshot
+        let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
+        let written = app.save_state(&mut snap);
+        assert_eq!(written, UsimApp::<MilenageParams>::SNAPSHOT_SIZE);
+
+        // Restore into fresh app
+        let mil = MilenageParams::with_defaults(K, OPC);
+        let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
+        assert!(dst.restore_state(&snap));
+
+        // NAF derivation on restored app must succeed
+        let naf_id = b"naf.example.com";
+        let impi = b"user@example.com";
+        let mut naf_apdu = [0u8; 64];
+        naf_apdu[0] = 0x00;
+        naf_apdu[1] = 0x88;
+        naf_apdu[3] = 0x84;
+        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
+        naf_apdu[4] = lc;
+        naf_apdu[5] = naf_id.len() as u8;
+        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
+        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
+        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
+        let (buf, _) = send(&mut dst, &naf_apdu[..5 + lc as usize]);
+        assert_eq!(buf[0], 0x61, "NAF derivation must succeed after snapshot restore");
+        let (rsp, rsp_total) = send(&mut dst, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+        assert_eq!(sw(&rsp, rsp_total), (0x90, 0x00));
+        assert_eq!(rsp[0], 0xDD);
+        assert_ne!(&rsp[2..34], &[0u8; 32], "Ks_ext_NAF must not be all-zeros");
     }
 
     // -----------------------------------------------------------------------

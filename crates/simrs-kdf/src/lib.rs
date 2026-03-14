@@ -424,6 +424,136 @@ pub fn derive_kgnb(kamf: &MobilityManagementKey, ul_nas_count: u32, access_type:
 }
 
 // ---------------------------------------------------------------------------
+// GBA key derivation (TS 33.220 Annex B.3)
+// ---------------------------------------------------------------------------
+
+/// GBA bootstrapping session key (256 bits).
+///
+/// Constructed as `Ks = CK || IK` after a successful GBA bootstrap procedure.
+/// Forms the root of the GBA key hierarchy for NAF-specific key derivation.
+///
+/// Per [TS 33.220](https://www.3gpp.org/DynaReport/33220.htm) clause 4.5.2.
+#[derive(Clone, Copy)]
+pub struct GbaSessionKey(Secret<[u8; 32]>);
+
+impl GbaSessionKey {
+    /// Construct a GBA session key from CK and IK (Ks = CK || IK).
+    pub fn from_ck_ik(ck: &CipherKey, ik: &IntegrityKey) -> Self {
+        let mut raw = [0u8; 32];
+        raw[..16].copy_from_slice(ck.declassify());
+        raw[16..].copy_from_slice(ik.declassify());
+        Self(Secret::new(raw))
+    }
+
+    /// Classify a raw 256-bit value as a GBA session key.
+    #[inline]
+    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    /// Borrow the raw key bytes (leaves the CT-protected domain).
+    #[inline]
+    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+}
+
+impl core::fmt::Debug for GbaSessionKey {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("GbaSessionKey([REDACTED])")
+    }
+}
+
+/// GBA NAF-specific key (256 bits).
+///
+/// Derived from Ks using the 3GPP KDF with "gba-me" (external) or
+/// "gba-u" (internal) label, RAND, IMPI, and `NAF_ID`.
+///
+/// Per [TS 33.220](https://www.3gpp.org/DynaReport/33220.htm) Annex B.3.
+#[derive(Clone, Copy)]
+pub struct GbaNafKey(Secret<[u8; 32]>);
+
+impl GbaNafKey {
+    /// Classify a raw 256-bit value as a GBA NAF key.
+    #[inline]
+    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    /// Borrow the raw key bytes (leaves the CT-protected domain).
+    #[inline]
+    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+}
+
+impl core::fmt::Debug for GbaNafKey {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("GbaNafKey([REDACTED])")
+    }
+}
+
+/// Derive the external NAF-specific key (`Ks_ext_NAF` / `Ks_NAF`) for GBA.
+///
+/// Per [TS 33.220](https://www.3gpp.org/DynaReport/33220.htm) Annex B.3:
+/// - Key = Ks (= CK || IK, 32 bytes)
+/// - FC = 0x01
+/// - P0 = "gba-me" (6 bytes)
+/// - P1 = RAND (16 bytes)
+/// - P2 = IMPI (variable)
+/// - P3 = `NAF_ID` (variable)
+///
+/// This is the key returned to the ME in `GBA_U`, or the sole NAF key in `GBA_ME`.
+pub fn derive_gba_ext_naf_key(
+    ks: &GbaSessionKey,
+    rand: &[u8; 16],
+    impi: &[u8],
+    naf_id: &[u8],
+) -> GbaNafKey {
+    GbaNafKey::classify(kdf(
+        &Secret::new(*ks.declassify()),
+        0x01,
+        &[b"gba-me", &rand[..], impi, naf_id],
+    ))
+}
+
+/// Derive the internal NAF-specific key (`Ks_int_NAF`) for `GBA_U`.
+///
+/// Per [TS 33.220](https://www.3gpp.org/DynaReport/33220.htm) Annex B.3:
+/// - Key = Ks (= CK || IK, 32 bytes)
+/// - FC = 0x01
+/// - P0 = "gba-u" (5 bytes)
+/// - P1 = RAND (16 bytes)
+/// - P2 = IMPI (variable)
+/// - P3 = `NAF_ID` (variable)
+///
+/// This key stays on the UICC for use by on-card applications.
+pub fn derive_gba_int_naf_key(
+    ks: &GbaSessionKey,
+    rand: &[u8; 16],
+    impi: &[u8],
+    naf_id: &[u8],
+) -> GbaNafKey {
+    GbaNafKey::classify(kdf(
+        &Secret::new(*ks.declassify()),
+        0x01,
+        &[b"gba-u", &rand[..], impi, naf_id],
+    ))
+}
+
+/// 3GPP abbreviation for [`derive_gba_ext_naf_key`].
+#[deprecated(note = "3GPP Ks_NAF / Ks_ext_NAF (TS 33.220 B.3) -- prefer derive_gba_ext_naf_key()")]
+pub fn derive_ks_naf(
+    ks: &GbaSessionKey,
+    rand: &[u8; 16],
+    impi: &[u8],
+    naf_id: &[u8],
+) -> GbaNafKey {
+    derive_gba_ext_naf_key(ks, rand, impi, naf_id)
+}
+
+/// 3GPP abbreviation for [`derive_gba_int_naf_key`].
+#[deprecated(note = "3GPP Ks_int_NAF (TS 33.220 B.3) -- prefer derive_gba_int_naf_key()")]
+pub fn derive_ks_int_naf(
+    ks: &GbaSessionKey,
+    rand: &[u8; 16],
+    impi: &[u8],
+    naf_id: &[u8],
+) -> GbaNafKey {
+    derive_gba_int_naf_key(ks, rand, impi, naf_id)
+}
+
+// ---------------------------------------------------------------------------
 // ANSI X9.63 KDF (SEC 1 v2.0 clause 3.6.1)
 // ---------------------------------------------------------------------------
 
@@ -1383,6 +1513,119 @@ mod tests {
     // Anti-theater: cross-generation key isolation
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // GBA key derivation tests (TS 33.220 Annex B.3)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn gba_session_key_from_ck_ik() {
+        let ck = CipherKey::classify([0x11u8; 16]);
+        let ik = IntegrityKey::classify([0x22u8; 16]);
+        let ks = GbaSessionKey::from_ck_ik(&ck, &ik);
+        let raw = ks.declassify();
+        assert_eq!(&raw[..16], &[0x11u8; 16]);
+        assert_eq!(&raw[16..], &[0x22u8; 16]);
+    }
+
+    #[test]
+    fn gba_ext_naf_key_verifies_kdf_construction() {
+        // derive_gba_ext_naf_key = KDF(Ks, FC=0x01, "gba-me", RAND, IMPI, NAF_ID)
+        let ks = GbaSessionKey::classify([0x42u8; 32]);
+        let rand = [0x33u8; 16];
+        let impi = b"user@operator.com";
+        let naf_id = b"naf.example.com";
+
+        let key = derive_gba_ext_naf_key(&ks, &rand, impi, naf_id);
+
+        // Manual KDF computation
+        let expected = kdf(
+            &Secret::new([0x42u8; 32]),
+            0x01,
+            &[b"gba-me", &rand[..], &impi[..], &naf_id[..]],
+        );
+        assert_eq!(*key.declassify(), expected);
+    }
+
+    #[test]
+    fn gba_int_naf_key_verifies_kdf_construction() {
+        // derive_gba_int_naf_key = KDF(Ks, FC=0x01, "gba-u", RAND, IMPI, NAF_ID)
+        let ks = GbaSessionKey::classify([0x42u8; 32]);
+        let rand = [0x33u8; 16];
+        let impi = b"user@operator.com";
+        let naf_id = b"naf.example.com";
+
+        let key = derive_gba_int_naf_key(&ks, &rand, impi, naf_id);
+
+        let expected = kdf(
+            &Secret::new([0x42u8; 32]),
+            0x01,
+            &[b"gba-u", &rand[..], &impi[..], &naf_id[..]],
+        );
+        assert_eq!(*key.declassify(), expected);
+    }
+
+    #[test]
+    fn gba_ext_and_int_naf_keys_differ() {
+        // "gba-me" vs "gba-u" label must produce different keys
+        let ks = GbaSessionKey::classify([0x55u8; 32]);
+        let rand = [0x77u8; 16];
+        let impi = b"user@ims.mnc001.mcc001.3gppnetwork.org";
+        let naf_id = b"naf.example.com\x01\x00\x00\x00\x01";
+
+        let k_ext = derive_gba_ext_naf_key(&ks, &rand, impi, naf_id);
+        let k_int = derive_gba_int_naf_key(&ks, &rand, impi, naf_id);
+        assert_ne!(*k_ext.declassify(), *k_int.declassify());
+    }
+
+    #[test]
+    fn gba_naf_key_different_rand() {
+        let ks = GbaSessionKey::classify([0xAA; 32]);
+        let impi = b"user@example.com";
+        let naf_id = b"naf.example.com";
+
+        let k1 = derive_gba_ext_naf_key(&ks, &[0x01u8; 16], impi, naf_id);
+        let k2 = derive_gba_ext_naf_key(&ks, &[0x02u8; 16], impi, naf_id);
+        assert_ne!(*k1.declassify(), *k2.declassify());
+    }
+
+    #[test]
+    fn gba_naf_key_different_naf_id() {
+        let ks = GbaSessionKey::classify([0xBB; 32]);
+        let rand = [0xCC; 16];
+        let impi = b"user@example.com";
+
+        let k1 = derive_gba_ext_naf_key(&ks, &rand, impi, b"naf1.example.com");
+        let k2 = derive_gba_ext_naf_key(&ks, &rand, impi, b"naf2.example.com");
+        assert_ne!(*k1.declassify(), *k2.declassify());
+    }
+
+    #[test]
+    fn gba_naf_key_different_impi() {
+        let ks = GbaSessionKey::classify([0xDD; 32]);
+        let rand = [0xEE; 16];
+        let naf_id = b"naf.example.com";
+
+        let k1 = derive_gba_ext_naf_key(&ks, &rand, b"alice@example.com", naf_id);
+        let k2 = derive_gba_ext_naf_key(&ks, &rand, b"bob@example.com", naf_id);
+        assert_ne!(*k1.declassify(), *k2.declassify());
+    }
+
+    #[test]
+    fn gba_naf_key_deterministic() {
+        let ks = GbaSessionKey::classify([0x42u8; 32]);
+        let rand = [0x33u8; 16];
+        let impi = b"user@operator.com";
+        let naf_id = b"naf.example.com";
+
+        let k1 = derive_gba_ext_naf_key(&ks, &rand, impi, naf_id);
+        let k2 = derive_gba_ext_naf_key(&ks, &rand, impi, naf_id);
+        assert_eq!(*k1.declassify(), *k2.declassify());
+    }
+
+    // -----------------------------------------------------------------------
+    // Anti-theater: cross-generation key isolation
+    // -----------------------------------------------------------------------
+
     #[test]
     fn eps_anchor_key_vs_auth_server_key_different_fc() {
         // 4G EPS anchor key (FC=0x10) and 5G auth server key (FC=0x6A) with same CK/IK must differ.
@@ -1509,6 +1752,27 @@ mod proptests {
             prop_assert_ne!(*kausf.declassify(), *kamf.declassify(), "KAUSF != KAMF");
             prop_assert_ne!(*kausf.declassify(), *kgnb.declassify(), "KAUSF != KgNB");
             prop_assert_ne!(*kseaf.declassify(), *kgnb.declassify(), "KSEAF != KgNB");
+        }
+    }
+
+    proptest! {
+        // GBA: ext and int NAF keys must always differ (label isolation).
+        #[test]
+        fn gba_ext_int_naf_key_isolation(
+            ks in any::<[u8; 32]>(),
+            rand in any::<[u8; 16]>(),
+            impi_len in 5usize..=32,
+            impi_bytes in any::<[u8; 32]>(),
+            naf_id_len in 5usize..=32,
+            naf_id_bytes in any::<[u8; 32]>(),
+        ) {
+            let impi = &impi_bytes[..impi_len];
+            let naf_id = &naf_id_bytes[..naf_id_len];
+            let session = GbaSessionKey::classify(ks);
+            let k_ext = derive_gba_ext_naf_key(&session, &rand, impi, naf_id);
+            let k_int = derive_gba_int_naf_key(&session, &rand, impi, naf_id);
+            prop_assert_ne!(*k_ext.declassify(), *k_int.declassify(),
+                "Ks_ext_NAF and Ks_int_NAF must differ (different KDF labels)");
         }
     }
 

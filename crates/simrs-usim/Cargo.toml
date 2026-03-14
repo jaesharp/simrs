@@ -18,6 +18,9 @@ profile-full     = ["profile-standard"]  # Full TS 31.102 catalog (207 EFs, FsDa
 isim  = []   # ADF.ISIM per TS 31.103 (~10 EFs)
 hpsim = []   # ADF.HPSIM per TS 31.104 (~5 EFs)
 
+# GBA (Generic Bootstrapping Architecture) per TS 33.220
+gba = []     # Adds AUTHENTICATE P2=0x82/0x84 and NAF key derivation (~50 bytes)
+
 # DF population (additive)
 telecom = []  # Populate DF_TELECOM per ETSI TS 102 221 (~12 EFs)
 
@@ -25,7 +28,7 @@ telecom = []  # Populate DF_TELECOM per ETSI TS 102 221 (~12 EFs)
 profile-lte  = ["profile-standard"]
 profile-5g   = ["profile-standard"]
 profile-ims  = ["profile-full", "isim"]
-profile-all  = ["profile-full", "isim", "hpsim", "telecom"]
+profile-all  = ["profile-full", "isim", "hpsim", "telecom", "gba"]
 
 # Constant-time validation (DudeCT) -- dev/test only
 ct-validation = []
