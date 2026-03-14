@@ -2116,7 +2116,7 @@ impl ProactiveState {
         self.event_timer_value = [0u8; 3];
         self.last_result = 0xFF;
         self.len = 0;
-        self.seq = 0;
+        self.seq = 1;
     }
 
     /// Check if a specific terminal capability is supported.

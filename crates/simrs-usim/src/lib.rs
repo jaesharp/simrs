@@ -167,10 +167,7 @@ const SCHEME_PROFILE_B: u8 = 0x02;
 
 // EF_SUCI_CALC_INFO TLV tags (TS 31.102 V19.4.0 clause 4.4.11.8).
 const SUCI_CALC_INFO_SCHEME_LIST_TAG: u8 = 0xA0;
-#[allow(dead_code)] // Used in GET IDENTITY handler.
 const SUCI_CALC_INFO_HN_KEY_LIST_TAG: u8 = 0xA1;
-#[allow(dead_code)] // Skipped during TLV iteration (parse_hn_public_key looks for KEY_TAG).
-const SUCI_CALC_INFO_KEY_ID_TAG: u8 = 0x80;
 const SUCI_CALC_INFO_KEY_TAG: u8 = 0x81;
 
 // ---------------------------------------------------------------------------
@@ -543,14 +540,6 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         adfs: &'static [AdfSlot],
         auth: A,
     ) -> Self {
-        Self::build(mf, adfs, auth)
-    }
-
-    fn build(
-        mf: &'static DfDef,
-        adfs: &'static [AdfSlot],
-        auth: A,
-    ) -> Self {
         let mut data = FsData::<FS_CAP, FS_MAX_EFS>::new();
         // Panic on init failure: the static filesystem tree must fit in CAP.
         if let Err(e) = data.init_with_adfs(mf, adfs) {
@@ -666,13 +655,16 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     // -- snapshot --
 
-    /// Snapshot buffer size in bytes.
-    /// GBA snapshot size: 1 flag byte + 32 (Ks) + 16 (RAND) = 49 bytes when present.
+    /// SUCI snapshot size: 1 flag byte + 32 (seed) + 8 (counter) = 41 bytes.
+    pub const SUCI_SNAPSHOT_SIZE: usize = 1 + 32 + 8;
+
+    /// GBA snapshot size: 1 flag byte + 32 (Ks) + 16 (RAND) = 49 bytes.
     /// When GBA is disabled, this is 0.
     #[cfg(feature = "gba")]
-    const GBA_SNAPSHOT_SIZE: usize = 1 + 32 + 16; // has_ks flag + Ks + RAND
+    pub const GBA_SNAPSHOT_SIZE: usize = 1 + 32 + 16;
+    /// GBA snapshot size (disabled: 0 bytes).
     #[cfg(not(feature = "gba"))]
-    const GBA_SNAPSHOT_SIZE: usize = 0;
+    pub const GBA_SNAPSHOT_SIZE: usize = 0;
 
     /// Total snapshot buffer size in bytes (deterministic, feature-dependent).
     pub const SNAPSHOT_SIZE: usize =
@@ -686,7 +678,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         + DeactivationTracker::SNAPSHOT_SIZE
         + 4 * (SelectionCtx::SNAPSHOT_SIZE + 1) // channels: 4 * (snapshot + is_open flag)
         + 1 // last_aid_match
-        + Self::GBA_SNAPSHOT_SIZE;
+        + Self::GBA_SNAPSHOT_SIZE
+        + Self::SUCI_SNAPSHOT_SIZE;
 
     /// Byte offset of the `PinManager` region within a `UsimApp` snapshot.
     pub const PIN_SNAPSHOT_OFFSET: usize =
@@ -749,6 +742,20 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 buf[off..off + 48].fill(0);
                 off += 48;
             }
+        }
+        // SUCI state
+        if let Some(suci) = &self.suci {
+            buf[off] = 1;
+            off += 1;
+            buf[off..off + 32].copy_from_slice(suci.seed.declassify());
+            off += 32;
+            buf[off..off + 8].copy_from_slice(&suci.counter.to_le_bytes());
+            off += 8;
+        } else {
+            buf[off] = 0;
+            off += 1;
+            buf[off..off + 40].fill(0);
+            off += 40;
         }
         let _ = off;
         Self::SNAPSHOT_SIZE
@@ -839,6 +846,27 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 self.gba_ks = None;
                 self.gba_rand = None;
                 off += 48;
+            }
+        }
+        // SUCI state
+        {
+            let has_suci = buf[off] != 0;
+            off += 1;
+            if has_suci {
+                let mut seed_bytes = [0u8; 32];
+                seed_bytes.copy_from_slice(&buf[off..off + 32]);
+                off += 32;
+                let counter = u64::from_le_bytes([
+                    buf[off], buf[off + 1], buf[off + 2], buf[off + 3],
+                    buf[off + 4], buf[off + 5], buf[off + 6], buf[off + 7],
+                ]);
+                off += 8;
+                let mut state = SuciState::new(SuciSeed::new(seed_bytes));
+                state.counter = counter;
+                self.suci = Some(state);
+            } else {
+                self.suci = None;
+                off += 40;
             }
         }
         let _ = off;
@@ -1399,6 +1427,29 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         }
     }
 
+    /// Parse RAND + AUTN from AUTHENTICATE command data.
+    ///
+    /// Format: `0x10 [RAND:16] 0x10 [AUTN:16]` = 34 bytes.
+    /// Returns `(challenge, auth_token, raw_rand_bytes)` on success, or
+    /// `None` if the data length or prefix bytes are incorrect.
+    fn parse_auth_vectors(data: &[u8]) -> Option<(AuthChallenge, AuthToken, [u8; 16])> {
+        if data.len() != AUTH_DATA_LEN {
+            return None;
+        }
+        if data[0] != AUTH_VECTOR_LEN_PREFIX || data[17] != AUTH_VECTOR_LEN_PREFIX {
+            return None;
+        }
+        let mut challenge_bytes = [0u8; 16];
+        challenge_bytes.copy_from_slice(&data[1..17]);
+        let mut auth_token_bytes = [0u8; 16];
+        auth_token_bytes.copy_from_slice(&data[18..34]);
+        Some((
+            AuthChallenge::new(challenge_bytes),
+            AuthToken::new(auth_token_bytes),
+            challenge_bytes,
+        ))
+    }
+
     /// UMTS security context (P2=0x81): full AKA with RAND + AUTN.
     #[allow(clippy::cast_possible_truncation)]
     fn handle_authenticate_umts<'buf>(
@@ -1406,21 +1457,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        let data = cmd.data();
-        // Data: 0x10 [RAND:16] 0x10 [AUTN:16] = 34 bytes.
-        if data.len() != AUTH_DATA_LEN {
+        let Some((challenge, auth_token, _rand_bytes)) = Self::parse_auth_vectors(cmd.data()) else {
             return write_sw(buf, StatusWord::WrongLength);
-        }
-        if data[0] != AUTH_VECTOR_LEN_PREFIX || data[17] != AUTH_VECTOR_LEN_PREFIX {
-            return write_sw(buf, StatusWord::WrongLength);
-        }
-
-        let mut challenge_bytes = [0u8; 16];
-        challenge_bytes.copy_from_slice(&data[1..17]);
-        let challenge = AuthChallenge::new(challenge_bytes);
-        let mut auth_token_bytes = [0u8; 16];
-        auth_token_bytes.copy_from_slice(&data[18..34]);
-        let auth_token = AuthToken::new(auth_token_bytes);
+        };
 
         let auth_result = match self.auth.authenticate(&challenge, &auth_token) {
             Ok(output) => AuthenticationResult::Success {
@@ -1512,21 +1551,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        let data = cmd.data();
-        // Same format as UMTS: 0x10 [RAND:16] 0x10 [AUTN:16] = 34 bytes.
-        if data.len() != AUTH_DATA_LEN {
+        let Some((challenge, auth_token, rand_bytes)) = Self::parse_auth_vectors(cmd.data()) else {
             return write_sw(buf, StatusWord::WrongLength);
-        }
-        if data[0] != AUTH_VECTOR_LEN_PREFIX || data[17] != AUTH_VECTOR_LEN_PREFIX {
-            return write_sw(buf, StatusWord::WrongLength);
-        }
-
-        let mut challenge_bytes = [0u8; 16];
-        challenge_bytes.copy_from_slice(&data[1..17]);
-        let challenge = AuthChallenge::new(challenge_bytes);
-        let mut auth_token_bytes = [0u8; 16];
-        auth_token_bytes.copy_from_slice(&data[18..34]);
-        let auth_token = AuthToken::new(auth_token_bytes);
+        };
 
         match self.auth.authenticate(&challenge, &auth_token) {
             Ok(output) => {
@@ -1535,7 +1562,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                     &output.cipher_key,
                     &output.integrity_key,
                 ));
-                self.gba_rand = Some(challenge_bytes);
+                self.gba_rand = Some(rand_bytes);
 
                 // Response: 0xDB || inner_len || res_len || RES (only RES, no CK/IK).
                 let q = self.rsp_queue.buf_mut();
@@ -1553,14 +1580,13 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 write_sw(buf, StatusWord::AuthenticationError)
             }
             Err(AuthenticationError::SyncFailure { resync_token }) => {
-                // Sync failure: 0xDC || 0x0E || AUTS(14).
+                let result = AuthenticationResult::SyncFailure {
+                    resync_token: *resync_token.as_bytes(),
+                };
                 let q = self.rsp_queue.buf_mut();
-                q[0] = AUTH_SYNC_FAILURE_TAG;
-                q[1] = RESYNC_TOKEN_LEN;
-                q[2..16].copy_from_slice(resync_token.as_bytes());
-                let total: usize = 16;
-                self.rsp_queue.set_len(total);
-                write_sw(buf, StatusWord::bytes_available(total as u8))
+                let n = result.encode(q);
+                self.rsp_queue.set_len(n);
+                write_sw(buf, StatusWord::bytes_available(n as u8))
             }
         }
     }
@@ -1920,8 +1946,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                         return write_data_sw(buf, &[i], StatusWord::Success);
                     }
                 }
-                // No free channel available.
-                write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF))
+                // No free channel available (TS 102 221 clause 11.1.17).
+                write_sw(buf, StatusWord::FunctionNotSupported(0x81))
             }
             0x80 => {
                 // CLOSE: close channel specified in P2.
@@ -1994,7 +2020,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // If we have a valid Command Details TLV in the data but no active
         // proactive session, reject with 69 86 (command not allowed).
         if !self.proactive_session_active && Self::has_command_details(cmd.data()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         }
         // Session concludes with TERMINAL RESPONSE.
         self.proactive_session_active = false;
@@ -2099,7 +2125,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // Per ETSI TS 102 221 V18.3.0 clause 11.2.2: ENVELOPE requires a prior
         // TERMINAL PROFILE to have been sent in this session.
         if !self.proactive.has_terminal_profile() {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         }
 
         // Reject empty data (no BER-TLV tag present).
@@ -3364,7 +3390,7 @@ mod tests {
             &mut app,
             &[0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, 0x82, 0x02, 0x83, 0x81],
         );
-        assert_eq!(sw(&buf, len), (0x69, 0x86));
+        assert_eq!(sw(&buf, len), (0x69, 0x85));
     }
 
     #[test]
@@ -3384,7 +3410,7 @@ mod tests {
             &mut app,
             &[0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, 0x82, 0x02, 0x83, 0x81],
         );
-        assert_eq!(sw(&buf, len), (0x69, 0x86));
+        assert_eq!(sw(&buf, len), (0x69, 0x85));
     }
 
     #[test]
@@ -3763,6 +3789,7 @@ mod tests {
         //          + ProactiveState + ResponseQueue<64> + terminal_cap(17)
         //          + DeactivationTracker + channels(4*9=36) + last_aid_match(1)
         //          + GBA state (feature-gated: 49 bytes when enabled)
+        //          + SUCI state (41 bytes: 1 flag + 32 seed + 8 counter)
         let expected =
             simrs_fs::SelectionCtx::SNAPSHOT_SIZE
             + simrs_fs::FsData::<{ super::FS_CAP }, { super::FS_MAX_EFS }>::SNAPSHOT_SIZE
@@ -3774,7 +3801,8 @@ mod tests {
             + simrs_fs::DeactivationTracker::SNAPSHOT_SIZE
             + 4 * (simrs_fs::SelectionCtx::SNAPSHOT_SIZE + 1) // channels
             + 1 // last_aid_match
-            + UsimApp::<MilenageParams>::GBA_SNAPSHOT_SIZE;
+            + UsimApp::<MilenageParams>::GBA_SNAPSHOT_SIZE
+            + UsimApp::<MilenageParams>::SUCI_SNAPSHOT_SIZE;
         assert_eq!(UsimApp::<MilenageParams>::SNAPSHOT_SIZE, expected);
     }
 
@@ -4602,9 +4630,9 @@ mod tests {
         apdu[5..13].copy_from_slice(&data);
 
         let (buf, len) = send(&mut app, &apdu);
-        // Should be rejected: 69 86 (command not allowed, no session).
-        assert_eq!(sw(&buf, len), (0x69, 0x86),
-            "TERMINAL RESPONSE with Command Details but no session should return 69 86");
+        // Should be rejected: 69 85 (conditions of use not satisfied, no session).
+        assert_eq!(sw(&buf, len), (0x69, 0x85),
+            "TERMINAL RESPONSE with Command Details but no session should return 69 85");
     }
 
     #[test]
@@ -5049,7 +5077,7 @@ mod tests {
     fn refresh_no_pending_ignored() {
         let mut app = app();
         // TERMINAL RESPONSE with Command Details but no active proactive
-        // session is rejected by the session lifecycle enforcement (69 86).
+        // session is rejected by the session lifecycle enforcement (69 85).
         let tr = [
             0x80, 0x14, 0x00, 0x00, 0x0C,
             0x81, 0x03, 0x01, 0x01, 0x01,
@@ -5057,7 +5085,7 @@ mod tests {
             0x83, 0x01, 0x00,
         ];
         let (buf, len) = send(&mut app, &tr);
-        assert_eq!(sw(&buf, len), (0x69, 0x86));
+        assert_eq!(sw(&buf, len), (0x69, 0x85));
     }
 
     #[test]

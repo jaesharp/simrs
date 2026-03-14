@@ -62,6 +62,7 @@ pub enum UsimField {
     Deactivation,
     Channel(u8),
     LastAidMatch,
+    Suci,
 }
 
 /// Individual fields within a PIN slot, or the manager's count byte.
@@ -144,7 +145,7 @@ impl std::hash::Hash for UsimField {
         match self {
             Self::SelectionCtx | Self::FsData | Self::Auth | Self::Proactive
             | Self::RspQueue | Self::TerminalCapability | Self::Deactivation
-            | Self::LastAidMatch => {}
+            | Self::LastAidMatch | Self::Suci => {}
             Self::Pin(id, f) => {
                 id.hash(state);
                 f.hash(state);
@@ -213,6 +214,7 @@ impl fmt::Display for UsimField {
             Self::Deactivation => write!(f, "deactivation"),
             Self::Channel(n) => write!(f, "channel[{n}]"),
             Self::LastAidMatch => write!(f, "last_aid_match"),
+            Self::Suci => write!(f, "suci"),
         }
     }
 }
@@ -487,6 +489,14 @@ impl SnapshotRegistry {
             path: StatePath::Usim(UsimField::LastAidMatch),
         });
         off += 1;
+
+        // SUCI state (41 bytes: 1 flag + 32 seed + 8 counter)
+        let suci_size = TestUsim::SUCI_SNAPSHOT_SIZE;
+        entries.push(Entry {
+            range: off..off + suci_size,
+            path: StatePath::Usim(UsimField::Suci),
+        });
+        off += suci_size;
 
         // Sanity check
         let expected_end = base + TestUsim::SNAPSHOT_SIZE;

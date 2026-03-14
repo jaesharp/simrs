@@ -783,6 +783,12 @@ pub enum T0Action {
     },
     /// The command is complete. SW1 SW2 are available via [`T0Protocol::sw`].
     Done,
+    /// Invalid procedure byte received (not NULL, INS, ~INS, or SW1).
+    ///
+    /// Per ISO 7816-3 clause 10.3.3, procedure bytes must be one of: `0x60`
+    /// (NULL), INS echo, complement of INS, or a status byte (`0x6X`/`0x9X`).
+    /// The state machine resets to [`T0State::Idle`] on this error.
+    ProtocolError,
 }
 
 /// Data direction for the T=0 command in progress.
@@ -840,6 +846,9 @@ pub struct T0Protocol {
     have_sw1: bool,
     /// Data direction for current command.
     direction: T0Direction,
+    /// When true, transfer exactly one byte then return to `WaitProcedure`
+    /// (complement-INS procedure byte per ISO 7816-3 clause 10.3.3).
+    single_byte: bool,
 }
 
 impl Default for T0Protocol {
@@ -865,6 +874,7 @@ impl T0Protocol {
             sw: [0; 2],
             have_sw1: false,
             direction: T0Direction::CardToTerminal,
+            single_byte: false,
         }
     }
 
@@ -884,6 +894,7 @@ impl T0Protocol {
             sw: [0; 2],
             have_sw1: false,
             direction: T0Direction::CardToTerminal,
+            single_byte: false,
         }
     }
 
@@ -925,6 +936,7 @@ impl T0Protocol {
         self.sw = [0; 2];
         self.have_sw1 = false;
         self.direction = T0Direction::CardToTerminal;
+        self.single_byte = false;
     }
 
     /// Set the data direction for the current command.
@@ -968,8 +980,11 @@ impl T0Protocol {
                     self.data_len = self.data_pos;
                 }
 
-                if self.data_pos >= self.p3 as usize {
+                if self.data_pos >= self.p3 as usize || self.single_byte {
+                    // Return to WaitProcedure: either all data sent, or
+                    // complement-INS single-byte transfer complete.
                     self.state = T0State::WaitProcedure;
+                    self.single_byte = false;
                 }
                 T0Action::Continue
             }
@@ -1005,6 +1020,10 @@ impl T0Protocol {
                 }
 
                 if decoded == ins || decoded == !ins {
+                    // INS echo = transfer all remaining bytes.
+                    // ~INS (complement) = transfer exactly one byte, then
+                    // return to WaitProcedure (ISO 7816-3 clause 10.3.3).
+                    self.single_byte = decoded == !ins;
                     match self.direction {
                         T0Direction::TerminalToCard => {
                             self.state = T0State::SendingData;
@@ -1018,9 +1037,11 @@ impl T0Protocol {
                     return T0Action::ProcedureByte { byte: decoded };
                 }
 
-                self.sw[0] = decoded;
-                self.have_sw1 = true;
-                T0Action::Continue
+                // Any byte that is not NULL (0x60), INS, ~INS, or a
+                // status byte (0x6X/0x9X) is a protocol violation per
+                // ISO 7816-3 clause 10.3.3.
+                self.state = T0State::Idle;
+                T0Action::ProtocolError
             }
             T0State::ReceivingData => {
                 if self.data_pos < T0_DATA_MAX {
@@ -1029,8 +1050,11 @@ impl T0Protocol {
                     self.data_len = self.data_pos;
                 }
 
-                if self.data_pos >= self.p3 as usize {
+                if self.data_pos >= self.p3 as usize || self.single_byte {
+                    // Return to WaitProcedure: either all data received, or
+                    // complement-INS single-byte transfer complete.
                     self.state = T0State::WaitProcedure;
+                    self.single_byte = false;
                 }
                 T0Action::Continue
             }

@@ -1262,7 +1262,7 @@ mod tests {
     #[test]
     fn usim_only_rejects_gsm_cla() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]));
         match rsp {
             SimResponse::Apdu { sw, .. } => assert_eq!(sw.to_bytes(), [0x6E, 0x00]),
@@ -2349,7 +2349,7 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x69, 0x86),
+                assert_eq!((sw1, sw2), (0x69, 0x85),
                     "ENVELOPE should be rejected after proactive session cleared");
             }
             other => panic!("expected Apdu, got {other:?}"),

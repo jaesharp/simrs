@@ -241,15 +241,17 @@ fn then_sw_no_data_pending(world: &mut SimWorld) {
 }
 
 // Command rejected outright (e.g. ENVELOPE before TERMINAL PROFILE):
-// 69 86 (conditions not satisfied), 6D 00 (INS not supported), 6F 00 (technical).
+// 69 85 (conditions not satisfied), 69 86 (no current EF),
+// 6D 00 (INS not supported), 6F 00 (technical).
 #[then("SW indicates command rejected")]
 fn then_sw_command_rejected(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
     assert!(
-        (sw1, sw2) == (0x69, 0x86)
+        (sw1, sw2) == (0x69, 0x85)
+            || (sw1, sw2) == (0x69, 0x86)
             || (sw1, sw2) == (0x6D, 0x00)
             || (sw1, sw2) == (0x6F, 0x00),
-        "Expected 69 86, 6D 00, or 6F 00 (command rejected), got {sw1:02X} {sw2:02X}",
+        "Expected 69 85, 69 86, 6D 00, or 6F 00 (command rejected), got {sw1:02X} {sw2:02X}",
     );
 }
 
