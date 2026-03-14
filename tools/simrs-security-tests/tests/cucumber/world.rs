@@ -224,6 +224,8 @@ pub struct SimWorld {
     pub registry: Option<SnapshotRegistry>,
     /// Typed paths reserved as expected-changed by When steps.
     pub reservations: HashSet<StatePath>,
+    /// Result of the most recent snapshot restore attempt (for snapshot integrity tests).
+    pub restore_result: Option<bool>,
 }
 
 impl std::fmt::Debug for SimWorld {
@@ -239,6 +241,7 @@ impl std::fmt::Debug for SimWorld {
             .field("state_after", &self.state_after.as_ref().map(Vec::len))
             .field("registry", &self.registry.as_ref().map(|_| "<SnapshotRegistry>"))
             .field("reservations", &self.reservations.len())
+            .field("restore_result", &self.restore_result)
             .finish()
     }
 }

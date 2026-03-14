@@ -28,7 +28,7 @@ const TEST_HN_SK_A: [u8; 32] = [
     0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
 ];
 
-/// Build EF_SUCI_CALC_INFO TLV data for Profile A with the test HN public key.
+/// Build `EF_SUCI_CALC_INFO` TLV data for Profile A with the test HN public key.
 ///
 /// Layout:
 /// ```text
@@ -233,9 +233,8 @@ fn then_suci_eph_key_differs(world: &mut SimWorld) {
         .as_ref()
         .expect("No stashed SUCI response");
 
-    let first_data = match first {
-        Response::Received { data, .. } => data,
-        _ => panic!("Stashed response is not Received"),
+    let Response::Received { data: first_data, .. } = first else {
+        panic!("Stashed response is not Received")
     };
 
     assert_eq!(first_data[0], 0xA1, "Stashed response missing A1 tag");

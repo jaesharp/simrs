@@ -37,6 +37,9 @@ mod ota_envelope;
 mod auth_protocol;
 mod data_leakage;
 mod ecies_suci;
+mod bip_channel;
+mod channel_isolation;
+mod snapshot_integrity;
 
 fn main() {
     futures::executor::block_on(world::SimWorld::run("features/"));

@@ -452,6 +452,59 @@ pub fn envelope(data: &[u8]) -> ApduCmd {
     }
 }
 
+/// FETCH (CLA=0x80, INS=0x12) -- retrieve pending proactive command.
+///
+/// Le specifies the expected response length (0 means all available).
+pub const fn fetch(le: u8) -> ApduCmd {
+    ApduCmd {
+        cla: 0x80,
+        ins: ins::FETCH,
+        p1: 0x00,
+        p2: 0x00,
+        data: vec![],
+        le: Some(le),
+    }
+}
+
+/// TERMINAL RESPONSE (CLA=0x80, INS=0x14) -- respond to proactive command.
+pub fn terminal_response(data: &[u8]) -> ApduCmd {
+    ApduCmd {
+        cla: 0x80,
+        ins: ins::TERMINAL_RESPONSE,
+        p1: 0x00,
+        p2: 0x00,
+        data: data.to_vec(),
+        le: None,
+    }
+}
+
+/// MANAGE CHANNEL OPEN (INS=0x70, P1=0x00).
+///
+/// The SIM allocates the next free channel (1-3) and returns it in
+/// the response data.
+pub const fn manage_channel_open() -> ApduCmd {
+    ApduCmd {
+        cla: 0x00,
+        ins: ins::MANAGE_CHANNEL,
+        p1: 0x00,
+        p2: 0x00,
+        data: vec![],
+        le: Some(0x00),
+    }
+}
+
+/// MANAGE CHANNEL CLOSE (INS=0x70, P1=0x80, P2=channel).
+pub const fn manage_channel_close(channel: u8) -> ApduCmd {
+    ApduCmd {
+        cla: 0x00,
+        ins: ins::MANAGE_CHANNEL,
+        p1: 0x80,
+        p2: channel,
+        data: vec![],
+        le: None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

@@ -186,6 +186,8 @@ const TAG_LANGUAGE: u8 = 0xAD;
 const TAG_BEARER_DESCRIPTION: u8 = 0xB5;
 /// Buffer Size ([ETSI TS 102 223 V18.2.0 clause 8.55](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A462%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C405%5D)).
 const TAG_BUFFER_SIZE: u8 = 0xB9;
+/// Channel Status ([ETSI TS 102 223 V18.2.0 clause 8.56](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A462%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
+const TAG_CHANNEL_STATUS: u8 = 0xB8;
 /// Transport Level ([ETSI TS 102 223 V18.2.0 clause 8.59](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A466%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C328%5D)).
 const TAG_TRANSPORT_LEVEL: u8 = 0xBC;
 /// Other Address ([ETSI TS 102 223 V18.2.0 clause 8.58](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A466%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C674%5D)).
@@ -877,7 +879,9 @@ pub enum ProactiveCommand<'a> {
     /// CLOSE CHANNEL (type `0x41`): terminate BIP channel.
     /// Per [ETSI TS 102 223 V18.2.0 clause 6.4.28](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A189%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C376%5D).
     CloseChannel {
-        /// Channel qualifier.
+        /// Channel identifier (1-7).
+        channel_id: u8,
+        /// Command qualifier per TS 102 223.
         qualifier: u8,
     },
 
@@ -1383,7 +1387,16 @@ impl ProactiveCommand<'_> {
             Self::GetReaderStatus { qualifier } => (CMD_TYPE_GET_READER_STATUS, *qualifier, DEV_TERMINAL),
             Self::RunAtCommand => (CMD_TYPE_RUN_AT_COMMAND, 0x00, DEV_TERMINAL),
             Self::OpenChannel { qualifier, .. } => (CMD_TYPE_OPEN_CHANNEL, *qualifier, DEV_TERMINAL),
-            Self::CloseChannel { qualifier } => (CMD_TYPE_CLOSE_CHANNEL, *qualifier, DEV_TERMINAL),
+            Self::CloseChannel { channel_id, qualifier } => {
+                // Per TS 102 223 clause 8.7, BIP channel device identities
+                // are 0x21-0x27 for channels 1-7.
+                let dest = if *channel_id >= 1 && *channel_id <= 7 {
+                    0x20 + *channel_id
+                } else {
+                    DEV_TERMINAL
+                };
+                (CMD_TYPE_CLOSE_CHANNEL, *qualifier, dest)
+            },
             Self::ReceiveData { qualifier } => (CMD_TYPE_RECEIVE_DATA, *qualifier, DEV_TERMINAL),
             Self::SendDataCmd { qualifier } => (CMD_TYPE_SEND_DATA, *qualifier, DEV_TERMINAL),
             Self::GetChannelStatus => (CMD_TYPE_GET_CHANNEL_STATUS, 0x00, DEV_TERMINAL),
@@ -1548,6 +1561,14 @@ pub struct ProactiveState {
     /// General result byte from the most recent TERMINAL RESPONSE.
     /// 0xFF means no response received yet.
     last_result: u8,
+    /// Channel ID targeted by the most recent BIP proactive command
+    /// (OPEN CHANNEL, CLOSE CHANNEL). 0 means none.
+    ///
+    /// For CLOSE CHANNEL: set by [`queue_command()`](Self::queue_command),
+    /// used by [`terminal_response()`](Self::terminal_response) since the
+    /// response omits the channel ID. For OPEN CHANNEL: overridden from
+    /// the Channel Status TLV in the terminal's response.
+    last_bip_channel_id: u8,
 }
 
 // ---------------------------------------------------------------------------
@@ -1674,6 +1695,7 @@ impl ProactiveState {
             expired_timers: 0,
             channels: [ChannelSlot::new(); 7],
             last_result: 0xFF,
+            last_bip_channel_id: 0,
         }
     }
 
@@ -1692,6 +1714,18 @@ impl ProactiveState {
         // Keep subscription state consistent with SET UP EVENT LIST.
         if let ProactiveCommand::SetUpEventList { events } = cmd {
             self.subscribe_events(events);
+        }
+        // Track the target channel ID for BIP commands so that
+        // terminal_response() can auto-apply channel state changes.
+        match cmd {
+            ProactiveCommand::CloseChannel { channel_id, .. } => {
+                self.last_bip_channel_id = *channel_id;
+            }
+            ProactiveCommand::OpenChannel { .. } => {
+                // Channel ID assigned by terminal; parsed from response.
+                self.last_bip_channel_id = 0;
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -1739,6 +1773,10 @@ impl ProactiveState {
         let mut cmd_type: u8 = 0;
         let mut general_result: Option<u8> = None;
         let mut found_cmd_details = false;
+        // BIP TLV extraction (Channel Status, Bearer Description, Buffer Size).
+        let mut channel_status: Option<[u8; 2]> = None;
+        let mut bearer_type: u8 = 0;
+        let mut buffer_size: u16 = 0;
 
         let mut dec = Decoder::new(data);
         while let Some(Ok(tlv)) = dec.next() {
@@ -1752,6 +1790,15 @@ impl ProactiveState {
                 TAG_RESULT if !tlv.value.is_empty() => {
                     general_result = Some(tlv.value[0]);
                 }
+                TAG_CHANNEL_STATUS if tlv.value.len() >= 2 => {
+                    channel_status = Some([tlv.value[0], tlv.value[1]]);
+                }
+                TAG_BEARER_DESCRIPTION if !tlv.value.is_empty() => {
+                    bearer_type = tlv.value[0];
+                }
+                TAG_BUFFER_SIZE if tlv.value.len() >= 2 => {
+                    buffer_size = u16::from_be_bytes([tlv.value[0], tlv.value[1]]);
+                }
                 _ => {} // skip unknown TLVs
             }
         }
@@ -1759,11 +1806,26 @@ impl ProactiveState {
         if let Some(result) = general_result {
             self.last_result = result;
             if found_cmd_details {
-                return Some(TerminalResult {
+                let tr = TerminalResult {
                     cmd_number,
                     cmd_type,
                     general_result: result,
-                });
+                };
+                // Auto-apply BIP channel state changes for OPEN/CLOSE CHANNEL.
+                match cmd_type {
+                    CMD_TYPE_OPEN_CHANNEL => {
+                        // Channel ID from Channel Status TLV (bits 0-2).
+                        let ch_id = channel_status
+                            .map_or(0, |cs| cs[0] & 0x07);
+                        self.apply_bip_result(&tr, ch_id, bearer_type, buffer_size);
+                    }
+                    CMD_TYPE_CLOSE_CHANNEL => {
+                        // Channel ID tracked when command was queued.
+                        self.apply_bip_result(&tr, self.last_bip_channel_id, 0, 0);
+                    }
+                    _ => {}
+                }
+                return Some(tr);
             }
         }
         None
@@ -2130,6 +2192,7 @@ impl ProactiveState {
             self.channels[j] = ChannelSlot::new();
             j += 1;
         }
+        self.last_bip_channel_id = 0;
     }
 
     /// Check if a specific terminal capability is supported.
@@ -2243,8 +2306,9 @@ impl ProactiveState {
     /// + `event_item_id`(1) + `profile`(32) + `profile_len`(1)
     /// + `event_type`(1) + `event_timer_id`(1) + `event_timer_value`(3)
     /// + `subscribed_events`(8) + `timers`(8 x 5 = 40)
-    /// + `expired_timers`(1) + `channels`(7 x 4 = 28) + `last_result`(1) = 377.
-    pub const SNAPSHOT_SIZE: usize = 256 + 2 + 1 + 1 + 1 + 32 + 1 + 1 + 1 + 3 + 8 + 40 + 1 + 28 + 1;
+    /// + `expired_timers`(1) + `channels`(7 x 4 = 28) + `last_result`(1)
+    /// + `last_bip_channel_id`(1) = 378.
+    pub const SNAPSHOT_SIZE: usize = 256 + 2 + 1 + 1 + 1 + 32 + 1 + 1 + 1 + 3 + 8 + 40 + 1 + 28 + 1 + 1;
 
     /// Serialize the proactive state into `buf` as flat bytes.
     ///
@@ -2284,6 +2348,7 @@ impl ProactiveState {
             j += 1;
         }
         w.put_u8(self.last_result);
+        w.put_u8(self.last_bip_channel_id);
         w.finish()
     }
 
@@ -2328,6 +2393,7 @@ impl ProactiveState {
             j += 1;
         }
         self.last_result = r.get_u8();
+        self.last_bip_channel_id = r.get_u8();
         if self.len > 256 {
             self.len = 0;
             return false;
@@ -3512,7 +3578,7 @@ mod tests {
                 destination_address: &[],
                 qualifier: 0x00,
             },
-            ProactiveCommand::CloseChannel { qualifier: 0x00 },
+            ProactiveCommand::CloseChannel { channel_id: 1, qualifier: 0x00 },
             ProactiveCommand::ReceiveData { qualifier: 0x00 },
             ProactiveCommand::SendDataCmd { qualifier: 0x00 },
             ProactiveCommand::GetChannelStatus,
@@ -3543,7 +3609,7 @@ mod tests {
 
     #[test]
     fn snapshot_size_correct() {
-        assert_eq!(ProactiveState::SNAPSHOT_SIZE, 377);
+        assert_eq!(ProactiveState::SNAPSHOT_SIZE, 378);
     }
 
     #[test]
@@ -4369,6 +4435,104 @@ mod tests {
         assert!(!state.apply_bip_result(&tr, 3, 0x02, 512));
     }
 
+    // -- BIP auto-application via terminal_response --
+
+    #[test]
+    fn terminal_response_auto_applies_open_channel() {
+        let mut state = ProactiveState::new();
+        // Queue OPEN CHANNEL proactive command.
+        state
+            .queue_command(&ProactiveCommand::OpenChannel {
+                bearer: &[0x02],
+                buffer_size: 512,
+                alpha_id: &[],
+                transport_level: &[],
+                destination_address: &[],
+                qualifier: 0x00,
+            })
+            .unwrap();
+        // FETCH the command (clears pending buffer, advances seq).
+        let mut fetch_buf = [0u8; 256];
+        let fetched = state.fetch(&mut fetch_buf);
+        assert!(fetched > 0);
+
+        // Craft TERMINAL RESPONSE with BIP TLVs.
+        let tr_data = [
+            0x81, 0x03, 0x01, 0x40, 0x00, // Command Details: OPEN CHANNEL
+            0x82, 0x02, 0x82, 0x81,       // Device Identities: ME -> UICC
+            0x83, 0x01, 0x00,             // Result: success
+            0xB8, 0x02, 0x03, 0x00,       // Channel Status: channel 3
+            0xB5, 0x01, 0x02,             // Bearer Description: type 0x02
+            0xB9, 0x02, 0x02, 0x00,       // Buffer Size: 512
+        ];
+        let result = state.terminal_response(&tr_data);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().cmd_type, CMD_TYPE_OPEN_CHANNEL);
+        assert!(state.is_channel_open(3));
+        assert_eq!(state.channel_status_bitmask(), 0b0000_0100);
+    }
+
+    #[test]
+    fn terminal_response_auto_applies_close_channel() {
+        let mut state = ProactiveState::new();
+        // Pre-open channel 3.
+        state.open_channel(3, 0x02, 512);
+        assert!(state.is_channel_open(3));
+
+        // Queue CLOSE CHANNEL targeting channel 3.
+        state
+            .queue_command(&ProactiveCommand::CloseChannel {
+                channel_id: 3,
+                qualifier: 0x00,
+            })
+            .unwrap();
+        let mut fetch_buf = [0u8; 256];
+        state.fetch(&mut fetch_buf);
+
+        // TERMINAL RESPONSE with success result.
+        let tr_data = [
+            0x81, 0x03, 0x02, 0x41, 0x00, // Command Details: CLOSE CHANNEL
+            0x82, 0x02, 0x82, 0x81,       // Device Identities
+            0x83, 0x01, 0x00,             // Result: success
+        ];
+        let result = state.terminal_response(&tr_data);
+        assert!(result.is_some());
+        assert!(!state.is_channel_open(3));
+        assert_eq!(state.channel_status_bitmask(), 0);
+    }
+
+    #[test]
+    fn terminal_response_failed_open_no_state_change() {
+        let mut state = ProactiveState::new();
+        state
+            .queue_command(&ProactiveCommand::OpenChannel {
+                bearer: &[0x01],
+                buffer_size: 1024,
+                alpha_id: &[],
+                transport_level: &[],
+                destination_address: &[],
+                qualifier: 0x00,
+            })
+            .unwrap();
+        let mut fetch_buf = [0u8; 256];
+        state.fetch(&mut fetch_buf);
+
+        // TERMINAL RESPONSE with failure result (0x20 = ME unable to process).
+        let tr_data = [
+            0x81, 0x03, 0x01, 0x40, 0x00,
+            0x82, 0x02, 0x82, 0x81,
+            0x83, 0x01, 0x20,             // Result: failure
+            0xB8, 0x02, 0x03, 0x00,       // Channel Status present but result failed
+            0xB5, 0x01, 0x02,
+            0xB9, 0x02, 0x04, 0x00,
+        ];
+        let result = state.terminal_response(&tr_data);
+        assert!(result.is_some());
+        // Channel should NOT be opened because result indicated failure.
+        assert!(!state.is_channel_open(3));
+        assert_eq!(state.channel_status_bitmask(), 0);
+    }
+
     // -- Terminal response parsing tests --
 
     #[test]
@@ -4813,7 +4977,7 @@ mod tests {
 
     #[test]
     fn close_channel_encoding() {
-        let cmd = ProactiveCommand::CloseChannel { qualifier: 0x00 };
+        let cmd = ProactiveCommand::CloseChannel { channel_id: 3, qualifier: 0x00 };
         let mut buf = [0u8; 256];
         let n = encode(&cmd, 1, &mut buf).unwrap();
         assert_eq!(buf[0], 0xD0);
@@ -4823,7 +4987,8 @@ mod tests {
         assert_eq!(details.value[1], CMD_TYPE_CLOSE_CHANNEL);
         let devid = dec.next().unwrap().unwrap();
         assert_eq!(devid.tag, 0x82);
-        assert_eq!(devid.value, &[DEV_UICC, DEV_TERMINAL]);
+        // Channel 3 -> device identity 0x23 (per TS 102 223 clause 8.7).
+        assert_eq!(devid.value, &[DEV_UICC, 0x23]);
     }
 
     #[test]
@@ -5235,7 +5400,7 @@ mod tests {
                 destination_address: &[0x21, 0x01, 0x02, 0x03, 0x04],
                 qualifier: 0x00,
             },
-            ProactiveCommand::CloseChannel { qualifier: 0x00 },
+            ProactiveCommand::CloseChannel { channel_id: 1, qualifier: 0x00 },
             ProactiveCommand::ReceiveData { qualifier: 0x00 },
             ProactiveCommand::SendDataCmd { qualifier: 0x00 },
             ProactiveCommand::GetChannelStatus,
