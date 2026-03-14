@@ -246,13 +246,13 @@ pub fn pack(input: &[u8], output: &mut [u8]) -> usize {
         let bit_offset = bit_pos % 8;
 
         // Place the 7-bit code starting at bit_offset within byte_idx.
-        output[byte_idx] |= (gsm_code << bit_offset) as u8;
+        output[byte_idx] |= gsm_code << bit_offset;
 
         // If the code spans two bytes, write the upper bits into the next byte.
         if bit_offset > 1 {
             // bit_offset > 1 means some bits spill into next byte
             // (7 bits starting at offset > 1 means > 8 bits total)
-            output[byte_idx + 1] |= (gsm_code >> (8 - bit_offset)) as u8;
+            output[byte_idx + 1] |= gsm_code >> (8 - bit_offset);
         }
 
         bit_pos += 7;

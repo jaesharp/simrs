@@ -2193,6 +2193,35 @@ impl ProactiveState {
         mask
     }
 
+    /// Process a BIP-related TERMINAL RESPONSE.
+    ///
+    /// After calling [`terminal_response()`](Self::terminal_response) to
+    /// parse the response TLVs, pass the result here to automatically
+    /// update channel state for OPEN CHANNEL and CLOSE CHANNEL commands.
+    ///
+    /// For OPEN CHANNEL (type `0x40`): if `general_result` indicates success
+    /// (0x00) or success with partial comprehension (0x01..0x0F), the channel
+    /// identified by `channel_id` is opened with the given bearer and buffer
+    /// size.
+    ///
+    /// For CLOSE CHANNEL (type `0x41`): if successful, the channel is closed.
+    ///
+    /// Returns `true` if a channel state change was made.
+    pub const fn apply_bip_result(
+        &mut self,
+        tr: &TerminalResult,
+        channel_id: u8,
+        bearer_type: u8,
+        buffer_size: u16,
+    ) -> bool {
+        let success = tr.general_result <= 0x0F;
+        match tr.cmd_type {
+            CMD_TYPE_OPEN_CHANNEL if success => self.open_channel(channel_id, bearer_type, buffer_size),
+            CMD_TYPE_CLOSE_CHANNEL if success => self.close_channel(channel_id),
+            _ => false,
+        }
+    }
+
     // -- snapshot --
 
     /// Snapshot buffer size in bytes.
@@ -4260,6 +4289,67 @@ mod tests {
         let mut restored = ProactiveState::new();
         assert!(restored.restore_state(&snap));
         assert!(!restored.is_channel_open(3));
+    }
+
+    #[test]
+    fn apply_bip_result_open_channel() {
+        let mut state = ProactiveState::new();
+        let tr = TerminalResult {
+            cmd_number: 1,
+            cmd_type: 0x40, // OPEN CHANNEL
+            general_result: 0x00, // success
+        };
+        assert!(state.apply_bip_result(&tr, 3, 0x02, 512));
+        assert!(state.is_channel_open(3));
+        assert_eq!(state.channel_status_bitmask(), 0b0000_0100);
+    }
+
+    #[test]
+    fn apply_bip_result_close_channel() {
+        let mut state = ProactiveState::new();
+        state.open_channel(3, 0x02, 512);
+        let tr = TerminalResult {
+            cmd_number: 2,
+            cmd_type: 0x41, // CLOSE CHANNEL
+            general_result: 0x00,
+        };
+        assert!(state.apply_bip_result(&tr, 3, 0, 0));
+        assert!(!state.is_channel_open(3));
+    }
+
+    #[test]
+    fn apply_bip_result_failure_does_not_change_state() {
+        let mut state = ProactiveState::new();
+        let tr = TerminalResult {
+            cmd_number: 1,
+            cmd_type: 0x40,
+            general_result: 0x20, // ME unable to process
+        };
+        assert!(!state.apply_bip_result(&tr, 3, 0x02, 512));
+        assert!(!state.is_channel_open(3));
+    }
+
+    #[test]
+    fn apply_bip_result_partial_comprehension_succeeds() {
+        let mut state = ProactiveState::new();
+        let tr = TerminalResult {
+            cmd_number: 1,
+            cmd_type: 0x40,
+            general_result: 0x01, // partial comprehension, still success
+        };
+        assert!(state.apply_bip_result(&tr, 5, 0x01, 256));
+        assert!(state.is_channel_open(5));
+    }
+
+    #[test]
+    fn apply_bip_result_non_bip_command_ignored() {
+        let mut state = ProactiveState::new();
+        let tr = TerminalResult {
+            cmd_number: 1,
+            cmd_type: 0x21, // DISPLAY TEXT
+            general_result: 0x00,
+        };
+        assert!(!state.apply_bip_result(&tr, 3, 0x02, 512));
     }
 
     // -- Terminal response parsing tests --
