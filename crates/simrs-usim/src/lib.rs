@@ -122,11 +122,9 @@ const SFI_INDICATOR: u8 = 0x04;
 const PS_DO_TAG: u8 = 0x90;
 
 // 3GPP TS 31.102 V19.4.0 clause 7.1.2: AUTHENTICATE protocol constants.
-#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const P2_GSM_CONTEXT: u8 = 0x00;
 const P2_UMTS_CONTEXT: u8 = 0x81;
 const AUTH_DATA_LEN: usize = 34;
-#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const GSM_AUTH_DATA_LEN: usize = 17; // 0x10 || RAND(16)
 const AUTH_VECTOR_LEN_PREFIX: u8 = 0x10;
 const AUTH_SUCCESS_TAG: u8 = 0xDB;
@@ -137,12 +135,9 @@ const AUTH_KEY_LEN: u8 = 0x10;
 const AUTH_SUCCESS_INNER_LEN: u8 = 1 + AUTH_RESPONSE_LEN + 1 + AUTH_KEY_LEN + 1 + AUTH_KEY_LEN;
 
 // GSM context response constants (3GPP TS 31.102 V19.4.0 clause 7.1.2).
-#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const GSM_SRES_LEN: u8 = 0x04;
-#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const GSM_KC_LEN: u8 = 0x08;
 // Total GSM response: 0x04 || SRES(4) || 0x08 || Kc(8) = 14 bytes.
-#[allow(dead_code)] // Used by upcoming GSM context AUTHENTICATE support.
 const GSM_AUTH_RSP_LEN: usize = 1 + 4 + 1 + 8;
 
 // 3GPP TS 31.102 V19.4.0 clause 7.5: GET IDENTITY protocol constants.
