@@ -15,8 +15,8 @@
 //!           0-65536B   1B    1B
 //! ```
 //!
-//! For short APDUs (which simrs targets): Lc and Le are each 0 or 1 byte,
-//! data is 0-255 bytes.
+//! Short APDUs use 1-byte Lc/Le (data 0-255 bytes). Extended APDUs use
+//! 3-byte Lc/Le (data 0-65535 bytes) per ISO 7816-4 clause 5.1.
 //!
 //! # CLA Byte Routing
 //!
@@ -552,10 +552,24 @@ pub struct Command<'a> {
     p2: u8,
     data: &'a [u8],
     le: Option<u8>,
+    /// Extended Le for extended-length APDUs (ISO 7816-4 clause 5.1).
+    /// `Some(n)` when the APDU uses extended Lc/Le encoding.
+    /// 0 represents 65536.
+    le_ext: Option<u16>,
+    /// Whether this APDU was parsed as extended-length format.
+    extended: bool,
 }
 
 impl<'a> Command<'a> {
-    /// Parse a short APDU command from raw bytes.
+    /// Parse an APDU command from raw bytes.
+    ///
+    /// Supports both short (1-byte Lc/Le, max 255) and extended (3-byte
+    /// Lc/Le, max 65535) formats per ISO/IEC 7816-4:2020 clause 5.1 and
+    /// ETSI TS 102 221 V18.3.0 clause 10.1.1.
+    ///
+    /// Extended format is detected when `bytes[4] == 0x00` and
+    /// `bytes.len() >= 7`. In extended mode, [`le()`](Self::le) returns
+    /// `None`; use [`le_extended()`](Self::le_extended) instead.
     ///
     /// # Errors
     ///
@@ -573,17 +587,24 @@ impl<'a> Command<'a> {
 
         if bytes.len() == 4 {
             // Case 1: header only
-            return Ok(Self { cla, ins, p1, p2, data: &[], le: None });
+            return Ok(Self { cla, ins, p1, p2, data: &[], le: None, le_ext: None, extended: false });
         }
 
         let p3 = bytes[4];
 
         if bytes.len() == 5 {
-            // Case 2: Le only (Lc=0, Le=P3)
-            return Ok(Self { cla, ins, p1, p2, data: &[], le: Some(p3) });
+            // Case 2S: Le only (short)
+            return Ok(Self { cla, ins, p1, p2, data: &[], le: Some(p3), le_ext: None, extended: false });
         }
 
-        // Case 3 or 4: Lc = P3, followed by data, optionally Le
+        // Extended format detection: byte[4] == 0x00 and at least 7 bytes.
+        // Per ISO 7816-4, when the first Lc/Le byte is 0x00 and there are
+        // additional bytes, the APDU uses 3-byte extended length encoding.
+        if p3 == 0x00 && bytes.len() >= 7 {
+            return Self::parse_extended(cla, ins, p1, p2, bytes);
+        }
+
+        // Case 3S or 4S: short format -- Lc = P3, followed by data, optionally Le
         let lc = p3 as usize;
         if bytes.len() < 5 + lc {
             return Err(ApduError::DataTruncated);
@@ -595,12 +616,84 @@ impl<'a> Command<'a> {
         let (data, remainder) = after_header.split_at(lc);
 
         let le = if remainder.is_empty() {
-            None // Case 3
+            None // Case 3S
         } else {
-            Some(remainder[0]) // Case 4
+            Some(remainder[0]) // Case 4S
         };
 
-        Ok(Self { cla, ins, p1, p2, data, le })
+        Ok(Self { cla, ins, p1, p2, data, le, le_ext: None, extended: false })
+    }
+
+    /// Parse an extended-length APDU (ISO 7816-4 clause 5.1).
+    ///
+    /// Called when byte[4] == 0x00 and len >= 7. Layout variants:
+    ///
+    /// ```text
+    /// Case 2E: [CLA INS P1 P2] [00 Le1 Le2]           -- Le only
+    /// Case 3E: [CLA INS P1 P2] [00 Lc1 Lc2] [Data]    -- Lc + data
+    /// Case 4E: [CLA INS P1 P2] [00 Lc1 Lc2] [Data] [Le1 Le2] -- Lc + data + Le
+    /// ```
+    const fn parse_extended(
+        cla: ClassByte,
+        ins: u8,
+        p1: u8,
+        p2: u8,
+        bytes: &'a [u8],
+    ) -> Result<Self, ApduError> {
+        let b1 = bytes[5];
+        let b2 = bytes[6];
+        let field = ((b1 as u16) << 8) | (b2 as u16);
+
+        if bytes.len() == 7 {
+            // Case 2E: extended Le only, Lc=0
+            return Ok(Self {
+                cla, ins, p1, p2,
+                data: &[],
+                le: None,
+                le_ext: Some(field),
+                extended: true,
+            });
+        }
+
+        // Case 3E or 4E: Lc = field, then data, optionally Le
+        let lc = field as usize;
+        if lc == 0 {
+            // Lc=0 with extra bytes: treat the remaining 2 bytes as Le
+            // (disambiguate Case 2E with trailing bytes from Case 3E with Lc=0)
+            if bytes.len() >= 9 {
+                let le_val = ((bytes[7] as u16) << 8) | (bytes[8] as u16);
+                return Ok(Self {
+                    cla, ins, p1, p2,
+                    data: &[],
+                    le: None,
+                    le_ext: Some(le_val),
+                    extended: true,
+                });
+            }
+            return Ok(Self {
+                cla, ins, p1, p2,
+                data: &[],
+                le: None,
+                le_ext: Some(field),
+                extended: true,
+            });
+        }
+
+        if bytes.len() < 7 + lc {
+            return Err(ApduError::DataTruncated);
+        }
+
+        let (_, after_ext_header) = bytes.split_at(7);
+        let (data, remainder) = after_ext_header.split_at(lc);
+
+        let le_ext = if remainder.len() >= 2 {
+            // Case 4E: 2-byte Le follows data
+            Some(((remainder[0] as u16) << 8) | (remainder[1] as u16))
+        } else {
+            None // Case 3E
+        };
+
+        Ok(Self { cla, ins, p1, p2, data, le: None, le_ext, extended: true })
     }
 
     /// Parsed CLA byte.
@@ -615,8 +708,31 @@ impl<'a> Command<'a> {
     pub const fn p2(&self) -> u8 { self.p2 }
     /// Command data field (may be empty).
     pub const fn data(&self) -> &[u8] { self.data }
-    /// Le (expected response length), if present.
+    /// Le (expected response length) for short APDUs, if present.
+    ///
+    /// Returns `None` for extended-length APDUs; use
+    /// [`le_extended()`](Self::le_extended) instead.
     pub const fn le(&self) -> Option<u8> { self.le }
+
+    /// Extended Le (expected response length) as `u16`.
+    ///
+    /// Works for both short and extended APDUs:
+    /// - Short APDU: returns the short Le widened to `u16`
+    /// - Extended APDU: returns the 2-byte extended Le
+    /// - No Le present: returns `None`
+    ///
+    /// A value of 0 means "maximum available" (256 for short, 65536 for
+    /// extended).
+    pub const fn le_extended(&self) -> Option<u16> {
+        match (self.le, self.le_ext) {
+            (_, Some(le)) => Some(le),
+            (Some(le), None) => Some(le as u16),
+            (None, None) => None,
+        }
+    }
+
+    /// Whether this command used extended-length encoding.
+    pub const fn is_extended(&self) -> bool { self.extended }
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,6 +1125,112 @@ mod tests {
         assert_eq!(cmd.ins(), ins::AUTHENTICATE);
         assert_eq!(cmd.p2(), 0x81);
         assert_eq!(cmd.data().len(), 32);
+    }
+
+    // -- Extended APDU parsing --
+
+    #[test]
+    fn parse_extended_case2e_le_only() {
+        // Case 2E: 00 B0 00 00 00 01 00  -- READ BINARY, Le=256
+        let bytes = [0x00, 0xB0, 0x00, 0x00, 0x00, 0x01, 0x00];
+        let cmd = Command::parse(&bytes).unwrap();
+        assert_eq!(cmd.ins(), ins::READ_BINARY);
+        assert!(cmd.is_extended());
+        assert_eq!(cmd.data(), &[]);
+        assert_eq!(cmd.le(), None); // short le not available for extended
+        assert_eq!(cmd.le_extended(), Some(0x0100)); // 256
+    }
+
+    #[test]
+    fn parse_extended_case2e_le_max() {
+        // Case 2E: 00 B0 00 00 00 00 00  -- Le=0 means 65536
+        let bytes = [0x00, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let cmd = Command::parse(&bytes).unwrap();
+        assert!(cmd.is_extended());
+        assert_eq!(cmd.le_extended(), Some(0x0000)); // 0 = 65536
+    }
+
+    #[test]
+    fn parse_extended_case3e_data() {
+        // Case 3E: 00 A4 04 00 00 00 07 [7 bytes AID]
+        let mut bytes = [0u8; 7 + 7]; // header(4) + 00(1) + Lc(2) + data(7)
+        bytes[0] = 0x00;
+        bytes[1] = 0xA4; // SELECT
+        bytes[2] = 0x04;
+        bytes[3] = 0x00;
+        bytes[4] = 0x00; // extended marker
+        bytes[5] = 0x00; // Lc high
+        bytes[6] = 0x07; // Lc low = 7
+        bytes[7..14].copy_from_slice(&[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        let cmd = Command::parse(&bytes).unwrap();
+        assert!(cmd.is_extended());
+        assert_eq!(cmd.data(), &[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        assert_eq!(cmd.le(), None);
+        assert_eq!(cmd.le_extended(), None); // no Le
+    }
+
+    #[test]
+    fn parse_extended_case4e_data_and_le() {
+        // Case 4E: 00 A4 04 00 00 00 02 [2 bytes] 01 00  -- Lc=2, Le=256
+        let bytes = [0x00, 0xA4, 0x04, 0x00, 0x00, 0x00, 0x02, 0x3F, 0x00, 0x01, 0x00];
+        let cmd = Command::parse(&bytes).unwrap();
+        assert!(cmd.is_extended());
+        assert_eq!(cmd.data(), &[0x3F, 0x00]);
+        assert_eq!(cmd.le_extended(), Some(0x0100)); // 256
+    }
+
+    #[test]
+    fn parse_extended_large_data() {
+        // Case 3E with 300 bytes of data (exceeds short APDU limit of 255)
+        let mut bytes = [0u8; 7 + 300]; // header(4) + 00(1) + Lc(2) + data(300)
+        bytes[0] = 0x00;
+        bytes[1] = 0xD6; // UPDATE BINARY
+        bytes[4] = 0x00; // extended marker
+        bytes[5] = 0x01; // Lc high
+        bytes[6] = 0x2C; // Lc low = 0x012C = 300
+        for i in 7..307 {
+            bytes[i] = 0xAA;
+        }
+        let cmd = Command::parse(&bytes).unwrap();
+        assert!(cmd.is_extended());
+        assert_eq!(cmd.data().len(), 300);
+        assert!(cmd.data().iter().all(|&b| b == 0xAA));
+    }
+
+    #[test]
+    fn parse_extended_data_truncated() {
+        // Extended Lc=10 but only 3 data bytes
+        let bytes = [0x00, 0xA4, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x01, 0x02, 0x03];
+        assert_eq!(Command::parse(&bytes), Err(ApduError::DataTruncated));
+    }
+
+    #[test]
+    fn parse_short_le_zero_not_extended() {
+        // Short Case 2 with Le=0 (5 bytes total) must NOT be parsed as extended
+        let bytes = [0x00, 0xC0, 0x00, 0x00, 0x00];
+        let cmd = Command::parse(&bytes).unwrap();
+        assert!(!cmd.is_extended());
+        assert_eq!(cmd.le(), Some(0x00)); // short le=0 means 256
+        assert_eq!(cmd.le_extended(), Some(0x0000)); // upconverted
+    }
+
+    #[test]
+    fn parse_short_lc_not_extended() {
+        // Short Case 3 with Lc=2 (non-zero byte[4]) is always short
+        let bytes = [0x00, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00];
+        let cmd = Command::parse(&bytes).unwrap();
+        assert!(!cmd.is_extended());
+        assert_eq!(cmd.data(), &[0x3F, 0x00]);
+    }
+
+    #[test]
+    fn le_extended_upconverts_short() {
+        // Short Case 4 with Le=0x1A: le_extended() returns Some(0x001A)
+        let bytes = [0x00, 0xA4, 0x04, 0x00, 0x02, 0xAA, 0xBB, 0x1A];
+        let cmd = Command::parse(&bytes).unwrap();
+        assert!(!cmd.is_extended());
+        assert_eq!(cmd.le(), Some(0x1A));
+        assert_eq!(cmd.le_extended(), Some(0x001A));
     }
 
     // -- INS constants --
