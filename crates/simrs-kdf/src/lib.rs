@@ -8,6 +8,9 @@
 //! - 4G EPS-AKA derivations ([`derive_eps_anchor_key`], [`derive_eps_base_station_key`],
 //!   [`derive_algorithm_key`]) per
 //!   [TS 33.401](../../../docs/specs/3gpp/ts-33.401/ts_133401v180300p.pdf) Annex A
+//! - EAP-AKA' key derivation ([`derive_ck_prime_ik_prime`]) per
+//!   [TS 33.402](../../../docs/specs/3gpp/ts-33.402/ts_133402v170000p.pdf) /
+//!   [RFC 5448](../../../docs/specs/ietf/rfc5448.txt)
 //! - 5G NR derivations ([`derive_auth_server_key`], [`derive_hash_response`],
 //!   [`derive_security_anchor_key`], [`derive_mobility_management_key`],
 //!   [`derive_nr_base_station_key`]) per
@@ -254,6 +257,42 @@ pub fn derive_algorithm_key(
     alg_id: u8,
 ) -> AlgorithmKey {
     AlgorithmKey::classify(kdf(&Secret::new(*key), 0x15, &[&[alg_distinguisher], &[alg_id]]))
+}
+
+// ---------------------------------------------------------------------------
+// EAP-AKA' key derivation (TS 33.402, RFC 5448)
+// ---------------------------------------------------------------------------
+
+/// Derive CK' and IK' for EAP-AKA' from CK, IK, the serving network name,
+/// and the concealed sequence number (SQN XOR AK).
+///
+/// Per [TS 33.402](../../../docs/specs/3gpp/ts-33.402/ts_133402v170000p.pdf) /
+/// [RFC 5448](../../../docs/specs/ietf/rfc5448.txt) Section 3.4:
+/// - Key = CK || IK (32 bytes)
+/// - FC = 0x20
+/// - P0 = access network identity (variable-length, e.g. "WLAN" or "HRPD")
+/// - P1 = SQN XOR AK (6 bytes)
+///
+/// Returns `(CK', IK')` where CK' = output\[0..16\] and IK' = output\[16..32\].
+///
+/// When the AMF separation bit (bit 0 of AMF byte 0) is set in the received
+/// AUTN, the USIM should use this function to derive CK'/IK' from CK/IK
+/// before returning them to the ME.
+pub fn derive_ck_prime_ik_prime(
+    ck: &CipherKey,
+    ik: &IntegrityKey,
+    network_name: &[u8],
+    sqn_xor_ak: &ConcealedSequenceNumber,
+) -> (CipherKey, IntegrityKey) {
+    let mut key = [0u8; 32];
+    key[..16].copy_from_slice(ck.declassify());
+    key[16..].copy_from_slice(ik.declassify());
+    let out = kdf(&Secret::new(key), 0x20, &[network_name, sqn_xor_ak.as_bytes()]);
+    let mut ck_prime = [0u8; 16];
+    let mut ik_prime = [0u8; 16];
+    ck_prime.copy_from_slice(&out[..16]);
+    ik_prime.copy_from_slice(&out[16..32]);
+    (CipherKey::classify(ck_prime), IntegrityKey::classify(ik_prime))
 }
 
 // ---------------------------------------------------------------------------
@@ -1241,6 +1280,103 @@ mod tests {
         h.update(&[0x00, 0x00, 0x00, 0x01]);
         let expected = h.finalize();
         assert_eq!(out, expected);
+    }
+
+    // -----------------------------------------------------------------------
+    // EAP-AKA' CK'/IK' derivation (RFC 5448 Appendix C test vectors)
+    // -----------------------------------------------------------------------
+
+    fn hex16(s: &str) -> [u8; 16] {
+        assert_eq!(s.len(), 32, "hex16 expects 32 hex chars");
+        let mut out = [0u8; 16];
+        let mut i = 0;
+        while i < 16 {
+            out[i] = hex_byte(s.as_bytes()[i * 2], s.as_bytes()[i * 2 + 1]);
+            i += 1;
+        }
+        out
+    }
+
+    fn hex6(s: &str) -> [u8; 6] {
+        assert_eq!(s.len(), 12, "hex6 expects 12 hex chars");
+        let mut out = [0u8; 6];
+        let mut i = 0;
+        while i < 6 {
+            out[i] = hex_byte(s.as_bytes()[i * 2], s.as_bytes()[i * 2 + 1]);
+            i += 1;
+        }
+        out
+    }
+
+    #[test]
+    fn rfc5448_case1_wlan() {
+        // RFC 5448 Appendix C, Case 1: Network = "WLAN"
+        let ck = CipherKey::classify(hex16("5349fbe098649f948f5d2e973a81c00f"));
+        let ik = IntegrityKey::classify(hex16("9744871ad32bf9bbd1dd5ce54e3e2e5a"));
+        let sqn_ak = ConcealedSequenceNumber::new(hex6("bb52e91c747a"));
+
+        let (ck_prime, ik_prime) = derive_ck_prime_ik_prime(&ck, &ik, b"WLAN", &sqn_ak);
+
+        assert_eq!(*ck_prime.declassify(), hex16("0093962d0dd84aa5684b045c9edffa04"));
+        assert_eq!(*ik_prime.declassify(), hex16("ccfc230ca74fcc96c0a5d61164f5a76c"));
+    }
+
+    #[test]
+    fn rfc5448_case2_hrpd() {
+        // RFC 5448 Appendix C, Case 2: Network = "HRPD"
+        let ck = CipherKey::classify(hex16("5349fbe098649f948f5d2e973a81c00f"));
+        let ik = IntegrityKey::classify(hex16("9744871ad32bf9bbd1dd5ce54e3e2e5a"));
+        let sqn_ak = ConcealedSequenceNumber::new(hex6("bb52e91c747a"));
+
+        let (ck_prime, ik_prime) = derive_ck_prime_ik_prime(&ck, &ik, b"HRPD", &sqn_ak);
+
+        assert_eq!(*ck_prime.declassify(), hex16("3820f0277fa5f77732b1fb1d90c1a0da"));
+        assert_eq!(*ik_prime.declassify(), hex16("db94a0ab557ef6c9ab48619ca05b9a9f"));
+    }
+
+    #[test]
+    fn rfc5448_case3_wlan_different_keys() {
+        // RFC 5448 Appendix C, Case 3: different CK/IK, Network = "WLAN"
+        let ck = CipherKey::classify(hex16("c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"));
+        let ik = IntegrityKey::classify(hex16("b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0"));
+        let sqn_ak = ConcealedSequenceNumber::new(hex6("a0a0a0a0a0a0"));
+
+        let (ck_prime, ik_prime) = derive_ck_prime_ik_prime(&ck, &ik, b"WLAN", &sqn_ak);
+
+        assert_eq!(*ck_prime.declassify(), hex16("cd4c8e5c68f57dd1d7d7dfd0c538e577"));
+        assert_eq!(*ik_prime.declassify(), hex16("3ece6b705dbbf7dfc459a11280c65524"));
+    }
+
+    #[test]
+    fn derive_ck_prime_ik_prime_different_network_different_output() {
+        let ck = CipherKey::classify([0x11u8; 16]);
+        let ik = IntegrityKey::classify([0x22u8; 16]);
+        let sqn_ak = ConcealedSequenceNumber::new([0x00; 6]);
+
+        let (ck1, ik1) = derive_ck_prime_ik_prime(&ck, &ik, b"WLAN", &sqn_ak);
+        let (ck2, ik2) = derive_ck_prime_ik_prime(&ck, &ik, b"HRPD", &sqn_ak);
+
+        assert_ne!(*ck1.declassify(), *ck2.declassify());
+        assert_ne!(*ik1.declassify(), *ik2.declassify());
+    }
+
+    #[test]
+    fn derive_ck_prime_ik_prime_verifies_kdf_construction() {
+        // CK'/IK' = KDF(CK||IK, FC=0x20, P0=network_name, P1=SQN^AK)
+        let ck = CipherKey::classify([0x33u8; 16]);
+        let ik = IntegrityKey::classify([0x44u8; 16]);
+        let sqn_ak = ConcealedSequenceNumber::new([0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
+        let network = b"WLAN";
+
+        let (ck_prime, ik_prime) = derive_ck_prime_ik_prime(&ck, &ik, network, &sqn_ak);
+
+        let mut key = [0u8; 32];
+        key[..16].copy_from_slice(ck.declassify());
+        key[16..].copy_from_slice(ik.declassify());
+        let expected = kdf(&Secret::new(key), 0x20, &[&network[..], &sqn_ak.as_bytes()[..]]);
+
+        assert_eq!(*ck_prime.declassify(), expected[..16]);
+        assert_eq!(*ik_prime.declassify(), expected[16..32]);
     }
 
     // -----------------------------------------------------------------------
