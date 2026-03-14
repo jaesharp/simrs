@@ -4017,42 +4017,100 @@ pub static USIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
 // ISIM ADF -- 3GPP TS 31.103 V19.0.0
 // ---------------------------------------------------------------------------
 
+/// Build EF.IMPU data: 2 records of 64 bytes.
+/// Record 1: TLV (tag 0x80) containing `sip:0123456789@ims.mnc001.mcc001.3gppnetwork.org` (48 chars).
+/// Record 2: empty (0xFF-filled).
+#[cfg(feature = "isim")]
+const fn concat_impu_records() -> [u8; 128] {
+    // "sip:0123456789@ims.mnc001.mcc001.3gppnetwork.org" = 48 bytes
+    // Record 1: 0x80, 0x30, <48 bytes>, <14 bytes 0xFF pad>  = 64 bytes
+    // Record 2: <64 bytes 0xFF>
+    let rec1: [u8; 64] = [
+        0x80, 0x30,
+        b's', b'i', b'p', b':',
+        b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9',
+        b'@',
+        b'i', b'm', b's', b'.',
+        b'm', b'n', b'c', b'0', b'0', b'1', b'.',
+        b'm', b'c', b'c', b'0', b'0', b'1', b'.',
+        b'3', b'g', b'p', b'p', b'n', b'e', b't', b'w', b'o', b'r', b'k', b'.', b'o', b'r', b'g',
+        // pad: 64 - 2 - 48 = 14 bytes
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    ];
+    let mut out = [0xFF; 128];
+    let mut i = 0;
+    while i < 64 {
+        out[i] = rec1[i];
+        i += 1;
+    }
+    out
+}
+
 /// Standard ISIM AID: A0000000871004 (per [3GPP TS 31.103 V19.0.0](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf)).
 #[cfg(feature = "isim")]
 pub static ISIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x04];
 
 /// EF.IMPI (6F02) under ADF.ISIM -- IMS Private User Identity.
 ///
-/// 64-byte transparent EF. Default: empty.
+/// 64-byte transparent EF. TLV-encoded NAI per TS 31.103 clause 4.2.2.
+/// Default: `0123456789@ims.mnc001.mcc001.3gppnetwork.org` (tag 0x80).
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.2](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A32%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C407%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_IMPI: EfDef = EfDef::transparent(
     Fid::new(0x6F02),
     None,
-    &[0xFF; 64],
+    // 0x80 || len(44) || "0123456789@ims.mnc001.mcc001.3gppnetwork.org" || FF-pad
+    &[
+        0x80, 0x2C,
+        b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9',
+        b'@',
+        b'i', b'm', b's', b'.',
+        b'm', b'n', b'c', b'0', b'0', b'1', b'.',
+        b'm', b'c', b'c', b'0', b'0', b'1', b'.',
+        b'3', b'g', b'p', b'p', b'n', b'e', b't', b'w', b'o', b'r', b'k', b'.', b'o', b'r', b'g',
+        // pad to 64 bytes: 64 - 2 (tag+len) - 44 (value) = 18 bytes
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    ],
 );
 
 /// EF.DOMAIN (6F03) under ADF.ISIM -- Home Network Domain Name.
 ///
-/// 64-byte transparent EF. Default: empty.
+/// 64-byte transparent EF. TLV-encoded domain per TS 31.103 clause 4.2.3.
+/// Default: `ims.mnc001.mcc001.3gppnetwork.org` (tag 0x80).
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.3](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A34%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_DOMAIN: EfDef = EfDef::transparent(
     Fid::new(0x6F03),
     None,
-    &[0xFF; 64],
+    // 0x80 || len(33) || "ims.mnc001.mcc001.3gppnetwork.org" || FF-pad
+    &[
+        0x80, 0x21,
+        b'i', b'm', b's', b'.',
+        b'm', b'n', b'c', b'0', b'0', b'1', b'.',
+        b'm', b'c', b'c', b'0', b'0', b'1', b'.',
+        b'3', b'g', b'p', b'p', b'n', b'e', b't', b'w', b'o', b'r', b'k', b'.', b'o', b'r', b'g',
+        // pad to 64 bytes: 64 - 2 (tag+len) - 33 (value) = 29 bytes
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    ],
 );
 
 /// EF.IMPU (6F04) under ADF.ISIM -- IMS Public User Identity.
 ///
-/// Linear-fixed, 2 records of 64 bytes. Default: empty.
+/// Linear-fixed, 2 records of 64 bytes. TLV-encoded SIP URI per TS 31.103 clause 4.2.4.
+/// Record 1: `sip:0123456789@ims.mnc001.mcc001.3gppnetwork.org` (tag 0x80).
+/// Record 2: empty.
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.4](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A34%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C438%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_IMPU: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F04),
     None,
     64, 2,
-    &[0xFF; 128],
+    &concat_impu_records(),
 );
 
 /// EF.ARR (6F06) under ADF.ISIM -- Access Rule Reference.
@@ -4069,13 +4127,16 @@ pub static ISIM_EF_ARR: EfDef = EfDef::linear_fixed(
 
 /// EF.IST (6F07) under ADF.ISIM -- ISIM Service Table.
 ///
-/// 4-byte transparent EF. Default: empty.
+/// 4-byte transparent EF. Bit mask of available ISIM services.
+/// Byte 1 bit 1: P-CSCF discovery, bit 2: GBA, bit 3: HTTP digest,
+/// bit 4: GBA-based P-CSCF discovery.
+/// Default: services 1-4 enabled (0x0F).
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.7](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A38%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C489%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_IST: EfDef = EfDef::transparent(
     Fid::new(0x6F07),
     None,
-    &[0xFF; 4],
+    &[0x0F, 0x00, 0x00, 0x00],
 );
 
 /// EF.P-CSCF (6F09) under ADF.ISIM -- P-CSCF Address.
@@ -4126,13 +4187,14 @@ pub static ISIM_EF_NAFKCA: EfDef = EfDef::linear_fixed(
 
 /// EF.AD (6FAD) under ADF.ISIM -- Administrative Data.
 ///
-/// 4-byte transparent EF. Default: normal operation.
+/// 4-byte transparent EF. Byte 1: MS operation mode (0x00 = normal),
+/// byte 4: MNC length (0x02 = 2-digit MNC).
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.5](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A36%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "isim")]
 pub static ISIM_EF_AD: EfDef = EfDef::transparent(
     Fid::new(0x6FAD),
     None,
-    &[0xFF; 4],
+    &[0x00, 0x00, 0x00, 0x02],
 );
 
 /// ADF.ISIM root DF.

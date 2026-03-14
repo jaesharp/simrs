@@ -124,6 +124,9 @@ const PS_DO_TAG: u8 = 0x90;
 // 3GPP TS 31.102 V19.4.0 clause 7.1.2: AUTHENTICATE protocol constants.
 const P2_GSM_CONTEXT: u8 = 0x00;
 const P2_UMTS_CONTEXT: u8 = 0x81;
+// 3GPP TS 31.103 V19.0.0 clause 7.1.2: IMS AKA uses the same Milenage/TUAK
+// computation as UMTS AKA; routed to the same handler.
+const P2_IMS_AKA_CONTEXT: u8 = 0x84;
 const AUTH_DATA_LEN: usize = 34;
 const GSM_AUTH_DATA_LEN: usize = 17; // 0x10 || RAND(16)
 const AUTH_VECTOR_LEN_PREFIX: u8 = 0x10;
@@ -1317,7 +1320,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // Note: AUTHENTICATE does not require PIN1 verification per
         // ETSI TS 102 221 -- it has its own security context.
         match cmd.p2() {
-            P2_UMTS_CONTEXT => self.handle_authenticate_umts(cmd, buf),
+            P2_UMTS_CONTEXT | P2_IMS_AKA_CONTEXT => self.handle_authenticate_umts(cmd, buf),
             P2_GSM_CONTEXT => self.handle_authenticate_gsm(cmd, buf),
             _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         }
@@ -5080,6 +5083,18 @@ mod tests {
         let (buf, len) = send(&mut app, &gsm_apdu);
         assert_eq!(sw(&buf, len), (0x61, 0x0E),
             "P2=0x00 must route to GSM AUTHENTICATE and return 14 bytes");
+
+        // P2=0x84 (IMS-AKA context): same as UMTS, should return 98 62 (MAC fail).
+        let mut ims_apdu = [0u8; 5 + 34];
+        ims_apdu[0] = 0x00;
+        ims_apdu[1] = 0x88;
+        ims_apdu[3] = 0x84; // IMS-AKA
+        ims_apdu[4] = 0x22;
+        ims_apdu[5] = 0x10;
+        ims_apdu[22] = 0x10;
+        let (buf, len) = send(&mut app, &ims_apdu);
+        assert_eq!(sw(&buf, len), (0x98, 0x62),
+            "P2=0x84 must route to UMTS AUTHENTICATE (IMS-AKA uses same algorithm)");
 
         // P2=0x82 (GBA_U/bootstrap, not supported): should return 6A 86.
         let mut gba_apdu = [0u8; 5 + 34];
