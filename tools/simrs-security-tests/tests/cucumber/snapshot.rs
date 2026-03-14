@@ -30,7 +30,9 @@ use simrs_pin::PinKey;
 /// Top-level path into the Sim snapshot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StatePath {
-    /// `CardState` byte (offset 0).
+    /// Snapshot header: magic (4) + version (1) + feature flags (1).
+    Header,
+    /// `CardState` byte.
     CardState,
     /// GSM application field.
     Gsm(GsmField),
@@ -119,7 +121,7 @@ impl std::hash::Hash for StatePath {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            Self::CardState => {}
+            Self::Header | Self::CardState => {}
             Self::Gsm(f) => f.hash(state),
             Self::Usim(f) => f.hash(state),
         }
@@ -222,6 +224,7 @@ impl fmt::Display for UsimField {
 impl fmt::Display for StatePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Header => write!(f, "header"),
             Self::CardState => write!(f, "card_state"),
             Self::Gsm(field) => write!(f, "gsm.{field}"),
             Self::Usim(field) => write!(f, "usim.{field}"),
@@ -294,7 +297,8 @@ impl SnapshotRegistry {
 
         type TestUsim = UsimApp<MilenageParams>;
 
-        let total = 1 + GsmApp::SNAPSHOT_SIZE + TestUsim::SNAPSHOT_SIZE;
+        let hdr = simrs_sim::SNAPSHOT_HEADER_SIZE;
+        let total = hdr + 1 + GsmApp::SNAPSHOT_SIZE + TestUsim::SNAPSHOT_SIZE;
         assert_eq!(
             bytes.len(), total,
             "Snapshot size mismatch: expected {total}, got {}",
@@ -303,18 +307,24 @@ impl SnapshotRegistry {
 
         let mut entries = Vec::new();
 
-        // -- CardState (1 byte at offset 0) --
+        // -- Header (magic + version + feature flags) --
         entries.push(Entry {
-            range: 0..1,
+            range: 0..hdr,
+            path: StatePath::Header,
+        });
+
+        // -- CardState (1 byte after header) --
+        entries.push(Entry {
+            range: hdr..hdr + 1,
             path: StatePath::CardState,
         });
 
         // -- GsmApp --
-        let gsm_base = 1;
+        let gsm_base = hdr + 1;
         Self::register_gsm(&mut entries, bytes, gsm_base);
 
         // -- UsimApp --
-        let usim_base = 1 + GsmApp::SNAPSHOT_SIZE;
+        let usim_base = hdr + 1 + GsmApp::SNAPSHOT_SIZE;
         Self::register_usim(&mut entries, bytes, usim_base);
 
         // Sort by range start, then by range length descending (broadest first).

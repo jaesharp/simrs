@@ -261,6 +261,14 @@ pub enum AuthenticationResult {
         /// Integrity key (f4 output).
         integrity_key: IntegrityKey,
     },
+    /// GBA bootstrap success. Contains only RES (8 bytes); CK/IK are
+    /// retained internally as Ks per TS 33.220. Encoded as tag 0xDB
+    /// with only the RES field (no CK/IK).
+    #[cfg(feature = "gba")]
+    GbaBootstrapSuccess {
+        /// Authentication response (f2 output).
+        response: [u8; 8],
+    },
     /// SQN synchronization failure. Contains AUTS (14 bytes).
     /// Encoded as tag 0xDC.
     SyncFailure {
@@ -313,6 +321,16 @@ impl AuthenticationResult {
                 buf[pos..pos + 16].copy_from_slice(integrity_key.declassify());
                 pos += 16;
                 pos
+            }
+            #[cfg(feature = "gba")]
+            Self::GbaBootstrapSuccess { response } => {
+                // 0xDB || inner_len || res_len || RES (only RES, no CK/IK).
+                let inner_len: u8 = 1 + AUTH_RESPONSE_LEN;
+                buf[0] = AUTH_SUCCESS_TAG;
+                buf[1] = inner_len;
+                buf[2] = AUTH_RESPONSE_LEN;
+                buf[3..11].copy_from_slice(response);
+                2 + inner_len as usize
             }
             Self::SyncFailure { resync_token } => {
                 buf[0] = AUTH_SYNC_FAILURE_TAG;
@@ -922,17 +940,19 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 _ => write_sw(buf, StatusWord::InsNotSupported),
             }
         } else {
-            // Interindustry commands.
+            // Interindustry commands -- file-system commands receive the
+            // logical channel number so they operate on the correct
+            // per-channel SelectionCtx (TS 102 221 clause 8.4.1).
             match cmd.ins() {
-                ins::SELECT => self.handle_select(cmd, buf),
+                ins::SELECT => self.handle_select(channel, cmd, buf),
                 ins::GET_RESPONSE => self.handle_get_response(cmd, buf),
-                ins::READ_BINARY => self.handle_read_binary(cmd, buf),
-                ins::READ_RECORD => self.handle_read_record(cmd, buf),
-                ins::UPDATE_BINARY => self.handle_update_binary(cmd, buf),
-                ins::UPDATE_RECORD => self.handle_update_record(cmd, buf),
-                ins::INCREASE => self.handle_increase(cmd, buf),
-                ins::SEARCH_RECORD => self.handle_search_record(cmd, buf),
-                ins::STATUS => self.handle_status(cmd, buf),
+                ins::READ_BINARY => self.handle_read_binary(channel, cmd, buf),
+                ins::READ_RECORD => self.handle_read_record(channel, cmd, buf),
+                ins::UPDATE_BINARY => self.handle_update_binary(channel, cmd, buf),
+                ins::UPDATE_RECORD => self.handle_update_record(channel, cmd, buf),
+                ins::INCREASE => self.handle_increase(channel, cmd, buf),
+                ins::SEARCH_RECORD => self.handle_search_record(channel, cmd, buf),
+                ins::STATUS => self.handle_status(channel, cmd, buf),
                 ins::AUTHENTICATE => self.handle_authenticate(cmd, buf),
                 ins::GET_IDENTITY => self.handle_get_identity(cmd, buf),
                 ins::VERIFY => self.handle_verify(cmd, buf),
@@ -941,8 +961,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 ins::ENABLE_PIN => self.handle_enable_pin(cmd, buf),
                 ins::RESET_RETRY_CTR => self.handle_unblock(cmd, buf),
                 ins::MANAGE_CHANNEL => self.handle_manage_channel(cmd, buf),
-                ins::DEACTIVATE_FILE => self.handle_deactivate_file(cmd, buf),
-                ins::ACTIVATE_FILE => self.handle_activate_file(cmd, buf),
+                ins::DEACTIVATE_FILE => self.handle_deactivate_file(channel, cmd, buf),
+                ins::ACTIVATE_FILE => self.handle_activate_file(channel, cmd, buf),
                 ins::TERMINAL_CAPABILITY => self.handle_terminal_capability(cmd, buf),
                 _ => write_sw(buf, StatusWord::InsNotSupported),
             }
@@ -959,11 +979,29 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         &buf[..len]
     }
 
+    // -- Channel context resolution --
+
+    /// Resolve the `SelectionCtx` for the given logical channel (shared ref).
+    ///
+    /// Channel 0 returns `&self.fs`; channels 1-3 return the opened
+    /// channel context.  Caller must ensure the channel is open.
+    const fn channel_ctx(&self, channel: u8) -> &SelectionCtx {
+        if channel == 0 {
+            &self.fs
+        } else {
+            match &self.channels[channel as usize] {
+                Some(ctx) => ctx,
+                None => panic!("channel not open"),
+            }
+        }
+    }
+
     // -- SELECT (P1=0x00 by FID, P1=0x04 by AID) --
 
     #[allow(clippy::cast_possible_truncation)]
     fn handle_select<'buf>(
         &mut self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
@@ -979,6 +1017,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             0x0C => true,
             _ => return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         };
+        // Resolve channel context inline (borrow-split friendly).
+        let ctx = if channel == 0 {
+            &mut self.fs
+        } else {
+            self.channels[channel as usize].as_mut().expect("channel not open")
+        };
         match cmd.p1() {
             0x00 => {
                 // P2=0x02 is only valid for AID selection (P1=0x04).
@@ -990,7 +1034,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                     return write_sw(buf, StatusWord::WrongLength);
                 }
                 let fid = Fid::from_be_bytes([cmd.data()[0], cmd.data()[1]]);
-                match self.fs.select_by_fid(fid) {
+                match ctx.select_by_fid(fid) {
                     Ok(sel) => {
                         // Check deactivation warning for EFs.
                         if let SelectedFile::Ef(ef) = sel {
@@ -1025,7 +1069,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                     }
                     // If no previous match, try first occurrence.
                 }
-                match self.fs.select_by_aid(cmd.data(), self.adfs) {
+                match ctx.select_by_aid(cmd.data(), self.adfs) {
                     Ok(sel) => {
                         self.last_aid_match = true;
                         if no_data {
@@ -1049,7 +1093,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 }
                 // Select by path: P1=0x08 from MF, P1=0x09 from current DF.
                 let from_mf = cmd.p1() == 0x08;
-                match self.fs.select_by_path(cmd.data(), from_mf) {
+                match ctx.select_by_path(cmd.data(), from_mf) {
                     Ok(_) if no_data => write_sw(buf, StatusWord::Success),
                     Ok(sel) => self.queue_fcp(sel, None, buf),
                     Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
@@ -1101,20 +1145,22 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     fn handle_read_binary<'buf>(
         &self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        let ctx = self.channel_ctx(channel);
 
         // SFI-based access: P1 bit 7 set means SFI in P1[4:0], offset in P2.
         let (ef, offset) = if cmd.p1() & 0x80 != 0 {
             let sfi_val = cmd.p1() & 0x1F;
-            let Some(ef) = self.fs.find_ef_by_sfi(Sfi::from_raw(sfi_val)) else {
+            let Some(ef) = ctx.find_ef_by_sfi(Sfi::from_raw(sfi_val)) else {
                 return write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND));
             };
             (ef, u16::from(cmd.p2()))
         } else {
-            let Some(ef) = self.fs.current_ef() else {
+            let Some(ef) = ctx.current_ef() else {
                 return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
             };
             (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
@@ -1168,6 +1214,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     fn handle_read_record<'buf>(
         &self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
@@ -1177,7 +1224,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             Err(sw) => return write_sw(buf, sw),
         };
 
-        let Some(ef) = self.fs.current_ef() else {
+        let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Check deactivation.
@@ -1197,20 +1244,22 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     fn handle_update_binary<'buf>(
         &mut self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        let ctx = self.channel_ctx(channel);
 
         // SFI-based access: P1 bit 7 set means SFI in P1[4:0], offset in P2.
         let (ef, offset) = if cmd.p1() & 0x80 != 0 {
             let sfi_val = cmd.p1() & 0x1F;
-            let Some(ef) = self.fs.find_ef_by_sfi(Sfi::from_raw(sfi_val)) else {
+            let Some(ef) = ctx.find_ef_by_sfi(Sfi::from_raw(sfi_val)) else {
                 return write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND));
             };
             (ef, u16::from(cmd.p2()))
         } else {
-            let Some(ef) = self.fs.current_ef() else {
+            let Some(ef) = ctx.current_ef() else {
                 return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
             };
             (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
@@ -1223,7 +1272,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         match self.data.write_binary(ef, offset, cmd.data()) {
             Ok(()) => {
                 #[cfg(feature = "profile-full")]
-                self.increment_phonebook_counters(ef.fid());
+                self.increment_phonebook_counters(channel, ef.fid());
                 write_sw(buf, StatusWord::Success)
             }
             Err(FsError::NotTransparent) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
@@ -1236,6 +1285,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     fn handle_update_record<'buf>(
         &mut self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
@@ -1244,7 +1294,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             Ok(n) => n,
             Err(sw) => return write_sw(buf, sw),
         };
-        let Some(ef) = self.fs.current_ef() else {
+        let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Check deactivation.
@@ -1254,7 +1304,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         match self.data.write_record(ef, rec_num, cmd.data()) {
             Ok(()) => {
                 #[cfg(feature = "profile-full")]
-                self.increment_phonebook_counters(ef.fid());
+                self.increment_phonebook_counters(channel, ef.fid());
                 write_sw(buf, StatusWord::Success)
             }
             Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
@@ -1268,11 +1318,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     fn handle_increase<'buf>(
         &mut self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
-        let Some(ef) = self.fs.current_ef() else {
+        let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         match self.data.increase(ef, cmd.data()) {
@@ -1297,9 +1348,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ///
     /// Counter EFs themselves (4F22/4F23/4F24) do NOT trigger increments.
     #[cfg(feature = "profile-full")]
-    fn increment_phonebook_counters(&mut self, target_fid: Fid) {
+    fn increment_phonebook_counters(&mut self, channel: u8, target_fid: Fid) {
         // Only act when current DF is DF_PHONEBOOK (5F3A).
-        if self.fs.current_df().fid != Fid::new(0x5F3A) {
+        if self.channel_ctx(channel).current_df().fid != Fid::new(0x5F3A) {
             return;
         }
         // Counter EFs themselves must not trigger recursive increments.
@@ -1341,6 +1392,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     fn handle_status<'buf>(
         &self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
@@ -1352,7 +1404,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // P2: 0x01 = DF name (AID) TLV if available, otherwise FCP.
         // P2: 0x0C = no data returned.
         match cmd.p1() {
-            0x00 | 0x01 => self.status_with_data(cmd.p2(), buf),
+            0x00 | 0x01 => self.status_with_data(channel, cmd.p2(), buf),
             0x02 => write_sw(buf, StatusWord::Success),
             _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         }
@@ -1362,14 +1414,16 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     #[allow(clippy::cast_possible_truncation)]
     fn status_with_data<'buf>(
         &self,
+        channel: u8,
         p2: u8,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
+        let ctx = self.channel_ctx(channel);
         match p2 {
             0x00 => {
                 let mut fcp_buf = [0u8; FCP_BUF_CAP];
                 let fcp_len = build_fcp(
-                    SelectedFile::Df(self.fs.current_df()),
+                    SelectedFile::Df(ctx.current_df()),
                     None,
                     &mut fcp_buf,
                 );
@@ -1378,7 +1432,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             0x01 => {
                 // Return just the AID as TLV tag 0x84 if an ADF is
                 // selected; otherwise fall back to full FCP.
-                let aid = self.fs.current_adf().and_then(|adf| {
+                let aid = ctx.current_adf().and_then(|adf| {
                     self.adfs.iter().find(|s| core::ptr::eq(s.root, adf)).map(|s| s.aid)
                 });
                 if let Some(aid_bytes) = aid {
@@ -1394,7 +1448,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 } else {
                     let mut fcp_buf = [0u8; FCP_BUF_CAP];
                     let fcp_len = build_fcp(
-                        SelectedFile::Df(self.fs.current_df()),
+                        SelectedFile::Df(ctx.current_df()),
                         None,
                         &mut fcp_buf,
                     );
@@ -1564,17 +1618,13 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 ));
                 self.gba_rand = Some(rand_bytes);
 
-                // Response: 0xDB || inner_len || res_len || RES (only RES, no CK/IK).
+                let result = AuthenticationResult::GbaBootstrapSuccess {
+                    response: *output.response.as_bytes(),
+                };
                 let q = self.rsp_queue.buf_mut();
-                let res_bytes = output.response.as_bytes();
-                let inner_len: u8 = 1 + AUTH_RESPONSE_LEN; // res_len + RES
-                q[0] = AUTH_SUCCESS_TAG; // 0xDB
-                q[1] = inner_len;
-                q[2] = AUTH_RESPONSE_LEN; // 0x08
-                q[3..11].copy_from_slice(res_bytes);
-                let total: usize = 2 + inner_len as usize; // tag + len + inner
-                self.rsp_queue.set_len(total);
-                write_sw(buf, StatusWord::bytes_available(total as u8))
+                let n = result.encode(q);
+                self.rsp_queue.set_len(n);
+                write_sw(buf, StatusWord::bytes_available(n as u8))
             }
             Err(AuthenticationError::MacFailure) => {
                 write_sw(buf, StatusWord::AuthenticationError)
@@ -1849,11 +1899,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     fn handle_search_record<'buf>(
         &self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
-        let Some(ef) = self.fs.current_ef() else {
+        let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Check deactivation.
@@ -1902,11 +1953,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     fn handle_deactivate_file<'buf>(
         &mut self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         let _ = cmd;
-        let Some(ef) = self.fs.current_ef() else {
+        let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         self.deactivation.deactivate_file(ef.fid());
@@ -1917,11 +1969,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     fn handle_activate_file<'buf>(
         &mut self,
+        channel: u8,
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         let _ = cmd;
-        let Some(ef) = self.fs.current_ef() else {
+        let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Activate: remove from deactivated list. If not deactivated, that's OK.
@@ -2041,12 +2094,19 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 let refresh_qualifier = Self::parse_refresh_qualifier(cmd.data());
                 match refresh_qualifier {
                     0x01 | 0x03 => {
-                        // SIM Initialization / SIM Init and file change: re-select MF.
+                        // SIM Initialization / SIM Init and file change: re-select MF
+                        // on all channels (TS 102 223 clause 6.4.7).
                         let _ = self.fs.select_by_fid(Fid::MF);
+                        for ch in &mut self.channels[1..] {
+                            if let Some(ctx) = ch.as_mut() {
+                                let _ = ctx.select_by_fid(Fid::MF);
+                            }
+                        }
                     }
                     0x04 => {
-                        // UICC Reset: reset to clean state.
+                        // UICC Reset: reset to clean state, close all logical channels.
                         self.fs = SelectionCtx::new(self.mf);
+                        self.channels = [None, None, None, None];
                         self.deactivation.clear();
                     }
                     _ => {

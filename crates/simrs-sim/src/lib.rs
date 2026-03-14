@@ -158,6 +158,34 @@ pub const fn standard_reset_policy(_kind: ResetKind) -> ResetEffects {
 }
 
 // ---------------------------------------------------------------------------
+// Snapshot format header
+// ---------------------------------------------------------------------------
+
+/// Magic bytes identifying a simrs snapshot blob.
+const SNAPSHOT_MAGIC: [u8; 4] = *b"SRSS";
+
+/// Snapshot format version. Increment when the layout changes.
+const SNAPSHOT_VERSION: u8 = 1;
+
+/// Size of the snapshot header: magic (4) + version (1) + feature flags (1).
+pub const SNAPSHOT_HEADER_SIZE: usize = 6;
+
+/// Feature flag: GSM application present.
+const SNAP_FLAG_GSM: u8 = 1 << 0;
+/// Feature flag: USIM application present.
+const SNAP_FLAG_USIM: u8 = 1 << 1;
+
+/// Build the feature flags byte for the current compilation.
+const fn snapshot_feature_flags() -> u8 {
+    let mut flags = 0u8;
+    #[cfg(feature = "gsm")]
+    { flags |= SNAP_FLAG_GSM; }
+    #[cfg(feature = "usim")]
+    { flags |= SNAP_FLAG_USIM; }
+    flags
+}
+
+// ---------------------------------------------------------------------------
 // State hash buffer upper bound
 // ---------------------------------------------------------------------------
 
@@ -166,7 +194,7 @@ pub const fn standard_reset_policy(_kind: ResetKind) -> ResetEffects {
 // component sizes.  The `Sim::state_hash` method uses a `debug_assert_eq`
 // to verify the bound at runtime.
 #[cfg(all(feature = "gsm", feature = "usim"))]
-const STATE_HASH_BUF: usize = 1 + GsmApp::SNAPSHOT_SIZE + {
+const STATE_HASH_BUF: usize = SNAPSHOT_HEADER_SIZE + 1 + GsmApp::SNAPSHOT_SIZE + {
     // UsimApp<A>::SNAPSHOT_SIZE depends on A::SNAPSHOT_SIZE.
     // MilenageParams::SNAPSHOT_SIZE is the largest known auth algorithm.
     // TuakParams would be similar.  Add headroom for future algorithms.
@@ -174,13 +202,13 @@ const STATE_HASH_BUF: usize = 1 + GsmApp::SNAPSHOT_SIZE + {
 };
 
 #[cfg(all(feature = "gsm", not(feature = "usim")))]
-const STATE_HASH_BUF: usize = 1 + GsmApp::SNAPSHOT_SIZE + 256;
+const STATE_HASH_BUF: usize = SNAPSHOT_HEADER_SIZE + 1 + GsmApp::SNAPSHOT_SIZE + 256;
 
 #[cfg(all(not(feature = "gsm"), feature = "usim"))]
-const STATE_HASH_BUF: usize = 1 + simrs_usim::UsimApp::<MilenageParams>::SNAPSHOT_SIZE + 256;
+const STATE_HASH_BUF: usize = SNAPSHOT_HEADER_SIZE + 1 + simrs_usim::UsimApp::<MilenageParams>::SNAPSHOT_SIZE + 256;
 
 #[cfg(all(not(feature = "gsm"), not(feature = "usim")))]
-const STATE_HASH_BUF: usize = 256;
+const STATE_HASH_BUF: usize = SNAPSHOT_HEADER_SIZE + 256;
 
 // ---------------------------------------------------------------------------
 // CLA byte classification
@@ -602,8 +630,8 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// Snapshot buffer size in bytes.
     ///
     /// Varies by enabled features and profile tiers:
-    /// CardState(1) + GsmApp::SNAPSHOT\_SIZE + UsimApp::\<A\>::SNAPSHOT\_SIZE.
-    pub const SNAPSHOT_SIZE: usize = 1
+    /// Header(6) + CardState(1) + GsmApp::SNAPSHOT\_SIZE + UsimApp::\<A\>::SNAPSHOT\_SIZE.
+    pub const SNAPSHOT_SIZE: usize = SNAPSHOT_HEADER_SIZE + 1
         + { #[cfg(feature = "gsm")] { GsmApp::SNAPSHOT_SIZE } #[cfg(not(feature = "gsm"))] { 0 } }
         + { #[cfg(feature = "usim")] { UsimApp::<A>::SNAPSHOT_SIZE } #[cfg(not(feature = "usim"))] { 0 } };
 
@@ -616,7 +644,15 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return 0;
         }
+        // Write header: magic + version + feature flags.
         let mut off = 0;
+        buf[off..off + 4].copy_from_slice(&SNAPSHOT_MAGIC);
+        off += 4;
+        buf[off] = SNAPSHOT_VERSION;
+        off += 1;
+        buf[off] = snapshot_feature_flags();
+        off += 1;
+        // Card state.
         buf[off] = match self.state {
             CardState::Off => 0,
             CardState::Ready => 1,
@@ -643,7 +679,21 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return false;
         }
+        // Validate header: magic + version + feature flags.
         let mut off = 0;
+        if buf[off..off + 4] != SNAPSHOT_MAGIC {
+            return false;
+        }
+        off += 4;
+        if buf[off] != SNAPSHOT_VERSION {
+            return false;
+        }
+        off += 1;
+        if buf[off] != snapshot_feature_flags() {
+            return false;
+        }
+        off += 1;
+        // Card state.
         self.state = match buf[off] {
             0 => CardState::Off,
             1 => CardState::Ready,
