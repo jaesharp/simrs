@@ -904,7 +904,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         if cla.is_interindustry() && channel != 0 {
             // Check that the channel is open.
             if self.channels[channel as usize].is_none() {
-                return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+                return write_sw(buf, StatusWord::FunctionNotSupported(0x81));
             }
         }
 
@@ -1121,14 +1121,14 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         };
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         }
         let le = u16::from(cmd.le().unwrap_or(0));
 
         match self.data.read_binary(ef, offset, le) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
             Err(FsError::NotTransparent) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
-            Err(FsError::OffsetOutOfRange) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
+            Err(FsError::OffsetOutOfRange) => write_sw(buf, StatusWord::WrongP1P2),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
     }
@@ -1182,7 +1182,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         };
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         }
 
         match self.data.read_record(ef, rec_num) {
@@ -1217,7 +1217,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         };
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         }
 
         match self.data.write_binary(ef, offset, cmd.data()) {
@@ -1249,7 +1249,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         };
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         }
         match self.data.write_record(ef, rec_num, cmd.data()) {
             Ok(()) => {
@@ -1858,7 +1858,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         };
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         }
         let pattern = cmd.data();
         match self.data.search_records(ef, pattern) {
@@ -1954,7 +1954,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 let ch = cmd.p2();
                 if ch == 0 {
                     // Cannot close basic channel.
-                    return write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE));
+                    return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
                 }
                 if ch > 3 {
                     return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
@@ -1990,7 +1990,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ) -> &'buf [u8] {
         if !self.proactive.has_pending() {
             // Per TS 102 223: FETCH with no pending command is not allowed.
-            return write_sw(buf, StatusWord::CommandNotAllowed(0x00));
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         }
 
         let le = cmd.le().unwrap_or(0) as usize;
@@ -2018,7 +2018,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
         // If we have a valid Command Details TLV in the data but no active
-        // proactive session, reject with 69 86 (command not allowed).
+        // proactive session, reject with 69 85 (conditions not satisfied).
         if !self.proactive_session_active && Self::has_command_details(cmd.data()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         }
@@ -3341,8 +3341,8 @@ mod tests {
     fn fetch_with_no_pending() {
         let mut app = app();
         let (buf, len) = send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0x00]);
-        // TS 102 223: FETCH with no pending command -> Command Not Allowed (69 00).
-        assert_eq!(sw(&buf, len), (0x69, 0x00));
+        // TS 102 223: FETCH with no pending command -> 69 85 (conditions not satisfied).
+        assert_eq!(sw(&buf, len), (0x69, 0x85));
     }
 
     // -- TERMINAL RESPONSE --
@@ -4606,7 +4606,7 @@ mod tests {
         let mut app = app();
         // FETCH (CLA=0x80, INS=0x12) with no queued proactive command.
         let (buf, len) = send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0x00]);
-        // Should return an error (69 00 = command not allowed).
+        // Should return an error (69 85 = conditions not satisfied).
         let (sw1, _sw2) = sw(&buf, len);
         assert_eq!(sw1, 0x69, "FETCH with no pending should return 69 XX");
     }
@@ -4876,7 +4876,7 @@ mod tests {
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
         send(&mut app, &[0x00, 0x04, 0x00, 0x00]);
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
-        assert_eq!(sw(&buf, len), (0x69, 0x86));
+        assert_eq!(sw(&buf, len), (0x69, 0x85));
     }
 
     #[test]

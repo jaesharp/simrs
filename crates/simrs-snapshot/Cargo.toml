@@ -13,6 +13,7 @@ simrs-sim      = { workspace = true }
 simrs-milenage = { workspace = true }
 
 [dev-dependencies]
+simrs-sim    = { workspace = true, features = ["gsm", "usim"] }
 simrs-fs     = { workspace = true }
 simrs-gsm    = { workspace = true }
 simrs-usim   = { workspace = true }

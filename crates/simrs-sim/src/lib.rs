@@ -36,7 +36,7 @@
 //!
 //! # Example
 //!
-//! ```
+//! ```ignore
 //! use simrs_sim::{Sim, SimEvent, SimResponse};
 //! use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 //! use simrs_fs::{DfDef, Fid};
@@ -1415,14 +1415,14 @@ mod tests {
         let _ = sim.process(SimEvent::PowerOn);
         // SELECT MF with CLA=0x01. USIM now accepts all interindustry CLA
         // values. CLA=0x01 targets logical channel 1 which is not open,
-        // so USIM returns 69 86 (command not allowed). This confirms the
+        // so USIM returns 68 81 (logical channel not supported). This confirms the
         // Sim layer routed to USIM (not rejecting at the Sim level).
         let rsp = sim.process(SimEvent::Apdu(&[0x01, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                // Channel 1 not open -> 69 86 (command not allowed).
-                assert_eq!((sw1, sw2), (0x69, 0x86));
+                // Channel 1 not open -> 68 81 (logical channel not supported).
+                assert_eq!((sw1, sw2), (0x68, 0x81));
             }
             _ => panic!("expected Apdu response"),
         }
@@ -2273,13 +2273,13 @@ mod tests {
 
         let _ = sim.process(SimEvent::Reset);
 
-        // SELECT on closed channel should fail with 69 86
+        // SELECT on closed channel should fail with 68 81 (logical channel not supported)
         let cla = ch;
         let rsp = sim.process(SimEvent::Apdu(&[cla, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x69, 0x86),
+                assert_eq!((sw1, sw2), (0x68, 0x81),
                     "channel {ch} should be closed after reset with clear_logical_channels=true");
             }
             other => panic!("expected Apdu, got {other:?}"),

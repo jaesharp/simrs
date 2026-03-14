@@ -2099,13 +2099,12 @@ impl ProactiveState {
         self.profile_len > 0
     }
 
-    /// Clear transient session state on card reset.
+    /// Clear all session state on card reset.
     ///
     /// Per [ETSI TS 102 221 V18.3.0 clause 11.2.1](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A467%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C751%5D), the terminal must re-send
-    /// TERMINAL PROFILE after every card reset. Clears the stored profile
-    /// and any pending envelope event. Timers and BIP channels are *not*
-    /// cleared here -- timer management is via `tick()`/`take_expired_timer()`
-    /// and channels via explicit CLOSE CHANNEL commands.
+    /// TERMINAL PROFILE after every card reset. Clears the stored profile,
+    /// pending events, event subscriptions (TS 102 223 clause 6.4.16),
+    /// active timers, expired timer flags, and BIP channels.
     pub const fn reset_session(&mut self) {
         self.profile_len = 0;
         self.profile = [0u8; 32];
@@ -2117,6 +2116,20 @@ impl ProactiveState {
         self.last_result = 0xFF;
         self.len = 0;
         self.seq = 1;
+        self.subscribed_events = 0;
+        // Clear all timers.
+        let mut i = 0;
+        while i < 8 {
+            self.timers[i] = TimerSlot::new();
+            i += 1;
+        }
+        self.expired_timers = 0;
+        // Clear BIP channels.
+        let mut j = 0;
+        while j < 7 {
+            self.channels[j] = ChannelSlot::new();
+            j += 1;
+        }
     }
 
     /// Check if a specific terminal capability is supported.
@@ -2286,6 +2299,10 @@ impl ProactiveState {
         r.get_bytes(&mut self.buf);
         self.len = r.get_u16_le() as usize;
         self.seq = r.get_u8();
+        // Maintain invariant: seq must never be zero.
+        if self.seq == 0 {
+            self.seq = 1;
+        }
         self.event_tag = r.get_u8();
         self.event_item_id = r.get_u8();
         r.get_bytes(&mut self.profile);
