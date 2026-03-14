@@ -226,18 +226,14 @@ impl ShannonSim {
         match offset {
             REG_SIM_CON => self.con,
             REG_SIM_STAT => self.stat,
-            REG_SIM_RX => {
-                if self.rx_pos < self.rx_len {
-                    let b = self.rx_buf[self.rx_pos];
-                    self.rx_pos += 1;
-                    if self.rx_pos >= self.rx_len {
-                        // All bytes consumed -- clear RX_AVAIL.
-                        self.stat &= !STAT_RX_AVAIL;
-                    }
-                    u32::from(b)
-                } else {
-                    0
+            REG_SIM_RX if self.rx_pos < self.rx_len => {
+                let b = self.rx_buf[self.rx_pos];
+                self.rx_pos += 1;
+                if self.rx_pos >= self.rx_len {
+                    // All bytes consumed -- clear RX_AVAIL.
+                    self.stat &= !STAT_RX_AVAIL;
                 }
+                u32::from(b)
             }
             REG_SIM_INT_EN => self.int_en,
             REG_SIM_INT_ST => self.int_st,

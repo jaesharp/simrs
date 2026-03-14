@@ -73,11 +73,9 @@ impl Fcp {
                     // [2] File descriptor
                     fcp.file_descriptor = Some(tlv.value.to_vec());
                 }
-                0x83 => {
+                0x83 if tlv.value.len() >= 2 => {
                     // [3] File ID
-                    if tlv.value.len() >= 2 {
-                        fcp.file_id = Some([tlv.value[0], tlv.value[1]]);
-                    }
+                    fcp.file_id = Some([tlv.value[0], tlv.value[1]]);
                 }
                 0x84 => {
                     // [4] DF name (AID)
@@ -87,17 +85,13 @@ impl Fcp {
                     // [5] Proprietary info (constructed)
                     fcp.proprietary = Some(tlv.value.to_vec());
                 }
-                0x88 => {
+                0x88 if !tlv.value.is_empty() => {
                     // [8] Short EF ID
-                    if !tlv.value.is_empty() {
-                        fcp.short_ef_id = Some(tlv.value[0]);
-                    }
+                    fcp.short_ef_id = Some(tlv.value[0]);
                 }
-                0x8A => {
+                0x8A if !tlv.value.is_empty() => {
                     // [10] Lifecycle status integer
-                    if !tlv.value.is_empty() {
-                        fcp.lcsi = tlv.value[0];
-                    }
+                    fcp.lcsi = tlv.value[0];
                 }
                 0x8B => {
                     // [11] Security attributes referenced
