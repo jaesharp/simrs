@@ -30,11 +30,11 @@ Feature: ECIES/SUCI Security Regression
   # Error handling
   # ------------------------------------------------------------------
 
-  Scenario: GET IDENTITY with wrong P2 is rejected as incorrect parameters
+  Scenario: GET IDENTITY with invalid P2 is rejected as incorrect parameters
     Given the SIM is initialised with SUCI service enabled
     And the SIM is powered on
     And ADF.USIM is selected for SUCI testing
-    When I send GET IDENTITY with P2=0x00
+    When I send GET IDENTITY with P2=0x04
     Then SW indicates incorrect P1-P2
 
   Scenario: GET IDENTITY with wrong P1 is rejected as incorrect parameters
@@ -79,3 +79,51 @@ Feature: ECIES/SUCI Security Regression
     When I send GET RESPONSE with Le matching SW2
     Then the command succeeds
     And the SUCI ephemeral key differs from the stashed response
+
+  # ------------------------------------------------------------------
+  # IMPI context (P2=0x02, TS 31.102 clause 7.5, TS 23.003 clause 13.2)
+  # ------------------------------------------------------------------
+
+  Scenario: GET IDENTITY P2=0x02 returns valid IMPI TLV
+    Given the SIM is initialised without SUCI service
+    And the SIM is powered on
+    And ADF.USIM is selected for SUCI testing
+    And PIN1 is verified for SUCI testing
+    When I send GET IDENTITY with IMPI context
+    Then SW indicates response data available
+    When I send GET RESPONSE with Le matching SW2
+    Then the command succeeds
+    And the IMPI response starts with tag A2
+    And the IMPI contains the IMSI digits
+    And the IMPI contains the IMS domain suffix
+
+  Scenario: GET IDENTITY P2=0x02 without PIN1 is rejected
+    Given the SIM is initialised without SUCI service
+    And the SIM is powered on
+    And ADF.USIM is selected for SUCI testing
+    When I send GET IDENTITY with IMPI context
+    Then SW indicates security not satisfied
+
+  # ------------------------------------------------------------------
+  # Home Network Domain Name context (P2=0x03, TS 31.102 clause 7.5)
+  # ------------------------------------------------------------------
+
+  Scenario: GET IDENTITY P2=0x03 returns valid domain TLV
+    Given the SIM is initialised without SUCI service
+    And the SIM is powered on
+    And ADF.USIM is selected for SUCI testing
+    And PIN1 is verified for SUCI testing
+    When I send GET IDENTITY with domain context
+    Then SW indicates response data available
+    When I send GET RESPONSE with Le matching SW2
+    Then the command succeeds
+    And the domain response starts with tag A3
+    And the domain starts with ims.mnc
+    And the domain ends with 3gppnetwork.org
+
+  Scenario: GET IDENTITY P2=0x03 without PIN1 is rejected
+    Given the SIM is initialised without SUCI service
+    And the SIM is powered on
+    And ADF.USIM is selected for SUCI testing
+    When I send GET IDENTITY with domain context
+    Then SW indicates security not satisfied

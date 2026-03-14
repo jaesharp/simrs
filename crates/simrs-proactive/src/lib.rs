@@ -1550,6 +1550,9 @@ pub struct ProactiveState {
     /// Bitmask of subscribed event IDs (bits 0..63).
     /// Set via SET UP EVENT LIST proactive command.
     subscribed_events: u64,
+    /// Previous `subscribed_events` value, saved before applying a new
+    /// SET UP EVENT LIST. Rolled back if the terminal rejects the command.
+    prev_subscribed_events: u64,
     /// 8 concurrent timers (IDs 1-8, indexed 0-7).
     /// Per [ETSI TS 102 223 V18.2.0 clause 6.6.21](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A232%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C199%5D).
     timers: [TimerSlot; 8],
@@ -1691,6 +1694,7 @@ impl ProactiveState {
             event_timer_id: 0,
             event_timer_value: [0; 3],
             subscribed_events: 0,
+            prev_subscribed_events: 0,
             timers: [TimerSlot::new(); 8],
             expired_timers: 0,
             channels: [ChannelSlot::new(); 7],
@@ -1712,7 +1716,10 @@ impl ProactiveState {
         let len = encode(cmd, self.seq, &mut self.buf)?;
         self.len = len;
         // Keep subscription state consistent with SET UP EVENT LIST.
+        // Save previous subscriptions so we can roll back if the terminal
+        // rejects the command.
         if let ProactiveCommand::SetUpEventList { events } = cmd {
+            self.prev_subscribed_events = self.subscribed_events;
             self.subscribe_events(events);
         }
         // Track the target channel ID for BIP commands so that
@@ -1811,6 +1818,11 @@ impl ProactiveState {
                     cmd_type,
                     general_result: result,
                 };
+                // Roll back SET UP EVENT LIST if the terminal rejected it.
+                // General result >= 0x10 means the command was not performed.
+                if cmd_type == CMD_TYPE_SET_UP_EVENT_LIST && result >= 0x10 {
+                    self.subscribed_events = self.prev_subscribed_events;
+                }
                 // Auto-apply BIP channel state changes for OPEN/CLOSE CHANNEL.
                 match cmd_type {
                     CMD_TYPE_OPEN_CHANNEL => {
@@ -2305,10 +2317,11 @@ impl ProactiveState {
     /// Layout: `buf`(256) + `len`(2 LE) + `seq`(1) + `event_tag`(1)
     /// + `event_item_id`(1) + `profile`(32) + `profile_len`(1)
     /// + `event_type`(1) + `event_timer_id`(1) + `event_timer_value`(3)
-    /// + `subscribed_events`(8) + `timers`(8 x 5 = 40)
-    /// + `expired_timers`(1) + `channels`(7 x 4 = 28) + `last_result`(1)
-    /// + `last_bip_channel_id`(1) = 378.
-    pub const SNAPSHOT_SIZE: usize = 256 + 2 + 1 + 1 + 1 + 32 + 1 + 1 + 1 + 3 + 8 + 40 + 1 + 28 + 1 + 1;
+    /// + `subscribed_events`(8) + `prev_subscribed_events`(8)
+    /// + `timers`(8 x 5 = 40) + `expired_timers`(1)
+    /// + `channels`(7 x 4 = 28) + `last_result`(1)
+    /// + `last_bip_channel_id`(1) = 386.
+    pub const SNAPSHOT_SIZE: usize = 256 + 2 + 1 + 1 + 1 + 32 + 1 + 1 + 1 + 3 + 8 + 8 + 40 + 1 + 28 + 1 + 1;
 
     /// Serialize the proactive state into `buf` as flat bytes.
     ///
@@ -2331,6 +2344,7 @@ impl ProactiveState {
         w.put_u8(self.event_timer_id);
         w.put_bytes(&self.event_timer_value);
         w.put_u64_le(self.subscribed_events);
+        w.put_u64_le(self.prev_subscribed_events);
         // Timers: 8 slots x (1 byte active + 4 bytes remaining_secs LE) = 40 bytes.
         let mut i = 0;
         while i < 8 {
@@ -2376,6 +2390,7 @@ impl ProactiveState {
         self.event_timer_id = r.get_u8();
         r.get_bytes(&mut self.event_timer_value);
         self.subscribed_events = r.get_u64_le();
+        self.prev_subscribed_events = r.get_u64_le();
         // Timers: 8 slots.
         let mut i = 0;
         while i < 8 {
@@ -3609,7 +3624,7 @@ mod tests {
 
     #[test]
     fn snapshot_size_correct() {
-        assert_eq!(ProactiveState::SNAPSHOT_SIZE, 378);
+        assert_eq!(ProactiveState::SNAPSHOT_SIZE, 386);
     }
 
     #[test]

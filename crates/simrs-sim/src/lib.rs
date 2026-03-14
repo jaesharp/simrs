@@ -720,6 +720,7 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     }
 
     /// Compute an FNV-1a hash of the serialized state for deduplication.
+    #[allow(clippy::large_stack_arrays)]
     pub fn state_hash(&self) -> u64 {
         // Rust cannot use `Self::SNAPSHOT_SIZE` in array-length position for
         // generic types, so we compute a fixed upper bound from the known

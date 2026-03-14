@@ -157,6 +157,8 @@
 //! - 3GPP TS 31.102 V19.4.0 clause 4.4 -- File identifiers
 //! - [ETSI TS 102 221 V18.3.0 clause 13](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A485%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D) -- UICC files under MF
 
+#[cfg(any(feature = "profile-standard", feature = "profile-full"))]
+use simrs_fs::AccessCondition;
 use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, Sfi};
 #[cfg(test)]
 use simrs_fs::EfStructure;
@@ -334,7 +336,8 @@ pub static EF_AD: EfDef = EfDef::transparent(
 ///
 /// 19-byte transparent EF. Each bit enables a service per [3GPP TS 31.102 V19.4.0 clause 4.2.8](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 /// Default: services 1-25 enabled (local phone book, FDN, SMS, etc.),
-/// plus GBA (68), LRPLMNSI (74), ePDG (106,107), emergency ePDG (110,111),
+/// SMS-PP Data Download (28), Call Control by USIM (30),
+/// GBA (68), LRPLMNSI (74), ePDG (106,107), emergency ePDG (110,111),
 /// IMS Config (115), TV Config (116), PS Data Off (117,118), XCAP (120),
 /// EARFCN (121), 5GS services (122-124, 126, 129-130, 132, 134, 135, 137-143),
 /// SNPN (143,146), 5MBS (147), SENSE (148), IMS DCI (150),
@@ -343,6 +346,7 @@ pub static EF_AD: EfDef = EfDef::transparent(
 /// Service N is encoded as bit ((N-1) % 8) of byte ((N-1) / 8).
 /// Byte indices are zero-based.
 ///
+/// Byte 3 (services 25-32): bits 0,3,5 set = 0x29 (svc 25,28,30)
 /// Byte 8 (services 65-72): bit 3 set = 0x08 (svc 68)
 /// Byte 9 (services 73-80): bit 1 set = 0x02 (svc 74)
 /// Byte 13 (services 105-112): bits 1,2,5,6 set = 0x66 (svc 106,107,110,111)
@@ -352,7 +356,7 @@ pub static EF_AD: EfDef = EfDef::transparent(
 /// Byte 17 (services 137-144): bits 0,1,2,3,4,5,6 set = 0x7F (svc 137-143)
 /// Byte 18 (services 145-152): bits 1,2,3,5,6,7 set = 0xEE (svc 146,147,148,150,151,152)
 static EF_UST_DATA: [u8; 19] = [
-    0xFF, 0xFF, 0xFF, 0x01, // bytes 0-3: services 1-32 (1-25 enabled)
+    0xFF, 0xFF, 0xFF, 0x29, // bytes 0-3: services 1-32 (1-25,28,30 enabled)
     0x00, 0x00, 0x00, 0x00, // bytes 4-7: services 33-64
     0x08, 0x02, 0x00, 0x00, // bytes 8-11: services 65-96 (68,74)
     0x00, 0x66, 0xBC, 0x2F, // bytes 12-15: services 97-128 (106,107,110,111,115,116,117,118,120,121-124,126)
@@ -518,7 +522,7 @@ pub static EF_FDN: EfDef = EfDef::linear_fixed(
     None,
     30, 2,
     &EF_FDN_DATA,
-);
+).with_update_ac(AccessCondition::Pin2);
 
 /// EF.SPN (6F46) -- Service Provider Name.
 ///
@@ -878,7 +882,7 @@ pub static EF_ACMMAX: EfDef = EfDef::transparent(
     Fid::new(0x6F37),
     None,
     &[0x00, 0x00, 0x00],
-);
+).with_update_ac(AccessCondition::Pin2);
 
 /// EF.ACM data: 3 records of 3 bytes each.
 #[cfg(feature = "profile-full")]
@@ -894,7 +898,7 @@ pub static EF_ACM: EfDef = EfDef::cyclic(
     Some(Sfi::new(0x1C)),
     3, 3,
     &EF_ACM_DATA,
-);
+).with_update_ac(AccessCondition::Pin2);
 
 /// EF.PUCT (6F41) -- Price per Unit and Currency Table.
 ///
@@ -905,7 +909,7 @@ pub static EF_PUCT: EfDef = EfDef::transparent(
     Fid::new(0x6F41),
     None,
     &[0xFF, 0xFF, 0xFF, 0x00, 0x00],
-);
+).with_update_ac(AccessCondition::Pin2);
 
 /// EF.SDN data: 2 records of 30 bytes each.
 #[cfg(feature = "profile-full")]
@@ -942,7 +946,7 @@ pub static EF_EXT2: EfDef = EfDef::linear_fixed(
     None,
     13, 2,
     &EF_EXT2_DATA,
-);
+).with_update_ac(AccessCondition::Pin2);
 
 /// EF.EXT3 data: 2 records of 13 bytes each.
 #[cfg(feature = "profile-full")]
@@ -4374,7 +4378,7 @@ pub static TELECOM_EF_FDN: EfDef = EfDef::linear_fixed(
     None,
     30, 2,
     &[0xFF; 60],
-);
+).with_update_ac(AccessCondition::Pin2);
 
 /// EF.SMS (6F3C) under DF.TELECOM -- Short Messages.
 ///
@@ -4493,7 +4497,7 @@ pub static TELECOM_EF_EXT2: EfDef = EfDef::linear_fixed(
     None,
     13, 2,
     &[0xFF; 26],
-);
+).with_update_ac(AccessCondition::Pin2);
 
 /// DF.TELECOM (7F10) -- Telecom DF.
 ///

@@ -249,3 +249,25 @@ Feature: OTA / ENVELOPE Injection Security
     Given an OTA command packet encoded with AES-CBC-MAC
     When the packet is decoded with a different key
     Then decoding fails with MacVerifyFailed
+
+  # ---------------------------------------------------------------------------
+  # UST service gating for ENVELOPE
+  # ENVELOPE acceptance must be gated by the USIM Service Table (EF.UST).
+  # SMS-PP Data Download requires UST service 28; Call Control requires
+  # service 30. If the service is disabled, the ENVELOPE must be rejected.
+  # Reference: 3GPP TS 31.102 V19.4.0 clause 4.2.8 Table 4.2.8.
+  # ---------------------------------------------------------------------------
+
+  Scenario: Call Control ENVELOPE without Device Identities is rejected
+    Given the SIM is initialised with test credentials
+    And the SIM is powered on
+    And I have sent TERMINAL PROFILE (SW 90 00)
+    When I send Call Control ENVELOPE without Device Identities
+    Then SW is 6A 80 (incorrect parameters in data field)
+
+  Scenario: Call Control ENVELOPE with valid Device Identities is accepted
+    Given the SIM is initialised with test credentials
+    And the SIM is powered on
+    And I have sent TERMINAL PROFILE (SW 90 00)
+    When I send Call Control ENVELOPE with Device Identities
+    Then SW is 90 00 (success)

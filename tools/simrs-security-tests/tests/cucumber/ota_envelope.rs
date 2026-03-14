@@ -243,6 +243,24 @@ fn when_decode_wrong_key(world: &mut SimWorld) {
     }
 }
 
+// =========================================================================
+// UST service gating / Call Control TLV validation steps
+// =========================================================================
+
+#[when("I send Call Control ENVELOPE without Device Identities")]
+fn when_cc_no_device_ids(world: &mut SimWorld) {
+    // Call Control (D4) with Address tag (0x06) but no Device Identities (0x82).
+    let cmd = apdu::envelope(&[0xD4, 0x04, 0x06, 0x02, 0xAA, 0xBB]).build();
+    do_send_apdu(world, &cmd);
+}
+
+#[when("I send Call Control ENVELOPE with Device Identities")]
+fn when_cc_with_device_ids(world: &mut SimWorld) {
+    // Call Control (D4) with Device Identities (0x82 0x02 0x83 0x81).
+    let cmd = apdu::envelope(&[0xD4, 0x04, 0x82, 0x02, 0x83, 0x81]).build();
+    do_send_apdu(world, &cmd);
+}
+
 #[then("decoding succeeds with the original data")]
 fn then_decode_succeeds(world: &mut SimWorld) {
     assert_eq!(

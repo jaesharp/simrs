@@ -116,12 +116,34 @@ fn given_profile_a_provisioned(world: &mut SimWorld) {
 }
 
 // =========================================================================
+// GIVEN steps (IMPI/DOMAIN)
+// =========================================================================
+
+#[given("PIN1 is verified for SUCI testing")]
+fn given_pin1_verified(world: &mut SimWorld) {
+    verify_pin1(world.sim_mut());
+    reset_state_snapshots(world);
+}
+
+// =========================================================================
 // WHEN steps
 // =========================================================================
 
 #[when("I send GET IDENTITY with SUCI context")]
 fn when_get_identity_suci(world: &mut SimWorld) {
     let cmd = apdu::get_identity_suci().build();
+    do_send_apdu(world, &cmd);
+}
+
+#[when("I send GET IDENTITY with IMPI context")]
+fn when_get_identity_impi(world: &mut SimWorld) {
+    let cmd = apdu::get_identity_impi().build();
+    do_send_apdu(world, &cmd);
+}
+
+#[when("I send GET IDENTITY with domain context")]
+fn when_get_identity_domain(world: &mut SimWorld) {
+    let cmd = apdu::get_identity_domain().build();
     do_send_apdu(world, &cmd);
 }
 
@@ -222,6 +244,92 @@ fn then_suci_profile_a_output_len(world: &mut SimWorld) {
     assert_eq!(
         scheme_output_len, 45,
         "Profile A scheme output should be 45 bytes (32+5+8), got {scheme_output_len}"
+    );
+}
+
+// ETSI TS 102 221: 69 82 = security status not satisfied.
+#[then("SW indicates security not satisfied")]
+fn then_sw_security_not_satisfied(world: &mut SimWorld) {
+    let (sw1, sw2) = world.last_sw();
+    assert_eq!(
+        (sw1, sw2),
+        (0x69, 0x82),
+        "Expected 69 82 (security not satisfied), got {sw1:02X} {sw2:02X}",
+    );
+}
+
+// -- IMPI assertions --
+
+#[then("the IMPI response starts with tag A2")]
+fn then_impi_tag_a2(world: &mut SimWorld) {
+    let data = world.last_data();
+    assert!(
+        !data.is_empty() && data[0] == 0xA2,
+        "Expected IMPI TLV tag 0xA2, got {:02X?}",
+        data.first()
+    );
+}
+
+#[then("the IMPI contains the IMSI digits")]
+fn then_impi_contains_imsi(world: &mut SimWorld) {
+    let data = world.last_data();
+    assert!(data.len() >= 3, "IMPI TLV too short");
+    let inner = &data[2..];
+    let impi_str = core::str::from_utf8(inner).expect("IMPI must be valid UTF-8");
+    // Default IMSI: 001010000000000.
+    assert!(
+        impi_str.starts_with("001010000000000"),
+        "IMPI must start with IMSI digits: {impi_str}",
+    );
+}
+
+#[then("the IMPI contains the IMS domain suffix")]
+fn then_impi_domain_suffix(world: &mut SimWorld) {
+    let data = world.last_data();
+    let inner = &data[2..];
+    let impi_str = core::str::from_utf8(inner).expect("IMPI must be valid UTF-8");
+    assert!(
+        impi_str.contains("@ims.mnc"),
+        "IMPI must contain @ims.mnc: {impi_str}",
+    );
+    assert!(
+        impi_str.ends_with("3gppnetwork.org"),
+        "IMPI must end with 3gppnetwork.org: {impi_str}",
+    );
+}
+
+// -- Domain assertions --
+
+#[then("the domain response starts with tag A3")]
+fn then_domain_tag_a3(world: &mut SimWorld) {
+    let data = world.last_data();
+    assert!(
+        !data.is_empty() && data[0] == 0xA3,
+        "Expected Domain TLV tag 0xA3, got {:02X?}",
+        data.first()
+    );
+}
+
+#[then("the domain starts with ims.mnc")]
+fn then_domain_starts_ims(world: &mut SimWorld) {
+    let data = world.last_data();
+    assert!(data.len() >= 3, "Domain TLV too short");
+    let inner = &data[2..];
+    let domain_str = core::str::from_utf8(inner).expect("Domain must be valid UTF-8");
+    assert!(
+        domain_str.starts_with("ims.mnc"),
+        "Domain must start with ims.mnc: {domain_str}",
+    );
+}
+
+#[then("the domain ends with 3gppnetwork.org")]
+fn then_domain_ends_3gpp(world: &mut SimWorld) {
+    let data = world.last_data();
+    let inner = &data[2..];
+    let domain_str = core::str::from_utf8(inner).expect("Domain must be valid UTF-8");
+    assert!(
+        domain_str.ends_with("3gppnetwork.org"),
+        "Domain must end with 3gppnetwork.org: {domain_str}",
     );
 }
 

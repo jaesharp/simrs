@@ -359,6 +359,25 @@ impl EfStructure {
     }
 }
 
+/// Per-file access condition per ETSI TS 102 221 V18.3.0 clause 8.2.
+///
+/// Determines which PIN (if any) must be verified before a file operation
+/// is permitted.  Each EF carries separate conditions for read and update.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum AccessCondition {
+    /// Always accessible (no PIN required).
+    Always = 0x00,
+    /// PIN Application 1 (CHV1 / PIN1) required.
+    Pin1 = 0x01,
+    /// PIN Application 2 (CHV2 / PIN2) required.
+    Pin2 = 0x81,
+    /// Administrative access required (always denied to normal users).
+    Adm = 0x0A,
+    /// Never accessible (unconditionally denied).
+    Never = 0xFF,
+}
+
 /// Definition of an Elementary File (EF).
 ///
 /// Data is a `&'static [u8]` slice supplied by the consuming crate.
@@ -382,6 +401,10 @@ pub struct EfDef {
     sfi: Option<Sfi>,
     structure: EfStructure,
     data: &'static [u8],
+    /// Access condition for read operations (READ BINARY, READ RECORD).
+    read_ac: AccessCondition,
+    /// Access condition for update operations (UPDATE BINARY, UPDATE RECORD, INCREASE).
+    update_ac: AccessCondition,
 }
 
 impl EfDef {
@@ -393,6 +416,23 @@ impl EfDef {
     pub const fn structure(&self) -> EfStructure { self.structure }
     /// Raw file content template.
     pub const fn data(&self) -> &'static [u8] { self.data }
+    /// Access condition for read operations.
+    pub const fn read_ac(&self) -> AccessCondition { self.read_ac }
+    /// Access condition for update operations.
+    pub const fn update_ac(&self) -> AccessCondition { self.update_ac }
+
+    /// Override the read access condition (const builder pattern).
+    #[must_use]
+    pub const fn with_read_ac(mut self, ac: AccessCondition) -> Self {
+        self.read_ac = ac;
+        self
+    }
+    /// Override the update access condition (const builder pattern).
+    #[must_use]
+    pub const fn with_update_ac(mut self, ac: AccessCondition) -> Self {
+        self.update_ac = ac;
+        self
+    }
 
     /// Create a transparent EF.
     ///
@@ -402,7 +442,8 @@ impl EfDef {
     /// assert_eq!(EF.data().len(), 10);
     /// ```
     pub const fn transparent(fid: Fid, sfi: Option<Sfi>, data: &'static [u8]) -> Self {
-        Self { fid, sfi, structure: EfStructure::Transparent, data }
+        Self { fid, sfi, structure: EfStructure::Transparent, data,
+               read_ac: AccessCondition::Pin1, update_ac: AccessCondition::Pin1 }
     }
 
     /// Create a linear-fixed EF with compile-time data length validation.
@@ -435,6 +476,7 @@ impl EfDef {
             fid, sfi,
             structure: EfStructure::LinearFixed { record_size, num_records },
             data,
+            read_ac: AccessCondition::Pin1, update_ac: AccessCondition::Pin1,
         }
     }
 
@@ -462,6 +504,7 @@ impl EfDef {
             fid, sfi,
             structure: EfStructure::Cyclic { record_size, num_records },
             data,
+            read_ac: AccessCondition::Pin1, update_ac: AccessCondition::Pin1,
         }
     }
 
@@ -473,7 +516,8 @@ impl EfDef {
     /// assert_eq!(EF.data().len(), 8);
     /// ```
     pub const fn ber_tlv(fid: Fid, sfi: Option<Sfi>, data: &'static [u8]) -> Self {
-        Self { fid, sfi, structure: EfStructure::BerTlv, data }
+        Self { fid, sfi, structure: EfStructure::BerTlv, data,
+               read_ac: AccessCondition::Pin1, update_ac: AccessCondition::Pin1 }
     }
 }
 

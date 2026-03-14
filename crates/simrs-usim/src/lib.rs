@@ -57,7 +57,7 @@ pub mod profile;
 
 use simrs_bertlv::Encoder;
 use simrs_fs::{
-    AdfSlot, DeactivationTracker, DfDef, EfDef, Fid, FsData, FsError,
+    AccessCondition, AdfSlot, DeactivationTracker, DfDef, EfDef, Fid, FsData, FsError,
     SelectionCtx, SelectedFile, Sfi,
 };
 use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
@@ -152,11 +152,21 @@ const GSM_KC_LEN: u8 = 0x08;
 // Total GSM response: 0x04 || SRES(4) || 0x08 || Kc(8) = 14 bytes.
 const GSM_AUTH_RSP_LEN: usize = 1 + 4 + 1 + 8;
 
+// UST service numbers per 3GPP TS 31.102 V19.4.0 Table 4.2.8.
+const UST_SERVICE_SMS_PP_DOWNLOAD: u8 = 28;
+const UST_SERVICE_CALL_CONTROL: u8 = 30;
+
 // 3GPP TS 31.102 V19.4.0 clause 7.5: GET IDENTITY protocol constants.
 const P2_SUCI_CONTEXT: u8 = 0x01;
+const P2_IMPI_CONTEXT: u8 = 0x02;
+const P2_DOMAIN_CONTEXT: u8 = 0x03;
 
 // SUCI response TLV tag (TS 31.102 V19.4.0 clause 7.5.2.1).
 const SUCI_TLV_TAG: u8 = 0xA1;
+// IMPI response TLV tag (TS 31.102 V19.4.0 clause 7.5.2.2).
+const IMPI_TLV_TAG: u8 = 0xA2;
+// Home Network Domain Name response TLV tag (TS 31.102 V19.4.0 clause 7.5.2.3).
+const DOMAIN_TLV_TAG: u8 = 0xA3;
 // SUPI type: IMSI (TS 24.501 Table 9.11.3.4.1).
 const SUPI_TYPE_IMSI: u8 = 0x01;
 
@@ -472,6 +482,90 @@ fn parse_hn_public_key(data: &[u8], offset: usize) -> Option<&[u8]> {
     None
 }
 
+/// Decode all IMSI digits from BCD-encoded EF.IMSI data as ASCII bytes.
+///
+/// Returns a buffer of up to 15 ASCII digit bytes and the actual digit count.
+/// The digit count is derived from the IMSI length byte (byte 0) and the
+/// parity indicator (byte 1 bit 3).
+fn decode_imsi_digits(imsi_data: &[u8]) -> ([u8; 15], usize) {
+    let mut digits = [0u8; 15];
+    // IMSI length byte gives number of data bytes (typically 8).
+    let imsi_len = imsi_data[0] as usize;
+    // Total digit count = 2 * (imsi_len - 1) - parity_correction.
+    // Parity bit (byte 1, bit 3): 1 = odd number of digits.
+    let odd = (imsi_data[1] >> 3) & 1;
+    let total_digits = if odd == 1 {
+        2 * imsi_len - 1
+    } else {
+        2 * (imsi_len - 1)
+    };
+    let count = if total_digits > 15 { 15 } else { total_digits };
+
+    // First digit: high nibble of byte 1.
+    if count > 0 {
+        digits[0] = b'0' + ((imsi_data[1] >> 4) & 0x0F);
+    }
+    // Remaining digits from bytes 2..=8: lo nibble = even pos, hi nibble = odd pos.
+    let mut d = 1usize;
+    let mut b = 2usize;
+    while b <= 8 && d < count {
+        digits[d] = b'0' + (imsi_data[b] & 0x0F);
+        d += 1;
+        if d < count {
+            digits[d] = b'0' + ((imsi_data[b] >> 4) & 0x0F);
+            d += 1;
+        }
+        b += 1;
+    }
+
+    (digits, count)
+}
+
+/// Split decoded IMSI digits into MCC (3 ASCII digits) and MNC (3 ASCII digits,
+/// zero-padded per TS 23.003 clause 13.2).
+///
+/// When `mnc_len` is 2, a leading zero is prepended to form a 3-digit MNC.
+const fn split_mcc_mnc(digits: &[u8; 15], count: usize, mnc_len: u8) -> ([u8; 3], [u8; 3]) {
+    let mut mcc = [b'0'; 3];
+    let mut mnc = [b'0'; 3];
+    if count >= 3 {
+        mcc[0] = digits[0];
+        mcc[1] = digits[1];
+        mcc[2] = digits[2];
+    }
+    if mnc_len == 2 && count >= 5 {
+        // 2-digit MNC: prepend zero -> "0" + digit3 + digit4.
+        mnc[0] = b'0';
+        mnc[1] = digits[3];
+        mnc[2] = digits[4];
+    } else if mnc_len >= 3 && count >= 6 {
+        mnc[0] = digits[3];
+        mnc[1] = digits[4];
+        mnc[2] = digits[5];
+    }
+    (mcc, mnc)
+}
+
+/// Write the IMS domain name into the buffer:
+/// `ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org`
+///
+/// MNC is always zero-padded to 3 digits per TS 23.003 clause 13.2.
+/// Returns the new write position.
+fn write_ims_domain(q: &mut [u8], start: usize, mnc: [u8; 3], mcc: [u8; 3]) -> usize {
+    let mut pos = start;
+    q[pos..pos + 7].copy_from_slice(b"ims.mnc"); pos += 7;
+    // Zero-padded 3-digit MNC per TS 23.003 clause 13.2.
+    q[pos] = mnc[0]; pos += 1;
+    q[pos] = mnc[1]; pos += 1;
+    q[pos] = mnc[2]; pos += 1;
+    q[pos..pos + 4].copy_from_slice(b".mcc"); pos += 4;
+    q[pos] = mcc[0]; pos += 1;
+    q[pos] = mcc[1]; pos += 1;
+    q[pos] = mcc[2]; pos += 1;
+    q[pos..pos + 16].copy_from_slice(b".3gppnetwork.org"); pos += 16;
+    pos
+}
+
 // ---------------------------------------------------------------------------
 // UsimApp
 // ---------------------------------------------------------------------------
@@ -529,6 +623,11 @@ pub struct UsimApp<A: AuthenticationAlgorithm = MilenageParams> {
     /// RAND stored during GBA bootstrap, needed for NAF key derivation.
     #[cfg(feature = "gba")]
     gba_rand: Option<[u8; 16]>,
+    /// Remaining Ks lifetime in seconds. `u32::MAX` means infinite (no expiry).
+    /// Set by `set_gba_ks_lifetime()`. Decremented by `tick()`.
+    /// When zero, NAF derivation is rejected with 69 85.
+    #[cfg(feature = "gba")]
+    gba_ks_lifetime: u32,
 }
 
 impl<A: AuthenticationAlgorithm> UsimApp<A> {
@@ -584,6 +683,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             gba_ks: None,
             #[cfg(feature = "gba")]
             gba_rand: None,
+            #[cfg(feature = "gba")]
+            gba_ks_lifetime: u32::MAX,
         }
     }
 
@@ -668,7 +769,21 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// `proactive_state().take_expired_timer()` and generate Timer
     /// Expiry envelopes as appropriate.
     pub const fn tick(&mut self, elapsed_secs: u32) -> u8 {
+        #[cfg(feature = "gba")]
+        if self.gba_ks.is_some() && self.gba_ks_lifetime != u32::MAX {
+            self.gba_ks_lifetime = self.gba_ks_lifetime.saturating_sub(elapsed_secs);
+        }
         self.proactive.tick(elapsed_secs)
+    }
+
+    /// Set the GBA Ks lifetime in seconds. `u32::MAX` = infinite (default).
+    ///
+    /// When the lifetime reaches zero (via `tick()`), NAF derivation
+    /// (AUTHENTICATE P2=0x84) will be rejected with SW 69 85 until a
+    /// new bootstrap is performed.
+    #[cfg(feature = "gba")]
+    pub const fn set_gba_ks_lifetime(&mut self, seconds: u32) {
+        self.gba_ks_lifetime = seconds;
     }
 
     // -- snapshot --
@@ -676,10 +791,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// SUCI snapshot size: 1 flag byte + 32 (seed) + 8 (counter) = 41 bytes.
     pub const SUCI_SNAPSHOT_SIZE: usize = 1 + 32 + 8;
 
-    /// GBA snapshot size: 1 flag byte + 32 (Ks) + 16 (RAND) = 49 bytes.
+    /// GBA snapshot size: 1 flag byte + 32 (Ks) + 16 (RAND) + 4 (lifetime) = 53 bytes.
     /// When GBA is disabled, this is 0.
     #[cfg(feature = "gba")]
-    pub const GBA_SNAPSHOT_SIZE: usize = 1 + 32 + 16;
+    pub const GBA_SNAPSHOT_SIZE: usize = 1 + 32 + 16 + 4;
     /// GBA snapshot size (disabled: 0 bytes).
     #[cfg(not(feature = "gba"))]
     pub const GBA_SNAPSHOT_SIZE: usize = 0;
@@ -760,6 +875,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 buf[off..off + 48].fill(0);
                 off += 48;
             }
+            buf[off..off + 4].copy_from_slice(&self.gba_ks_lifetime.to_le_bytes());
+            off += 4;
         }
         // SUCI state
         if let Some(suci) = &self.suci {
@@ -865,6 +982,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 self.gba_rand = None;
                 off += 48;
             }
+            self.gba_ks_lifetime = u32::from_le_bytes([
+                buf[off], buf[off + 1], buf[off + 2], buf[off + 3],
+            ]);
+            off += 4;
         }
         // SUCI state
         {
@@ -1141,6 +1262,37 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         !self.pin.is_access_granted(PinKey::PIN1)
     }
 
+    /// Check whether the given per-file access condition is satisfied.
+    ///
+    /// Returns `true` if access is denied.
+    const fn access_denied(&self, ac: AccessCondition) -> bool {
+        match ac {
+            AccessCondition::Always => false,
+            AccessCondition::Pin1 => !self.pin.is_access_granted(PinKey::PIN1),
+            AccessCondition::Pin2 => !self.pin.is_access_granted(PinKey::PIN2),
+            AccessCondition::Adm => !self.pin.is_access_granted(PinKey::ADM1),
+            AccessCondition::Never => true,
+        }
+    }
+
+    // -- UST service check --
+
+    /// Check whether a UST service is enabled.
+    ///
+    /// Reads `EF_UST` from the data store. If the file is missing or too
+    /// short, the service is conservatively considered enabled (backwards
+    /// compatible with minimal test profiles that omit EF_UST).
+    ///
+    /// Service N: bit `(N-1) % 8` of byte `(N-1) / 8`.
+    fn is_service_enabled(&self, service: u8) -> bool {
+        let byte_idx = u16::from((service - 1) / 8);
+        let bit_idx = (service - 1) % 8;
+        let Ok(ust) = self.data.read_binary(&profile::EF_UST, byte_idx, 1) else {
+            return true; // EF_UST not provisioned -- assume enabled
+        };
+        ust[0] & (1 << bit_idx) != 0
+    }
+
     // -- READ BINARY --
 
     fn handle_read_binary<'buf>(
@@ -1165,6 +1317,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             };
             (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
         };
+        // Per-file access condition check.
+        if self.access_denied(ef.read_ac()) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+        }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
@@ -1227,6 +1383,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
+        // Per-file access condition check.
+        if self.access_denied(ef.read_ac()) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+        }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
@@ -1264,6 +1424,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             };
             (ef, u16::from_be_bytes([cmd.p1(), cmd.p2()]))
         };
+        // Per-file access condition check.
+        if self.access_denied(ef.update_ac()) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+        }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
@@ -1297,6 +1461,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
+        // Per-file access condition check.
+        if self.access_denied(ef.update_ac()) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+        }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
@@ -1326,6 +1494,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
+        // Per-file access condition check.
+        if self.access_denied(ef.update_ac()) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+        }
         match self.data.increase(ef, cmd.data()) {
             Ok(new_val) => write_data_sw(buf, new_val, StatusWord::Success),
             Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
@@ -1369,6 +1541,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Increment a big-endian unsigned integer stored in a transparent EF by 1.
     /// Wraps on overflow.
     #[cfg(feature = "profile-full")]
+    #[allow(clippy::cast_possible_truncation)]
     fn increment_counter(
         data: &mut FsData<FS_CAP, FS_MAX_EFS>,
         ef: &'static EfDef,
@@ -1612,11 +1785,15 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         match self.auth.authenticate(&challenge, &auth_token) {
             Ok(output) => {
                 // Store Ks = CK || IK and RAND for subsequent NAF derivation.
+                // Reset lifetime to infinite (per TS 33.220 clause 5.3.3,
+                // the BSF assigns a finite lifetime; until explicitly set
+                // via `set_gba_ks_lifetime()`, the default is infinite).
                 self.gba_ks = Some(simrs_kdf::GbaSessionKey::from_ck_ik(
                     &output.cipher_key,
                     &output.integrity_key,
                 ));
                 self.gba_rand = Some(rand_bytes);
+                self.gba_ks_lifetime = u32::MAX;
 
                 let result = AuthenticationResult::GbaBootstrapSuccess {
                     response: *output.response.as_bytes(),
@@ -1655,10 +1832,13 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ) -> &'buf [u8] {
         let data = cmd.data();
 
-        // Must have Ks from a prior GBA bootstrap.
+        // Must have Ks from a prior GBA bootstrap, and Ks must not be expired.
         let (Some(ks), Some(rand)) = (&self.gba_ks, &self.gba_rand) else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
         };
+        if self.gba_ks_lifetime == 0 {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+        }
 
         // Command data: NAF_ID_len(1) || NAF_ID || IMPI_len(1) || IMPI
         if data.len() < 2 {
@@ -1690,12 +1870,13 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     // -- GET IDENTITY (SUCI computation, TS 31.102 V19.4.0 clause 7.5) --
 
-    /// GET IDENTITY handler: computes SUCI on-card per
+    /// GET IDENTITY handler per
     /// [3GPP TS 31.102 V19.4.0 clause 7.5](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf).
     ///
-    /// P2=0x01 is the SUCI context. Returns the SUCI as a TLV data object
-    /// (tag 0xA1) via GET RESPONSE.
-    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
+    /// Dispatches on P2:
+    /// - P2=0x01: SUCI context (returns TLV tag 0xA1)
+    /// - P2=0x02: IMPI context (returns TLV tag 0xA2)
+    /// - P2=0x03: Home Network Domain Name context (returns TLV tag 0xA3)
     fn handle_get_identity<'buf>(
         &mut self,
         cmd: &Command<'_>,
@@ -1704,10 +1885,20 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         if cmd.p1() != 0x00 {
             return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
-        if cmd.p2() != P2_SUCI_CONTEXT {
-            return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
+        match cmd.p2() {
+            P2_SUCI_CONTEXT => self.handle_get_identity_suci(buf),
+            P2_IMPI_CONTEXT => self.handle_get_identity_impi(buf),
+            P2_DOMAIN_CONTEXT => self.handle_get_identity_domain(buf),
+            _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
         }
+    }
 
+    /// GET IDENTITY P2=0x01: SUCI on-card computation.
+    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
+    fn handle_get_identity_suci<'buf>(
+        &mut self,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
         // SUCI computation requires provisioned DRBG seed.
         let Some(suci) = &mut self.suci else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
@@ -1875,6 +2066,94 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         }
     }
 
+    /// GET IDENTITY P2=0x02: IMPI (IMS Private User Identity) derivation.
+    ///
+    /// Per TS 23.003 clause 13.2, IMPI = `<IMSI>@ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org`.
+    /// Returned as TLV with tag 0xA2 via GET RESPONSE.
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_get_identity_impi<'buf>(
+        &mut self,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if self.pin1_denied() {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+        }
+
+        let Ok(imsi_data) = self.data.read_binary(&profile::EF_IMSI, 0, 9) else {
+            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
+        };
+        let Ok(ad_data) = self.data.read_binary(&profile::EF_AD, 0, 4) else {
+            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
+        };
+        let mnc_len = if ad_data.len() >= 4 && (ad_data[3] == 2 || ad_data[3] == 3) {
+            ad_data[3]
+        } else {
+            2
+        };
+
+        let (imsi_digits, digit_count) = decode_imsi_digits(imsi_data);
+        let (mcc, mnc) = split_mcc_mnc(&imsi_digits, digit_count, mnc_len);
+
+        // Build IMPI: <IMSI>@ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org
+        let q = self.rsp_queue.buf_mut();
+        let mut pos = 2usize; // skip tag + length (filled last)
+        // IMSI digits as ASCII.
+        let mut i = 0;
+        while i < digit_count {
+            q[pos] = imsi_digits[i];
+            pos += 1;
+            i += 1;
+        }
+        q[pos] = b'@'; pos += 1;
+        pos = write_ims_domain(q, pos, mnc, mcc);
+        // Fill tag + length.
+        let inner_len = pos - 2;
+        q[0] = IMPI_TLV_TAG;
+        q[1] = inner_len as u8;
+        self.rsp_queue.set_len(pos);
+        write_sw(buf, StatusWord::bytes_available(pos as u8))
+    }
+
+    /// GET IDENTITY P2=0x03: Home Network Domain Name derivation.
+    ///
+    /// Per TS 23.003 clause 13.2, domain = `ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org`.
+    /// Returned as TLV with tag 0xA3 via GET RESPONSE.
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_get_identity_domain<'buf>(
+        &mut self,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        if self.pin1_denied() {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+        }
+
+        let Ok(imsi_data) = self.data.read_binary(&profile::EF_IMSI, 0, 9) else {
+            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
+        };
+        let Ok(ad_data) = self.data.read_binary(&profile::EF_AD, 0, 4) else {
+            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
+        };
+        let mnc_len = if ad_data.len() >= 4 && (ad_data[3] == 2 || ad_data[3] == 3) {
+            ad_data[3]
+        } else {
+            2
+        };
+
+        let (imsi_digits, digit_count) = decode_imsi_digits(imsi_data);
+        let (mcc, mnc) = split_mcc_mnc(&imsi_digits, digit_count, mnc_len);
+
+        // Build domain: ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org
+        let q = self.rsp_queue.buf_mut();
+        let mut pos = 2usize; // skip tag + length (filled last)
+        pos = write_ims_domain(q, pos, mnc, mcc);
+        // Fill tag + length.
+        let inner_len = pos - 2;
+        q[0] = DOMAIN_TLV_TAG;
+        q[1] = inner_len as u8;
+        self.rsp_queue.set_len(pos);
+        write_sw(buf, StatusWord::bytes_available(pos as u8))
+    }
+
     fn handle_verify<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
         simrs_pin::apdu_verify(&mut self.pin, cmd, buf)
     }
@@ -1907,6 +2186,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
+        // Per-file access condition check.
+        if self.access_denied(ef.read_ac()) {
+            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+        }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
@@ -2079,40 +2362,11 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         self.proactive_session_active = false;
 
         let result = self.proactive.terminal_response(cmd.data());
-        // Handle REFRESH action (7H).
+        // Handle REFRESH action (TS 102 223 clause 6.4.7).
         if let Some(tr) = result {
-            // cmd_type 0x01 = REFRESH.
             if tr.cmd_type == 0x01 && tr.general_result == 0x00 {
-                // The qualifier is encoded in the command details of the
-                // proactive command, but we don't have it in TerminalResult.
-                // We look at the original command's cmd_qualifier.
-                // Since TerminalResult doesn't store qualifier, we use
-                // a simpler approach: re-select MF for SIM Init,
-                // full reset for UICC Reset.
-                // We can infer refresh type from the TERMINAL RESPONSE data
-                // by parsing command details.
                 let refresh_qualifier = Self::parse_refresh_qualifier(cmd.data());
-                match refresh_qualifier {
-                    0x01 | 0x03 => {
-                        // SIM Initialization / SIM Init and file change: re-select MF
-                        // on all channels (TS 102 223 clause 6.4.7).
-                        let _ = self.fs.select_by_fid(Fid::MF);
-                        for ch in &mut self.channels[1..] {
-                            if let Some(ctx) = ch.as_mut() {
-                                let _ = ctx.select_by_fid(Fid::MF);
-                            }
-                        }
-                    }
-                    0x04 => {
-                        // UICC Reset: reset to clean state, close all logical channels.
-                        self.fs = SelectionCtx::new(self.mf);
-                        self.channels = [None, None, None, None];
-                        self.deactivation.clear();
-                    }
-                    _ => {
-                        // Other refresh types: just clear pending state (already done).
-                    }
-                }
+                self.apply_refresh(refresh_qualifier);
             }
         }
         write_sw(buf, StatusWord::Success)
@@ -2162,6 +2416,69 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         false
     }
 
+    /// Apply REFRESH semantics per TS 102 223 clause 6.4.7.
+    ///
+    /// | Qualifier | Action |
+    /// |-----------|--------|
+    /// | 0x00 | NAA Initialization and Full File Change: re-select MF on all channels |
+    /// | 0x01 | File Change Notification: re-select MF on all channels |
+    /// | 0x02 | NAA Initialization and File Change Notification: clear rsp_queue |
+    /// | 0x03 | NAA Initialization: re-select MF on all channels |
+    /// | 0x04 | UICC Reset: full reset (FS + channels + deactivation + GBA) |
+    /// | 0x05 | NAA Application Reset: reset FS + channels, clear GBA state |
+    /// | 0x06 | NAA Session Reset: clear GBA state only |
+    fn apply_refresh(&mut self, qualifier: u8) {
+        match qualifier {
+            0x00 | 0x01 | 0x03 => {
+                // Re-select MF on all channels.
+                let _ = self.fs.select_by_fid(Fid::MF);
+                for ch in &mut self.channels[1..] {
+                    if let Some(ctx) = ch.as_mut() {
+                        let _ = ctx.select_by_fid(Fid::MF);
+                    }
+                }
+            }
+            0x02 => {
+                // File Change Notification: clear pending response data.
+                self.rsp_queue.clear();
+            }
+            0x04 => {
+                // UICC Reset: full clean state.
+                self.fs = SelectionCtx::new(self.mf);
+                self.channels = [None, None, None, None];
+                self.deactivation.clear();
+                self.rsp_queue.clear();
+                #[cfg(feature = "gba")]
+                self.clear_gba_state();
+            }
+            0x05 => {
+                // NAA Application Reset: reset FS + channels, clear GBA.
+                // SQN_HE is persistent -- managed by the auth algorithm, not reset here.
+                self.fs = SelectionCtx::new(self.mf);
+                self.channels = [None, None, None, None];
+                self.rsp_queue.clear();
+                #[cfg(feature = "gba")]
+                self.clear_gba_state();
+            }
+            0x06 => {
+                // NAA Session Reset: clear GBA session key only.
+                #[cfg(feature = "gba")]
+                self.clear_gba_state();
+            }
+            _ => {
+                // Unknown refresh types: no additional action.
+            }
+        }
+    }
+
+    /// Clear GBA session state (Ks + RAND + lifetime).
+    #[cfg(feature = "gba")]
+    const fn clear_gba_state(&mut self) {
+        self.gba_ks = None;
+        self.gba_rand = None;
+        self.gba_ks_lifetime = u32::MAX;
+    }
+
     /// Whether a proactive session is currently active (command fetched,
     /// awaiting TERMINAL RESPONSE).
     pub const fn is_proactive_session_active(&self) -> bool {
@@ -2174,6 +2491,26 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     const ENV_TAG_SMS_PP_DOWNLOAD: u8 = 0xD1;
     /// Envelope tag: Call Control by USIM ([ETSI TS 102 223 V18.2.0 clause 7.3](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf)).
     const ENV_TAG_CALL_CONTROL: u8 = 0xD4;
+
+    /// Walk a sequence of COMPREHENSION-TLV objects looking for Device
+    /// Identities (tag 0x82 or 0x02 with CR bit). Returns `true` if found.
+    fn has_device_identities(inner: &[u8]) -> bool {
+        let mut pos = 0;
+        while pos + 1 < inner.len() {
+            let tag = inner[pos];
+            pos += 1;
+            if pos >= inner.len() { break; }
+            let len = inner[pos] as usize;
+            pos += 1;
+            // Tag 0x82 = Device Identities (COMPREHENSION-TLV, CR bit set).
+            // Tag 0x02 = Device Identities without CR bit.
+            if tag == 0x82 || tag == 0x02 {
+                return true;
+            }
+            pos += len;
+        }
+        false
+    }
 
     fn handle_envelope<'buf>(
         &mut self,
@@ -2216,13 +2553,31 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // Determine envelope type from the outer BER-TLV tag byte.
         let tag = data[0];
 
+        // Inner TLV value starts after tag(1) + length(1).
+        let inner = &data[2..2 + tlv_len];
+
         match tag {
             Self::ENV_TAG_SMS_PP_DOWNLOAD => {
+                // Gate on UST service 28 (Data download via SMS-PP).
+                if !self.is_service_enabled(UST_SERVICE_SMS_PP_DOWNLOAD) {
+                    return write_sw(buf, StatusWord::command_not_allowed(
+                        sw2::CONDITIONS_NOT_SATISFIED));
+                }
                 // SMS-PP Data Download: accept and pass to proactive state.
                 self.proactive.process_envelope(data);
                 write_sw(buf, StatusWord::Success)
             }
             Self::ENV_TAG_CALL_CONTROL => {
+                // Gate on UST service 30 (Call Control by USIM).
+                if !self.is_service_enabled(UST_SERVICE_CALL_CONTROL) {
+                    return write_sw(buf, StatusWord::command_not_allowed(
+                        sw2::CONDITIONS_NOT_SATISFIED));
+                }
+                // Validate inner TLV structure: Device Identities (tag 0x82)
+                // is mandatory per ETSI TS 102 223 clause 7.3.1.
+                if !Self::has_device_identities(inner) {
+                    return write_sw(buf, StatusWord::wrong_params(0x80));
+                }
                 // Call Control by USIM: allowed without modification.
                 // Per ETSI TS 102 223 clause 7.3.1 the USIM may allow,
                 // modify, or reject the call; this implementation always
@@ -3541,6 +3896,105 @@ mod tests {
         ];
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x6A, 0x80));
+    }
+
+    /// Call Control without Device Identities (tag 0x82) is rejected.
+    #[test]
+    fn envelope_call_control_missing_device_identities() {
+        let mut app = app();
+        send_terminal_profile(&mut app);
+        // Call Control envelope with arbitrary data but no Device Identities tag.
+        let apdu = [
+            0x80, 0xC2, 0x00, 0x00,
+            0x06,
+            0xD4, 0x04, // Call Control tag + length
+            0x06, 0x02, 0xAA, 0xBB, // tag 0x06 (Address), not Device Identities
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x6A, 0x80),
+            "Call Control without Device Identities must be rejected");
+    }
+
+    /// SMS-PP Download rejected when UST service 28 is disabled.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn envelope_sms_pp_rejected_when_ust_disabled() {
+        let mut app = ref_app();
+        send_terminal_profile(&mut app);
+        // Disable UST service 28: clear bit 3 of byte 3.
+        let Ok(ust_byte3) = app.data.read_binary(&profile::EF_UST, 3, 1) else {
+            panic!("EF_UST not found in ref profile");
+        };
+        let new_byte3 = ust_byte3[0] & !(1 << 3); // clear service 28
+        app.data.write_binary(&profile::EF_UST, 3, &[new_byte3]).unwrap();
+
+        let apdu = [
+            0x80, 0xC2, 0x00, 0x00,
+            0x06,
+            0xD1, 0x04, // SMS-PP tag + length
+            0x82, 0x02, 0x83, 0x81, // Device Identities
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x69, 0x85),
+            "SMS-PP Download must be rejected when UST service 28 is disabled");
+    }
+
+    /// Call Control rejected when UST service 30 is disabled.
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn envelope_call_control_rejected_when_ust_disabled() {
+        let mut app = ref_app();
+        send_terminal_profile(&mut app);
+        // Disable UST service 30: clear bit 5 of byte 3.
+        let Ok(ust_byte3) = app.data.read_binary(&profile::EF_UST, 3, 1) else {
+            panic!("EF_UST not found in ref profile");
+        };
+        let new_byte3 = ust_byte3[0] & !(1 << 5); // clear service 30
+        app.data.write_binary(&profile::EF_UST, 3, &[new_byte3]).unwrap();
+
+        let apdu = [
+            0x80, 0xC2, 0x00, 0x00,
+            0x06,
+            0xD4, 0x04, // Call Control tag + length
+            0x82, 0x02, 0x83, 0x81, // Device Identities
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x69, 0x85),
+            "Call Control must be rejected when UST service 30 is disabled");
+    }
+
+    /// SMS-PP Download succeeds when UST service 28 is enabled (reference profile).
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn envelope_sms_pp_succeeds_with_ust_enabled() {
+        let mut app = ref_app();
+        send_terminal_profile(&mut app);
+        let apdu = [
+            0x80, 0xC2, 0x00, 0x00,
+            0x06,
+            0xD1, 0x04, // SMS-PP tag + length
+            0x82, 0x02, 0x83, 0x81, // Device Identities
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00),
+            "SMS-PP Download must succeed when UST service 28 is enabled");
+    }
+
+    /// Call Control succeeds when UST service 30 is enabled (reference profile).
+    #[cfg(feature = "profile-full")]
+    #[test]
+    fn envelope_call_control_succeeds_with_ust_enabled() {
+        let mut app = ref_app();
+        send_terminal_profile(&mut app);
+        let apdu = [
+            0x80, 0xC2, 0x00, 0x00,
+            0x06,
+            0xD4, 0x04, // Call Control tag + length
+            0x82, 0x02, 0x83, 0x81, // Device Identities
+        ];
+        let (buf, len) = send(&mut app, &apdu);
+        assert_eq!(sw(&buf, len), (0x90, 0x00),
+            "Call Control must succeed when UST service 30 is enabled");
     }
 
     #[test]
@@ -5954,6 +6408,230 @@ mod tests {
         assert_ne!(&rsp[2..34], &[0u8; 32], "Ks_ext_NAF must not be all-zeros");
     }
 
+    /// GBA NAF derivation rejected after Ks lifetime expires (69 85).
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_naf_rejected_after_lifetime_expiry() {
+        let mut app = app();
+        let params = MilenageParams::with_defaults(K, OPC);
+
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let auth_token = build_autn(&params, &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+
+        // Bootstrap
+        let mut boot_apdu = [0u8; 5 + 34];
+        boot_apdu[0] = 0x00;
+        boot_apdu[1] = 0x88;
+        boot_apdu[3] = 0x82;
+        boot_apdu[4] = 0x22;
+        boot_apdu[5] = 0x10;
+        boot_apdu[6..22].copy_from_slice(&rand_val);
+        boot_apdu[22] = 0x10;
+        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let (buf, _) = send(&mut app, &boot_apdu);
+        assert_eq!(buf[0], 0x61);
+        send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+
+        // Set finite lifetime and expire it
+        app.set_gba_ks_lifetime(10);
+        app.tick(11);
+
+        // NAF derivation must fail
+        let naf_id = b"naf.example.com";
+        let impi = b"user@example.com";
+        let mut naf_apdu = [0u8; 64];
+        naf_apdu[0] = 0x00;
+        naf_apdu[1] = 0x88;
+        naf_apdu[3] = 0x84;
+        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
+        naf_apdu[4] = lc;
+        naf_apdu[5] = naf_id.len() as u8;
+        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
+        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
+        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
+        let (buf, total) = send(&mut app, &naf_apdu[..5 + lc as usize]);
+        assert_eq!(sw(&buf, total), (0x69, 0x85),
+            "NAF derivation must be rejected after lifetime expiry");
+    }
+
+    /// Re-bootstrap after Ks expiry resets lifetime and allows NAF derivation.
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_rebootstrap_resets_lifetime() {
+        let mut app = app();
+        let params = MilenageParams::with_defaults(K, OPC);
+
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let auth_token = build_autn(&params, &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+
+        // First bootstrap
+        let mut boot_apdu = [0u8; 5 + 34];
+        boot_apdu[0] = 0x00;
+        boot_apdu[1] = 0x88;
+        boot_apdu[3] = 0x82;
+        boot_apdu[4] = 0x22;
+        boot_apdu[5] = 0x10;
+        boot_apdu[6..22].copy_from_slice(&rand_val);
+        boot_apdu[22] = 0x10;
+        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let (buf, _) = send(&mut app, &boot_apdu);
+        assert_eq!(buf[0], 0x61);
+        send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+
+        // Expire the key
+        app.set_gba_ks_lifetime(5);
+        app.tick(6);
+
+        // Re-bootstrap with different SQN (must increment to avoid sync failure)
+        let rand_val2: [u8; 16] = [
+            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22,
+            0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00,
+        ];
+        let auth_token2 = build_autn(&params, &rand_val2,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x08], [0xB9, 0xB9]);
+        boot_apdu[6..22].copy_from_slice(&rand_val2);
+        boot_apdu[23..39].copy_from_slice(&auth_token2);
+        let (buf, _) = send(&mut app, &boot_apdu);
+        assert_eq!(buf[0], 0x61, "re-bootstrap must succeed");
+        send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+
+        // NAF derivation must now succeed (lifetime reset to infinite)
+        let naf_id = b"naf.example.com";
+        let impi = b"user@example.com";
+        let mut naf_apdu = [0u8; 64];
+        naf_apdu[0] = 0x00;
+        naf_apdu[1] = 0x88;
+        naf_apdu[3] = 0x84;
+        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
+        naf_apdu[4] = lc;
+        naf_apdu[5] = naf_id.len() as u8;
+        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
+        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
+        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
+        let (buf, _) = send(&mut app, &naf_apdu[..5 + lc as usize]);
+        assert_eq!(buf[0], 0x61, "NAF derivation must succeed after re-bootstrap");
+    }
+
+    /// Infinite lifetime (u32::MAX) never expires even after large tick.
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_infinite_lifetime_never_expires() {
+        let mut app = app();
+        let params = MilenageParams::with_defaults(K, OPC);
+
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let auth_token = build_autn(&params, &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+
+        // Bootstrap (default lifetime = u32::MAX = infinite)
+        let mut boot_apdu = [0u8; 5 + 34];
+        boot_apdu[0] = 0x00;
+        boot_apdu[1] = 0x88;
+        boot_apdu[3] = 0x82;
+        boot_apdu[4] = 0x22;
+        boot_apdu[5] = 0x10;
+        boot_apdu[6..22].copy_from_slice(&rand_val);
+        boot_apdu[22] = 0x10;
+        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let (buf, _) = send(&mut app, &boot_apdu);
+        assert_eq!(buf[0], 0x61);
+        send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+
+        // Tick a very large amount -- should NOT expire
+        app.tick(u32::MAX - 1);
+
+        // NAF derivation must still succeed
+        let naf_id = b"naf.example.com";
+        let impi = b"user@example.com";
+        let mut naf_apdu = [0u8; 64];
+        naf_apdu[0] = 0x00;
+        naf_apdu[1] = 0x88;
+        naf_apdu[3] = 0x84;
+        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
+        naf_apdu[4] = lc;
+        naf_apdu[5] = naf_id.len() as u8;
+        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
+        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
+        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
+        let (buf, _) = send(&mut app, &naf_apdu[..5 + lc as usize]);
+        assert_eq!(buf[0], 0x61, "NAF derivation must succeed with infinite lifetime");
+    }
+
+    /// Snapshot roundtrip preserves GBA Ks lifetime value.
+    #[cfg(feature = "gba")]
+    #[test]
+    fn gba_snapshot_preserves_lifetime() {
+        let mut app = app();
+        let params = MilenageParams::with_defaults(K, OPC);
+
+        let rand_val: [u8; 16] = [
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
+            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        ];
+        let auth_token = build_autn(&params, &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+
+        // Bootstrap
+        let mut boot_apdu = [0u8; 5 + 34];
+        boot_apdu[0] = 0x00;
+        boot_apdu[1] = 0x88;
+        boot_apdu[3] = 0x82;
+        boot_apdu[4] = 0x22;
+        boot_apdu[5] = 0x10;
+        boot_apdu[6..22].copy_from_slice(&rand_val);
+        boot_apdu[22] = 0x10;
+        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let (buf, _) = send(&mut app, &boot_apdu);
+        assert_eq!(buf[0], 0x61);
+        send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
+
+        // Set a specific finite lifetime and partially decrement it
+        app.set_gba_ks_lifetime(1000);
+        app.tick(300);
+        // Remaining: 700
+
+        // Snapshot
+        let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
+        let written = app.save_state(&mut snap);
+        assert_eq!(written, UsimApp::<MilenageParams>::SNAPSHOT_SIZE);
+
+        // Restore
+        let mil = MilenageParams::with_defaults(K, OPC);
+        let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
+        assert!(dst.restore_state(&snap));
+
+        // Tick past remaining 700s -- should expire
+        dst.tick(701);
+
+        // NAF derivation must fail on restored app
+        let naf_id = b"naf.example.com";
+        let impi = b"user@example.com";
+        let mut naf_apdu = [0u8; 64];
+        naf_apdu[0] = 0x00;
+        naf_apdu[1] = 0x88;
+        naf_apdu[3] = 0x84;
+        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
+        naf_apdu[4] = lc;
+        naf_apdu[5] = naf_id.len() as u8;
+        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
+        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
+        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
+        let (buf, total) = send(&mut dst, &naf_apdu[..5 + lc as usize]);
+        assert_eq!(sw(&buf, total), (0x69, 0x85),
+            "NAF derivation must be rejected after lifetime expiry on restored app");
+    }
+
     // -----------------------------------------------------------------------
     // APDU-level tests using the reference profile (Phase 7)
     // -----------------------------------------------------------------------
@@ -6865,6 +7543,199 @@ mod proptests {
         let rsp = app.handle(&cmd, &mut buf);
         let len = rsp.len();
         assert_eq!((buf[len - 2], buf[len - 1]), (0x69, 0x85));
+    }
+
+    // -- GET IDENTITY IMPI / DOMAIN tests --
+
+    /// Helper: create an app with PIN1 verified and ADF.USIM selected.
+    fn setup_app_with_pin1() -> UsimApp<MilenageParams> {
+        let auth = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
+        let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
+        let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+        app.pin_manager().add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true).unwrap();
+
+        let mut buf = [0u8; 256];
+
+        // Select ADF.USIM by AID.
+        let select_aid = [
+            0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+        ];
+        let cmd = Command::parse(&select_aid).unwrap();
+        let _ = app.handle(&cmd, &mut buf);
+
+        // Verify PIN1.
+        let verify = [0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
+        let cmd = Command::parse(&verify).unwrap();
+        let rsp = app.handle(&cmd, &mut buf);
+        let len = rsp.len();
+        assert_eq!((buf[len - 2], buf[len - 1]), (0x90, 0x00), "PIN1 verify failed");
+        app
+    }
+
+    /// GET IDENTITY P2=0x02 returns IMPI with tag 0xA2 containing the expected domain.
+    #[test]
+    fn get_identity_impi_returns_valid_tlv() {
+        let mut app = setup_app_with_pin1();
+        let mut buf = [0u8; 256];
+
+        // GET IDENTITY P2=0x02.
+        let cmd_bytes = [0x00, 0x78, 0x00, 0x02];
+        let cmd = Command::parse(&cmd_bytes).unwrap();
+        let rsp = app.handle(&cmd, &mut buf);
+        let len = rsp.len();
+        let (sw1, sw2) = (buf[len - 2], buf[len - 1]);
+        assert_eq!(sw1, 0x61, "Expected SW1=61 (response data available), got {sw1:02X}");
+
+        // GET RESPONSE.
+        let get_rsp = [0x00, 0xC0, 0x00, 0x00, sw2];
+        let cmd = Command::parse(&get_rsp).unwrap();
+        let rsp = app.handle(&cmd, &mut buf);
+        let data_len = rsp.len() - 2;
+        let data = &buf[..data_len];
+
+        assert_eq!(data[0], 0xA2, "Expected IMPI TLV tag 0xA2");
+        let inner = &data[2..];
+        let impi_str = core::str::from_utf8(inner).expect("IMPI must be valid UTF-8");
+        // Default IMSI: 001010000000000, MNC=01 (2 digits).
+        // IMPI = "001010000000000@ims.mnc001.mcc001.3gppnetwork.org"
+        assert!(impi_str.starts_with("001010000000000@"), "IMPI must start with IMSI: {impi_str}");
+        assert!(impi_str.contains("@ims.mnc"), "IMPI must contain @ims.mnc: {impi_str}");
+        assert!(impi_str.ends_with("3gppnetwork.org"), "IMPI must end with 3gppnetwork.org: {impi_str}");
+        assert!(impi_str.contains("mnc001"), "MNC should be zero-padded to 001: {impi_str}");
+        assert!(impi_str.contains("mcc001"), "MCC should be 001: {impi_str}");
+    }
+
+    /// GET IDENTITY P2=0x03 returns domain with tag 0xA3.
+    #[test]
+    fn get_identity_domain_returns_valid_tlv() {
+        let mut app = setup_app_with_pin1();
+        let mut buf = [0u8; 256];
+
+        let cmd_bytes = [0x00, 0x78, 0x00, 0x03];
+        let cmd = Command::parse(&cmd_bytes).unwrap();
+        let rsp = app.handle(&cmd, &mut buf);
+        let len = rsp.len();
+        let (sw1, sw2) = (buf[len - 2], buf[len - 1]);
+        assert_eq!(sw1, 0x61, "Expected SW1=61");
+
+        let get_rsp = [0x00, 0xC0, 0x00, 0x00, sw2];
+        let cmd = Command::parse(&get_rsp).unwrap();
+        let rsp = app.handle(&cmd, &mut buf);
+        let data_len = rsp.len() - 2;
+        let data = &buf[..data_len];
+
+        assert_eq!(data[0], 0xA3, "Expected Domain TLV tag 0xA3");
+        let inner = &data[2..];
+        let domain_str = core::str::from_utf8(inner).expect("Domain must be valid UTF-8");
+        // Domain = "ims.mnc001.mcc001.3gppnetwork.org"
+        assert!(domain_str.starts_with("ims.mnc"), "Domain must start with ims.mnc: {domain_str}");
+        assert!(domain_str.ends_with("3gppnetwork.org"), "Domain must end with 3gppnetwork.org: {domain_str}");
+        assert!(domain_str.contains("mnc001"), "MNC should be zero-padded to 001: {domain_str}");
+        assert!(domain_str.contains("mcc001"), "MCC should be 001: {domain_str}");
+    }
+
+    /// GET IDENTITY P2=0x02 without PIN1 verified returns 69 82.
+    #[test]
+    fn get_identity_impi_without_pin1_rejected() {
+        let auth = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
+        let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
+        let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+        app.pin_manager().add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true).unwrap();
+
+        let mut buf = [0u8; 256];
+        // Select ADF.USIM.
+        let select_aid = [
+            0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+        ];
+        let cmd = Command::parse(&select_aid).unwrap();
+        let _ = app.handle(&cmd, &mut buf);
+
+        // GET IDENTITY P2=0x02 without verifying PIN1.
+        let cmd_bytes = [0x00, 0x78, 0x00, 0x02];
+        let cmd = Command::parse(&cmd_bytes).unwrap();
+        let rsp = app.handle(&cmd, &mut buf);
+        let len = rsp.len();
+        assert_eq!((buf[len - 2], buf[len - 1]), (0x69, 0x82), "Expected security not satisfied");
+    }
+
+    /// GET IDENTITY P2=0x03 without PIN1 verified returns 69 82.
+    #[test]
+    fn get_identity_domain_without_pin1_rejected() {
+        let auth = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
+        let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
+        let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+        app.pin_manager().add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true).unwrap();
+
+        let mut buf = [0u8; 256];
+        let select_aid = [
+            0x00, 0xA4, 0x04, 0x04, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+        ];
+        let cmd = Command::parse(&select_aid).unwrap();
+        let _ = app.handle(&cmd, &mut buf);
+
+        let cmd_bytes = [0x00, 0x78, 0x00, 0x03];
+        let cmd = Command::parse(&cmd_bytes).unwrap();
+        let rsp = app.handle(&cmd, &mut buf);
+        let len = rsp.len();
+        assert_eq!((buf[len - 2], buf[len - 1]), (0x69, 0x82), "Expected security not satisfied");
+    }
+
+    /// GET IDENTITY with invalid P2=0x04 returns 6A 86.
+    #[test]
+    fn get_identity_invalid_p2_rejected() {
+        let mut app = setup_app_with_pin1();
+        let mut buf = [0u8; 256];
+
+        let cmd_bytes = [0x00, 0x78, 0x00, 0x04];
+        let cmd = Command::parse(&cmd_bytes).unwrap();
+        let rsp = app.handle(&cmd, &mut buf);
+        let len = rsp.len();
+        assert_eq!((buf[len - 2], buf[len - 1]), (0x6A, 0x86), "Expected wrong P1-P2");
+    }
+
+    /// decode_imsi_digits correctly decodes the reference IMSI.
+    #[test]
+    fn decode_imsi_digits_reference() {
+        // Default EF_IMSI: 001010000000000 (15 digits).
+        let imsi_data: &[u8] = &[0x08, 0x09, 0x10, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let (digits, count) = decode_imsi_digits(imsi_data);
+        assert_eq!(count, 15);
+        let s = core::str::from_utf8(&digits[..count]).unwrap();
+        assert_eq!(s, "001010000000000");
+    }
+
+    /// split_mcc_mnc zero-pads 2-digit MNC.
+    #[test]
+    fn split_mcc_mnc_zero_pads() {
+        let digits = *b"001010000000000";
+        let (mcc, mnc) = split_mcc_mnc(&digits, 15, 2);
+        assert_eq!(&mcc, b"001");
+        // MNC "01" zero-padded to "001".
+        assert_eq!(&mnc, b"001");
+    }
+
+    /// split_mcc_mnc preserves 3-digit MNC.
+    #[test]
+    fn split_mcc_mnc_three_digit() {
+        let digits = *b"310260123456789";
+        let (mcc, mnc) = split_mcc_mnc(&digits, 15, 3);
+        assert_eq!(&mcc, b"310");
+        assert_eq!(&mnc, b"260");
     }
 }
 

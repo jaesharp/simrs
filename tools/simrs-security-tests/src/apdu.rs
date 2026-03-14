@@ -424,6 +424,36 @@ pub const fn get_identity_suci() -> ApduCmd {
     }
 }
 
+/// GET IDENTITY for IMPI context (INS=0x78, P1=0x00, P2=0x02).
+///
+/// Per TS 31.102 V19.4.0 clause 7.5: P2=0x02 returns the IMS Private
+/// User Identity (IMPI) derived from the IMSI.
+pub const fn get_identity_impi() -> ApduCmd {
+    ApduCmd {
+        cla: 0x00,
+        ins: ins::GET_IDENTITY,
+        p1: 0x00,
+        p2: 0x02,
+        data: vec![],
+        le: None,
+    }
+}
+
+/// GET IDENTITY for Home Network Domain Name context (INS=0x78, P1=0x00, P2=0x03).
+///
+/// Per TS 31.102 V19.4.0 clause 7.5: P2=0x03 returns the IMS home
+/// network domain name derived from the IMSI.
+pub const fn get_identity_domain() -> ApduCmd {
+    ApduCmd {
+        cla: 0x00,
+        ins: ins::GET_IDENTITY,
+        p1: 0x00,
+        p2: 0x03,
+        data: vec![],
+        le: None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // OTA / proactive command constructors (CLA=0x80)
 // ---------------------------------------------------------------------------
