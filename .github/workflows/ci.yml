@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  check:
+    name: Build, Lint, Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            tools/simrs-spec-tests
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy (main workspace)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Test (main workspace)
+        run: cargo test --workspace --all-features
+      - name: Clippy (spec-tests)
+        run: cargo clippy --manifest-path tools/simrs-spec-tests/Cargo.toml --all-targets -- -D warnings
+      - name: Spec Tests
+        run: cargo test --manifest-path tools/simrs-spec-tests/Cargo.toml --test cucumber
+      - name: Build HLE FFI cdylib
+        run: cargo build --manifest-path tools/simrs-hle-ffi/Cargo.toml --release
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - name: Miri (pure-Rust crates)
+        run: >
+          cargo miri test
+          -p simrs-consttime
+          -p simrs-rijndael
+          -p simrs-des
+          -p simrs-sha256
+          -p simrs-kdf
+          -p simrs-comp128
+          -p simrs-milenage
+          -p simrs-bertlv
+          -p simrs-iso7816
+          -p simrs-fs
+          -p simrs-pin
+          -p simrs-ecies
+
+  no-std:
+    name: no_std compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Check no_std builds
+        run: >
+          cargo check --no-default-features
+          -p simrs-rijndael
+          -p simrs-des
+          -p simrs-sha256
+          -p simrs-kdf
+          -p simrs-consttime
+          -p simrs-bertlv
+          -p simrs-iso7816
+          -p simrs-fs
+          -p simrs-milenage
+          -p simrs-tuak
+          -p simrs-comp128
+          -p simrs-pin
+          -p simrs-proactive
+          -p simrs-usim
+          -p simrs-ecies
+          -p simrs-ota
+          -p simrs-pcap
+          -p simrs-secret
+          -p simrs-redact
