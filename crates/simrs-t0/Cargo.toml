@@ -1,0 +1,18 @@
+[package]
+name        = "simrs-t0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ISO 7816-3 T=0 character protocol -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

@@ -23,6 +23,7 @@ members = [
     "crates/simrs-transport-tcp",
     "crates/simrs-transport-shmem",
     "crates/simrs-transport-virtio",
+    "crates/simrs-t0",
     "crates/simrs-qemu",
     "crates/simrs-peripheral",
     "crates/simrs-peripheral-shannon",
