@@ -49,11 +49,11 @@ impl PeGfm {
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProfileError> {
         let inner = der_util::peel_optional_sequence(data)?;
 
-        let tlvs: Vec<_> = der_util::iter_tlvs(inner)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(inner).collect::<Result<_, _>>()?;
 
         // Tag [1] is the SEQUENCE OF FileManagement.
-        let cmd_seq_tlv = tlvs.iter()
+        let cmd_seq_tlv = tlvs
+            .iter()
             .find(|t| t.number == 1 && t.class == 2)
             .ok_or(ProfileError::MissingRequiredFile(1))?;
 

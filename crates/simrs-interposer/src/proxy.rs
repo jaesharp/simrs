@@ -104,7 +104,12 @@ impl ProxyLoop {
         let shadow = config
             .auth
             .as_ref()
-            .filter(|_| matches!(config.mode, InterposerMode::Shadow | InterposerMode::Replace))
+            .filter(|_| {
+                matches!(
+                    config.mode,
+                    InterposerMode::Shadow | InterposerMode::Replace
+                )
+            })
             .map(|auth| ShadowSim::new(auth, &SHADOW_ATR, &SHADOW_MF));
 
         Ok(Self {
@@ -210,10 +215,7 @@ impl ProxyLoop {
     // -- internal handlers --
 
     /// Handle a power-on or warm reset event.
-    fn handle_reset(
-        &mut self,
-        event: CardEvent,
-    ) -> Result<(), InterposerError> {
+    fn handle_reset(&mut self, event: CardEvent) -> Result<(), InterposerError> {
         let is_cold = event == CardEvent::PowerOn;
 
         // Handle Diff mode reset - reset all cards and use first ATR
@@ -236,16 +238,13 @@ impl ProxyLoop {
             .map_or_else(Vec::new, |msg| msg.buf().to_vec());
 
         // Process shadow SIM.
-        let shadow_atr: Vec<u8> = self
-            .shadow
-            .as_mut()
-            .map_or_else(Vec::new, |shadow| {
-                if is_cold {
-                    shadow.power_on().to_vec()
-                } else {
-                    shadow.reset().to_vec()
-                }
-            });
+        let shadow_atr: Vec<u8> = self.shadow.as_mut().map_or_else(Vec::new, |shadow| {
+            if is_cold {
+                shadow.power_on().to_vec()
+            } else {
+                shadow.reset().to_vec()
+            }
+        });
 
         // Record ATR in PCAP.
         if let Some(cap) = &mut self.capture {
@@ -361,10 +360,7 @@ impl ProxyLoop {
                     let mut full_rsp = real_data.clone();
                     full_rsp.push(real_sw1);
                     full_rsp.push(real_sw2);
-                    cap.record_apdu_mismatch(
-                        simrs_pcap::Direction::Response,
-                        &full_rsp,
-                    )?;
+                    cap.record_apdu_mismatch(simrs_pcap::Direction::Response, &full_rsp)?;
                 }
             }
 
@@ -407,31 +403,26 @@ impl ProxyLoop {
         if card_responses.len() >= 2 {
             let first = &card_responses[0];
             for (idx, resp) in card_responses.iter().enumerate().skip(1) {
-                let cmp = compare_responses(
-                    &first.0,
-                    first.1,
-                    first.2,
-                    Some((&resp.0, resp.1, resp.2)),
-                );
+                let cmp =
+                    compare_responses(&first.0, first.1, first.2, Some((&resp.0, resp.1, resp.2)));
                 self.stats.record(&cmp);
 
                 if cmp != CompareResult::Match {
-                    eprintln!(
-                        "[simrs-interposer] Diff: card 0 vs card {idx}: {cmp:?}",
-                    );
+                    eprintln!("[simrs-interposer] Diff: card 0 vs card {idx}: {cmp:?}",);
                 }
             }
         }
 
         // Return first card's response
-        let response = card_responses
-            .first()
-            .map_or_else(|| vec![0x6F, 0x00], |(data, sw1, sw2)| {
+        let response = card_responses.first().map_or_else(
+            || vec![0x6F, 0x00],
+            |(data, sw1, sw2)| {
                 let mut rsp = data.clone();
                 rsp.push(*sw1);
                 rsp.push(*sw2);
                 rsp
-            });
+            },
+        );
 
         // Record response in PCAP.
         if let Some(cap) = &mut self.capture {
@@ -492,14 +483,9 @@ impl ProxyLoop {
 
 use simrs_fs::{DfDef, EfDef, Fid, FileRef};
 
-static SHADOW_ICCID_DATA: [u8; 10] =
-    [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
+static SHADOW_ICCID_DATA: [u8; 10] = [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
-static SHADOW_EF_ICCID: EfDef = EfDef::transparent(
-    Fid::new(0x2FE2),
-    None,
-    &SHADOW_ICCID_DATA,
-);
+static SHADOW_EF_ICCID: EfDef = EfDef::transparent(Fid::new(0x2FE2), None, &SHADOW_ICCID_DATA);
 
 static SHADOW_MF: DfDef = DfDef {
     fid: Fid::new(0x3F00),
@@ -554,14 +540,8 @@ mod tests {
     #[test]
     fn proxy_from_parts_constructs() {
         let (modem_client, _modem_driver) = modem_pair();
-        let proxy = ProxyLoop::from_parts(
-            modem_client,
-            None,
-            vec![],
-            None,
-            None,
-            InterposerMode::Log,
-        );
+        let proxy =
+            ProxyLoop::from_parts(modem_client, None, vec![], None, None, InterposerMode::Log);
         assert_eq!(proxy.stats.total_apdus, 0);
     }
 
@@ -729,14 +709,8 @@ mod tests {
     #[test]
     fn stats_start_at_zero() {
         let (modem_client, _modem_driver) = modem_pair();
-        let proxy = ProxyLoop::from_parts(
-            modem_client,
-            None,
-            vec![],
-            None,
-            None,
-            InterposerMode::Log,
-        );
+        let proxy =
+            ProxyLoop::from_parts(modem_client, None, vec![], None, None, InterposerMode::Log);
         let stats = proxy.stats();
         assert_eq!(stats.total_apdus, 0);
         assert_eq!(stats.matches, 0);
@@ -745,14 +719,8 @@ mod tests {
     #[test]
     fn print_summary_no_panic() {
         let (modem_client, _modem_driver) = modem_pair();
-        let proxy = ProxyLoop::from_parts(
-            modem_client,
-            None,
-            vec![],
-            None,
-            None,
-            InterposerMode::Log,
-        );
+        let proxy =
+            ProxyLoop::from_parts(modem_client, None, vec![], None, None, InterposerMode::Log);
         proxy.print_summary();
     }
 }

@@ -40,28 +40,22 @@ impl ProfileHeader {
         let mut iter = der_util::iter_tlvs(inner);
 
         // First field: major-version (INTEGER, tag 0x02)
-        let major = iter
-            .next()
-            .ok_or(ProfileError::Truncated)?
-            .map(|tlv| {
-                if tlv.value.is_empty() {
-                    0
-                } else {
-                    tlv.value[tlv.value.len() - 1]
-                }
-            })?;
+        let major = iter.next().ok_or(ProfileError::Truncated)?.map(|tlv| {
+            if tlv.value.is_empty() {
+                0
+            } else {
+                tlv.value[tlv.value.len() - 1]
+            }
+        })?;
 
         // Second field: minor-version (INTEGER, tag 0x02)
-        let minor = iter
-            .next()
-            .ok_or(ProfileError::Truncated)?
-            .map(|tlv| {
-                if tlv.value.is_empty() {
-                    0
-                } else {
-                    tlv.value[tlv.value.len() - 1]
-                }
-            })?;
+        let minor = iter.next().ok_or(ProfileError::Truncated)?.map(|tlv| {
+            if tlv.value.is_empty() {
+                0
+            } else {
+                tlv.value[tlv.value.len() - 1]
+            }
+        })?;
 
         // Remaining fields use AUTOMATIC TAGS (context-specific IMPLICIT):
         //   [2] profileType (UTF8String, optional)

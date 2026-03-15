@@ -9,11 +9,13 @@
 use cucumber::{given, then, when};
 use simrs_pin::PinKey;
 use simrs_security_tests::{
-    apdu, block_pin1, disable_pin1, enable_pin1, send_apdu_sw, submit_wrong_pin1,
-    submit_wrong_puk, verify_pin1,
+    apdu, block_pin1, disable_pin1, enable_pin1, send_apdu_sw, submit_wrong_pin1, submit_wrong_puk,
+    verify_pin1,
 };
 
-use super::snapshot::{reserve_pin_change, reserve_pin_toggle, reserve_pin_unblock, reserve_pin_verify};
+use super::snapshot::{
+    reserve_pin_change, reserve_pin_toggle, reserve_pin_unblock, reserve_pin_verify,
+};
 use super::world::{do_send_apdu, query_pin1_retries, query_puk1_retries, SimWorld};
 
 /// Map a PIN name string to a `PinKey`.
@@ -186,28 +188,36 @@ fn truncate_data(base: apdu::ApduCmd, n: usize, label: &str) -> Vec<u8> {
     base.with_data(&truncated).build()
 }
 
-#[when(regex = r#"^I send (VERIFY|DISABLE|ENABLE) PIN1 with "(\d+)" with data truncated to (\d+) bytes$"#)]
+#[when(
+    regex = r#"^I send (VERIFY|DISABLE|ENABLE) PIN1 with "(\d+)" with data truncated to (\d+) bytes$"#
+)]
 fn when_pin_cmd_truncated(world: &mut SimWorld, cmd_name: String, digits: String, n: usize) {
     let base = build_single_pin_cmd(&cmd_name, &digits);
     let cmd = truncate_data(base, n, &cmd_name);
     do_send_apdu(world, &cmd);
 }
 
-#[when(regex = r#"^I send CHANGE PIN1 from "(\d+)" to "(\d+)" with data truncated to (\d+) bytes$"#)]
+#[when(
+    regex = r#"^I send CHANGE PIN1 from "(\d+)" to "(\d+)" with data truncated to (\d+) bytes$"#
+)]
 fn when_change_truncated(world: &mut SimWorld, old: String, new_pin: String, n: usize) {
     let base = apdu::change_pin(PinKey::PIN1, &old, &new_pin);
     let cmd = truncate_data(base, n, "CHANGE");
     do_send_apdu(world, &cmd);
 }
 
-#[when(regex = r#"^I send UNBLOCK PIN1 with PUK "(\d+)" new PIN "(\d+)" with data truncated to (\d+) bytes$"#)]
+#[when(
+    regex = r#"^I send UNBLOCK PIN1 with PUK "(\d+)" new PIN "(\d+)" with data truncated to (\d+) bytes$"#
+)]
 fn when_unblock_truncated(world: &mut SimWorld, puk: String, new_pin: String, n: usize) {
     let base = apdu::unblock(PinKey::PIN1, &puk, &new_pin);
     let cmd = truncate_data(base, n, "UNBLOCK");
     do_send_apdu(world, &cmd);
 }
 
-#[when(regex = r#"^I send (VERIFY|DISABLE|ENABLE) for unregistered P2=0x([0-9A-Fa-f]{2}) with "(\d+)"$"#)]
+#[when(
+    regex = r#"^I send (VERIFY|DISABLE|ENABLE) for unregistered P2=0x([0-9A-Fa-f]{2}) with "(\d+)"$"#
+)]
 fn when_pin_cmd_bad_p2(world: &mut SimWorld, cmd_name: String, p2_hex: String, digits: String) {
     let p2 = u8::from_str_radix(&p2_hex, 16).unwrap();
     let cmd = build_single_pin_cmd(&cmd_name, &digits).with_p2(p2).build();
@@ -217,18 +227,26 @@ fn when_pin_cmd_bad_p2(world: &mut SimWorld, cmd_name: String, p2_hex: String, d
 #[when(regex = r#"^I send CHANGE for unregistered P2=0x([0-9A-Fa-f]{2}) from "(\d+)" to "(\d+)"$"#)]
 fn when_change_bad_p2(world: &mut SimWorld, p2_hex: String, old: String, new_pin: String) {
     let p2 = u8::from_str_radix(&p2_hex, 16).unwrap();
-    let cmd = apdu::change_pin(PinKey::PIN1, &old, &new_pin).with_p2(p2).build();
+    let cmd = apdu::change_pin(PinKey::PIN1, &old, &new_pin)
+        .with_p2(p2)
+        .build();
     do_send_apdu(world, &cmd);
 }
 
-#[when(regex = r#"^I send UNBLOCK for unregistered P2=0x([0-9A-Fa-f]{2}) with PUK "(\d+)" new PIN "(\d+)"$"#)]
+#[when(
+    regex = r#"^I send UNBLOCK for unregistered P2=0x([0-9A-Fa-f]{2}) with PUK "(\d+)" new PIN "(\d+)"$"#
+)]
 fn when_unblock_bad_p2(world: &mut SimWorld, p2_hex: String, puk: String, new_pin: String) {
     let p2 = u8::from_str_radix(&p2_hex, 16).unwrap();
-    let cmd = apdu::unblock(PinKey::PIN1, &puk, &new_pin).with_p2(p2).build();
+    let cmd = apdu::unblock(PinKey::PIN1, &puk, &new_pin)
+        .with_p2(p2)
+        .build();
     do_send_apdu(world, &cmd);
 }
 
-#[when(regex = r#"^I send (VERIFY|DISABLE|ENABLE) PIN1 with "(\d+)" with P1 set to 0x([0-9A-Fa-f]{2})$"#)]
+#[when(
+    regex = r#"^I send (VERIFY|DISABLE|ENABLE) PIN1 with "(\d+)" with P1 set to 0x([0-9A-Fa-f]{2})$"#
+)]
 fn when_pin_cmd_bad_p1(world: &mut SimWorld, cmd_name: String, digits: String, p1_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).unwrap();
     let cmd = build_single_pin_cmd(&cmd_name, &digits).with_p1(p1).build();
@@ -238,14 +256,20 @@ fn when_pin_cmd_bad_p1(world: &mut SimWorld, cmd_name: String, digits: String, p
 #[when(regex = r#"^I send CHANGE PIN1 from "(\d+)" to "(\d+)" with P1 set to 0x([0-9A-Fa-f]{2})$"#)]
 fn when_change_bad_p1(world: &mut SimWorld, old: String, new_pin: String, p1_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).unwrap();
-    let cmd = apdu::change_pin(PinKey::PIN1, &old, &new_pin).with_p1(p1).build();
+    let cmd = apdu::change_pin(PinKey::PIN1, &old, &new_pin)
+        .with_p1(p1)
+        .build();
     do_send_apdu(world, &cmd);
 }
 
-#[when(regex = r#"^I send UNBLOCK PIN1 with PUK "(\d+)" new PIN "(\d+)" with P1 set to 0x([0-9A-Fa-f]{2})$"#)]
+#[when(
+    regex = r#"^I send UNBLOCK PIN1 with PUK "(\d+)" new PIN "(\d+)" with P1 set to 0x([0-9A-Fa-f]{2})$"#
+)]
 fn when_unblock_bad_p1(world: &mut SimWorld, puk: String, new_pin: String, p1_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).unwrap();
-    let cmd = apdu::unblock(PinKey::PIN1, &puk, &new_pin).with_p1(p1).build();
+    let cmd = apdu::unblock(PinKey::PIN1, &puk, &new_pin)
+        .with_p1(p1)
+        .build();
     do_send_apdu(world, &cmd);
 }
 
@@ -267,7 +291,10 @@ fn then_pin1_not_decremented(world: &mut SimWorld) {
     // When PIN is disabled, the counter should still be at max (3).
     let pm = world.sim_mut().usim_app_mut().pin_manager();
     let retries = pm.retries(PinKey::PIN1).unwrap_or(0);
-    assert_eq!(retries, 3, "Expected PIN1 retries = 3 (not decremented), got {retries}");
+    assert_eq!(
+        retries, 3,
+        "Expected PIN1 retries = 3 (not decremented), got {retries}"
+    );
 }
 
 #[then("PIN1 verification flag is set for this session")]
@@ -306,7 +333,10 @@ fn then_pin1_is_blocked(world: &mut SimWorld) {
 #[then("PIN1 remains blocked")]
 fn then_pin1_remains_blocked(world: &mut SimWorld) {
     let pm = world.sim_mut().usim_app_mut().pin_manager();
-    assert!(pm.is_blocked(PinKey::PIN1), "Expected PIN1 to remain blocked");
+    assert!(
+        pm.is_blocked(PinKey::PIN1),
+        "Expected PIN1 to remain blocked"
+    );
 }
 
 #[then(regex = r"^PIN1 is (?:still )?enabled$")]
@@ -318,10 +348,7 @@ fn then_pin1_enabled(world: &mut SimWorld) {
 #[then(regex = r"^PIN1 is (?:still )?disabled$")]
 fn then_pin1_disabled(world: &mut SimWorld) {
     let pm = world.sim_mut().usim_app_mut().pin_manager();
-    assert!(
-        !pm.is_enabled(PinKey::PIN1),
-        "Expected PIN1 to be disabled"
-    );
+    assert!(!pm.is_enabled(PinKey::PIN1), "Expected PIN1 to be disabled");
 }
 
 #[then(regex = r"^PUK1 retry counter is (?:still )?(\d+)$")]
@@ -358,7 +385,12 @@ fn then_verify_succeeds(world: &mut SimWorld, pin_name: String, digits: String) 
 // clobbering the world response that preceding Then steps may check.
 
 #[then(regex = r#"^verifying (PIN1|PIN2) with "(\d+)" fails with (\d+) retries? remaining$"#)]
-fn then_verify_fails_retries(world: &mut SimWorld, pin_name: String, digits: String, remaining: u8) {
+fn then_verify_fails_retries(
+    world: &mut SimWorld,
+    pin_name: String,
+    digits: String,
+    remaining: u8,
+) {
     let cmd = apdu::verify(parse_pin_name(&pin_name), &digits).build();
     let sim = world.sim_mut();
     let (sw1, sw2) = send_apdu_sw(sim, &cmd);

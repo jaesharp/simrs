@@ -151,7 +151,9 @@ impl std::fmt::Debug for Phase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Uninit => write!(f, "Uninit"),
-            Self::Active { response, powered, .. } => {
+            Self::Active {
+                response, powered, ..
+            } => {
                 if *powered {
                     write!(f, "Active({response:?})")
                 } else {
@@ -172,7 +174,10 @@ pub enum Response {
     #[default]
     Idle,
     Dropped,
-    Received { sw: (u8, u8), data: Vec<u8> },
+    Received {
+        sw: (u8, u8),
+        data: Vec<u8>,
+    },
 }
 
 impl std::fmt::Debug for Response {
@@ -180,8 +185,15 @@ impl std::fmt::Debug for Response {
         match self {
             Self::Idle => write!(f, "Idle"),
             Self::Dropped => write!(f, "Dropped"),
-            Self::Received { sw: (sw1, sw2), data } => {
-                write!(f, "Received {{ sw: {sw1:02X} {sw2:02X}, data: {} bytes", data.len())?;
+            Self::Received {
+                sw: (sw1, sw2),
+                data,
+            } => {
+                write!(
+                    f,
+                    "Received {{ sw: {sw1:02X} {sw2:02X}, data: {} bytes",
+                    data.len()
+                )?;
                 if !data.is_empty() {
                     write!(f, " [")?;
                     for (i, b) in data.iter().enumerate() {
@@ -239,7 +251,10 @@ impl std::fmt::Debug for SimWorld {
             .field("interposer_rules", &self.interposer_rules.len())
             .field("state_before", &self.state_before.as_ref().map(Vec::len))
             .field("state_after", &self.state_after.as_ref().map(Vec::len))
-            .field("registry", &self.registry.as_ref().map(|_| "<SnapshotRegistry>"))
+            .field(
+                "registry",
+                &self.registry.as_ref().map(|_| "<SnapshotRegistry>"),
+            )
             .field("reservations", &self.reservations.len())
             .field("restore_result", &self.restore_result)
             .finish()
@@ -287,7 +302,10 @@ impl SimWorld {
     /// Get the SW as `Option` -- returns `None` for `Dropped`, `Idle`, or `Uninit`.
     pub fn last_sw_opt(&self) -> Option<(u8, u8)> {
         match &self.phase {
-            Phase::Active { response: Response::Received { sw, .. }, .. } => Some(*sw),
+            Phase::Active {
+                response: Response::Received { sw, .. },
+                ..
+            } => Some(*sw),
             _ => None,
         }
     }
@@ -377,7 +395,11 @@ impl SimWorld {
 pub fn capture_snapshot(sim: &TestSim) -> Vec<u8> {
     let mut buf = vec![0u8; TestSim::SNAPSHOT_SIZE];
     let n = sim.save_state(&mut buf);
-    assert_eq!(n, TestSim::SNAPSHOT_SIZE, "save_state wrote unexpected size");
+    assert_eq!(
+        n,
+        TestSim::SNAPSHOT_SIZE,
+        "save_state wrote unexpected size"
+    );
     buf
 }
 

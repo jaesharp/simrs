@@ -195,16 +195,14 @@ impl Fcp {
         match structure_bits {
             0x01 => Ok(EfStructure::Transparent),
             0x02 => {
-                let (record_size, num_records) =
-                    Self::parse_record_params(fd, total_file_size)?;
+                let (record_size, num_records) = Self::parse_record_params(fd, total_file_size)?;
                 Ok(EfStructure::LinearFixed {
                     record_size,
                     num_records,
                 })
             }
             0x06 => {
-                let (record_size, num_records) =
-                    Self::parse_record_params(fd, total_file_size)?;
+                let (record_size, num_records) = Self::parse_record_params(fd, total_file_size)?;
                 Ok(EfStructure::Cyclic {
                     record_size,
                     num_records,
@@ -231,8 +229,8 @@ impl Fcp {
         }
         let record_size = u16::from_be_bytes([fd[2], fd[3]]);
 
-        let record_size_u8 = u8::try_from(record_size)
-            .map_err(|_| ProfileError::UnknownFileStructure(fd[0]))?;
+        let record_size_u8 =
+            u8::try_from(record_size).map_err(|_| ProfileError::UnknownFileStructure(fd[0]))?;
 
         let num_records = if fd.len() >= 5 {
             fd[4]
@@ -241,8 +239,7 @@ impl Fcp {
                 return Err(ProfileError::FileDescriptorTooShort);
             }
             let n = file_size / record_size_u8 as usize;
-            u8::try_from(n)
-                .map_err(|_| ProfileError::UnknownFileStructure(fd[0]))?
+            u8::try_from(n).map_err(|_| ProfileError::UnknownFileStructure(fd[0]))?
         } else {
             // No num_records in fd and no file size available.
             return Err(ProfileError::FileDescriptorTooShort);

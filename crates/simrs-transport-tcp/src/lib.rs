@@ -257,8 +257,7 @@ impl SwIccMessage {
             return Err(TransportError::InvalidMessage);
         }
 
-        let payload_size =
-            u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+        let payload_size = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
 
         if payload_size < DATA_OVERHEAD {
             return Err(TransportError::InvalidMessage);
@@ -706,8 +705,7 @@ mod tests {
         // buf = APDU
         wire[13..13 + apdu.len()].copy_from_slice(&apdu);
 
-        let msg =
-            SwIccMessage::decode(&wire[..HDR_SIZE + payload_size as usize]).unwrap();
+        let msg = SwIccMessage::decode(&wire[..HDR_SIZE + payload_size as usize]).unwrap();
         assert_eq!(msg.ctrl, Ctrl::None);
         assert_eq!(msg.buf_len_exp, 7);
         assert_eq!(msg.buf(), &apdu);
@@ -912,8 +910,7 @@ mod tests {
         let keepalive = SwIccMessage::new(Ctrl::Keepalive);
         server.send_msg(&keepalive).unwrap();
 
-        let apdu_msg =
-            SwIccMessage::new_response(Ctrl::None, &[0x00, 0xB0, 0x00, 0x00], 0);
+        let apdu_msg = SwIccMessage::new_response(Ctrl::None, &[0x00, 0xB0, 0x00, 0x00], 0);
         server.send_msg(&apdu_msg).unwrap();
 
         // Card's recv() should auto-respond to keepalive and return the APDU.
@@ -1015,10 +1012,7 @@ mod tests {
         let mut cmd_buf = [0u8; 261];
         let event = card.recv(&mut cmd_buf).unwrap();
         assert_eq!(event, CardEvent::Apdu(7));
-        assert_eq!(
-            &cmd_buf[..7],
-            &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]
-        );
+        assert_eq!(&cmd_buf[..7], &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
 
         // Card sends response (SW 90 00).
         card.send(&[0x90, 0x00]).unwrap();

@@ -5,9 +5,7 @@
 //! and generic SW/data Then steps used by two or more vulnerability categories.
 
 use cucumber::{given, then, when};
-use simrs_security_tests::{
-    apdu, create_sim, create_sim_powered_on, parse_hex,
-};
+use simrs_security_tests::{apdu, create_sim, create_sim_powered_on, parse_hex};
 
 use super::snapshot::{
     reserve_proactive, reserve_rsp_queue, reserve_selection_ctx, reserve_terminal_capability,
@@ -22,7 +20,9 @@ use super::world::{
 // =========================================================================
 
 // Group A: SIM initialization -- all variants create a powered-on SIM with test credentials.
-#[given(regex = r"^the SIM is initiali[sz]ed (?:with test credentials.*|with:$|with Milenage credentials:$)")]
+#[given(
+    regex = r"^the SIM is initiali[sz]ed (?:with test credentials.*|with:$|with Milenage credentials:$)"
+)]
 fn given_sim_initialized(world: &mut SimWorld) {
     world.activate(Box::new(create_sim_powered_on()));
 }
@@ -54,7 +54,9 @@ fn given_adf_table(world: &mut SimWorld) {
 }
 
 // Group C: Freshly-powered guard -- init only if not already done by Background.
-#[given(regex = r"^the SIM (?:is freshly powered on with no commands sent|has just been powered on and no other APDU has been sent)$")]
+#[given(
+    regex = r"^the SIM (?:is freshly powered on with no commands sent|has just been powered on and no other APDU has been sent)$"
+)]
 fn given_freshly_powered(world: &mut SimWorld) {
     if matches!(world.phase, Phase::Uninit) {
         world.activate(Box::new(create_sim_powered_on()));
@@ -102,7 +104,9 @@ fn given_selected_mf(world: &mut SimWorld) {
 // Does NOT match AUTHENTICATE or ENVELOPE -- those have dedicated handlers.
 // Semantic steps ("I send SELECT MF", "I send READ BINARY at offset N length M")
 // are defined below and match step text without trailing [...] brackets.
-#[when(regex = r"^I send (?:APDU|SELECT|READ BINARY|UPDATE BINARY|READ RECORD|TERMINAL PROFILE)\b.* \[([^\]]*)\]$")]
+#[when(
+    regex = r"^I send (?:APDU|SELECT|READ BINARY|UPDATE BINARY|READ RECORD|TERMINAL PROFILE)\b.* \[([^\]]*)\]$"
+)]
 fn when_send_apdu_bracketed(world: &mut SimWorld, hex: String) {
     let cmd = parse_hex(&hex);
     do_send_apdu(world, &cmd);
@@ -273,9 +277,7 @@ fn then_sw_not_allowed_on_df(world: &mut SimWorld) {
 fn then_sw_wrong_length_or_params(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
     assert!(
-        (sw1, sw2) == (0x67, 0x00)
-            || (sw1, sw2) == (0x6A, 0x80)
-            || (sw1, sw2) == (0x69, 0x86),
+        (sw1, sw2) == (0x67, 0x00) || (sw1, sw2) == (0x6A, 0x80) || (sw1, sw2) == (0x69, 0x86),
         "Expected 67 00, 6A 80, or 69 86 (wrong length / incorrect data), got {sw1:02X} {sw2:02X}",
     );
 }
@@ -297,70 +299,110 @@ fn then_sw_error(world: &mut SimWorld) {
 #[then("SW indicates class not supported")]
 fn then_sw_class_not_supported(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x6E, 0x00), "Expected 6E 00 (class not supported), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x6E, 0x00),
+        "Expected 6E 00 (class not supported), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // ISO 7816-4 clause 5.4.2: INS byte not supported -> 6D 00.
 #[then("SW indicates instruction not supported")]
 fn then_sw_ins_not_supported(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x6D, 0x00), "Expected 6D 00 (instruction not supported), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x6D, 0x00),
+        "Expected 6D 00 (instruction not supported), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // ISO 7816-4: wrong length of command data -> 67 00.
 #[then("SW indicates wrong length")]
 fn then_sw_wrong_length(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x67, 0x00), "Expected 67 00 (wrong length), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x67, 0x00),
+        "Expected 67 00 (wrong length), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // ETSI TS 102 221 Table 10.3: file or application not found -> 6A 82.
 #[then("SW indicates file not found")]
 fn then_sw_file_not_found(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x6A, 0x82), "Expected 6A 82 (file not found), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x6A, 0x82),
+        "Expected 6A 82 (file not found), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // ETSI TS 102 221: incorrect parameters P1-P2 -> 6A 86.
 #[then("SW indicates incorrect P1-P2")]
 fn then_sw_incorrect_p1p2(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x6A, 0x86), "Expected 6A 86 (incorrect P1-P2), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x6A, 0x86),
+        "Expected 6A 86 (incorrect P1-P2), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // ETSI TS 102 221: referenced data (PIN/key) not found -> 6A 88.
 #[then("SW indicates reference data not found")]
 fn then_sw_ref_data_not_found(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x6A, 0x88), "Expected 6A 88 (reference data not found), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x6A, 0x88),
+        "Expected 6A 88 (reference data not found), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // ETSI TS 102 221: no current EF in the selection context -> 69 86.
 #[then("SW indicates no current EF")]
 fn then_sw_no_current_ef(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x69, 0x86), "Expected 69 86 (no current EF), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x69, 0x86),
+        "Expected 69 86 (no current EF), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // ETSI TS 102 221: authentication method blocked -> 69 83.
 #[then("the PIN is blocked")]
 fn then_pin_blocked(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x69, 0x83), "Expected 69 83 (authentication method blocked), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x69, 0x83),
+        "Expected 69 83 (authentication method blocked), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // ETSI TS 102 221: referenced data not usable (PIN disabled) -> 69 84.
 #[then("the PIN is disabled")]
 fn then_pin_disabled(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x69, 0x84), "Expected 69 84 (referenced data not usable / PIN disabled), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x69, 0x84),
+        "Expected 69 84 (referenced data not usable / PIN disabled), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // 3GPP TS 31.102: authentication error / incorrect MAC -> 98 62.
 #[then("SW indicates authentication error")]
 fn then_sw_auth_error(world: &mut SimWorld) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!((sw1, sw2), (0x98, 0x62), "Expected 98 62 (authentication error), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        (sw1, sw2),
+        (0x98, 0x62),
+        "Expected 98 62 (authentication error), got {sw1:02X} {sw2:02X}"
+    );
 }
 
 // ---- Parameterized retry counter steps ----
@@ -369,9 +411,15 @@ fn then_sw_auth_error(world: &mut SimWorld) {
 #[then(regex = r"^SW indicates (\d+) retr(?:y|ies) remaining$")]
 fn then_sw_retries_remaining(world: &mut SimWorld, remaining: u8) {
     let (sw1, sw2) = world.last_sw();
-    assert_eq!(sw1, 0x63, "Expected SW1=63 (verification failed), got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        sw1, 0x63,
+        "Expected SW1=63 (verification failed), got {sw1:02X} {sw2:02X}"
+    );
     let expected_sw2 = 0xC0 | (remaining & 0x0F);
-    assert_eq!(sw2, expected_sw2, "Expected {remaining} retries remaining (63 C{remaining:X}), got 63 {sw2:02X}");
+    assert_eq!(
+        sw2, expected_sw2,
+        "Expected {remaining} retries remaining (63 C{remaining:X}), got 63 {sw2:02X}"
+    );
 }
 
 // ---- Compound SW steps (logical connectives) ----
@@ -434,7 +482,8 @@ fn then_data_is(world: &mut SimWorld, hex: String) {
     let expected = parse_hex(&hex);
     let data = world.last_data();
     assert_eq!(
-        data, &expected[..],
+        data,
+        &expected[..],
         "Expected data {expected:02X?}, got {data:02X?}",
     );
 }
@@ -455,7 +504,8 @@ fn then_data_matches_iccid_last_byte(world: &mut SimWorld) {
     let expected = iccid[iccid.len() - 1];
     let data = world.last_data();
     assert_eq!(
-        data.len(), 1,
+        data.len(),
+        1,
         "Expected 1 byte, got {} bytes: {data:02X?}",
         data.len(),
     );

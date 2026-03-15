@@ -107,14 +107,15 @@ mod tests {
 
     #[test]
     fn parse_hex_valid_16_bytes() {
-        let result: Option<[u8; 16]> =
-            parse_hex("465b5ce8b199b49faa5f0a2ee238a6bc");
+        let result: Option<[u8; 16]> = parse_hex("465b5ce8b199b49faa5f0a2ee238a6bc");
         assert!(result.is_some());
         let bytes = result.unwrap();
         assert_eq!(
             bytes,
-            [0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
-             0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC]
+            [
+                0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F, 0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38,
+                0xA6, 0xBC
+            ]
         );
     }
 

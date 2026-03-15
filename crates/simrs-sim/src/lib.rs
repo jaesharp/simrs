@@ -73,7 +73,7 @@
 use simrs_fs::DfDef;
 #[cfg(feature = "gsm")]
 use simrs_gsm::GsmApp;
-use simrs_iso7816::{Command, StatusWord, write_sw};
+use simrs_iso7816::{write_sw, Command, StatusWord};
 use simrs_milenage::{AuthenticationAlgorithm, MilenageParams};
 #[cfg(feature = "usim")]
 use simrs_usim::UsimApp;
@@ -179,9 +179,13 @@ const SNAP_FLAG_USIM: u8 = 1 << 1;
 const fn snapshot_feature_flags() -> u8 {
     let mut flags = 0u8;
     #[cfg(feature = "gsm")]
-    { flags |= SNAP_FLAG_GSM; }
+    {
+        flags |= SNAP_FLAG_GSM;
+    }
     #[cfg(feature = "usim")]
-    { flags |= SNAP_FLAG_USIM; }
+    {
+        flags |= SNAP_FLAG_USIM;
+    }
     flags
 }
 
@@ -205,7 +209,8 @@ const STATE_HASH_BUF: usize = SNAPSHOT_HEADER_SIZE + 1 + GsmApp::SNAPSHOT_SIZE +
 const STATE_HASH_BUF: usize = SNAPSHOT_HEADER_SIZE + 1 + GsmApp::SNAPSHOT_SIZE + 256;
 
 #[cfg(all(not(feature = "gsm"), feature = "usim"))]
-const STATE_HASH_BUF: usize = SNAPSHOT_HEADER_SIZE + 1 + simrs_usim::UsimApp::<MilenageParams>::SNAPSHOT_SIZE + 256;
+const STATE_HASH_BUF: usize =
+    SNAPSHOT_HEADER_SIZE + 1 + simrs_usim::UsimApp::<MilenageParams>::SNAPSHOT_SIZE + 256;
 
 #[cfg(all(not(feature = "gsm"), not(feature = "usim")))]
 const STATE_HASH_BUF: usize = SNAPSHOT_HEADER_SIZE + 256;
@@ -588,7 +593,12 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// independent and the application order does not affect the outcome.
     // Allow: when no features are enabled, all cfg blocks compile away
     // leaving an empty body. The method is kept for structural correctness.
-    #[allow(clippy::unused_self, clippy::needless_pass_by_ref_mut, clippy::missing_const_for_fn, unused_variables)]
+    #[allow(
+        clippy::unused_self,
+        clippy::needless_pass_by_ref_mut,
+        clippy::missing_const_for_fn,
+        unused_variables
+    )]
     fn apply_reset_effects(&mut self, effects: ResetEffects) {
         #[cfg(feature = "gsm")]
         {
@@ -631,9 +641,28 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     ///
     /// Varies by enabled features and profile tiers:
     /// Header(6) + CardState(1) + GsmApp::SNAPSHOT\_SIZE + UsimApp::\<A\>::SNAPSHOT\_SIZE.
-    pub const SNAPSHOT_SIZE: usize = SNAPSHOT_HEADER_SIZE + 1
-        + { #[cfg(feature = "gsm")] { GsmApp::SNAPSHOT_SIZE } #[cfg(not(feature = "gsm"))] { 0 } }
-        + { #[cfg(feature = "usim")] { UsimApp::<A>::SNAPSHOT_SIZE } #[cfg(not(feature = "usim"))] { 0 } };
+    pub const SNAPSHOT_SIZE: usize = SNAPSHOT_HEADER_SIZE
+        + 1
+        + {
+            #[cfg(feature = "gsm")]
+            {
+                GsmApp::SNAPSHOT_SIZE
+            }
+            #[cfg(not(feature = "gsm"))]
+            {
+                0
+            }
+        }
+        + {
+            #[cfg(feature = "usim")]
+            {
+                UsimApp::<A>::SNAPSHOT_SIZE
+            }
+            #[cfg(not(feature = "usim"))]
+            {
+                0
+            }
+        };
 
     /// Serialize the SIM state into `buf`.
     ///
@@ -819,14 +848,9 @@ mod tests {
 
     // -- Test filesystem (shared across features) --
 
-    static ICCID_DATA: [u8; 10] =
-        [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
+    static ICCID_DATA: [u8; 10] = [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
-    static EF_ICCID: EfDef = EfDef::transparent(
-        Fid::new(0x2FE2),
-        None,
-        &ICCID_DATA,
-    );
+    static EF_ICCID: EfDef = EfDef::transparent(Fid::new(0x2FE2), None, &ICCID_DATA);
 
     static MF: DfDef = DfDef {
         fid: Fid::new(0x3F00),
@@ -841,11 +865,7 @@ mod tests {
     static IMSI_DATA: [u8; 9] = [0x08, 0x09, 0x10, 0x10, 0x00, 0x00, 0x00, 0x00, 0x01];
 
     #[cfg(feature = "usim")]
-    static EF_IMSI: EfDef = EfDef::transparent(
-        Fid::new(0x6F07),
-        None,
-        &IMSI_DATA,
-    );
+    static EF_IMSI: EfDef = EfDef::transparent(Fid::new(0x6F07), None, &IMSI_DATA);
 
     #[cfg(feature = "usim")]
     static ADF_USIM_DF: DfDef = DfDef {
@@ -868,44 +888,59 @@ mod tests {
         make_sim_with_policy(standard_reset_policy)
     }
 
-    fn make_sim_with_policy(
-        policy: fn(ResetKind) -> ResetEffects,
-    ) -> Sim<MilenageParams, 256> {
+    fn make_sim_with_policy(policy: fn(ResetKind) -> ResetEffects) -> Sim<MilenageParams, 256> {
         #[cfg(feature = "gsm")]
         let gsm = {
             use simrs_gsm::GsmApp;
             let mut g = GsmApp::new(&MF, simrs_gsm::SubscriberKey::classify([0x11u8; 16]));
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
             let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-            let _ = g.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
+            let _ = g
+                .pin_manager()
+                .add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
             g
         };
 
         #[cfg(feature = "usim")]
         let usim = {
             use simrs_usim::UsimApp;
-            let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
+            let mil = MilenageParams::with_defaults(
+                SubscriberKey::classify([0u8; 16]),
+                OperatorVariant::operator_cipher([0u8; 16]),
+            );
             let mut u = UsimApp::new(&MF, &ADF_TABLE, mil);
             let pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
             let puk = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-            let _ = u.pin_manager().add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
+            let _ = u
+                .pin_manager()
+                .add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true);
             u
         };
 
         #[cfg(all(feature = "gsm", feature = "usim"))]
-        { Sim::<MilenageParams, 256>::with_reset_policy(&ATR, gsm, usim, policy) }
+        {
+            Sim::<MilenageParams, 256>::with_reset_policy(&ATR, gsm, usim, policy)
+        }
         #[cfg(all(feature = "gsm", not(feature = "usim")))]
-        { Sim::<MilenageParams, 256>::with_reset_policy(&ATR, gsm, policy) }
+        {
+            Sim::<MilenageParams, 256>::with_reset_policy(&ATR, gsm, policy)
+        }
         #[cfg(all(feature = "usim", not(feature = "gsm")))]
-        { Sim::<MilenageParams, 256>::with_reset_policy(&ATR, usim, policy) }
+        {
+            Sim::<MilenageParams, 256>::with_reset_policy(&ATR, usim, policy)
+        }
         #[cfg(not(any(feature = "gsm", feature = "usim")))]
-        { Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, policy) }
+        {
+            Sim::<MilenageParams, 256>::with_reset_policy(&ATR, &MF, policy)
+        }
     }
 
     /// Verify USIM PIN1 ("1234") on a powered-on SIM.
     #[cfg(feature = "usim")]
     fn verify_usim_pin(sim: &mut Sim<MilenageParams, 256>) {
-        let cmd = [0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
+        let cmd = [
+            0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         let rsp = sim.process(SimEvent::Apdu(&cmd));
         assert!(
             matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]),
@@ -916,7 +951,9 @@ mod tests {
     /// Verify GSM PIN1 ("1234") on a powered-on SIM.
     #[cfg(feature = "gsm")]
     fn verify_gsm_pin(sim: &mut Sim<MilenageParams, 256>) {
-        let cmd = [0xA0, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
+        let cmd = [
+            0xA0, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         let rsp = sim.process(SimEvent::Apdu(&cmd));
         assert!(
             matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]),
@@ -1096,9 +1133,9 @@ mod tests {
     fn cla_80_routes_to_usim_for_cat() {
         let mut sim = make_sim();
         let _ = sim.process(SimEvent::PowerOn);
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
+        let rsp = sim.process(SimEvent::Apdu(&[
+            0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF,
+        ]));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
@@ -1270,8 +1307,10 @@ mod tests {
 
         // Confirm READ BINARY works (PIN verified, EF selected)
         let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xB0, 0x00, 0x00, 0x0A]));
-        assert!(matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]),
-            "READ BINARY should succeed before reset");
+        assert!(
+            matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]),
+            "READ BINARY should succeed before reset"
+        );
 
         // Standard reset clears everything including PIN verified
         let _ = sim.process(SimEvent::Reset);
@@ -1286,8 +1325,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x69, 0x82),
-                    "READ BINARY must fail after reset: PIN cleared by standard policy");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x69, 0x82),
+                    "READ BINARY must fail after reset: PIN cleared by standard policy"
+                );
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1431,10 +1473,7 @@ mod tests {
 
         // Start a 10-second timer on slot 1 via proactive state.
         let bcd_10s = [0x00, 0x00, 0x10]; // BCD: 00h 00m 10s
-        assert!(sim
-            .usim_app_mut()
-            .proactive_state()
-            .start_timer(1, bcd_10s));
+        assert!(sim.usim_app_mut().proactive_state().start_timer(1, bcd_10s));
 
         // Tick 5 seconds -- timer should still be active.
         let rsp = sim.process(SimEvent::Tick(5));
@@ -1447,10 +1486,7 @@ mod tests {
 
         // Tick 6 more seconds -- timer should expire (5+6 > 10).
         let _ = sim.process(SimEvent::Tick(6));
-        let expired_id = sim
-            .usim_app_mut()
-            .proactive_state()
-            .take_expired_timer();
+        let expired_id = sim.usim_app_mut().proactive_state().take_expired_timer();
         assert_eq!(expired_id, 1, "timer 1 should have expired");
     }
 
@@ -1557,7 +1593,10 @@ mod tests {
                 let [sw1, sw2] = sw.to_bytes();
                 // Must get a real response (not Ignored). Exact SW depends on features.
                 #[cfg(any(feature = "gsm", feature = "usim"))]
-                assert_eq!(sw1, 0x90, "4-byte APDU should be processed, got SW {sw1:02X} {sw2:02X}");
+                assert_eq!(
+                    sw1, 0x90,
+                    "4-byte APDU should be processed, got SW {sw1:02X} {sw2:02X}"
+                );
                 #[cfg(not(any(feature = "gsm", feature = "usim")))]
                 assert_eq!((sw1, sw2), (0x6E, 0x00), "no features: CLA not supported");
             }
@@ -1582,8 +1621,7 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "STATUS with Le=0 should succeed");
+                assert_eq!((sw1, sw2), (0x90, 0x00), "STATUS with Le=0 should succeed");
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1609,11 +1647,9 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 #[cfg(any(feature = "gsm", feature = "usim"))]
-                assert_eq!((sw1, sw2), (0x6D, 0x00),
-                    "unknown INS must return 6D 00");
+                assert_eq!((sw1, sw2), (0x6D, 0x00), "unknown INS must return 6D 00");
                 #[cfg(not(any(feature = "gsm", feature = "usim")))]
-                assert_eq!((sw1, sw2), (0x6E, 0x00),
-                    "no features: CLA not supported");
+                assert_eq!((sw1, sw2), (0x6E, 0x00), "no features: CLA not supported");
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1633,10 +1669,15 @@ mod tests {
             match rsp {
                 SimResponse::Apdu { sw, data } => {
                     let [sw1, sw2] = sw.to_bytes();
-                    assert_eq!((sw1, sw2), (0x6E, 0x00),
-                        "CLA 0x{cla:02X} must return 6E 00, got {sw1:02X} {sw2:02X}");
-                    assert!(data.is_empty(),
-                        "error response for CLA 0x{cla:02X} must have empty data");
+                    assert_eq!(
+                        (sw1, sw2),
+                        (0x6E, 0x00),
+                        "CLA 0x{cla:02X} must return 6E 00, got {sw1:02X} {sw2:02X}"
+                    );
+                    assert!(
+                        data.is_empty(),
+                        "error response for CLA 0x{cla:02X} must have empty data"
+                    );
                 }
                 _ => panic!("expected Apdu response for CLA 0x{cla:02X}"),
             }
@@ -1650,8 +1691,10 @@ mod tests {
         let mut sim = make_sim();
         let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00]));
-        assert!(matches!(rsp, SimResponse::Ignored),
-            "3-byte APDU must return Ignored");
+        assert!(
+            matches!(rsp, SimResponse::Ignored),
+            "3-byte APDU must return Ignored"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1743,8 +1786,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "file selection should survive noop reset");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "file selection should survive noop reset"
+                );
                 assert_eq!(data, &ICCID_DATA);
             }
             other => panic!("expected Apdu, got {other:?}"),
@@ -1769,8 +1815,9 @@ mod tests {
         let _ = sim.process(SimEvent::PowerOn);
 
         // VERIFY PIN1
-        let verify_cmd =
-            [0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
+        let verify_cmd = [
+            0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         let rsp = sim.process(SimEvent::Apdu(&verify_cmd));
         assert!(matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]));
 
@@ -1788,8 +1835,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "PIN should remain verified after warm reset");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "PIN should remain verified after warm reset"
+                );
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1808,8 +1858,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x69, 0x82),
-                    "PIN should be cleared after cold reset");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x69, 0x82),
+                    "PIN should be cleared after cold reset"
+                );
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1834,36 +1887,56 @@ mod tests {
     // -- Policy catalogue --
 
     #[cfg(any(feature = "gsm", feature = "usim"))]
-    fn preserve_all(_: ResetKind) -> ResetEffects { ResetEffects::none() }
+    fn preserve_all(_: ResetKind) -> ResetEffects {
+        ResetEffects::none()
+    }
 
     #[cfg(any(feature = "gsm", feature = "usim"))]
     fn clear_only_pin_verified(_: ResetKind) -> ResetEffects {
-        ResetEffects { clear_pin_verified: true, ..ResetEffects::none() }
+        ResetEffects {
+            clear_pin_verified: true,
+            ..ResetEffects::none()
+        }
     }
 
     #[cfg(any(feature = "gsm", feature = "usim"))]
     fn clear_only_response_queue(_: ResetKind) -> ResetEffects {
-        ResetEffects { clear_response_queue: true, ..ResetEffects::none() }
+        ResetEffects {
+            clear_response_queue: true,
+            ..ResetEffects::none()
+        }
     }
 
     #[cfg(any(feature = "gsm", feature = "usim"))]
     fn clear_only_file_selection(_: ResetKind) -> ResetEffects {
-        ResetEffects { clear_file_selection: true, ..ResetEffects::none() }
+        ResetEffects {
+            clear_file_selection: true,
+            ..ResetEffects::none()
+        }
     }
 
     #[cfg(feature = "usim")]
     fn clear_only_logical_channels(_: ResetKind) -> ResetEffects {
-        ResetEffects { clear_logical_channels: true, ..ResetEffects::none() }
+        ResetEffects {
+            clear_logical_channels: true,
+            ..ResetEffects::none()
+        }
     }
 
     #[cfg(feature = "usim")]
     fn clear_only_proactive_session(_: ResetKind) -> ResetEffects {
-        ResetEffects { clear_proactive_session: true, ..ResetEffects::none() }
+        ResetEffects {
+            clear_proactive_session: true,
+            ..ResetEffects::none()
+        }
     }
 
     #[cfg(feature = "usim")]
     fn clear_only_last_aid_match(_: ResetKind) -> ResetEffects {
-        ResetEffects { clear_last_aid_match: true, ..ResetEffects::none() }
+        ResetEffects {
+            clear_last_aid_match: true,
+            ..ResetEffects::none()
+        }
     }
 
     // -- pin verified (USIM) --
@@ -1894,8 +1967,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "READ BINARY should succeed: PIN preserved across reset");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "READ BINARY should succeed: PIN preserved across reset"
+                );
                 assert_eq!(data, &ICCID_DATA);
             }
             other => panic!("expected Apdu, got {other:?}"),
@@ -1923,8 +1999,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x69, 0x82),
-                    "READ BINARY must fail: PIN cleared by reset");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x69, 0x82),
+                    "READ BINARY must fail: PIN cleared by reset"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -1936,8 +2015,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "READ BINARY should succeed after re-verifying PIN");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "READ BINARY should succeed after re-verifying PIN"
+                );
                 assert_eq!(data, &ICCID_DATA);
             }
             other => panic!("expected Apdu, got {other:?}"),
@@ -1965,8 +2047,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "GSM READ BINARY should succeed: PIN preserved across reset");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "GSM READ BINARY should succeed: PIN preserved across reset"
+                );
                 assert_eq!(data, &ICCID_DATA);
             }
             other => panic!("expected Apdu, got {other:?}"),
@@ -1992,8 +2077,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x69, 0x82),
-                    "GSM READ BINARY must fail: PIN cleared by reset");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x69, 0x82),
+                    "GSM READ BINARY must fail: PIN cleared by reset"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2027,8 +2115,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "queued response should survive reset when clear_response_queue=false");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "queued response should survive reset when clear_response_queue=false"
+                );
                 assert!(!data.is_empty(), "FCP data should be present");
             }
             other => panic!("expected Apdu, got {other:?}"),
@@ -2053,8 +2144,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x6F, 0x00),
-                    "GET RESPONSE must return 6F 00 (no data) after queue cleared");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x6F, 0x00),
+                    "GET RESPONSE must return 6F 00 (no data) after queue cleared"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2064,8 +2158,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "file selection should be preserved (isolation check)");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "file selection should be preserved (isolation check)"
+                );
                 assert_eq!(data, &ICCID_DATA);
             }
             other => panic!("expected Apdu, got {other:?}"),
@@ -2099,8 +2196,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "GSM queue should survive reset when clear_response_queue=false");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "GSM queue should survive reset when clear_response_queue=false"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2123,8 +2223,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x6F, 0x00),
-                    "GSM GET RESPONSE must return 6F 00 (no data) after queue cleared");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x6F, 0x00),
+                    "GSM GET RESPONSE must return 6F 00 (no data) after queue cleared"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2141,8 +2244,10 @@ mod tests {
 
         // SELECT EF.ICCID (2FE2)
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]));
-        assert!(matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes()[0] == 0x61),
-            "SELECT EF.ICCID should succeed");
+        assert!(
+            matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes()[0] == 0x61),
+            "SELECT EF.ICCID should succeed"
+        );
 
         let _ = sim.process(SimEvent::Reset);
 
@@ -2151,10 +2256,15 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "READ BINARY should succeed on preserved file selection");
-                assert_eq!(data, &ICCID_DATA,
-                    "should read ICCID data from preserved EF selection");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "READ BINARY should succeed on preserved file selection"
+                );
+                assert_eq!(
+                    data, &ICCID_DATA,
+                    "should read ICCID data from preserved EF selection"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2190,8 +2300,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "response queue should be preserved (isolation check)");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "response queue should be preserved (isolation check)"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2201,8 +2314,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x69, 0x86),
-                    "READ BINARY must return 69 86 (no current EF) after file selection reset");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x69, 0x86),
+                    "READ BINARY must return 69 86 (no current EF) after file selection reset"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2219,8 +2335,10 @@ mod tests {
 
         // SELECT EF.ICCID via GSM CLA
         let rsp = sim.process(SimEvent::Apdu(&[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x2F, 0xE2]));
-        assert!(matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes()[0] == 0x9F),
-            "GSM SELECT EF.ICCID should succeed");
+        assert!(
+            matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes()[0] == 0x9F),
+            "GSM SELECT EF.ICCID should succeed"
+        );
         // Drain queue so READ BINARY doesn't trigger queue-clearing behavior
         let _ = sim.process(SimEvent::Apdu(&[0xA0, 0xC0, 0x00, 0x00, 0x0F]));
 
@@ -2231,8 +2349,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "GSM READ BINARY should succeed on preserved file selection");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "GSM READ BINARY should succeed on preserved file selection"
+                );
                 assert_eq!(data, &ICCID_DATA);
             }
             other => panic!("expected Apdu, got {other:?}"),
@@ -2257,8 +2378,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x94, 0x00),
-                    "GSM READ BINARY must return 94 00 (no EF selected) after file selection reset");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x94, 0x00),
+                    "GSM READ BINARY must return 94 00 (no EF selected) after file selection reset"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2282,7 +2406,10 @@ mod tests {
             }
             other => panic!("expected channel open success, got {other:?}"),
         };
-        assert!((1..=3).contains(&ch), "channel number should be 1-3, got {ch}");
+        assert!(
+            (1..=3).contains(&ch),
+            "channel number should be 1-3, got {ch}"
+        );
 
         let _ = sim.process(SimEvent::Reset);
 
@@ -2292,8 +2419,10 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!(sw1, 0x61,
-                    "channel {ch} should remain open, expected 61 XX got {sw1:02X} {sw2:02X}");
+                assert_eq!(
+                    sw1, 0x61,
+                    "channel {ch} should remain open, expected 61 XX got {sw1:02X} {sw2:02X}"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2330,8 +2459,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x68, 0x81),
-                    "channel {ch} should be closed after reset with clear_logical_channels=true");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x68, 0x81),
+                    "channel {ch} should be closed after reset with clear_logical_channels=true"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2341,8 +2473,11 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00),
-                    "basic channel file selection should be preserved (isolation check)");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x90, 0x00),
+                    "basic channel file selection should be preserved (isolation check)"
+                );
                 assert_eq!(data, &ICCID_DATA);
             }
             other => panic!("expected Apdu, got {other:?}"),
@@ -2358,17 +2493,17 @@ mod tests {
         let _ = sim.process(SimEvent::PowerOn);
 
         // TERMINAL PROFILE activates proactive session
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
+        let rsp = sim.process(SimEvent::Apdu(&[
+            0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF,
+        ]));
         assert!(matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]));
 
         let _ = sim.process(SimEvent::Reset);
 
         // ENVELOPE (Menu Selection D3) should be accepted (session still active)
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0x80, 0xC2, 0x00, 0x00, 0x05, 0xD3, 0x03, 0x90, 0x01, 0x02],
-        ));
+        let rsp = sim.process(SimEvent::Apdu(&[
+            0x80, 0xC2, 0x00, 0x00, 0x05, 0xD3, 0x03, 0x90, 0x01, 0x02,
+        ]));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
@@ -2386,22 +2521,25 @@ mod tests {
         let _ = sim.process(SimEvent::PowerOn);
 
         // TERMINAL PROFILE activates proactive session
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
+        let rsp = sim.process(SimEvent::Apdu(&[
+            0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF,
+        ]));
         assert!(matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]));
 
         let _ = sim.process(SimEvent::Reset);
 
         // ENVELOPE (Menu Selection D3) should be rejected (session cleared)
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0x80, 0xC2, 0x00, 0x00, 0x05, 0xD3, 0x03, 0x90, 0x01, 0x02],
-        ));
+        let rsp = sim.process(SimEvent::Apdu(&[
+            0x80, 0xC2, 0x00, 0x00, 0x05, 0xD3, 0x03, 0x90, 0x01, 0x02,
+        ]));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x69, 0x85),
-                    "ENVELOPE should be rejected after proactive session cleared");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x69, 0x85),
+                    "ENVELOPE should be rejected after proactive session cleared"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2417,24 +2555,29 @@ mod tests {
 
         // SELECT by AID (USIM AID: A0 00 00 00 87 10 02)
         // P1=04 (select by DF name), P2=04 (FCI)
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
-        ));
-        assert!(matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes()[0] == 0x61),
-            "SELECT by AID should succeed");
+        let rsp = sim.process(SimEvent::Apdu(&[
+            0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+        ]));
+        assert!(
+            matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes()[0] == 0x61),
+            "SELECT by AID should succeed"
+        );
 
         let _ = sim.process(SimEvent::Reset);
 
         // "Next occurrence" SELECT by AID (P2=02) should fail
         // because last_aid_match is still true from the prior SELECT.
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0x00, 0xA4, 0x04, 0x02, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
-        ));
+        let rsp = sim.process(SimEvent::Apdu(&[
+            0x00, 0xA4, 0x04, 0x02, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+        ]));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x6A, 0x82),
-                    "next-occurrence SELECT should fail when last_aid_match preserved");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x6A, 0x82),
+                    "next-occurrence SELECT should fail when last_aid_match preserved"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2447,18 +2590,18 @@ mod tests {
         let _ = sim.process(SimEvent::PowerOn);
 
         // SELECT by AID -> sets last_aid_match=true
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
-        ));
+        let rsp = sim.process(SimEvent::Apdu(&[
+            0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+        ]));
         assert!(matches!(rsp, SimResponse::Apdu { sw, .. } if sw.to_bytes()[0] == 0x61));
 
         let _ = sim.process(SimEvent::Reset);
 
         // "Next occurrence" SELECT by AID should now succeed because
         // last_aid_match was cleared (treated as first occurrence).
-        let rsp = sim.process(SimEvent::Apdu(
-            &[0x00, 0xA4, 0x04, 0x02, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
-        ));
+        let rsp = sim.process(SimEvent::Apdu(&[
+            0x00, 0xA4, 0x04, 0x02, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+        ]));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
@@ -2488,12 +2631,19 @@ mod tests {
 
         // PowerOn invokes the policy once (Cold)
         let _ = sim.process(SimEvent::PowerOn);
-        assert_eq!(CALL_COUNT.load(Ordering::Relaxed), 1, "PowerOn should invoke policy");
+        assert_eq!(
+            CALL_COUNT.load(Ordering::Relaxed),
+            1,
+            "PowerOn should invoke policy"
+        );
 
         // PowerOff must NOT invoke the policy
         let _ = sim.process(SimEvent::PowerOff);
-        assert_eq!(CALL_COUNT.load(Ordering::Relaxed), 1,
-            "PowerOff must not invoke reset policy");
+        assert_eq!(
+            CALL_COUNT.load(Ordering::Relaxed),
+            1,
+            "PowerOff must not invoke reset policy"
+        );
     }
 
     #[test]
@@ -2510,12 +2660,15 @@ mod tests {
         CALL_COUNT.store(0, Ordering::Relaxed);
 
         let _ = sim.process(SimEvent::PowerOn); // call 1
-        let _ = sim.process(SimEvent::Reset);   // call 2
-        let _ = sim.process(SimEvent::Reset);   // call 3
-        let _ = sim.process(SimEvent::Reset);   // call 4
+        let _ = sim.process(SimEvent::Reset); // call 2
+        let _ = sim.process(SimEvent::Reset); // call 3
+        let _ = sim.process(SimEvent::Reset); // call 4
 
-        assert_eq!(CALL_COUNT.load(Ordering::Relaxed), 4,
-            "policy should be invoked on every PowerOn and Reset");
+        assert_eq!(
+            CALL_COUNT.load(Ordering::Relaxed),
+            4,
+            "policy should be invoked on every PowerOn and Reset"
+        );
     }
 
     #[test]
@@ -2540,8 +2693,11 @@ mod tests {
         // PowerOff -> PowerOn should be Cold (not Warm)
         let _ = sim.process(SimEvent::PowerOff);
         let _ = sim.process(SimEvent::PowerOn);
-        assert_eq!(LAST_KIND.load(Ordering::Relaxed), ResetKind::Cold as u8,
-            "PowerOn after PowerOff must pass Cold, not Warm");
+        assert_eq!(
+            LAST_KIND.load(Ordering::Relaxed),
+            ResetKind::Cold as u8,
+            "PowerOn after PowerOff must pass Cold, not Warm"
+        );
     }
 
     #[test]
@@ -2549,15 +2705,21 @@ mod tests {
         let mut sim = make_sim();
         // Card starts Off. Reset from Off -> should transition to Ready.
         let rsp = sim.process(SimEvent::Reset);
-        assert!(matches!(rsp, SimResponse::Atr(_)),
-            "Reset from Off should return ATR (transition to Ready)");
+        assert!(
+            matches!(rsp, SimResponse::Atr(_)),
+            "Reset from Off should return ATR (transition to Ready)"
+        );
 
         // Card should now accept APDUs
         let rsp = sim.process(SimEvent::Apdu(&[0xF0, 0xA4, 0x00, 0x00]));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x6E, 0x00), "card should be Ready after Reset from Off");
+                assert_eq!(
+                    (sw1, sw2),
+                    (0x6E, 0x00),
+                    "card should be Ready after Reset from Off"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2565,7 +2727,10 @@ mod tests {
 
     #[test]
     fn struct_update_syntax_produces_single_false_flag() {
-        let effects = ResetEffects { clear_pin_verified: false, ..ResetEffects::all() };
+        let effects = ResetEffects {
+            clear_pin_verified: false,
+            ..ResetEffects::all()
+        };
         assert!(!effects.clear_pin_verified);
         assert!(effects.clear_response_queue);
         assert!(effects.clear_file_selection);
@@ -2576,7 +2741,10 @@ mod tests {
 
     #[test]
     fn struct_update_syntax_produces_single_true_flag() {
-        let effects = ResetEffects { clear_response_queue: true, ..ResetEffects::none() };
+        let effects = ResetEffects {
+            clear_response_queue: true,
+            ..ResetEffects::none()
+        };
         assert!(!effects.clear_pin_verified);
         assert!(effects.clear_response_queue);
         assert!(!effects.clear_file_selection);

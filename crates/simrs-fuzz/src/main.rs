@@ -7,7 +7,10 @@
 //! Set `SIMRS_FUZZ_PCAP=path` to write interesting APDU sequences to a PCAP file.
 
 use simrs_fs::{DfDef, EfDef, Fid, FileRef, Sfi};
-use simrs_hle::{hle_apdu, hle_init, hle_init_tuak, hle_reset, hle_snapshot_restore, hle_snapshot_save, hle_snapshot_size, hle_state_hash, hle_tick, GsmSubscriberKey};
+use simrs_hle::{
+    hle_apdu, hle_init, hle_init_tuak, hle_reset, hle_snapshot_restore, hle_snapshot_save,
+    hle_snapshot_size, hle_state_hash, hle_tick, GsmSubscriberKey,
+};
 use simrs_pcap::{Direction, LinkType, PcapEncoder};
 use std::collections::HashSet;
 use std::fs::File;
@@ -81,7 +84,9 @@ impl Rng {
 
     const fn next_u8(&mut self) -> u8 {
         #[allow(clippy::cast_possible_truncation)]
-        { (self.next() & 0xFF) as u8 }
+        {
+            (self.next() & 0xFF) as u8
+        }
     }
 
     const fn range(&mut self, max: usize) -> usize {
@@ -89,7 +94,9 @@ impl Rng {
             return 0;
         }
         #[allow(clippy::cast_possible_truncation)]
-        { (self.next() as usize) % max }
+        {
+            (self.next() as usize) % max
+        }
     }
 }
 
@@ -130,7 +137,11 @@ fn generate_apdu(rng: &mut Rng, buf: &mut [u8]) -> usize {
     } else {
         KNOWN_INS[rng.range(KNOWN_INS.len())]
     };
-    let p1 = if rng.next().is_multiple_of(3) { rng.next_u8() } else { 0x00 };
+    let p1 = if rng.next().is_multiple_of(3) {
+        rng.next_u8()
+    } else {
+        0x00
+    };
     let p2 = if rng.next().is_multiple_of(3) {
         rng.next_u8()
     } else {
@@ -147,12 +158,12 @@ fn generate_apdu(rng: &mut Rng, buf: &mut [u8]) -> usize {
     let has_data = !rng.next().is_multiple_of(3);
     if has_data {
         let lc = match ins {
-            0xA4 => 2,                                   // SELECT FID
-            0x20 | 0x26 | 0x28 => 8,                    // VERIFY / DISABLE / ENABLE
-            0x24 | 0x2C => 16,                           // CHANGE REF DATA / UNBLOCK
-            0x88 if cla == 0xA0 => 16,                   // RUN GSM ALGO
-            0x88 => 34,                                   // AUTHENTICATE
-            0xD6 | 0xDC | 0x32 => rng.range(14) + 1,    // write commands: 1..=14 bytes
+            0xA4 => 2,                               // SELECT FID
+            0x20 | 0x26 | 0x28 => 8,                 // VERIFY / DISABLE / ENABLE
+            0x24 | 0x2C => 16,                       // CHANGE REF DATA / UNBLOCK
+            0x88 if cla == 0xA0 => 16,               // RUN GSM ALGO
+            0x88 => 34,                              // AUTHENTICATE
+            0xD6 | 0xDC | 0x32 => rng.range(14) + 1, // write commands: 1..=14 bytes
             _ => rng.range(16).min(buf.len().saturating_sub(5)),
         };
         #[allow(clippy::cast_possible_truncation)]
@@ -256,12 +267,18 @@ impl PcapWriter {
         let mut hdr = [0u8; 64];
         let n = encoder.global_header(&mut hdr);
         file.write_all(&hdr[..n])?;
-        Ok(Self { file, encoder, ts_sec: 0 })
+        Ok(Self {
+            file,
+            encoder,
+            ts_sec: 0,
+        })
     }
 
     fn record_apdu(&mut self, direction: Direction, apdu: &[u8]) -> std::io::Result<()> {
         let mut buf = [0u8; 512];
-        let n = self.encoder.encode_apdu(&mut buf, self.ts_sec, 0, direction, apdu);
+        let n = self
+            .encoder
+            .encode_apdu(&mut buf, self.ts_sec, 0, direction, apdu);
         if n > 0 {
             self.file.write_all(&buf[..n])?;
         }
@@ -287,8 +304,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100_000);
 
-    let use_tuak = std::env::var("SIMRS_FUZZ_AUTH")
-        .is_ok_and(|s| s.eq_ignore_ascii_case("tuak"));
+    let use_tuak = std::env::var("SIMRS_FUZZ_AUTH").is_ok_and(|s| s.eq_ignore_ascii_case("tuak"));
 
     let pcap_path = std::env::var("SIMRS_FUZZ_PCAP").ok();
     let mut pcap = pcap_path.as_deref().map(|p| {
@@ -300,10 +316,22 @@ fn main() {
 
     if use_tuak {
         eprintln!("[simrs-fuzz] initializing SIM (TUAK)...");
-        hle_init_tuak(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 32]);
+        hle_init_tuak(
+            &ATR,
+            &MF,
+            GsmSubscriberKey::classify([0x11; 16]),
+            [0x22; 16],
+            [0x33; 32],
+        );
     } else {
         eprintln!("[simrs-fuzz] initializing SIM (Milenage)...");
-        hle_init(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 16]);
+        hle_init(
+            &ATR,
+            &MF,
+            GsmSubscriberKey::classify([0x11; 16]),
+            [0x22; 16],
+            [0x33; 16],
+        );
     }
     hle_reset();
 
@@ -371,7 +399,8 @@ fn main() {
             if let Some(ref mut pcap) = pcap {
                 let _ = pcap.record_apdu(Direction::Command, &apdu_buf[..last_apdu_len]);
                 if last_rsp_full_len > 0 {
-                    let _ = pcap.record_apdu(Direction::Response, &last_rsp_full[..last_rsp_full_len]);
+                    let _ =
+                        pcap.record_apdu(Direction::Response, &last_rsp_full[..last_rsp_full_len]);
                 }
                 pcap.advance_time();
             }
@@ -388,7 +417,10 @@ fn main() {
         corpus.interesting,
     );
     if pcap_path.is_some() {
-        eprintln!("[simrs-fuzz] PCAP written to {}", pcap_path.as_deref().unwrap());
+        eprintln!(
+            "[simrs-fuzz] PCAP written to {}",
+            pcap_path.as_deref().unwrap()
+        );
     }
 }
 
@@ -403,7 +435,11 @@ mod tests {
     #[test]
     fn fnv1a_known_values() {
         // FNV-1a 64-bit reference values.
-        assert_eq!(fnv1a(b""), 0xcbf2_9ce4_8422_2325, "empty input = FNV offset basis");
+        assert_eq!(
+            fnv1a(b""),
+            0xcbf2_9ce4_8422_2325,
+            "empty input = FNV offset basis"
+        );
         assert_eq!(fnv1a(b"hello"), 0xa430_d846_80aa_bd0b);
     }
 
@@ -453,7 +489,13 @@ mod tests {
 
     #[test]
     fn smoke_test_short_fuzz_run() {
-        hle_init(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 16]);
+        hle_init(
+            &ATR,
+            &MF,
+            GsmSubscriberKey::classify([0x11; 16]),
+            [0x22; 16],
+            [0x33; 16],
+        );
         hle_reset();
 
         let snap_size = hle_snapshot_size();
@@ -475,11 +517,17 @@ mod tests {
             // Unsupported CLA (changes nothing but tests path)
             &[0xF0, 0xA4, 0x00, 0x00],
             // TERMINAL PROFILE (8 bytes of capability flags)
-            &[0x80, 0x10, 0x00, 0x00, 0x08, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x80, 0x10, 0x00, 0x00, 0x08, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
             // ENVELOPE: Menu Selection (tag D3) with item ID 0x01
-            &[0x80, 0xC2, 0x00, 0x00, 0x09, 0xD3, 0x07, 0x82, 0x02, 0x01, 0x82, 0x90, 0x01, 0x01],
+            &[
+                0x80, 0xC2, 0x00, 0x00, 0x09, 0xD3, 0x07, 0x82, 0x02, 0x01, 0x82, 0x90, 0x01, 0x01,
+            ],
             // Event Download envelope (D6): Location Status event
-            &[0x80, 0xC2, 0x00, 0x00, 0x07, 0xD6, 0x05, 0x99, 0x01, 0x03, 0x82, 0x02, 0x82, 0x81],
+            &[
+                0x80, 0xC2, 0x00, 0x00, 0x07, 0xD6, 0x05, 0x99, 0x01, 0x03, 0x82, 0x02, 0x82, 0x81,
+            ],
             // FETCH (Le=0 to fetch any pending command)
             &[0x80, 0x12, 0x00, 0x00, 0x00],
             // TERMINAL RESPONSE (minimal: empty data)
@@ -509,7 +557,11 @@ mod tests {
             }
         }
         // Known sequences guarantee at least 2 distinct states (base + selected file).
-        assert!(corpus.interesting >= 2, "expected diverse states, got {}", corpus.interesting);
+        assert!(
+            corpus.interesting >= 2,
+            "expected diverse states, got {}",
+            corpus.interesting
+        );
     }
 
     #[test]
@@ -521,7 +573,8 @@ mod tests {
         let mut pcap = PcapWriter::create(path_str).unwrap();
         let apdu = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
         pcap.record_apdu(Direction::Command, &apdu).unwrap();
-        pcap.record_apdu(Direction::Response, &[0x90, 0x00]).unwrap();
+        pcap.record_apdu(Direction::Response, &[0x90, 0x00])
+            .unwrap();
         pcap.flush().unwrap();
 
         // Verify file starts with PCAP magic (little-endian).

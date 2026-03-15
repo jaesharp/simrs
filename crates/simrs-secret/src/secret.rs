@@ -235,8 +235,14 @@ mod tests {
         let s = Secret::new([0xDEu8, 0xAD, 0xBE, 0xEF]);
         let output = format!("{s:?}");
         assert!(output.contains("masked"), "Debug must redact: {output}");
-        assert!(!output.contains("DEAD"), "Debug must not leak data: {output}");
-        assert!(!output.contains("dead"), "Debug must not leak data: {output}");
+        assert!(
+            !output.contains("DEAD"),
+            "Debug must not leak data: {output}"
+        );
+        assert!(
+            !output.contains("dead"),
+            "Debug must not leak data: {output}"
+        );
     }
 
     #[test]

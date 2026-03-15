@@ -61,12 +61,12 @@ static VECTORS: [Comp128Vector; 12] = [
     // Vector 2: doctest (Ki=FF...FF07, RAND=0123...EF)
     Comp128Vector {
         ki: [
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x07,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0x07,
         ],
         rand: [
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB,
+            0xCD, 0xEF,
         ],
         expected_sres: [0x46, 0xF0, 0x2D, 0xBA],
         expected_kc: [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00],
@@ -90,10 +90,14 @@ static VECTORS: [Comp128Vector; 12] = [
     },
     // Vector 5: sequential (Ki=0x00..0x0F, RAND=0x10..0x1F)
     Comp128Vector {
-        ki: [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-             0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F],
-        rand: [0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-               0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F],
+        ki: [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+            0x0E, 0x0F,
+        ],
+        rand: [
+            0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
+            0x1E, 0x1F,
+        ],
         expected_sres: [0x37, 0x38, 0xF8, 0x82],
         expected_kc: [0x39, 0xCD, 0xA2, 0xDB, 0xBA, 0x4A, 0x7C, 0x00],
         source: ReferenceSource::Standards("GSM 11.11"),
@@ -120,12 +124,12 @@ static VECTORS: [Comp128Vector; 12] = [
     // swsim Vector: Ki=FF...FF07, RAND=0123...EF
     Comp128Vector {
         ki: [
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x07,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0x07,
         ],
         rand: [
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB,
+            0xCD, 0xEF,
         ],
         expected_sres: [0x46, 0xF0, 0x2D, 0xBA],
         expected_kc: [0xE9, 0xB7, 0xD0, 0x45, 0xEC, 0x87, 0x1C, 0x00],
@@ -149,10 +153,14 @@ static VECTORS: [Comp128Vector; 12] = [
     },
     // swsim Vector: sequential (Ki=0x00..0x0F, RAND=0x10..0x1F)
     Comp128Vector {
-        ki: [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-             0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F],
-        rand: [0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-               0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F],
+        ki: [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+            0x0E, 0x0F,
+        ],
+        rand: [
+            0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
+            0x1E, 0x1F,
+        ],
         expected_sres: [0x37, 0x38, 0xF8, 0x82],
         expected_kc: [0x39, 0xCD, 0xA2, 0xDB, 0xBA, 0x4A, 0x7C, 0x00],
         source: ReferenceSource::Swsim,
@@ -162,7 +170,7 @@ static VECTORS: [Comp128Vector; 12] = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_comp128::{comp128, SignedResponse};
+    use simrs_comp128::{SignedResponse, comp128};
     use simrs_secret::Secret;
 
     /// Test: all-zero Ki and RAND.
@@ -170,7 +178,11 @@ mod tests {
     fn vector_all_zero() {
         let v = &VECTORS[0];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(
+            r.signed_response,
+            SignedResponse::new(v.expected_sres),
+            "SRES mismatch"
+        );
         assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -179,7 +191,11 @@ mod tests {
     fn vector_ab_cd() {
         let v = &VECTORS[1];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(
+            r.signed_response,
+            SignedResponse::new(v.expected_sres),
+            "SRES mismatch"
+        );
         assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -188,7 +204,11 @@ mod tests {
     fn vector_doctest() {
         let v = &VECTORS[2];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(
+            r.signed_response,
+            SignedResponse::new(v.expected_sres),
+            "SRES mismatch"
+        );
         assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -197,7 +217,11 @@ mod tests {
     fn vector_11_22() {
         let v = &VECTORS[3];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(
+            r.signed_response,
+            SignedResponse::new(v.expected_sres),
+            "SRES mismatch"
+        );
         assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -206,7 +230,11 @@ mod tests {
     fn vector_all_ff() {
         let v = &VECTORS[4];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(
+            r.signed_response,
+            SignedResponse::new(v.expected_sres),
+            "SRES mismatch"
+        );
         assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 
@@ -215,7 +243,11 @@ mod tests {
     fn vector_sequential() {
         let v = &VECTORS[5];
         let r = comp128(&Secret::new(v.ki), &v.rand);
-        assert_eq!(r.signed_response, SignedResponse::new(v.expected_sres), "SRES mismatch");
+        assert_eq!(
+            r.signed_response,
+            SignedResponse::new(v.expected_sres),
+            "SRES mismatch"
+        );
         assert_eq!(*r.cipher_key.declassify_ref(), v.expected_kc, "Kc mismatch");
     }
 

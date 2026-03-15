@@ -44,11 +44,7 @@ impl PcapCapture {
     /// # Errors
     ///
     /// Returns an I/O error if the file write fails.
-    pub fn record_apdu(
-        &mut self,
-        direction: Direction,
-        apdu: &[u8],
-    ) -> std::io::Result<()> {
+    pub fn record_apdu(&mut self, direction: Direction, apdu: &[u8]) -> std::io::Result<()> {
         let (ts_sec, ts_usec) = Self::timestamp();
         let mut buf = [0u8; 512];
         let n = self
@@ -100,7 +96,9 @@ impl PcapCapture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_pcap::{GLOBAL_HEADER_SIZE, GSMTAP_HEADER_SIZE, RECORD_HEADER_SIZE, SIMPLE_FRAME_SIZE};
+    use simrs_pcap::{
+        GLOBAL_HEADER_SIZE, GSMTAP_HEADER_SIZE, RECORD_HEADER_SIZE, SIMPLE_FRAME_SIZE,
+    };
 
     fn temp_path(name: &str) -> String {
         format!("{}/{name}", std::env::temp_dir().display())
@@ -133,8 +131,7 @@ mod tests {
             cap.flush().unwrap();
         }
         let data = std::fs::read(&path).unwrap();
-        let expected_min =
-            GLOBAL_HEADER_SIZE + RECORD_HEADER_SIZE + GSMTAP_HEADER_SIZE + 4;
+        let expected_min = GLOBAL_HEADER_SIZE + RECORD_HEADER_SIZE + GSMTAP_HEADER_SIZE + 4;
         assert!(
             data.len() >= expected_min,
             "file too small: {} < {expected_min}",
@@ -152,8 +149,7 @@ mod tests {
             cap.flush().unwrap();
         }
         let data = std::fs::read(&path).unwrap();
-        let expected_min =
-            GLOBAL_HEADER_SIZE + RECORD_HEADER_SIZE + SIMPLE_FRAME_SIZE + 4;
+        let expected_min = GLOBAL_HEADER_SIZE + RECORD_HEADER_SIZE + SIMPLE_FRAME_SIZE + 4;
         assert!(
             data.len() >= expected_min,
             "file too small: {} < {expected_min}",
@@ -167,11 +163,8 @@ mod tests {
         let path = temp_path("interposer_test_mismatch.pcap");
         {
             let mut cap = PcapCapture::create(&path, LinkType::User0).unwrap();
-            cap.record_apdu_mismatch(
-                Direction::Response,
-                &[0x90, 0x00],
-            )
-            .unwrap();
+            cap.record_apdu_mismatch(Direction::Response, &[0x90, 0x00])
+                .unwrap();
             cap.flush().unwrap();
         }
         let data = std::fs::read(&path).unwrap();

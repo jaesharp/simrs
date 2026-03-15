@@ -59,9 +59,8 @@ impl Fe {
 
         // Reconstruct 256 bits from five 51-bit limbs.
         // Limb boundaries: 0, 51, 102, 153, 204
-        let combine = |a: u64, a_shift: u32, b: u64, b_shift: u32| -> u64 {
-            (a >> a_shift) | (b << b_shift)
-        };
+        let combine =
+            |a: u64, a_shift: u32, b: u64, b_shift: u32| -> u64 { (a >> a_shift) | (b << b_shift) };
 
         let h0 = f.0[0];
         let h1 = f.0[1];
@@ -156,7 +155,8 @@ impl Fe {
             self.0[2] + 2 * MASK51 - rhs.0[2],
             self.0[3] + 2 * MASK51 - rhs.0[3],
             self.0[4] + 2 * MASK51 - rhs.0[4],
-        ]).carry()
+        ])
+        .carry()
     }
 
     /// Multiplication using u128 intermediates.
@@ -250,7 +250,10 @@ impl Fe {
     ///   t2 = 2*a0*a2   + a1^2     + 38*a3*a4
     ///   t3 = 2*a0*a3   + 2*a1*a2  + 19*a4^2
     ///   t4 = 2*a0*a4   + 2*a1*a3  + a2^2
-    #[allow(clippy::cast_possible_truncation, clippy::suspicious_operation_groupings)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::suspicious_operation_groupings
+    )]
     fn square(self) -> Self {
         let a = self.0;
 
@@ -383,7 +386,6 @@ impl Fe {
 
         t255_5.mul(a11)
     }
-
 }
 
 impl simrs_consttime::CtSwap for Fe {
@@ -409,7 +411,7 @@ impl simrs_consttime::CtSwap for Fe {
 pub fn x25519(scalar: &Secret<[u8; 32]>, point: &X25519PublicKey) -> Secret<[u8; 32]> {
     // Clamp scalar per RFC 7748 clause 5.
     let mut k = *scalar.declassify_ref();
-    k[0] &= 0xF8;  // clear bits 0, 1, 2
+    k[0] &= 0xF8; // clear bits 0, 1, 2
     k[31] &= 0x7F; // clear bit 255
     k[31] |= 0x40; // set bit 254
 
@@ -518,17 +520,23 @@ mod tests {
     #[test]
     fn rfc7748_scalar_mul_1() {
         let scalar = hex_to_32("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4");
-        let point  = hex_to_32("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c");
+        let point = hex_to_32("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c");
         let expect = hex_to_32("c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552");
-        assert_eq!(*x25519(&Secret::new(scalar), &X25519PublicKey::new(point)).declassify_ref(), expect);
+        assert_eq!(
+            *x25519(&Secret::new(scalar), &X25519PublicKey::new(point)).declassify_ref(),
+            expect
+        );
     }
 
     #[test]
     fn rfc7748_scalar_mul_2() {
         let scalar = hex_to_32("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d");
-        let point  = hex_to_32("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493");
+        let point = hex_to_32("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493");
         let expect = hex_to_32("95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957");
-        assert_eq!(*x25519(&Secret::new(scalar), &X25519PublicKey::new(point)).declassify_ref(), expect);
+        assert_eq!(
+            *x25519(&Secret::new(scalar), &X25519PublicKey::new(point)).declassify_ref(),
+            expect
+        );
     }
 
     // -- RFC 7748 Section 5.2 iterated test --
@@ -571,8 +579,10 @@ mod tests {
 
     #[test]
     fn rfc7748_dh_alice_pubkey() {
-        let alice_sk = hex_to_32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
-        let alice_pk = hex_to_32("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
+        let alice_sk =
+            hex_to_32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+        let alice_pk =
+            hex_to_32("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
         assert_eq!(*x25519_base(&Secret::new(alice_sk)).as_bytes(), alice_pk);
     }
 
@@ -585,19 +595,27 @@ mod tests {
 
     #[test]
     fn rfc7748_dh_shared_secret() {
-        let alice_sk = hex_to_32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
-        let bob_pk   = hex_to_32("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
-        let shared   = hex_to_32("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
-        assert_eq!(*x25519(&Secret::new(alice_sk), &X25519PublicKey::new(bob_pk)).declassify_ref(), shared);
+        let alice_sk =
+            hex_to_32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+        let bob_pk = hex_to_32("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
+        let shared = hex_to_32("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
+        assert_eq!(
+            *x25519(&Secret::new(alice_sk), &X25519PublicKey::new(bob_pk)).declassify_ref(),
+            shared
+        );
     }
 
     #[test]
     fn rfc7748_dh_shared_secret_bob_side() {
-        let bob_sk   = hex_to_32("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb");
-        let alice_pk = hex_to_32("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
-        let shared   = hex_to_32("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
+        let bob_sk = hex_to_32("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb");
+        let alice_pk =
+            hex_to_32("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
+        let shared = hex_to_32("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
         // Both sides must compute the same shared secret.
-        assert_eq!(*x25519(&Secret::new(bob_sk), &X25519PublicKey::new(alice_pk)).declassify_ref(), shared);
+        assert_eq!(
+            *x25519(&Secret::new(bob_sk), &X25519PublicKey::new(alice_pk)).declassify_ref(),
+            shared
+        );
     }
 
     // -- Anti-theater tests --
@@ -623,7 +641,10 @@ mod tests {
             b[0] = 16; // bit 4 set
             b
         };
-        assert_ne!(x25519_base(&Secret::new(sk1)), x25519_base(&Secret::new(sk2)));
+        assert_ne!(
+            x25519_base(&Secret::new(sk1)),
+            x25519_base(&Secret::new(sk2))
+        );
     }
 
     // -- Field element round-trip tests --
@@ -667,13 +688,19 @@ mod tests {
         let p_minus_1 = Fe::from_bytes(&hex_to_32(
             "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
         ));
-        assert_eq!(p_minus_1.square().to_bytes(), p_minus_1.mul(p_minus_1).to_bytes());
+        assert_eq!(
+            p_minus_1.square().to_bytes(),
+            p_minus_1.mul(p_minus_1).to_bytes()
+        );
 
         // p-2 (used in Fermat inversion, another near-max value).
         let p_minus_2 = Fe::from_bytes(&hex_to_32(
             "ebffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
         ));
-        assert_eq!(p_minus_2.square().to_bytes(), p_minus_2.mul(p_minus_2).to_bytes());
+        assert_eq!(
+            p_minus_2.square().to_bytes(),
+            p_minus_2.mul(p_minus_2).to_bytes()
+        );
 
         // Value with alternating high bits in each limb.
         let alt = Fe::from_bytes(&hex_to_32(

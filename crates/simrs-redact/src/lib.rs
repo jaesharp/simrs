@@ -173,8 +173,8 @@ impl<T: AsBytes + core::fmt::Debug + ?Sized> core::fmt::Display for Redact<'_, T
 #[cfg(test)]
 mod tests {
     extern crate alloc;
-    use alloc::format;
     use super::*;
+    use alloc::format;
 
     #[test]
     fn fingerprint_deterministic() {
@@ -225,7 +225,10 @@ mod tests {
     fn fingerprint_shows_masked() {
         let key = [0xABu8; 16];
         let s = format!("{:?}", Redact(&key));
-        assert!(s.starts_with("[masked:"), "expected masked output, got: {s}");
+        assert!(
+            s.starts_with("[masked:"),
+            "expected masked output, got: {s}"
+        );
         assert_eq!(s.len(), 17); // "[masked:" (8) + 8 hex chars + "]" (1) = 17
     }
 

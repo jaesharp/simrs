@@ -382,7 +382,15 @@ impl PcapEncoder {
         direction: Direction,
         apdu: &[u8],
     ) -> usize {
-        self.encode_packet(buf, ts_sec, ts_usec, direction, GsmTapSimSubType::Apdu, false, apdu)
+        self.encode_packet(
+            buf,
+            ts_sec,
+            ts_usec,
+            direction,
+            GsmTapSimSubType::Apdu,
+            false,
+            apdu,
+        )
     }
 
     /// Encode an ATR packet (record header + frame header + ATR bytes).
@@ -391,13 +399,7 @@ impl PcapEncoder {
     /// [`GsmTapSimSubType::Atr`].
     ///
     /// Returns total bytes written, or `0` if `buf` is too small.
-    pub fn encode_atr(
-        &self,
-        buf: &mut [u8],
-        ts_sec: u32,
-        ts_usec: u32,
-        atr: &[u8],
-    ) -> usize {
+    pub fn encode_atr(&self, buf: &mut [u8], ts_sec: u32, ts_usec: u32, atr: &[u8]) -> usize {
         self.encode_packet(
             buf,
             ts_sec,
@@ -424,7 +426,15 @@ impl PcapEncoder {
         direction: Direction,
         apdu: &[u8],
     ) -> usize {
-        self.encode_packet(buf, ts_sec, ts_usec, direction, GsmTapSimSubType::Apdu, true, apdu)
+        self.encode_packet(
+            buf,
+            ts_sec,
+            ts_usec,
+            direction,
+            GsmTapSimSubType::Apdu,
+            true,
+            apdu,
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -526,7 +536,7 @@ mod tests {
         assert_eq!(le32(&buf, 0), PCAP_MAGIC);
         assert_eq!(le16(&buf, 4), PCAP_MAJOR);
         assert_eq!(le16(&buf, 6), PCAP_MINOR);
-        assert_eq!(le32(&buf, 8), 0);  // reserved1
+        assert_eq!(le32(&buf, 8), 0); // reserved1
         assert_eq!(le32(&buf, 12), 0); // reserved2
         assert_eq!(le32(&buf, 16), 65535); // snap_len
         assert_eq!(le32(&buf, 20), LINKTYPE_GSMTAP);
@@ -929,7 +939,9 @@ mod tests {
 
         // Verify payload bytes
         let payload_off = RECORD_HEADER_SIZE + GSMTAP_HEADER_SIZE;
-        assert!(buf[payload_off..payload_off + 258].iter().all(|&b| b == 0xAB));
+        assert!(buf[payload_off..payload_off + 258]
+            .iter()
+            .all(|&b| b == 0xAB));
     }
 
     // -----------------------------------------------------------------------
@@ -942,13 +954,19 @@ mod tests {
         // Need RECORD_HEADER_SIZE + GSMTAP_HEADER_SIZE + 5 = 37 bytes
         let needed = RECORD_HEADER_SIZE + GSMTAP_HEADER_SIZE + apdu.len();
         let mut buf = vec![0u8; needed - 1];
-        assert_eq!(enc.encode_apdu(&mut buf, 0, 0, Direction::Command, &apdu), 0);
+        assert_eq!(
+            enc.encode_apdu(&mut buf, 0, 0, Direction::Command, &apdu),
+            0
+        );
 
         // User0 needs RECORD_HEADER_SIZE + SIMPLE_FRAME_SIZE + 5 = 22
         let enc2 = PcapEncoder::new(LinkType::User0);
         let needed2 = RECORD_HEADER_SIZE + SIMPLE_FRAME_SIZE + apdu.len();
         let mut buf2 = vec![0u8; needed2 - 1];
-        assert_eq!(enc2.encode_apdu(&mut buf2, 0, 0, Direction::Command, &apdu), 0);
+        assert_eq!(
+            enc2.encode_apdu(&mut buf2, 0, 0, Direction::Command, &apdu),
+            0
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -956,7 +974,10 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn max_packet_size_calculation() {
-        assert_eq!(PcapEncoder::max_packet_size(0), RECORD_HEADER_SIZE + GSMTAP_HEADER_SIZE);
+        assert_eq!(
+            PcapEncoder::max_packet_size(0),
+            RECORD_HEADER_SIZE + GSMTAP_HEADER_SIZE
+        );
         assert_eq!(PcapEncoder::max_packet_size(0), 16 + 16);
         assert_eq!(PcapEncoder::max_packet_size(100), 16 + 16 + 100);
         assert_eq!(PcapEncoder::max_packet_size(258), 16 + 16 + 258);

@@ -442,7 +442,10 @@ mod tests {
             }
 
             let pos = {
-                let mut w = StackWriter { buf: &mut buf, pos: 0 };
+                let mut w = StackWriter {
+                    buf: &mut buf,
+                    pos: 0,
+                };
                 write!(w, "{variant}").unwrap();
                 w.pos
             };

@@ -1,8 +1,8 @@
 //! PE-CSIM (tag 25) parser.
 
+use super::parse_template_files;
 use crate::error::ProfileError;
 use crate::file::File;
-use super::parse_template_files;
 
 /// PE-CSIM: ADF.CSIM and its child EFs (`ProfileElement` tag 25).
 ///
@@ -21,6 +21,8 @@ impl PeCsim {
     ///
     /// Returns [`ProfileError`] if the DER structure is malformed.
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProfileError> {
-        Ok(Self { files: parse_template_files(data)? })
+        Ok(Self {
+            files: parse_template_files(data)?,
+        })
     }
 }

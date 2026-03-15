@@ -24,40 +24,22 @@ use simrs_usim::UsimApp;
 // Test filesystem
 // ---------------------------------------------------------------------------
 
-static ICCID_DATA: [u8; 10] =
-    [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
+static ICCID_DATA: [u8; 10] = [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
-static EF_ICCID: EfDef = EfDef::transparent(
-    Fid::new(0x2FE2),
-    Some(Sfi::new(2)),
-    &ICCID_DATA,
-);
+static EF_ICCID: EfDef = EfDef::transparent(Fid::new(0x2FE2), Some(Sfi::new(2)), &ICCID_DATA);
 
 static EF_DIR_DATA: [u8; 16] = [
-    0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
-static EF_DIR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x2F00),
-    Some(Sfi::new(30)),
-    8, 2,
-    &EF_DIR_DATA,
-);
+static EF_DIR: EfDef =
+    EfDef::linear_fixed(Fid::new(0x2F00), Some(Sfi::new(30)), 8, 2, &EF_DIR_DATA);
 
 static IMSI_DATA: [u8; 9] = [0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0];
 
-static EF_IMSI: EfDef = EfDef::transparent(
-    Fid::new(0x6F07),
-    Some(Sfi::new(7)),
-    &IMSI_DATA,
-);
+static EF_IMSI: EfDef = EfDef::transparent(Fid::new(0x6F07), Some(Sfi::new(7)), &IMSI_DATA);
 
-static EF_KC: EfDef = EfDef::transparent(
-    Fid::new(0x6F20),
-    None,
-    &[0xFF; 9],
-);
+static EF_KC: EfDef = EfDef::transparent(Fid::new(0x6F20), None, &[0xFF; 9]);
 
 static DF_GSM: DfDef = DfDef {
     fid: Fid::new(0x7F20),
@@ -65,17 +47,9 @@ static DF_GSM: DfDef = DfDef {
 };
 
 // USIM ADF.
-static EF_USIM_IMSI: EfDef = EfDef::transparent(
-    Fid::new(0x6F07),
-    Some(Sfi::new(7)),
-    &IMSI_DATA,
-);
+static EF_USIM_IMSI: EfDef = EfDef::transparent(Fid::new(0x6F07), Some(Sfi::new(7)), &IMSI_DATA);
 
-static EF_UST: EfDef = EfDef::transparent(
-    Fid::new(0x6F38),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+static EF_UST: EfDef = EfDef::transparent(Fid::new(0x6F38), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 static ADF_USIM_ROOT: DfDef = DfDef {
     fid: Fid::new(0xFF01),
@@ -101,18 +75,15 @@ static MF: DfDef = DfDef {
 static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
 
 static KI: simrs_gsm::SubscriberKey = simrs_gsm::SubscriberKey::classify([
-    0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-    0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+    0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
 ]);
 
 // ETSI TS 135 208 Test Set 1.
 static USIM_K: SubscriberKey = SubscriberKey::classify([
-    0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
-    0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC,
+    0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F, 0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC,
 ]);
 static USIM_OPC: OperatorVariant = OperatorVariant::operator_cipher([
-    0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E,
-    0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B, 0xAF,
+    0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E, 0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B, 0xAF,
 ]);
 
 static PIN_VAL: [u8; 8] = [0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
@@ -146,7 +117,10 @@ fn make_sim() -> Sim<MilenageParams, 256> {
 /// Send an APDU and return (sw1, sw2, data).
 fn send(sim: &mut Sim<MilenageParams, 256>, apdu: &[u8]) -> (u8, u8, Vec<u8>) {
     match sim.process(SimEvent::Apdu(apdu)) {
-        SimResponse::Apdu { data, sw } => { let [sw1, sw2] = sw.to_bytes(); (sw1, sw2, data.to_vec()) }
+        SimResponse::Apdu { data, sw } => {
+            let [sw1, sw2] = sw.to_bytes();
+            (sw1, sw2, data.to_vec())
+        }
         SimResponse::Ignored => panic!("APDU was ignored"),
         SimResponse::Atr(_) => panic!("unexpected ATR response to APDU"),
     }
@@ -164,7 +138,12 @@ const HDR_RSP_HEAD: usize = 20;
 const HDR_RSP_TAIL: usize = 24;
 
 fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]])
+    u32::from_le_bytes([
+        buf[offset],
+        buf[offset + 1],
+        buf[offset + 2],
+        buf[offset + 3],
+    ])
 }
 
 fn write_u32_le(buf: &mut [u8], offset: usize, value: u32) {
@@ -185,9 +164,14 @@ fn push_cmd(shmem: &mut [u8], msg_type: ShmemMsgType, payload: &[u8]) {
     let ring_end = ring_start + RING_SIZE as usize;
     let head = read_u32_le(shmem, HDR_CMD_HEAD);
     let tail = read_u32_le(shmem, HDR_CMD_TAIL);
-    let new_head =
-        ring_write(&mut shmem[ring_start..ring_end], head, tail, RING_SIZE, &msg)
-            .expect("ring_write failed");
+    let new_head = ring_write(
+        &mut shmem[ring_start..ring_end],
+        head,
+        tail,
+        RING_SIZE,
+        &msg,
+    )
+    .expect("ring_write failed");
     write_u32_le(shmem, HDR_CMD_HEAD, new_head);
 }
 
@@ -197,8 +181,13 @@ fn pop_rsp(shmem: &mut [u8]) -> Option<(ShmemMsgType, Vec<u8>)> {
     let head = read_u32_le(shmem, HDR_RSP_HEAD);
     let tail = read_u32_le(shmem, HDR_RSP_TAIL);
     let mut out = [0u8; MSG_MAX];
-    let (new_tail, len) =
-        ring_read(&shmem[ring_start..ring_end], head, tail, RING_SIZE, &mut out)?;
+    let (new_tail, len) = ring_read(
+        &shmem[ring_start..ring_end],
+        head,
+        tail,
+        RING_SIZE,
+        &mut out,
+    )?;
     write_u32_le(shmem, HDR_RSP_TAIL, new_tail);
     let msg_type = ShmemMsgType::from_u8(out[0])?;
     Some((msg_type, out[1..len].to_vec()))
@@ -303,8 +292,8 @@ fn usim_select_aid_and_authenticate() {
 
     // Build AUTHENTICATE with ETSI TS 135 208 Test Set 1.
     let rand_val: [u8; 16] = [
-        0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-        0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+        0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF,
+        0x35,
     ];
     let params = MilenageParams::with_defaults(USIM_K, USIM_OPC);
     let challenge = AuthChallenge::new(rand_val);
@@ -654,9 +643,17 @@ fn bridge_power_cycle_and_reset() {
     let mut shmem = make_shmem();
 
     push_cmd(&mut shmem, ShmemMsgType::PowerOn, &[]);
-    push_cmd(&mut shmem, ShmemMsgType::Apdu, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
+    push_cmd(
+        &mut shmem,
+        ShmemMsgType::Apdu,
+        &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20],
+    );
     push_cmd(&mut shmem, ShmemMsgType::WarmReset, &[]);
-    push_cmd(&mut shmem, ShmemMsgType::Apdu, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
+    push_cmd(
+        &mut shmem,
+        ShmemMsgType::Apdu,
+        &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00],
+    );
     push_cmd(&mut shmem, ShmemMsgType::PowerOff, &[]);
     push_cmd(&mut shmem, ShmemMsgType::PowerOn, &[]);
 

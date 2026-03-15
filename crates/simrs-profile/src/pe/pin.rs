@@ -80,15 +80,15 @@ impl PePinCodes {
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProfileError> {
         let inner = der_util::peel_optional_sequence(data)?;
 
-        let tlvs: Vec<_> = der_util::iter_tlvs(inner)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(inner).collect::<Result<_, _>>()?;
 
         // Tag [1] is an EXPLICIT wrapper around the CHOICE (IMPLICIT
         // cannot directly tag a CHOICE). Inside [1], the CHOICE
         // alternatives with AUTOMATIC TAGS are:
         //   [0] pinconfig (SEQUENCE OF PINConfiguration)
         //   [1] filePath  (OCTET STRING)
-        let choice_tlv = tlvs.iter()
+        let choice_tlv = tlvs
+            .iter()
             .find(|t| t.number == 1 && t.class == 2)
             .ok_or(ProfileError::MissingRequiredFile(1))?;
 
@@ -115,8 +115,7 @@ impl PePinCodes {
 
     /// Parse a single `PINConfiguration` SEQUENCE.
     fn parse_pin_config(data: &[u8]) -> Result<PinConfiguration, ProfileError> {
-        let tlvs: Vec<_> = der_util::iter_tlvs(data)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(data).collect::<Result<_, _>>()?;
 
         // PINConfiguration fields (AUTOMATIC TAGS):
         // [0] INTEGER keyReference
@@ -125,7 +124,8 @@ impl PePinCodes {
         // [3] INTEGER pinAttributes DEFAULT 7
         // [4] INTEGER maxNumOfAttemps-retryNumLeft DEFAULT 51 (0x33)
 
-        let key_reference = tlvs.iter()
+        let key_reference = tlvs
+            .iter()
             .find(|t| t.number == 0 && t.class == 2)
             .and_then(|t| t.value.last().copied())
             .unwrap_or(0x01);
@@ -136,16 +136,19 @@ impl PePinCodes {
             pin_value[..len].copy_from_slice(&tlv.value[..len]);
         }
 
-        let unblocking_ref = tlvs.iter()
+        let unblocking_ref = tlvs
+            .iter()
             .find(|t| t.number == 2 && t.class == 2)
             .and_then(|t| t.value.last().copied());
 
-        let pin_attributes = tlvs.iter()
+        let pin_attributes = tlvs
+            .iter()
             .find(|t| t.number == 3 && t.class == 2)
             .and_then(|t| t.value.last().copied())
             .unwrap_or(7);
 
-        let max_retries_byte = tlvs.iter()
+        let max_retries_byte = tlvs
+            .iter()
             .find(|t| t.number == 4 && t.class == 2)
             .and_then(|t| t.value.last().copied())
             .unwrap_or(0x33);
@@ -173,10 +176,10 @@ impl PePukCodes {
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProfileError> {
         let inner = der_util::peel_optional_sequence(data)?;
 
-        let tlvs: Vec<_> = der_util::iter_tlvs(inner)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(inner).collect::<Result<_, _>>()?;
 
-        let puk_data_tlv = tlvs.iter()
+        let puk_data_tlv = tlvs
+            .iter()
             .find(|t| t.number == 1 && t.class == 2)
             .ok_or(ProfileError::MissingRequiredFile(1))?;
 
@@ -193,15 +196,15 @@ impl PePukCodes {
 
     /// Parse a single `PUKConfiguration` SEQUENCE.
     fn parse_puk_config(data: &[u8]) -> Result<PukConfiguration, ProfileError> {
-        let tlvs: Vec<_> = der_util::iter_tlvs(data)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(data).collect::<Result<_, _>>()?;
 
         // PUKConfiguration fields (AUTOMATIC TAGS):
         // [0] INTEGER keyReference
         // [1] OCTET STRING pukValue (8 bytes)
         // [2] INTEGER maxNumOfAttemps-retryNumLeft DEFAULT 0xAA (170)
 
-        let key_reference = tlvs.iter()
+        let key_reference = tlvs
+            .iter()
             .find(|t| t.number == 0 && t.class == 2)
             .and_then(|t| t.value.last().copied())
             .unwrap_or(0x01);
@@ -212,7 +215,8 @@ impl PePukCodes {
             puk_value[..len].copy_from_slice(&tlv.value[..len]);
         }
 
-        let max_retries_byte = tlvs.iter()
+        let max_retries_byte = tlvs
+            .iter()
             .find(|t| t.number == 2 && t.class == 2)
             .and_then(|t| t.value.last().copied())
             .unwrap_or(0xAA);

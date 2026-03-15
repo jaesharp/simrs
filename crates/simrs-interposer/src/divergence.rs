@@ -103,20 +103,13 @@ pub fn hex_dump(data: &[u8]) -> String {
 }
 
 /// Format a divergence for stderr logging.
-pub fn format_divergence(
-    cmd: &[u8],
-    result: &CompareResult,
-    seq_num: u64,
-) -> String {
+pub fn format_divergence(cmd: &[u8], result: &CompareResult, seq_num: u64) -> String {
     let cmd_hex = hex_dump(cmd);
     match result {
         CompareResult::Match => {
             format!("[{seq_num}] MATCH cmd={cmd_hex}")
         }
-        CompareResult::SwMismatch {
-            real_sw,
-            shadow_sw,
-        } => {
+        CompareResult::SwMismatch { real_sw, shadow_sw } => {
             format!(
                 "[{seq_num}] SW MISMATCH cmd={cmd_hex} real={:02X}{:02X} shadow={:02X}{:02X}",
                 real_sw.0, real_sw.1, shadow_sw.0, shadow_sw.1
@@ -149,7 +142,8 @@ mod tests {
 
     #[test]
     fn compare_match() {
-        let result = compare_responses(&[0x01, 0x02], 0x90, 0x00, Some((&[0x01, 0x02], 0x90, 0x00)));
+        let result =
+            compare_responses(&[0x01, 0x02], 0x90, 0x00, Some((&[0x01, 0x02], 0x90, 0x00)));
         assert_eq!(result, CompareResult::Match);
     }
 
@@ -173,12 +167,8 @@ mod tests {
 
     #[test]
     fn compare_data_mismatch() {
-        let result = compare_responses(
-            &[0x01, 0x02],
-            0x90,
-            0x00,
-            Some((&[0x03, 0x04], 0x90, 0x00)),
-        );
+        let result =
+            compare_responses(&[0x01, 0x02], 0x90, 0x00, Some((&[0x03, 0x04], 0x90, 0x00)));
         assert_eq!(
             result,
             CompareResult::DataMismatch {
@@ -191,12 +181,8 @@ mod tests {
 
     #[test]
     fn compare_data_length_mismatch() {
-        let result = compare_responses(
-            &[0x01],
-            0x61,
-            0x0F,
-            Some((&[0x01, 0x02, 0x03], 0x61, 0x0F)),
-        );
+        let result =
+            compare_responses(&[0x01], 0x61, 0x0F, Some((&[0x01, 0x02, 0x03], 0x61, 0x0F)));
         assert_eq!(
             result,
             CompareResult::DataMismatch {
@@ -277,11 +263,7 @@ mod tests {
 
     #[test]
     fn format_divergence_match() {
-        let msg = format_divergence(
-            &[0x00, 0xA4],
-            &CompareResult::Match,
-            42,
-        );
+        let msg = format_divergence(&[0x00, 0xA4], &CompareResult::Match, 42);
         assert!(msg.contains("[42]"));
         assert!(msg.contains("MATCH"));
         assert!(msg.contains("00 A4"));

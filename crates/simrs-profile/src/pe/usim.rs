@@ -105,8 +105,7 @@ impl PeUsim {
         // IMPLICIT context-specific tagging means constructed tags
         // 0xA0 through 0xB9 (for tag numbers up to 25).
         // Tags 0-30 use single-byte encoding, tags >= 31 use multi-byte.
-        let tlvs: Vec<_> = der_util::iter_tlvs(inner)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(inner).collect::<Result<_, _>>()?;
 
         let parse_file = |tag_num: u8| -> Option<Result<File, ProfileError>> {
             // Context-specific constructed: 0xA0 + tag_num (for num < 31)
@@ -116,16 +115,12 @@ impl PeUsim {
                 .map(|t| File::from_bytes(t.value))
         };
 
-        let require_file =
-            |tag_num: u8| -> Result<File, ProfileError> {
-                parse_file(tag_num)
-                    .ok_or(ProfileError::MissingRequiredFile(tag_num))?
-            };
+        let require_file = |tag_num: u8| -> Result<File, ProfileError> {
+            parse_file(tag_num).ok_or(ProfileError::MissingRequiredFile(tag_num))?
+        };
 
         let optional_file =
-            |tag_num: u8| -> Result<Option<File>, ProfileError> {
-                parse_file(tag_num).transpose()
-            };
+            |tag_num: u8| -> Result<Option<File>, ProfileError> { parse_file(tag_num).transpose() };
 
         // Collect any extra files beyond tag 25.
         let mut extra_files = Vec::new();

@@ -28,11 +28,13 @@ pub enum AuthConfig {
 impl core::fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Milenage { k, opc } => f.debug_struct("AuthConfig::Milenage")
+            Self::Milenage { k, opc } => f
+                .debug_struct("AuthConfig::Milenage")
                 .field("k", &Redact(k))
                 .field("opc", &Redact(opc))
                 .finish(),
-            Self::Tuak { k, topc } => f.debug_struct("AuthConfig::Tuak")
+            Self::Tuak { k, topc } => f
+                .debug_struct("AuthConfig::Tuak")
                 .field("k", &Redact(k))
                 .field("topc", &Redact(topc))
                 .finish(),

@@ -249,10 +249,7 @@ struct AtrInterfaceParams {
 }
 
 /// Walk ATR interface bytes starting from T0.
-fn parse_interface_bytes(
-    bytes: &[u8],
-    t0: u8,
-) -> Result<AtrInterfaceParams, T0Error> {
+fn parse_interface_bytes(bytes: &[u8], t0: u8) -> Result<AtrInterfaceParams, T0Error> {
     let mut fi: u16 = 372;
     let mut di: u8 = 1;
     let mut guard_time_n: u8 = 0;
@@ -318,7 +315,15 @@ fn parse_interface_bytes(
         }
     }
 
-    Ok(AtrInterfaceParams { fi, di, guard_time_n, wi, t0_supported, tck_required, pos })
+    Ok(AtrInterfaceParams {
+        fi,
+        di,
+        guard_time_n,
+        wi,
+        t0_supported,
+        tck_required,
+        pos,
+    })
 }
 
 impl Atr {
@@ -1588,9 +1593,8 @@ mod tests {
         // TD1=80 (TD2, T=0), TD2=1F (TA3, T=15), TA3=C7,
         // 15 historical bytes, TCK=F4.
         let atr_bytes: [u8; 22] = [
-            0x3B, 0x9F, 0x96, 0x80, 0x1F, 0xC7, 0x80, 0x31,
-            0xE0, 0x73, 0xFE, 0x21, 0x13, 0x67, 0x4D, 0x45,
-            0x20, 0x4F, 0x53, 0x20, 0x38, 0xF4,
+            0x3B, 0x9F, 0x96, 0x80, 0x1F, 0xC7, 0x80, 0x31, 0xE0, 0x73, 0xFE, 0x21, 0x13, 0x67,
+            0x4D, 0x45, 0x20, 0x4F, 0x53, 0x20, 0x38, 0xF4,
         ];
         let atr = Atr::parse(&atr_bytes).unwrap();
         assert_eq!(atr.convention(), Convention::Direct);

@@ -279,11 +279,7 @@ mod tests {
         let table: [u8; 256] = core::array::from_fn(|i| 255 - i as u8);
         for i in 0u16..256 {
             let b = i as u8;
-            assert_eq!(
-                ct_select(&table, b),
-                255 - b,
-                "ct_select inverted at {b}"
-            );
+            assert_eq!(ct_select(&table, b), 255 - b, "ct_select inverted at {b}");
         }
     }
 
@@ -296,11 +292,7 @@ mod tests {
             for i in 0u16..256 {
                 let b = i as u8;
                 let expected = if b == pos { 0xAB } else { 0x00 };
-                assert_eq!(
-                    ct_select(&table, b),
-                    expected,
-                    "pos={pos}, index={b}"
-                );
+                assert_eq!(ct_select(&table, b), expected, "pos={pos}, index={b}");
             }
         }
     }
@@ -311,11 +303,7 @@ mod tests {
     fn ct_select_n_size_512() {
         let table: [u8; 512] = core::array::from_fn(|i| (i & 0xFF) as u8);
         for i in 0..512 {
-            assert_eq!(
-                ct_select_n(&table, i),
-                table[i],
-                "ct_select_n(512) at {i}"
-            );
+            assert_eq!(ct_select_n(&table, i), table[i], "ct_select_n(512) at {i}");
         }
     }
 
@@ -323,11 +311,7 @@ mod tests {
     fn ct_select_n_size_32() {
         let table: [u8; 32] = core::array::from_fn(|i| (i * 7 + 3) as u8);
         for i in 0..32 {
-            assert_eq!(
-                ct_select_n(&table, i),
-                table[i],
-                "ct_select_n(32) at {i}"
-            );
+            assert_eq!(ct_select_n(&table, i), table[i], "ct_select_n(32) at {i}");
         }
     }
 
@@ -335,11 +319,7 @@ mod tests {
     fn ct_select_n_size_128() {
         let table: [u8; 128] = core::array::from_fn(|i| (i ^ 0x55) as u8);
         for i in 0..128 {
-            assert_eq!(
-                ct_select_n(&table, i),
-                table[i],
-                "ct_select_n(128) at {i}"
-            );
+            assert_eq!(ct_select_n(&table, i), table[i], "ct_select_n(128) at {i}");
         }
     }
 
@@ -593,12 +573,13 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
 
     #[test]
     fn ct_select_timing() {
         let table: [u8; 256] = core::array::from_fn(|i| i as u8);
-        let outcome = ct_test(1,
+        let outcome = ct_test(
+            1,
             |_rng| 0u8,
             |rng| rng.next_u8(),
             |&index| {
@@ -611,7 +592,8 @@ mod ct_validation {
     #[test]
     fn ct_select_n_timing() {
         let table: [u8; 512] = core::array::from_fn(|i| (i & 0xFF) as u8);
-        let outcome = ct_test(2,
+        let outcome = ct_test(
+            2,
             |_rng| 0usize,
             |rng| (rng.next_u64() as usize) % 512,
             |&index| {
@@ -623,7 +605,8 @@ mod ct_validation {
 
     #[test]
     fn ct_xtime_timing() {
-        let outcome = ct_test(3,
+        let outcome = ct_test(
+            3,
             |rng| rng.next_u8() & 0x7F,
             |rng| rng.next_u8() | 0x80,
             |&b| {
@@ -635,7 +618,8 @@ mod ct_validation {
 
     #[test]
     fn ct_eq_equal_vs_different_timing() {
-        let outcome = ct_test(4,
+        let outcome = ct_test(
+            4,
             |rng| {
                 let mut buf = [0u8; 32];
                 rng.fill_bytes(&mut buf);
@@ -658,7 +642,8 @@ mod ct_validation {
 
     #[test]
     fn ct_eq_early_vs_late_diff_timing() {
-        let outcome = ct_test(5,
+        let outcome = ct_test(
+            5,
             |rng| {
                 let mut a = [0u8; 32];
                 rng.fill_bytes(&mut a);
@@ -682,7 +667,8 @@ mod ct_validation {
 
     #[test]
     fn ct_is_zero_u8_timing() {
-        let outcome = ct_test(6,
+        let outcome = ct_test(
+            6,
             |_rng| 0u8,
             |rng| {
                 let mut v = rng.next_u8();
@@ -700,7 +686,8 @@ mod ct_validation {
 
     #[test]
     fn ct_mux_u8_timing() {
-        let outcome = ct_test(7,
+        let outcome = ct_test(
+            7,
             |rng| (true, rng.next_u8(), rng.next_u8()),
             |rng| (false, rng.next_u8(), rng.next_u8()),
             |&(cond, a, b)| {

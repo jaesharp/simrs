@@ -61,11 +61,7 @@ const RC: [u64; 24] = [
 ///
 /// Indexed as `OFFSETS[x + 5*y]` in row-major order.
 const RHO_OFFSETS: [u32; 25] = [
-     0,  1, 62, 28, 27,
-    36, 44,  6, 55, 20,
-     3, 10, 43, 25, 39,
-    41, 45, 15, 21,  8,
-    18,  2, 61, 56, 14,
+    0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14,
 ];
 
 /// Theta step mapping ([NIST FIPS 202](../../../docs/specs/nist/fips-202/NIST.FIPS.202.pdf) Section 3.2.1).
@@ -180,8 +176,7 @@ pub fn keccak_f1600_bytes(state: &mut [u8; 200]) {
     let mut lanes = [0u64; 25];
     for (lane, chunk) in lanes.iter_mut().zip(state.chunks_exact(8)) {
         *lane = u64::from_le_bytes([
-            chunk[0], chunk[1], chunk[2], chunk[3],
-            chunk[4], chunk[5], chunk[6], chunk[7],
+            chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
         ]);
     }
     keccak_f1600(&mut lanes);
@@ -391,13 +386,17 @@ mod tests {
         let mut state_zero = [0u64; 25];
         keccak_f1600(&mut state_zero);
 
-        assert_ne!(state_rc0, state_zero,
-            "state with lane[0]=RC[0] must produce different output than all-zero state");
+        assert_ne!(
+            state_rc0, state_zero,
+            "state with lane[0]=RC[0] must produce different output than all-zero state"
+        );
 
         assert_ne!(state_rc0, [0u64; 25], "result must not be all-zeros");
         let nonzero = state_rc0.iter().filter(|&&x| x != 0).count();
-        assert!(nonzero >= 20,
-            "expected good diffusion: at least 20/25 non-zero lanes, got {nonzero}");
+        assert!(
+            nonzero >= 20,
+            "expected good diffusion: at least 20/25 non-zero lanes, got {nonzero}"
+        );
     }
 
     /// Verify that the permutation is NOT the identity for multiple distinct
@@ -409,35 +408,48 @@ mod tests {
         let mut state1: [u64; 25] = core::array::from_fn(|i| i as u64);
         let input1 = state1;
         keccak_f1600(&mut state1);
-        assert_ne!(state1, input1,
-            "incrementing lanes: permutation must not be identity");
+        assert_ne!(
+            state1, input1,
+            "incrementing lanes: permutation must not be identity"
+        );
 
         // Pattern 2: alternating bits (0xAAAA..., 0x5555..., ...).
         let mut state2: [u64; 25] = core::array::from_fn(|i| {
-            if i % 2 == 0 { 0xAAAA_AAAA_AAAA_AAAA } else { 0x5555_5555_5555_5555 }
+            if i % 2 == 0 {
+                0xAAAA_AAAA_AAAA_AAAA
+            } else {
+                0x5555_5555_5555_5555
+            }
         });
         let input2 = state2;
         keccak_f1600(&mut state2);
-        assert_ne!(state2, input2,
-            "alternating bits: permutation must not be identity");
+        assert_ne!(
+            state2, input2,
+            "alternating bits: permutation must not be identity"
+        );
 
         // Pattern 3: single high bit in each lane.
         let mut state3: [u64; 25] = core::array::from_fn(|i| 1u64 << (i % 64));
         let input3 = state3;
         keccak_f1600(&mut state3);
-        assert_ne!(state3, input3,
-            "single high bits: permutation must not be identity");
+        assert_ne!(
+            state3, input3,
+            "single high bits: permutation must not be identity"
+        );
 
         // Pattern 4: large prime-derived values (non-trivial, irrational-like).
         let mut state4: [u64; 25] = core::array::from_fn(|i| {
-            let v = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            let v = (i as u64)
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15)
                 .wrapping_add(0x6A09_E667_F3BC_C908);
             v ^ v.rotate_right(17)
         });
         let input4 = state4;
         keccak_f1600(&mut state4);
-        assert_ne!(state4, input4,
-            "prime-derived pattern: permutation must not be identity");
+        assert_ne!(
+            state4, input4,
+            "prime-derived pattern: permutation must not be identity"
+        );
 
         // All four outputs must be mutually distinct.
         assert_ne!(state1, state2, "pattern 1 and 2 outputs must differ");
@@ -471,8 +483,10 @@ mod tests {
         }
 
         // Output must not be all-zeros (non-trivial computation).
-        assert_ne!(bytes, [0u8; 200],
-            "non-zero input must produce non-zero output via byte interface");
+        assert_ne!(
+            bytes, [0u8; 200],
+            "non-zero input must produce non-zero output via byte interface"
+        );
     }
 }
 
@@ -552,14 +566,15 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
 
     /// Keccak-f[1600] timing must be independent of state content.
     /// Class 0: all-zero state.
     /// Class 1: random state.
     #[test]
     fn test_keccak_f1600_ct() {
-        let outcome = ct_test(0xF160_0001,
+        let outcome = ct_test(
+            0xF160_0001,
             |_rng| [0u64; 25],
             |rng| {
                 let mut state = [0u64; 25];

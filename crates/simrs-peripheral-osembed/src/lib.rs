@@ -495,7 +495,10 @@ mod tests {
         assert_eq!(n, 6 + 7);
         let decoded = IoctlXferCmd::decode(&buf[..n]).unwrap();
         assert_eq!(decoded.len, 7);
-        assert_eq!(&decoded.data[..7], &[0x00, 0xA4, 0x04, 0x04, 0x02, 0x3F, 0x00]);
+        assert_eq!(
+            &decoded.data[..7],
+            &[0x00, 0xA4, 0x04, 0x04, 0x02, 0x3F, 0x00]
+        );
     }
 
     #[test]

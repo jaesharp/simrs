@@ -70,8 +70,8 @@ macro_rules! with_sim {
         SIM.with(|cell| {
             let mut borrow = cell.borrow_mut();
             match borrow.as_mut() {
-                Some(SimInstance::Milenage($sim)) => { $body }
-                Some(SimInstance::Tuak($sim)) => { $body }
+                Some(SimInstance::Milenage($sim)) => $body,
+                Some(SimInstance::Tuak($sim)) => $body,
                 None => $default,
             }
         })
@@ -86,7 +86,11 @@ macro_rules! with_sim {
 pub const MAX_SNAPSHOT_SIZE: usize = 1 + {
     let mil = Sim::<MilenageParams, 256>::SNAPSHOT_SIZE;
     let tuak = Sim::<TuakParams, 256>::SNAPSHOT_SIZE;
-    if mil > tuak { mil } else { tuak }
+    if mil > tuak {
+        mil
+    } else {
+        tuak
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -108,7 +112,8 @@ pub fn hle_init(
     opc: [u8; 16],
 ) {
     SIM.with(|cell| {
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
+        let mil =
+            MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, &[], mil);
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
@@ -151,7 +156,8 @@ pub fn hle_init_with_adf(
     adf_table: &'static [AdfSlot],
 ) {
     SIM.with(|cell| {
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
+        let mil =
+            MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, adf_table, mil);
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
@@ -274,7 +280,11 @@ pub fn hle_snapshot_save(buf: &mut [u8]) -> usize {
                 }
                 buf[0] = 0x00; // Milenage discriminant
                 let n = sim.save_state(&mut buf[1..]);
-                if n == 0 { 0 } else { 1 + n }
+                if n == 0 {
+                    0
+                } else {
+                    1 + n
+                }
             }
             Some(SimInstance::Tuak(sim)) => {
                 if buf.len() < 1 + Sim::<TuakParams, 256>::SNAPSHOT_SIZE {
@@ -282,7 +292,11 @@ pub fn hle_snapshot_save(buf: &mut [u8]) -> usize {
                 }
                 buf[0] = 0x01; // TUAK discriminant
                 let n = sim.save_state(&mut buf[1..]);
-                if n == 0 { 0 } else { 1 + n }
+                if n == 0 {
+                    0
+                } else {
+                    1 + n
+                }
             }
             None => 0,
         }
@@ -382,11 +396,23 @@ mod tests {
     static ATR: [u8; 2] = [0x3B, 0x00];
 
     fn init() {
-        hle_init(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 16]);
+        hle_init(
+            &ATR,
+            &MF,
+            GsmSubscriberKey::classify([0x11; 16]),
+            [0x22; 16],
+            [0x33; 16],
+        );
     }
 
     fn init_tuak() {
-        hle_init_tuak(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 32]);
+        hle_init_tuak(
+            &ATR,
+            &MF,
+            GsmSubscriberKey::classify([0x11; 16]),
+            [0x22; 16],
+            [0x33; 32],
+        );
     }
 
     // -------------------------------------------------------------------
@@ -526,7 +552,10 @@ mod tests {
         });
         // Tick 6 seconds -- both timers should expire.
         let mask = hle_tick(6);
-        assert_eq!(mask, 0b0000_0101, "bits 0 and 2 should be set for timers 1 and 3");
+        assert_eq!(
+            mask, 0b0000_0101,
+            "bits 0 and 2 should be set for timers 1 and 3"
+        );
     }
 
     // -------------------------------------------------------------------
@@ -537,7 +566,11 @@ mod tests {
     fn hle_init_tuak_basic() {
         init_tuak();
         let atr_len = hle_reset();
-        assert_eq!(atr_len, ATR.len(), "TUAK sim should reset with correct ATR length");
+        assert_eq!(
+            atr_len,
+            ATR.len(),
+            "TUAK sim should reset with correct ATR length"
+        );
     }
 
     #[test]
@@ -629,8 +662,10 @@ mod tests {
 
         // Switch to TUAK, try to restore Milenage snapshot -> must fail.
         init_tuak();
-        assert!(!hle_snapshot_restore(&snap[..n]),
-            "restoring Milenage snapshot into TUAK instance must fail");
+        assert!(
+            !hle_snapshot_restore(&snap[..n]),
+            "restoring Milenage snapshot into TUAK instance must fail"
+        );
     }
 
     // -------------------------------------------------------------------
@@ -651,7 +686,14 @@ mod tests {
 
     #[test]
     fn hle_init_with_adf_table() {
-        hle_init_with_adf(&ATR, &MF, GsmSubscriberKey::classify([0x11; 16]), [0x22; 16], [0x33; 16], &ADF_TABLE);
+        hle_init_with_adf(
+            &ATR,
+            &MF,
+            GsmSubscriberKey::classify([0x11; 16]),
+            [0x22; 16],
+            [0x33; 16],
+            &ADF_TABLE,
+        );
         hle_reset();
         let mut rsp = [0u8; 256];
         // SELECT by AID: 00 A4 04 00 07 [AID] 00
@@ -666,7 +708,10 @@ mod tests {
         let result = hle_apdu(&cmd, &mut rsp);
         let (_, sw1, _) = result.expect("SELECT by AID should succeed with ADF table");
         // 0x61 = bytes available (FCP queued for GET RESPONSE)
-        assert_eq!(sw1, 0x61, "SELECT by AID should return 61 XX with ADF table");
+        assert_eq!(
+            sw1, 0x61,
+            "SELECT by AID should return 61 XX with ADF table"
+        );
     }
 
     #[test]
@@ -686,7 +731,10 @@ mod tests {
         let result = hle_apdu(&cmd, &mut rsp);
         let (_, sw1, sw2) = result.expect("should get response");
         // 6A 82 = file/application not found
-        assert_eq!((sw1, sw2), (0x6A, 0x82),
-            "SELECT by AID with no ADF table should return file not found");
+        assert_eq!(
+            (sw1, sw2),
+            (0x6A, 0x82),
+            "SELECT by AID with no ADF table should return file not found"
+        );
     }
 }

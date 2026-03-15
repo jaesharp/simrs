@@ -167,13 +167,15 @@ impl MutableTree {
         }
 
         // Extract AID from ADF FCP.
-        let aid = pe.adf_usim
+        let aid = pe
+            .adf_usim
             .fcp
             .as_ref()
             .and_then(|fcp| fcp.df_name.clone())
             .unwrap_or_else(|| vec![0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
 
-        let adf_fid = pe.adf_usim
+        let adf_fid = pe
+            .adf_usim
             .fcp
             .as_ref()
             .and_then(|fcp| fcp.parse_fid().ok())
@@ -200,8 +202,11 @@ impl MutableTree {
 
     /// Find an ADF by AID prefix and return mutable reference to its children.
     fn adf_children(&mut self, aid_prefix: &[u8]) -> Option<&mut Vec<MutableChild>> {
-        self.adfs.iter_mut()
-            .find(|(aid, _)| aid.len() >= aid_prefix.len() && aid[..aid_prefix.len()] == *aid_prefix)
+        self.adfs
+            .iter_mut()
+            .find(|(aid, _)| {
+                aid.len() >= aid_prefix.len() && aid[..aid_prefix.len()] == *aid_prefix
+            })
             .map(|(_, df)| &mut df.children)
     }
 
@@ -228,10 +233,7 @@ impl MutableTree {
         root_file: &crate::file::File,
         child_files: &[(u8, crate::file::File)],
     ) -> Result<MutableChild, ProfileError> {
-        let fcp = root_file
-            .fcp
-            .as_ref()
-            .ok_or(ProfileError::MissingFcp)?;
+        let fcp = root_file.fcp.as_ref().ok_or(ProfileError::MissingFcp)?;
         let fid = fcp.parse_fid()?;
 
         let children = Self::files_to_ef_children(child_files)?;
@@ -241,17 +243,13 @@ impl MutableTree {
 
     /// Split a tagged file list into root DF (tag `[2]`) and child files
     /// (tags `[3]`+), build a `MutableChild::Df`.
-    fn split_and_build_sub_df(
-        files: &[(u8, File)],
-    ) -> Result<MutableChild, ProfileError> {
-        let root_file = files.iter()
+    fn split_and_build_sub_df(files: &[(u8, File)]) -> Result<MutableChild, ProfileError> {
+        let root_file = files
+            .iter()
             .find(|(tag, _)| *tag == 2)
             .map(|(_, f)| f)
             .ok_or(ProfileError::MissingRequiredFile(2))?;
-        let child_files: Vec<_> = files.iter()
-            .filter(|(tag, _)| *tag > 2)
-            .cloned()
-            .collect();
+        let child_files: Vec<_> = files.iter().filter(|(tag, _)| *tag > 2).cloned().collect();
         Self::build_sub_df(root_file, &child_files)
     }
 
@@ -291,16 +289,17 @@ impl MutableTree {
     /// # Errors
     ///
     /// Returns [`ProfileError`] if any file conversion fails.
-    pub fn apply_isim(
-        &mut self,
-        pe: &crate::pe::isim::PeIsim,
-    ) -> Result<(), ProfileError> {
-        let adf_file = pe.files.iter()
+    pub fn apply_isim(&mut self, pe: &crate::pe::isim::PeIsim) -> Result<(), ProfileError> {
+        let adf_file = pe
+            .files
+            .iter()
             .find(|(tag, _)| *tag == 2)
             .map(|(_, f)| f)
             .ok_or(ProfileError::MissingRequiredFile(2))?;
 
-        let child_files: Vec<_> = pe.files.iter()
+        let child_files: Vec<_> = pe
+            .files
+            .iter()
             .filter(|(tag, _)| *tag > 2)
             .cloned()
             .collect();
@@ -373,10 +372,7 @@ impl MutableTree {
     /// # Errors
     ///
     /// Returns [`ProfileError`] if any file conversion fails.
-    pub fn apply_df_5gs(
-        &mut self,
-        pe: &crate::pe::df_5gs::PeDf5gs,
-    ) -> Result<(), ProfileError> {
+    pub fn apply_df_5gs(&mut self, pe: &crate::pe::df_5gs::PeDf5gs) -> Result<(), ProfileError> {
         self.apply_usim_sub_df(&pe.files)
     }
 
@@ -385,10 +381,7 @@ impl MutableTree {
     /// # Errors
     ///
     /// Returns [`ProfileError`] if any file conversion fails.
-    pub fn apply_df_saip(
-        &mut self,
-        pe: &crate::pe::df_saip::PeDfSaip,
-    ) -> Result<(), ProfileError> {
+    pub fn apply_df_saip(&mut self, pe: &crate::pe::df_saip::PeDfSaip) -> Result<(), ProfileError> {
         self.apply_usim_sub_df(&pe.files)
     }
 
@@ -397,10 +390,7 @@ impl MutableTree {
     /// # Errors
     ///
     /// Returns [`ProfileError`] if any file conversion fails.
-    pub fn apply_cd(
-        &mut self,
-        pe: &crate::pe::cd::PeCd,
-    ) -> Result<(), ProfileError> {
+    pub fn apply_cd(&mut self, pe: &crate::pe::cd::PeCd) -> Result<(), ProfileError> {
         let sub_df = Self::split_and_build_sub_df(&pe.files)?;
         self.mf_children()?.push(sub_df);
         Ok(())
@@ -423,16 +413,17 @@ impl MutableTree {
     /// # Errors
     ///
     /// Returns [`ProfileError`] if any file conversion fails.
-    pub fn apply_csim(
-        &mut self,
-        pe: &crate::pe::csim::PeCsim,
-    ) -> Result<(), ProfileError> {
-        let adf_file = pe.files.iter()
+    pub fn apply_csim(&mut self, pe: &crate::pe::csim::PeCsim) -> Result<(), ProfileError> {
+        let adf_file = pe
+            .files
+            .iter()
             .find(|(tag, _)| *tag == 2)
             .map(|(_, f)| f)
             .ok_or(ProfileError::MissingRequiredFile(2))?;
 
-        let child_files: Vec<_> = pe.files.iter()
+        let child_files: Vec<_> = pe
+            .files
+            .iter()
             .filter(|(tag, _)| *tag > 2)
             .cloned()
             .collect();
@@ -483,10 +474,7 @@ impl MutableTree {
     /// # Errors
     ///
     /// Returns [`ProfileError`] if any file conversion fails.
-    pub fn apply_gfm(
-        &mut self,
-        pe: &crate::pe::gfm::PeGfm,
-    ) -> Result<(), ProfileError> {
+    pub fn apply_gfm(&mut self, pe: &crate::pe::gfm::PeGfm) -> Result<(), ProfileError> {
         for cmd in &pe.commands {
             let Some(fcp) = cmd.file.fcp.as_ref() else {
                 continue;
@@ -504,9 +492,11 @@ impl MutableTree {
             if fcp.is_df() {
                 // GFM DF creation: add as a sub-DF at the target path.
                 let fid = fcp.parse_fid()?;
-                let exists = target.iter().any(|c| matches!(
-                    c, MutableChild::Df(df) if df.fid == fid
-                ));
+                let exists = target.iter().any(|c| {
+                    matches!(
+                        c, MutableChild::Df(df) if df.fid == fid
+                    )
+                });
                 if !exists {
                     target.push(MutableChild::Df(MutableDf {
                         fid,
@@ -546,7 +536,9 @@ impl MutableTree {
         }
 
         // Check ADFs by index to avoid borrow conflicts.
-        if let Some(idx) = self.adfs.iter()
+        if let Some(idx) = self
+            .adfs
+            .iter()
             .position(|(_, df)| df.fid.value() == first_fid)
         {
             let children = &mut self.adfs[idx].1.children;
@@ -617,7 +609,9 @@ impl MutableTree {
         let explicit_size = fcp.raw_file_size();
 
         // Compute fill extent: max(offset + content.len()) over all fills.
-        let fill_extent = file.fills.iter()
+        let fill_extent = file
+            .fills
+            .iter()
             .map(|(offset, content)| offset + content.len())
             .max()
             .unwrap_or(0);
@@ -676,8 +670,7 @@ impl MutableTree {
                 root: static_root,
             });
         }
-        let static_adf_table: &'static [AdfSlot] =
-            Box::leak(adf_slots.into_boxed_slice());
+        let static_adf_table: &'static [AdfSlot] = Box::leak(adf_slots.into_boxed_slice());
 
         Ok((static_mf, static_adf_table))
     }
@@ -690,35 +683,18 @@ fn freeze_df(df: MutableDf) -> &'static DfDef {
         .into_iter()
         .map(|child| match child {
             MutableChild::Ef(ef) => {
-                let static_data: &'static [u8] =
-                    Box::leak(ef.data.into_boxed_slice());
+                let static_data: &'static [u8] = Box::leak(ef.data.into_boxed_slice());
                 let ef_def = match ef.structure {
-                    EfStructure::Transparent => {
-                        EfDef::transparent(ef.fid, ef.sfi, static_data)
-                    }
+                    EfStructure::Transparent => EfDef::transparent(ef.fid, ef.sfi, static_data),
                     EfStructure::LinearFixed {
                         record_size,
                         num_records,
-                    } => EfDef::linear_fixed(
-                        ef.fid,
-                        ef.sfi,
-                        record_size,
-                        num_records,
-                        static_data,
-                    ),
+                    } => EfDef::linear_fixed(ef.fid, ef.sfi, record_size, num_records, static_data),
                     EfStructure::Cyclic {
                         record_size,
                         num_records,
-                    } => EfDef::cyclic(
-                        ef.fid,
-                        ef.sfi,
-                        record_size,
-                        num_records,
-                        static_data,
-                    ),
-                    EfStructure::BerTlv => {
-                        EfDef::ber_tlv(ef.fid, ef.sfi, static_data)
-                    }
+                    } => EfDef::cyclic(ef.fid, ef.sfi, record_size, num_records, static_data),
+                    EfStructure::BerTlv => EfDef::ber_tlv(ef.fid, ef.sfi, static_data),
                 };
                 FileRef::Ef(Box::leak(Box::new(ef_def)))
             }
@@ -726,8 +702,7 @@ fn freeze_df(df: MutableDf) -> &'static DfDef {
         })
         .collect();
 
-    let static_children: &'static [FileRef] =
-        Box::leak(children.into_boxed_slice());
+    let static_children: &'static [FileRef] = Box::leak(children.into_boxed_slice());
 
     Box::leak(Box::new(DfDef {
         fid: df.fid,

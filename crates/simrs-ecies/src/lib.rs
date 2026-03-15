@@ -63,11 +63,21 @@ use simrs_secret::Secret;
 pub struct X25519PublicKey([u8; 32]);
 impl X25519PublicKey {
     /// Wrap a raw 32-byte array as a Curve25519 public key.
-    #[inline] pub const fn new(raw: [u8; 32]) -> Self { Self(raw) }
+    #[inline]
+    pub const fn new(raw: [u8; 32]) -> Self {
+        Self(raw)
+    }
     /// Borrow the underlying 32-byte representation.
-    #[inline] pub const fn as_bytes(&self) -> &[u8; 32] { &self.0 }
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
 }
-impl From<[u8; 32]> for X25519PublicKey { fn from(raw: [u8; 32]) -> Self { Self(raw) } }
+impl From<[u8; 32]> for X25519PublicKey {
+    fn from(raw: [u8; 32]) -> Self {
+        Self(raw)
+    }
+}
 
 /// NIST P-256 public key in compressed SEC 1 format (33 bytes).
 ///
@@ -76,11 +86,21 @@ impl From<[u8; 32]> for X25519PublicKey { fn from(raw: [u8; 32]) -> Self { Self(
 pub struct P256CompressedPublicKey([u8; 33]);
 impl P256CompressedPublicKey {
     /// Wrap a raw 33-byte array as a compressed P-256 public key.
-    #[inline] pub const fn new(raw: [u8; 33]) -> Self { Self(raw) }
+    #[inline]
+    pub const fn new(raw: [u8; 33]) -> Self {
+        Self(raw)
+    }
     /// Borrow the underlying 33-byte representation.
-    #[inline] pub const fn as_bytes(&self) -> &[u8; 33] { &self.0 }
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8; 33] {
+        &self.0
+    }
 }
-impl From<[u8; 33]> for P256CompressedPublicKey { fn from(raw: [u8; 33]) -> Self { Self(raw) } }
+impl From<[u8; 33]> for P256CompressedPublicKey {
+    fn from(raw: [u8; 33]) -> Self {
+        Self(raw)
+    }
+}
 
 /// NIST P-256 public key in uncompressed SEC 1 format (65 bytes).
 ///
@@ -89,11 +109,21 @@ impl From<[u8; 33]> for P256CompressedPublicKey { fn from(raw: [u8; 33]) -> Self
 pub struct P256UncompressedPublicKey([u8; 65]);
 impl P256UncompressedPublicKey {
     /// Wrap a raw 65-byte array as an uncompressed P-256 public key.
-    #[inline] pub const fn new(raw: [u8; 65]) -> Self { Self(raw) }
+    #[inline]
+    pub const fn new(raw: [u8; 65]) -> Self {
+        Self(raw)
+    }
     /// Borrow the underlying 65-byte representation.
-    #[inline] pub const fn as_bytes(&self) -> &[u8; 65] { &self.0 }
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8; 65] {
+        &self.0
+    }
 }
-impl From<[u8; 65]> for P256UncompressedPublicKey { fn from(raw: [u8; 65]) -> Self { Self(raw) } }
+impl From<[u8; 65]> for P256UncompressedPublicKey {
+    fn from(raw: [u8; 65]) -> Self {
+        Self(raw)
+    }
+}
 
 /// Truncated HMAC-SHA-256 authentication tag (8 bytes).
 ///
@@ -102,11 +132,21 @@ impl From<[u8; 65]> for P256UncompressedPublicKey { fn from(raw: [u8; 65]) -> Se
 pub struct MacTag([u8; 8]);
 impl MacTag {
     /// Wrap a raw 8-byte array as a truncated MAC tag.
-    #[inline] pub const fn new(raw: [u8; 8]) -> Self { Self(raw) }
+    #[inline]
+    pub const fn new(raw: [u8; 8]) -> Self {
+        Self(raw)
+    }
     /// Borrow the underlying 8-byte representation.
-    #[inline] pub const fn as_bytes(&self) -> &[u8; 8] { &self.0 }
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8; 8] {
+        &self.0
+    }
 }
-impl From<[u8; 8]> for MacTag { fn from(raw: [u8; 8]) -> Self { Self(raw) } }
+impl From<[u8; 8]> for MacTag {
+    fn from(raw: [u8; 8]) -> Self {
+        Self(raw)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // AES-128-CTR (NIST SP 800-38A clause 6.5)
@@ -251,7 +291,12 @@ pub fn ecies_profile_a_encrypt(
     //   KDF(Z, SharedInfo1) where SharedInfo1 = ephemeral public key (raw 32 bytes, no prefix)
     //   Output: 64 bytes = enc_key(16) || ICB(16) || mac_key(32)
     let mut kdf_out = [0u8; 64];
-    kdf_x963(shared_secret.declassify_ref(), ephemeral_pk.as_bytes(), 64, &mut kdf_out);
+    kdf_x963(
+        shared_secret.declassify_ref(),
+        ephemeral_pk.as_bytes(),
+        64,
+        &mut kdf_out,
+    );
 
     let enc_key = Secret::new({
         let mut k = [0u8; 16];
@@ -339,7 +384,12 @@ pub fn ecies_profile_b_encrypt(
     //   KDF(Z, SharedInfo1) where SharedInfo1 = compressed ephemeral pubkey
     //   Output: 64 bytes = enc_key(16) || ICB(16) || mac_key(32)
     let mut kdf_out = [0u8; 64];
-    kdf_x963(shared_secret.declassify_ref(), ephemeral_pk.as_bytes(), 64, &mut kdf_out);
+    kdf_x963(
+        shared_secret.declassify_ref(),
+        ephemeral_pk.as_bytes(),
+        64,
+        &mut kdf_out,
+    );
 
     let enc_key = Secret::new({
         let mut k = [0u8; 16];
@@ -406,8 +456,8 @@ mod tests {
     fn nist_aes128_ctr_block1() {
         // NIST SP 800-38A F.5.1: CTR-AES128.Encrypt, Block #1
         let key = hex_to_16("2b7e151628aed2a6abf7158809cf4f3c");
-        let iv  = hex_to_16("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff");
-        let pt  = hex_to_16("6bc1bee22e409f96e93d7e117393172a");
+        let iv = hex_to_16("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff");
+        let pt = hex_to_16("6bc1bee22e409f96e93d7e117393172a");
         let expected_ct = hex_to_16("874d6191b620e3261bef6864990db6ce");
 
         let mut ct = [0u8; 16];
@@ -419,20 +469,22 @@ mod tests {
     fn nist_aes128_ctr_4_blocks() {
         // NIST SP 800-38A F.5.1: CTR-AES128.Encrypt, all 4 blocks
         let key = hex_to_16("2b7e151628aed2a6abf7158809cf4f3c");
-        let iv  = hex_to_16("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff");
+        let iv = hex_to_16("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff");
 
         let pt = [
-            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
-            0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51,
-            0x30, 0xc8, 0x1c, 0x46, 0xa3, 0x5c, 0xe4, 0x11, 0xe5, 0xfb, 0xc1, 0x19, 0x1a, 0x0a, 0x52, 0xef,
-            0xf6, 0x9f, 0x24, 0x45, 0xdf, 0x4f, 0x9b, 0x17, 0xad, 0x2b, 0x41, 0x7b, 0xe6, 0x6c, 0x37, 0x10,
+            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93,
+            0x17, 0x2a, 0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac,
+            0x45, 0xaf, 0x8e, 0x51, 0x30, 0xc8, 0x1c, 0x46, 0xa3, 0x5c, 0xe4, 0x11, 0xe5, 0xfb,
+            0xc1, 0x19, 0x1a, 0x0a, 0x52, 0xef, 0xf6, 0x9f, 0x24, 0x45, 0xdf, 0x4f, 0x9b, 0x17,
+            0xad, 0x2b, 0x41, 0x7b, 0xe6, 0x6c, 0x37, 0x10,
         ];
 
         let expected_ct = [
-            0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d, 0xb6, 0xce,
-            0x98, 0x06, 0xf6, 0x6b, 0x79, 0x70, 0xfd, 0xff, 0x86, 0x17, 0x18, 0x7b, 0xb9, 0xff, 0xfd, 0xff,
-            0x5a, 0xe4, 0xdf, 0x3e, 0xdb, 0xd5, 0xd3, 0x5e, 0x5b, 0x4f, 0x09, 0x02, 0x0d, 0xb0, 0x3e, 0xab,
-            0x1e, 0x03, 0x1d, 0xda, 0x2f, 0xbe, 0x03, 0xd1, 0x79, 0x21, 0x70, 0xa0, 0xf3, 0x00, 0x9c, 0xee,
+            0x87, 0x4d, 0x61, 0x91, 0xb6, 0x20, 0xe3, 0x26, 0x1b, 0xef, 0x68, 0x64, 0x99, 0x0d,
+            0xb6, 0xce, 0x98, 0x06, 0xf6, 0x6b, 0x79, 0x70, 0xfd, 0xff, 0x86, 0x17, 0x18, 0x7b,
+            0xb9, 0xff, 0xfd, 0xff, 0x5a, 0xe4, 0xdf, 0x3e, 0xdb, 0xd5, 0xd3, 0x5e, 0x5b, 0x4f,
+            0x09, 0x02, 0x0d, 0xb0, 0x3e, 0xab, 0x1e, 0x03, 0x1d, 0xda, 0x2f, 0xbe, 0x03, 0xd1,
+            0x79, 0x21, 0x70, 0xa0, 0xf3, 0x00, 0x9c, 0xee,
         ];
 
         let mut ct = [0u8; 64];
@@ -444,7 +496,7 @@ mod tests {
     fn aes128_ctr_decrypt_roundtrip() {
         // CTR mode is symmetric: encrypt then decrypt should recover plaintext.
         let key = hex_to_16("2b7e151628aed2a6abf7158809cf4f3c");
-        let iv  = hex_to_16("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff");
+        let iv = hex_to_16("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff");
         let pt = b"Hello, Curve25519 world!";
 
         let mut ct = [0u8; 24];
@@ -475,15 +527,15 @@ mod tests {
     #[test]
     fn ts33501_c43_profile_a_full_vector() {
         // TS 33.501 Annex C.4.3 complete test vector.
-        let hn_pk = hex_to_32(
-            "5a8d38864820197c3394b92613b20b91633cbd897119273bf8e4a6f4eec0a650",
-        );
-        let eph_sk = hex_to_32(
-            "c80949f13ebe61af4ebdbd293ea4f942696b9e815d7e8f0096bbf6ed7de62256",
-        );
+        let hn_pk = hex_to_32("5a8d38864820197c3394b92613b20b91633cbd897119273bf8e4a6f4eec0a650");
+        let eph_sk = hex_to_32("c80949f13ebe61af4ebdbd293ea4f942696b9e815d7e8f0096bbf6ed7de62256");
         let plaintext = [0x00, 0x01, 0x20, 0x80, 0xf6]; // packed BCD MSIN
 
-        let result = ecies_profile_a_encrypt(&X25519PublicKey::new(hn_pk), &plaintext, &Secret::new(eph_sk));
+        let result = ecies_profile_a_encrypt(
+            &X25519PublicKey::new(hn_pk),
+            &plaintext,
+            &Secret::new(eph_sk),
+        );
 
         // Verify ephemeral pubkey.
         assert_eq!(
@@ -505,12 +557,8 @@ mod tests {
     #[test]
     fn ts33501_c43_profile_a_kdf_intermediate() {
         // Verify intermediate KDF values from TS 33.501 C.4.3.
-        let hn_pk = hex_to_32(
-            "5a8d38864820197c3394b92613b20b91633cbd897119273bf8e4a6f4eec0a650",
-        );
-        let eph_sk = hex_to_32(
-            "c80949f13ebe61af4ebdbd293ea4f942696b9e815d7e8f0096bbf6ed7de62256",
-        );
+        let hn_pk = hex_to_32("5a8d38864820197c3394b92613b20b91633cbd897119273bf8e4a6f4eec0a650");
+        let eph_sk = hex_to_32("c80949f13ebe61af4ebdbd293ea4f942696b9e815d7e8f0096bbf6ed7de62256");
 
         // Shared secret (X25519 ECDH).
         let z = x25519::x25519(&Secret::new(eph_sk), &X25519PublicKey::new(hn_pk));
@@ -545,14 +593,10 @@ mod tests {
     #[test]
     fn ecies_profile_a_encrypt_decrypt_roundtrip() {
         // HN key pair.
-        let hn_sk = hex_to_32(
-            "c53c22208b61860b06c62e5406a7b330c2b577aa5558981510d128247d38bd1d",
-        );
+        let hn_sk = hex_to_32("c53c22208b61860b06c62e5406a7b330c2b577aa5558981510d128247d38bd1d");
         let hn_pk = x25519::x25519_base(&Secret::new(hn_sk));
 
-        let eph_sk = hex_to_32(
-            "c80949f13ebe61af4ebdbd293ea4f942696b9e815d7e8f0096bbf6ed7de62256",
-        );
+        let eph_sk = hex_to_32("c80949f13ebe61af4ebdbd293ea4f942696b9e815d7e8f0096bbf6ed7de62256");
         let msin = [0x00, 0x01, 0x20, 0x80, 0xf6];
 
         let result = ecies_profile_a_encrypt(&hn_pk, &msin, &Secret::new(eph_sk));
@@ -560,7 +604,12 @@ mod tests {
         // HN side: compute shared secret and re-derive keys.
         let shared_secret = x25519::x25519(&Secret::new(hn_sk), &result.ephemeral_pk);
         let mut kdf_out = [0u8; 64];
-        simrs_kdf::kdf_x963(shared_secret.declassify_ref(), result.ephemeral_pk.as_bytes(), 64, &mut kdf_out);
+        simrs_kdf::kdf_x963(
+            shared_secret.declassify_ref(),
+            result.ephemeral_pk.as_bytes(),
+            64,
+            &mut kdf_out,
+        );
 
         let mut enc_key = [0u8; 16];
         enc_key.copy_from_slice(&kdf_out[..16]);
@@ -577,7 +626,12 @@ mod tests {
 
         // Decrypt.
         let mut decrypted = [0u8; 16];
-        aes128_ctr(&Secret::new(enc_key), &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
+        aes128_ctr(
+            &Secret::new(enc_key),
+            &icb,
+            &result.ciphertext[..result.ct_len],
+            &mut decrypted,
+        );
         assert_eq!(&decrypted[..msin.len()], &msin);
     }
 
@@ -674,12 +728,14 @@ mod tests {
             "0472da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd1\
              5a7ded52fcbb097a4ed250e036c7b9c8c7004c4eedc4f068cd7bf8d3f900e3b4",
         );
-        let eph_sk = hex_to_32(
-            "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
-        );
+        let eph_sk = hex_to_32("99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529");
         let plaintext = [0x00, 0x01, 0x20, 0x80, 0xf6]; // packed BCD MSIN
 
-        let result = ecies_profile_b_encrypt(&P256UncompressedPublicKey::new(hn_pk), &plaintext, &Secret::new(eph_sk));
+        let result = ecies_profile_b_encrypt(
+            &P256UncompressedPublicKey::new(hn_pk),
+            &plaintext,
+            &Secret::new(eph_sk),
+        );
 
         // Verify ephemeral compressed pubkey.
         let mut expected_eph = [0u8; 33];
@@ -703,16 +759,15 @@ mod tests {
     #[test]
     fn ts33501_c44_profile_b_kdf_intermediate() {
         // Verify intermediate KDF values from TS 33.501 C.4.4.
-        let eph_sk = hex_to_32(
-            "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
-        );
+        let eph_sk = hex_to_32("99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529");
         let hn_pk = hex_to_65(
             "0472da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd1\
              5a7ded52fcbb097a4ed250e036c7b9c8c7004c4eedc4f068cd7bf8d3f900e3b4",
         );
 
         // Shared secret (ECDH x-coordinate).
-        let z = p256::p256_ecdh(&Secret::new(eph_sk), &P256UncompressedPublicKey::new(hn_pk)).unwrap();
+        let z =
+            p256::p256_ecdh(&Secret::new(eph_sk), &P256UncompressedPublicKey::new(hn_pk)).unwrap();
         assert_eq!(
             *z.declassify_ref(),
             hex_to_32("6c7e6518980025b982fbb2ff746e3c2e85a196d252099a7ad23ea7b4c0959cae"),
@@ -747,14 +802,10 @@ mod tests {
     #[test]
     fn ecies_profile_b_encrypt_decrypt_roundtrip() {
         // Verify that the HN side can decrypt what Profile B encrypts.
-        let hn_sk = hex_to_32(
-            "f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda",
-        );
+        let hn_sk = hex_to_32("f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda");
         let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
 
-        let eph_sk = hex_to_32(
-            "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
-        );
+        let eph_sk = hex_to_32("99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529");
         let msin = [0x00, 0x01, 0x20, 0x80, 0xf6];
 
         let result = ecies_profile_b_encrypt(&hn_pk, &msin, &Secret::new(eph_sk));
@@ -766,7 +817,12 @@ mod tests {
 
         // Re-derive keys.
         let mut kdf_out = [0u8; 64];
-        simrs_kdf::kdf_x963(z.declassify_ref(), result.ephemeral_pk.as_bytes(), 64, &mut kdf_out);
+        simrs_kdf::kdf_x963(
+            z.declassify_ref(),
+            result.ephemeral_pk.as_bytes(),
+            64,
+            &mut kdf_out,
+        );
 
         let mut enc_key = [0u8; 16];
         enc_key.copy_from_slice(&kdf_out[..16]);
@@ -783,19 +839,20 @@ mod tests {
 
         // Decrypt.
         let mut decrypted = [0u8; 16];
-        aes128_ctr(&Secret::new(enc_key), &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
+        aes128_ctr(
+            &Secret::new(enc_key),
+            &icb,
+            &result.ciphertext[..result.ct_len],
+            &mut decrypted,
+        );
         assert_eq!(&decrypted[..msin.len()], &msin);
     }
 
     #[test]
     fn ecies_profile_b_deterministic() {
-        let hn_sk = hex_to_32(
-            "f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda",
-        );
+        let hn_sk = hex_to_32("f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda");
         let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
-        let eph_sk = hex_to_32(
-            "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
-        );
+        let eph_sk = hex_to_32("99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529");
         let msin = [0x00, 0x01, 0x20, 0x80, 0xf6];
 
         let eph_sk = Secret::new(eph_sk);
@@ -809,17 +866,11 @@ mod tests {
 
     #[test]
     fn ecies_profile_b_different_eph_keys() {
-        let hn_sk = hex_to_32(
-            "f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda",
-        );
+        let hn_sk = hex_to_32("f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda");
         let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
 
-        let eph_sk1 = hex_to_32(
-            "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
-        );
-        let eph_sk2 = hex_to_32(
-            "7d7dc5f71eb29ddaf80d6214632eeae03d9058af1fb6d22ed80badb62bc1a534",
-        );
+        let eph_sk1 = hex_to_32("99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529");
+        let eph_sk2 = hex_to_32("7d7dc5f71eb29ddaf80d6214632eeae03d9058af1fb6d22ed80badb62bc1a534");
         let msin = [0x00, 0x01, 0x20, 0x80, 0xf6];
 
         let r1 = ecies_profile_b_encrypt(&hn_pk, &msin, &Secret::new(eph_sk1));
@@ -831,13 +882,9 @@ mod tests {
 
     #[test]
     fn ecies_profile_b_mac_changes_with_data() {
-        let hn_sk = hex_to_32(
-            "f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda",
-        );
+        let hn_sk = hex_to_32("f1ab1074477ebcc7f554ea1c5fc368b1616730155e0041ac447d6301975fecda");
         let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
-        let eph_sk = hex_to_32(
-            "99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529",
-        );
+        let eph_sk = hex_to_32("99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529");
 
         let eph_sk = Secret::new(eph_sk);
         let r1 = ecies_profile_b_encrypt(&hn_pk, &[0x01, 0x02], &eph_sk);
@@ -934,9 +981,7 @@ mod proptests {
 
     // Strategy that generates a valid P-256 scalar in [1, n-1].
     fn valid_p256_scalar() -> impl Strategy<Value = [u8; 32]> {
-        any::<[u8; 32]>().prop_filter("scalar must be in [1, n-1]", |k| {
-            p256::validate_scalar(k)
-        })
+        any::<[u8; 32]>().prop_filter("scalar must be in [1, n-1]", |k| p256::validate_scalar(k))
     }
 
     proptest! {
@@ -990,14 +1035,15 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{ct_test, assert_no_timing_leak, Rng};
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test, Rng};
 
     /// X25519 scalar multiplication timing must be independent of scalar value.
     /// Class 0: fixed scalar, random base point.
     /// Class 1: random scalar, random base point.
     #[test]
     fn test_x25519_scalar_mul_ct() {
-        let outcome = ct_test(0xC25519_01,
+        let outcome = ct_test(
+            0xC25519_01,
             |rng| {
                 let scalar = [0x42u8; 32];
                 let mut base = [0u8; 32];
@@ -1012,7 +1058,10 @@ mod ct_validation {
                 (scalar, base)
             },
             |(scalar, base)| {
-                black_box(x25519::x25519(&Secret::new(*scalar), &X25519PublicKey::new(*base)));
+                black_box(x25519::x25519(
+                    &Secret::new(*scalar),
+                    &X25519PublicKey::new(*base),
+                ));
             },
         );
         assert_no_timing_leak!(outcome);
@@ -1024,7 +1073,8 @@ mod ct_validation {
     #[test]
     fn test_ecies_profile_a_ct() {
         let hn_pk = x25519::x25519_base(&Secret::new([0x77u8; 32]));
-        let outcome = ct_test(0xEC1E5_A01,
+        let outcome = ct_test(
+            0xEC1E5_A01,
             |rng| {
                 let pt = [0x12, 0x34, 0x56, 0x78, 0x9A];
                 let mut eph = [0u8; 32];
@@ -1054,17 +1104,15 @@ mod ct_validation {
     #[test]
     fn test_p256_scalar_mul_ct() {
         let hn_sk = [
-            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7,
-            0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3, 0x68, 0xb1,
-            0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
-            0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
+            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7, 0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3,
+            0x68, 0xb1, 0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac, 0x44, 0x7d, 0x63, 0x01,
+            0x97, 0x5f, 0xec, 0xda,
         ];
         let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
         let fixed_scalar: [u8; 32] = [
-            0x99, 0x79, 0x88, 0x58, 0xa1, 0xdc, 0x6a, 0x2c,
-            0x68, 0x63, 0x71, 0x49, 0xa4, 0xb1, 0xdb, 0xfd,
-            0x1f, 0xdf, 0xf5, 0xad, 0xdd, 0x62, 0xa2, 0x14,
-            0x2f, 0x06, 0x69, 0x9e, 0xd7, 0x60, 0x25, 0x29,
+            0x99, 0x79, 0x88, 0x58, 0xa1, 0xdc, 0x6a, 0x2c, 0x68, 0x63, 0x71, 0x49, 0xa4, 0xb1,
+            0xdb, 0xfd, 0x1f, 0xdf, 0xf5, 0xad, 0xdd, 0x62, 0xa2, 0x14, 0x2f, 0x06, 0x69, 0x9e,
+            0xd7, 0x60, 0x25, 0x29,
         ];
 
         // Helper: generate a valid scalar from RNG (both classes use this
@@ -1079,7 +1127,8 @@ mod ct_validation {
             }
         }
 
-        let outcome = ct_test(0x9256_0001,
+        let outcome = ct_test(
+            0x9256_0001,
             |rng| {
                 // Class 0: generate a random scalar (burn rng), but use the fixed one.
                 let _ = gen_valid_scalar(rng);
@@ -1102,13 +1151,13 @@ mod ct_validation {
     #[test]
     fn test_ecies_profile_b_ct() {
         let hn_sk = [
-            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7,
-            0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3, 0x68, 0xb1,
-            0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
-            0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
+            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7, 0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3,
+            0x68, 0xb1, 0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac, 0x44, 0x7d, 0x63, 0x01,
+            0x97, 0x5f, 0xec, 0xda,
         ];
         let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
-        let outcome = ct_test(0xEC1E5_B01,
+        let outcome = ct_test(
+            0xEC1E5_B01,
             |rng| {
                 let pt = [0x12, 0x34, 0x56, 0x78, 0x9A];
                 let mut eph = [0u8; 32];
@@ -1148,23 +1197,22 @@ mod ct_validation {
     #[test]
     fn test_p256_scalar_near_order_ct() {
         let hn_sk = [
-            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7,
-            0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3, 0x68, 0xb1,
-            0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
-            0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
+            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7, 0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3,
+            0x68, 0xb1, 0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac, 0x44, 0x7d, 0x63, 0x01,
+            0x97, 0x5f, 0xec, 0xda,
         ];
         let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
 
         // n-1 for P-256: FFFFFFFF 00000000 FFFFFFFF FFFFFFFF
         //                 BCE6FAAD A7179E84 F3B9CAC2 FC632550
         let n_minus_1: [u8; 32] = [
-            0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xBC, 0xE6, 0xFA, 0xAD, 0xA7, 0x17, 0x9E, 0x84,
-            0xF3, 0xB9, 0xCA, 0xC2, 0xFC, 0x63, 0x25, 0x50,
+            0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xBC, 0xE6, 0xFA, 0xAD, 0xA7, 0x17, 0x9E, 0x84, 0xF3, 0xB9, 0xCA, 0xC2,
+            0xFC, 0x63, 0x25, 0x50,
         ];
 
-        let outcome = ct_test(0x9256_0003,
+        let outcome = ct_test(
+            0x9256_0003,
             |rng| {
                 let mut _discard = [0u8; 32];
                 rng.fill_bytes(&mut _discard);
@@ -1200,10 +1248,9 @@ mod ct_validation {
     #[test]
     fn test_p256_scalar_sparse_vs_dense_ct() {
         let hn_sk = [
-            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7,
-            0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3, 0x68, 0xb1,
-            0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac,
-            0x44, 0x7d, 0x63, 0x01, 0x97, 0x5f, 0xec, 0xda,
+            0xf1, 0xab, 0x10, 0x74, 0x47, 0x7e, 0xbc, 0xc7, 0xf5, 0x54, 0xea, 0x1c, 0x5f, 0xc3,
+            0x68, 0xb1, 0x61, 0x67, 0x30, 0x15, 0x5e, 0x00, 0x41, 0xac, 0x44, 0x7d, 0x63, 0x01,
+            0x97, 0x5f, 0xec, 0xda,
         ];
         let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
 
@@ -1211,7 +1258,8 @@ mod ct_validation {
         let mut sparse_scalar = [0u8; 32];
         sparse_scalar[31] = 0x03;
 
-        let outcome = ct_test(0x9256_0004,
+        let outcome = ct_test(
+            0x9256_0004,
             |rng| {
                 // Class 0: burn RNG to keep symmetric, use sparse scalar.
                 let mut _discard = [0u8; 32];
@@ -1245,7 +1293,8 @@ mod ct_validation {
     /// on no carry, making class 1 significantly faster.
     #[test]
     fn test_increment_counter_ct() {
-        let outcome = ct_test(0x1AAEC_0001,
+        let outcome = ct_test(
+            0x1AAEC_0001,
             |_rng| {
                 // Class 0: all-FF counter (every byte carries).
                 [0xFFu8; 16]
@@ -1271,7 +1320,8 @@ mod ct_validation {
     /// Class 1: random counter value (variable carry depth).
     #[test]
     fn test_increment_counter_variable_carry_ct() {
-        let outcome = ct_test(0x1AAEC_0002,
+        let outcome = ct_test(
+            0x1AAEC_0002,
             |rng| {
                 // Class 0: high bytes random, low 8 bytes = 0xFF.
                 let mut c = [0xFFu8; 16];

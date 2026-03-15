@@ -1,11 +1,9 @@
 //! CLI binary for the APDU interposer.
 
-use simrs_interposer::mode::{
-    parse_hex, parse_mode, AuthConfig, InterposerConfig, InterposerMode,
-};
-use simrs_secret::Secret;
+use simrs_interposer::mode::{parse_hex, parse_mode, AuthConfig, InterposerConfig, InterposerMode};
 use simrs_interposer::proxy::ProxyLoop;
 use simrs_pcap::LinkType;
+use simrs_secret::Secret;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -65,33 +63,22 @@ fn parse_args(args: &[String]) -> Result<InterposerConfig, String> {
             }
             "--modem" => {
                 i += 1;
-                modem_addr.clone_from(
-                    args.get(i).ok_or("--modem requires an address")?,
-                );
+                modem_addr.clone_from(args.get(i).ok_or("--modem requires an address")?);
             }
             "--card" => {
                 i += 1;
-                let addr = args
-                    .get(i)
-                    .ok_or("--card requires an address")?
-                    .clone();
+                let addr = args.get(i).ok_or("--card requires an address")?.clone();
                 // For Diff mode, accumulate into card_addrs
                 // For other modes, use card_addr for backwards compat
                 card_addrs.push(addr);
             }
             "--pcap" => {
                 i += 1;
-                pcap_path = Some(
-                    args.get(i)
-                        .ok_or("--pcap requires a file path")?
-                        .clone(),
-                );
+                pcap_path = Some(args.get(i).ok_or("--pcap requires a file path")?.clone());
             }
             "--link-type" => {
                 i += 1;
-                let val = args
-                    .get(i)
-                    .ok_or("--link-type requires a value")?;
+                let val = args.get(i).ok_or("--link-type requires a value")?;
                 link_type = match val.as_str() {
                     "gsmtap" | "GsmTap" => LinkType::GsmTap,
                     "user0" | "User0" => LinkType::User0,
@@ -105,25 +92,26 @@ fn parse_args(args: &[String]) -> Result<InterposerConfig, String> {
             "--ki" => {
                 i += 1;
                 let val = args.get(i).ok_or("--ki requires a 32-char hex string")?;
-                ki = Some(parse_hex(val).ok_or_else(|| {
-                    format!("invalid Ki hex: '{val}' (expected 32 hex chars)")
-                })?);
+                ki =
+                    Some(parse_hex(val).ok_or_else(|| {
+                        format!("invalid Ki hex: '{val}' (expected 32 hex chars)")
+                    })?);
             }
             "--k" => {
                 i += 1;
                 let val = args.get(i).ok_or("--k requires a 32-char hex string")?;
-                k = Some(parse_hex(val).ok_or_else(|| {
-                    format!("invalid K hex: '{val}' (expected 32 hex chars)")
-                })?);
+                k =
+                    Some(parse_hex(val).ok_or_else(|| {
+                        format!("invalid K hex: '{val}' (expected 32 hex chars)")
+                    })?);
             }
             "--opc" => {
                 i += 1;
-                let val = args
-                    .get(i)
-                    .ok_or("--opc requires a 32-char hex string")?;
-                opc = Some(parse_hex(val).ok_or_else(|| {
-                    format!("invalid OPc hex: '{val}' (expected 32 hex chars)")
-                })?);
+                let val = args.get(i).ok_or("--opc requires a 32-char hex string")?;
+                opc =
+                    Some(parse_hex(val).ok_or_else(|| {
+                        format!("invalid OPc hex: '{val}' (expected 32 hex chars)")
+                    })?);
             }
             other => {
                 return Err(format!("unknown argument: '{other}'"));
@@ -164,8 +152,12 @@ fn print_usage() {
     eprintln!();
     eprintln!("Options:");
     eprintln!("  --mode <log|shadow|replace|diff> Operating mode (default: log)");
-    eprintln!("  --modem <addr:port>           Modem-side swICC address (default: 127.0.0.1:37324)");
-    eprintln!("  --card <addr:port>            Card-side swICC address (can be repeated for diff mode)");
+    eprintln!(
+        "  --modem <addr:port>           Modem-side swICC address (default: 127.0.0.1:37324)"
+    );
+    eprintln!(
+        "  --card <addr:port>            Card-side swICC address (can be repeated for diff mode)"
+    );
     eprintln!("  --pcap <path>                 PCAP output file path");
     eprintln!("  --link-type <gsmtap|user0>    PCAP link-layer type (default: user0)");
     eprintln!("  --ki <hex>                    GSM Ki (32 hex chars)");

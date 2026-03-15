@@ -153,5 +153,8 @@ fn then_no_overread(world: &mut SimWorld) {
 
 #[then("the SIM returns ATR bytes")]
 fn then_atr_returned(world: &mut SimWorld) {
-    assert!(world.is_powered(), "Expected SIM to be powered on after ATR");
+    assert!(
+        world.is_powered(),
+        "Expected SIM to be powered on after ATR"
+    );
 }

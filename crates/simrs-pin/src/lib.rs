@@ -182,7 +182,10 @@ impl PinValue {
             }
             i += 1;
         }
-        Self { bytes: Secret::new(bytes), len }
+        Self {
+            bytes: Secret::new(bytes),
+            len,
+        }
     }
 
     /// Access the raw 8-byte encoding.
@@ -728,8 +731,7 @@ impl<const N: usize> PinManager<N> {
     ///
     /// Returns `false` for unknown keys.
     pub fn is_enabled(&self, key: PinKey) -> bool {
-        self.find_index(key)
-            .is_some_and(|i| self.slots[i].enabled)
+        self.find_index(key).is_some_and(|i| self.slots[i].enabled)
     }
 
     /// Check if access is granted for the given PIN key.
@@ -871,7 +873,7 @@ impl<const N: usize> PinManager<N> {
 // APDU-level PIN handlers (shared by GSM and USIM apps)
 // ---------------------------------------------------------------------------
 
-use simrs_iso7816::{sw2, Command, StatusWord, write_sw};
+use simrs_iso7816::{sw2, write_sw, Command, StatusWord};
 
 /// PIN data field length (8 bytes, per ETSI TS 102 221 clause 11.1.9).
 pub const PIN_DATA_LEN: usize = 8;
@@ -1504,16 +1506,22 @@ mod tests {
         assert!(restored.restore_state(&buf));
         assert_eq!(restored.retries(PIN1), Some(1));
         // Correct PIN should still work.
-        assert_eq!(restored.verify(PIN1, &ascii_pin("1234")), PinResult::Success);
+        assert_eq!(
+            restored.verify(PIN1, &ascii_pin("1234")),
+            PinResult::Success
+        );
     }
 
     #[test]
     fn save_restore_with_multiple_pins() {
         let mut mgr = PinManager::<5>::new();
         let puk = ascii_pin("12345678");
-        mgr.add_pin(PinKey::PIN1, &ascii_pin("1111"), 3, &puk, 10, true).unwrap();
-        mgr.add_pin(PinKey::PIN2, &ascii_pin("2222"), 5, &puk, 8, false).unwrap();
-        mgr.add_pin(PinKey::ADM1, &ascii_pin("3333"), 2, &puk, 4, true).unwrap();
+        mgr.add_pin(PinKey::PIN1, &ascii_pin("1111"), 3, &puk, 10, true)
+            .unwrap();
+        mgr.add_pin(PinKey::PIN2, &ascii_pin("2222"), 5, &puk, 8, false)
+            .unwrap();
+        mgr.add_pin(PinKey::ADM1, &ascii_pin("3333"), 2, &puk, 4, true)
+            .unwrap();
 
         let _ = mgr.verify(PinKey::PIN1, &ascii_pin("1111"));
         // Wrong attempt on PIN 0x0A.
@@ -1581,13 +1589,13 @@ mod tests {
 
     #[test]
     fn pin_error_display_non_empty() {
-        let variants: &[PinError] = &[
-            PinError::DuplicateKey,
-            PinError::SlotsFull,
-        ];
+        let variants: &[PinError] = &[PinError::DuplicateKey, PinError::SlotsFull];
         for v in variants {
             let s = alloc::format!("{v}");
-            assert!(!s.is_empty(), "Display for {v:?} must produce non-empty string");
+            assert!(
+                !s.is_empty(),
+                "Display for {v:?} must produce non-empty string"
+            );
         }
     }
 }
@@ -1683,11 +1691,12 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
 
     #[test]
     fn pin_verify_ct() {
-        let outcome = ct_test(42,
+        let outcome = ct_test(
+            42,
             |rng| {
                 // Class 0: compare two identical PINs
                 let mut bytes = [0xFFu8; 8];

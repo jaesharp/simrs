@@ -146,7 +146,11 @@ const FALLBACK_APDU_RSP: [u8; 3] = [ShmemMsgType::Apdu as u8, 0x6F, 0x00];
 ///
 /// Holds a [`Sim`] instance and processes commands from the shared-memory
 /// command ring one at a time via [`step`](Self::step).
-pub struct QemuBridge<'a, A: AuthenticationAlgorithm = simrs_milenage::MilenageParams, const RSP_CAP: usize = 256> {
+pub struct QemuBridge<
+    'a,
+    A: AuthenticationAlgorithm = simrs_milenage::MilenageParams,
+    const RSP_CAP: usize = 256,
+> {
     sim: Sim<A, RSP_CAP>,
     shmem: &'a mut [u8],
     ring_size: u32,
@@ -156,7 +160,9 @@ pub struct QemuBridge<'a, A: AuthenticationAlgorithm = simrs_milenage::MilenageP
     rsp_tail: u32,
 }
 
-impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> core::fmt::Debug for QemuBridge<'_, A, RSP_CAP> {
+impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> core::fmt::Debug
+    for QemuBridge<'_, A, RSP_CAP>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("QemuBridge")
             .field("ring_size", &self.ring_size)
@@ -232,8 +238,7 @@ impl<'a, A: AuthenticationAlgorithm, const RSP_CAP: usize> QemuBridge<'a, A, RSP
             return Err(QemuBridgeError::InvalidMessage);
         }
 
-        let msg_type =
-            ShmemMsgType::from_u8(msg_buf[0]).ok_or(QemuBridgeError::InvalidMessage)?;
+        let msg_type = ShmemMsgType::from_u8(msg_buf[0]).ok_or(QemuBridgeError::InvalidMessage)?;
 
         // Copy command payload into a stack buffer (needed because
         // process() borrows self.sim mutably, and we need the payload
@@ -262,7 +267,9 @@ impl<'a, A: AuthenticationAlgorithm, const RSP_CAP: usize> QemuBridge<'a, A, RSP
                 // No response needed for power-off.
             }
             ShmemMsgType::Apdu => {
-                let rsp = self.sim.process(SimEvent::Apdu(&cmd_payload[..payload_len]));
+                let rsp = self
+                    .sim
+                    .process(SimEvent::Apdu(&cmd_payload[..payload_len]));
                 let mut rsp_buf = [0u8; MSG_PAYLOAD_MAX];
                 if let Some(n) = encode_response(ShmemMsgType::Apdu, &rsp, &mut rsp_buf) {
                     self.write_rsp_ring(&rsp_buf[..n])?;
@@ -275,8 +282,10 @@ impl<'a, A: AuthenticationAlgorithm, const RSP_CAP: usize> QemuBridge<'a, A, RSP
             ShmemMsgType::Tick => {
                 let elapsed = if payload_len >= 4 {
                     u32::from_le_bytes([
-                        cmd_payload[0], cmd_payload[1],
-                        cmd_payload[2], cmd_payload[3],
+                        cmd_payload[0],
+                        cmd_payload[1],
+                        cmd_payload[2],
+                        cmd_payload[3],
                     ])
                 } else {
                     0
@@ -402,14 +411,9 @@ mod tests {
 
     // -- Test filesystem statics --
 
-    static ICCID_DATA: [u8; 10] =
-        [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
+    static ICCID_DATA: [u8; 10] = [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
-    static EF_ICCID: EfDef = EfDef::transparent(
-        Fid::new(0x2FE2),
-        None,
-        &ICCID_DATA,
-    );
+    static EF_ICCID: EfDef = EfDef::transparent(Fid::new(0x2FE2), None, &ICCID_DATA);
 
     static MF: DfDef = DfDef {
         fid: Fid::new(0x3F00),
@@ -421,7 +425,10 @@ mod tests {
     fn make_sim() -> Sim<MilenageParams, 256> {
         use simrs_milenage::{OperatorVariant, SubscriberKey};
         let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::SubscriberKey::classify([0u8; 16]));
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
         let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
         Sim::<MilenageParams, 256>::new(&ATR, gsm, usim)
     }
@@ -743,7 +750,11 @@ mod tests {
         let mut shmem = make_shmem();
 
         // Pre-load the APDU command into the cmd ring before the bridge is created.
-        push_cmd(&mut shmem, ShmemMsgType::Apdu, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+        push_cmd(
+            &mut shmem,
+            ShmemMsgType::Apdu,
+            &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00],
+        );
 
         {
             let sim = make_sim();
@@ -768,14 +779,18 @@ mod tests {
         // Pop the APDU response from the rsp ring.
         let (msg_type, payload) = pop_rsp(&mut shmem).unwrap();
         assert_eq!(msg_type, ShmemMsgType::Apdu);
-        assert!(payload.len() >= 2, "APDU response must have at least SW1 SW2");
+        assert!(
+            payload.len() >= 2,
+            "APDU response must have at least SW1 SW2"
+        );
 
         // The SELECT MF should produce a real response (not the 6F 00 fallback
         // that would occur if the card were still Off / sim_mut() didn't work).
         let sw1 = payload[payload.len() - 2];
         let sw2 = payload[payload.len() - 1];
         assert_ne!(
-            (sw1, sw2), (0x6F, 0x00),
+            (sw1, sw2),
+            (0x6F, 0x00),
             "response must not be fallback 6F 00 -- sim_mut() state must persist in bridge"
         );
     }

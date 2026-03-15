@@ -1,8 +1,8 @@
 //! PE-GSM-ACCESS (tag 24) parser.
 
+use super::parse_template_files;
 use crate::error::ProfileError;
 use crate::file::File;
-use super::parse_template_files;
 
 /// PE-GSM-ACCESS: DF.GSM-ACCESS under ADF.USIM (`ProfileElement` tag 24).
 ///
@@ -22,6 +22,8 @@ impl PeGsmAccess {
     ///
     /// Returns [`ProfileError`] if the DER structure is malformed.
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProfileError> {
-        Ok(Self { files: parse_template_files(data)? })
+        Ok(Self {
+            files: parse_template_files(data)?,
+        })
     }
 }

@@ -1,8 +1,8 @@
 //! PE-OPT-USIM (tag 20) parser.
 
+use super::parse_template_files;
 use crate::error::ProfileError;
 use crate::file::File;
-use super::parse_template_files;
 
 /// PE-OPT-USIM: optional USIM EFs (`ProfileElement` tag 20).
 ///
@@ -21,6 +21,8 @@ impl PeOptUsim {
     ///
     /// Returns [`ProfileError`] if the DER structure is malformed.
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProfileError> {
-        Ok(Self { files: parse_template_files(data)? })
+        Ok(Self {
+            files: parse_template_files(data)?,
+        })
     }
 }

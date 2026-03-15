@@ -51,19 +51,33 @@ fn proactive_open_channel_cycle(
     // FETCH the proactive command.
     let fetch_cmd = apdu::fetch(0x00).build();
     let (sw1, _sw2) = send_apdu_sw(world.sim_mut(), &fetch_cmd);
-    assert!(
-        sw1 == 0x90 || sw1 == 0x91,
-        "FETCH failed: SW1={sw1:02X}",
-    );
+    assert!(sw1 == 0x90 || sw1 == 0x91, "FETCH failed: SW1={sw1:02X}",);
 
     // Build TERMINAL RESPONSE TLV payload.
     let tr_data = [
-        0x81, 0x03, 0x01, 0x40, 0x00, // Command Details: OPEN CHANNEL
-        0x82, 0x02, 0x82, 0x81,       // Device Identities: ME -> UICC
-        0x83, 0x01, general_result,    // Result
-        0xB8, 0x02, channel_id, 0x00,  // Channel Status: channel_id
-        0xB5, 0x01, bearer,            // Bearer Description
-        0xB9, 0x02, 0x04, 0x00,        // Buffer Size: 1024
+        0x81,
+        0x03,
+        0x01,
+        0x40,
+        0x00, // Command Details: OPEN CHANNEL
+        0x82,
+        0x02,
+        0x82,
+        0x81, // Device Identities: ME -> UICC
+        0x83,
+        0x01,
+        general_result, // Result
+        0xB8,
+        0x02,
+        channel_id,
+        0x00, // Channel Status: channel_id
+        0xB5,
+        0x01,
+        bearer, // Bearer Description
+        0xB9,
+        0x02,
+        0x04,
+        0x00, // Buffer Size: 1024
     ];
     let tr_cmd = apdu::terminal_response(&tr_data).build();
     let (sw1, sw2) = send_apdu_sw(world.sim_mut(), &tr_cmd);
@@ -118,21 +132,17 @@ fn given_bip_channel_opened(world: &mut SimWorld, channel: u8) {
 fn when_fetch(world: &mut SimWorld) {
     let fetch_cmd = apdu::fetch(0x00).build();
     let (sw1, _sw2) = send_apdu_sw(world.sim_mut(), &fetch_cmd);
-    assert!(
-        sw1 == 0x90 || sw1 == 0x91,
-        "FETCH failed: SW1={sw1:02X}",
-    );
+    assert!(sw1 == 0x90 || sw1 == 0x91, "FETCH failed: SW1={sw1:02X}",);
 }
 
 #[when(regex = r"^I send TERMINAL RESPONSE with success for OPEN CHANNEL on channel (\d+)$")]
 fn when_tr_success_open(world: &mut SimWorld, channel: u8) {
     let tr_data = [
-        0x81, 0x03, 0x01, 0x40, 0x00,
-        0x82, 0x02, 0x82, 0x81,
-        0x83, 0x01, 0x00,              // Result: success
-        0xB8, 0x02, channel, 0x00,     // Channel Status
-        0xB5, 0x01, 0x01,              // Bearer Description
-        0xB9, 0x02, 0x04, 0x00,        // Buffer Size: 1024
+        0x81, 0x03, 0x01, 0x40, 0x00, 0x82, 0x02, 0x82, 0x81, 0x83, 0x01,
+        0x00, // Result: success
+        0xB8, 0x02, channel, 0x00, // Channel Status
+        0xB5, 0x01, 0x01, // Bearer Description
+        0xB9, 0x02, 0x04, 0x00, // Buffer Size: 1024
     ];
     let tr_cmd = apdu::terminal_response(&tr_data).build();
     let (sw1, sw2) = send_apdu_sw(world.sim_mut(), &tr_cmd);
@@ -146,12 +156,10 @@ fn when_tr_success_open(world: &mut SimWorld, channel: u8) {
 #[when(regex = r"^I send TERMINAL RESPONSE with failure for OPEN CHANNEL on channel (\d+)$")]
 fn when_tr_failure_open(world: &mut SimWorld, channel: u8) {
     let tr_data = [
-        0x81, 0x03, 0x01, 0x40, 0x00,
-        0x82, 0x02, 0x82, 0x81,
-        0x83, 0x01, 0x20,              // Result: ME unable to process
-        0xB8, 0x02, channel, 0x00,     // Channel Status (present but failure)
-        0xB5, 0x01, 0x01,
-        0xB9, 0x02, 0x04, 0x00,
+        0x81, 0x03, 0x01, 0x40, 0x00, 0x82, 0x02, 0x82, 0x81, 0x83, 0x01,
+        0x20, // Result: ME unable to process
+        0xB8, 0x02, channel, 0x00, // Channel Status (present but failure)
+        0xB5, 0x01, 0x01, 0xB9, 0x02, 0x04, 0x00,
     ];
     let tr_cmd = apdu::terminal_response(&tr_data).build();
     let (sw1, sw2) = send_apdu_sw(world.sim_mut(), &tr_cmd);
@@ -226,7 +234,10 @@ fn then_channel_open_rejected(world: &mut SimWorld) {
     let result = world
         .restore_result
         .expect("No channel open result recorded");
-    assert!(!result, "Expected open_channel() to return false (rejected)");
+    assert!(
+        !result,
+        "Expected open_channel() to return false (rejected)"
+    );
 }
 
 #[then("the channel close is rejected")]

@@ -219,23 +219,23 @@ impl Fe {
         let a = self;
 
         // Building blocks: a^(2^k - 1)
-        let x2 = a.square().mul(a);                   // a^(2^2 - 1)
-        let x4 = x2.square_n(2).mul(x2);              // a^(2^4 - 1)
-        let x6 = x4.square_n(2).mul(x2);              // a^(2^6 - 1)
-        let x8 = x4.square_n(4).mul(x4);              // a^(2^8 - 1)
-        let x14 = x8.square_n(6).mul(x6);             // a^(2^14 - 1)
-        let x16 = x8.square_n(8).mul(x8);             // a^(2^16 - 1)
-        let x30 = x16.square_n(14).mul(x14);          // a^(2^30 - 1)
-        let x32 = x16.square_n(16).mul(x16);          // a^(2^32 - 1)
+        let x2 = a.square().mul(a); // a^(2^2 - 1)
+        let x4 = x2.square_n(2).mul(x2); // a^(2^4 - 1)
+        let x6 = x4.square_n(2).mul(x2); // a^(2^6 - 1)
+        let x8 = x4.square_n(4).mul(x4); // a^(2^8 - 1)
+        let x14 = x8.square_n(6).mul(x6); // a^(2^14 - 1)
+        let x16 = x8.square_n(8).mul(x8); // a^(2^16 - 1)
+        let x30 = x16.square_n(14).mul(x14); // a^(2^30 - 1)
+        let x32 = x16.square_n(16).mul(x16); // a^(2^32 - 1)
 
         // Process p-2 word by word (32-bit words, MSB to LSB):
         //   FFFFFFFF 00000001 [96 zero bits] FFFFFFFF FFFFFFFF FFFFFFFD
-        let e = x32;                                   // word: FFFFFFFF
-        let e = e.square_n(32).mul(a);                 // word: 00000001
-        let e = e.square_n(96);                        // 3 zero words
-        let e = e.square_n(32).mul(x32);               // word: FFFFFFFF
-        let e = e.square_n(32).mul(x32);               // word: FFFFFFFF
-        // FFFFFFFD = (2^30-1)*4 + 1
+        let e = x32; // word: FFFFFFFF
+        let e = e.square_n(32).mul(a); // word: 00000001
+        let e = e.square_n(96); // 3 zero words
+        let e = e.square_n(32).mul(x32); // word: FFFFFFFF
+        let e = e.square_n(32).mul(x32); // word: FFFFFFFF
+                                         // FFFFFFFD = (2^30-1)*4 + 1
         let e = e.square_n(30).mul(x30);
         e.square().square().mul(a)
     }
@@ -254,19 +254,19 @@ impl Fe {
         let a = self;
 
         // Building blocks: a^(2^k - 1)
-        let x2 = a.square().mul(a);                   // a^(2^2 - 1)
-        let x4 = x2.square_n(2).mul(x2);              // a^(2^4 - 1)
-        let x8 = x4.square_n(4).mul(x4);              // a^(2^8 - 1)
-        let x16 = x8.square_n(8).mul(x8);             // a^(2^16 - 1)
-        let x32 = x16.square_n(16).mul(x16);          // a^(2^32 - 1)
+        let x2 = a.square().mul(a); // a^(2^2 - 1)
+        let x4 = x2.square_n(2).mul(x2); // a^(2^4 - 1)
+        let x8 = x4.square_n(4).mul(x4); // a^(2^8 - 1)
+        let x16 = x8.square_n(8).mul(x8); // a^(2^16 - 1)
+        let x32 = x16.square_n(16).mul(x16); // a^(2^32 - 1)
 
         // Main chain
-        let e = x32;                                   // 32 ones
-        let e = e.square_n(31);                        // 31 zeros
-        let e = e.square().mul(a);                     // bit 190 = 1
-        let e = e.square_n(95);                        // 95 zeros
-        let e = e.square().mul(a);                     // bit 94 = 1
-        let candidate = e.square_n(94);                // 94 trailing zeros
+        let e = x32; // 32 ones
+        let e = e.square_n(31); // 31 zeros
+        let e = e.square().mul(a); // bit 190 = 1
+        let e = e.square_n(95); // 95 zeros
+        let e = e.square().mul(a); // bit 94 = 1
+        let candidate = e.square_n(94); // 94 trailing zeros
 
         // Verify: candidate^2 == self
         if candidate.square().ct_eq(&self).into_bool() {
@@ -275,7 +275,6 @@ impl Fe {
             None
         }
     }
-
 }
 
 // Constant-time trait implementations for Fe.
@@ -391,36 +390,53 @@ const fn sqr_wide(a: [u64; 4]) -> [u64; 8] {
 
     // Column 0: a0*a0
     acc_add!(a0a0);
-    r[0] = c0; c0 = c1; c1 = c2; c2 = 0;
+    r[0] = c0;
+    c0 = c1;
+    c1 = c2;
+    c2 = 0;
 
     // Column 1: 2*a0*a1
     acc_add!(a0a1);
     acc_add!(a0a1);
-    r[1] = c0; c0 = c1; c1 = c2; c2 = 0;
+    r[1] = c0;
+    c0 = c1;
+    c1 = c2;
+    c2 = 0;
 
     // Column 2: 2*a0*a2 + a1*a1
     acc_add!(a0a2);
     acc_add!(a0a2);
     acc_add!(a1a1);
-    r[2] = c0; c0 = c1; c1 = c2; c2 = 0;
+    r[2] = c0;
+    c0 = c1;
+    c1 = c2;
+    c2 = 0;
 
     // Column 3: 2*a0*a3 + 2*a1*a2
     acc_add!(a0a3);
     acc_add!(a0a3);
     acc_add!(a1a2);
     acc_add!(a1a2);
-    r[3] = c0; c0 = c1; c1 = c2; c2 = 0;
+    r[3] = c0;
+    c0 = c1;
+    c1 = c2;
+    c2 = 0;
 
     // Column 4: 2*a1*a3 + a2*a2
     acc_add!(a1a3);
     acc_add!(a1a3);
     acc_add!(a2a2);
-    r[4] = c0; c0 = c1; c1 = c2; c2 = 0;
+    r[4] = c0;
+    c0 = c1;
+    c1 = c2;
+    c2 = 0;
 
     // Column 5: 2*a2*a3
     acc_add!(a2a3);
     acc_add!(a2a3);
-    r[5] = c0; c0 = c1; c1 = c2;
+    r[5] = c0;
+    c0 = c1;
+    c1 = c2;
 
     // Column 6: a3*a3 (last column -- inline to avoid unused c2 warning).
     {
@@ -478,28 +494,35 @@ fn reduce(t: [u64; 8]) -> Fe {
     // Pack eight 32-bit words (MSB first) into four 64-bit limbs (LE).
     // s_val = w7*2^224 + w6*2^192 + ... + w1*2^32 + w0
     // limb0 = w1*2^32 + w0, limb1 = w3*2^32 + w2, etc.
-    let pack = |w7: u64, w6: u64, w5: u64, w4: u64, w3: u64, w2: u64, w1: u64, w0: u64| -> [u64; 4] {
-        [
-            (w1 << 32) | w0,
-            (w3 << 32) | w2,
-            (w5 << 32) | w4,
-            (w7 << 32) | w6,
-        ]
-    };
+    let pack =
+        |w7: u64, w6: u64, w5: u64, w4: u64, w3: u64, w2: u64, w1: u64, w0: u64| -> [u64; 4] {
+            [
+                (w1 << 32) | w0,
+                (w3 << 32) | w2,
+                (w5 << 32) | w4,
+                (w7 << 32) | w6,
+            ]
+        };
 
-    let c8 = c(8); let c9 = c(9); let c10 = c(10); let c11 = c(11);
-    let c12 = c(12); let c13 = c(13); let c14 = c(14); let c15 = c(15);
+    let c8 = c(8);
+    let c9 = c(9);
+    let c10 = c(10);
+    let c11 = c(11);
+    let c12 = c(12);
+    let c13 = c(13);
+    let c14 = c(14);
+    let c15 = c(15);
 
     // s1 = low 256 bits of the product.
     let s1 = [t[0], t[1], t[2], t[3]];
-    let s2 = pack(c15, c14, c13, c12, c11,  0,   0,   0);
-    let s3 = pack(  0, c15, c14, c13, c12,  0,   0,   0);
-    let s4 = pack(c15, c14,   0,   0,   0, c10,  c9,  c8);
-    let s5 = pack( c8, c13, c15, c14, c13, c11, c10,  c9);
-    let s6 = pack(c10,  c8,   0,   0,   0, c13, c12, c11);
-    let s7 = pack(c11,  c9,   0,   0, c15, c14, c13, c12);
-    let s8 = pack(c12,   0, c10,  c9,  c8, c15, c14, c13);
-    let s9 = pack(c13,   0, c11, c10,  c9,   0, c15, c14);
+    let s2 = pack(c15, c14, c13, c12, c11, 0, 0, 0);
+    let s3 = pack(0, c15, c14, c13, c12, 0, 0, 0);
+    let s4 = pack(c15, c14, 0, 0, 0, c10, c9, c8);
+    let s5 = pack(c8, c13, c15, c14, c13, c11, c10, c9);
+    let s6 = pack(c10, c8, 0, 0, 0, c13, c12, c11);
+    let s7 = pack(c11, c9, 0, 0, c15, c14, c13, c12);
+    let s8 = pack(c12, 0, c10, c9, c8, c15, c14, c13);
+    let s9 = pack(c13, 0, c11, c10, c9, 0, c15, c14);
 
     // Compute: s1 + 2*s2 + 2*s3 + s4 + s5 - s6 - s7 - s8 - s9
     // We do this with wide (320-bit) signed arithmetic to avoid underflow,
@@ -609,10 +632,10 @@ const fn propagate_carries(acc: &mut [i128; 5]) {
 const fn fold_top(acc: &mut [i128; 5]) {
     let top = acc[4];
     acc[4] = 0;
-    acc[0] += top;              // +top * 1
-    acc[1] -= top << 32;        // -top * 2^96
-    acc[3] -= top;              // -top * 2^192
-    acc[3] += top << 32;        // +top * 2^224
+    acc[0] += top; // +top * 1
+    acc[1] -= top << 32; // -top * 2^96
+    acc[3] -= top; // -top * 2^192
+    acc[3] += top << 32; // +top * 2^224
 }
 
 /// Subtraction of two 256-bit values, returns (result, borrow).
@@ -623,7 +646,6 @@ fn sub_inner(a: [u64; 4], b: [u64; 4]) -> ([u64; 4], bool) {
     let (r3, b3) = a[3].borrowing_sub(b[3], b2);
     ([r0, r1, r2, r3], b3)
 }
-
 
 // ---------------------------------------------------------------------------
 // Point operations: Jacobian projective coordinates
@@ -704,7 +726,11 @@ impl Point {
         let gamma_sq8 = gamma_sq8.add(gamma_sq8);
         let y3 = alpha.mul(beta4.sub(x3)).sub(gamma_sq8);
 
-        Self { x: x3, y: y3, z: z3 }
+        Self {
+            x: x3,
+            y: y3,
+            z: z3,
+        }
     }
 
     /// Point addition (full Jacobian + Jacobian, branchless).
@@ -735,7 +761,11 @@ impl Point {
         let y3 = r.mul(v.sub(x3)).sub(s1.mul(j).add(s1.mul(j)));
         let z3 = self.z.add(rhs.z).square().sub(z1sq).sub(z2sq).mul(h);
 
-        let mut result = Self { x: x3, y: y3, z: z3 };
+        let mut result = Self {
+            x: x3,
+            y: y3,
+            z: z3,
+        };
 
         // Handle exceptional cases with constant-time conditional moves.
         let self_is_id = self.z.ct_is_zero();
@@ -778,7 +808,6 @@ impl Point {
         let rhs = x.square().mul(x).add(A.mul(x)).add(B);
         lhs.ct_eq(&rhs).into_bool()
     }
-
 }
 
 impl CtSelect for Point {
@@ -812,7 +841,11 @@ impl CtSwap for Point {
 fn fe_reduce(raw: [u64; 4]) -> Fe {
     let (d, borrow) = sub_inner(raw, P);
     // borrow == true means raw < p, so keep raw; else keep d.
-    Fe(<[u64; 4]>::ct_select(CtBool::from_u64_bit(u64::from(borrow)), &raw, &d))
+    Fe(<[u64; 4]>::ct_select(
+        CtBool::from_u64_bit(u64::from(borrow)),
+        &raw,
+        &d,
+    ))
 }
 
 /// Derive a non-zero field element from a 32-byte HMAC output.
@@ -828,12 +861,7 @@ fn fe_from_hmac(h: &[u8; 32]) -> Fe {
     let fe = fe_reduce(raw);
     // If zero (probability ~2^-256), use 1 instead.
     let is_zero = fe.ct_is_zero().as_u64_mask();
-    Fe([
-        fe.0[0] | (is_zero & 1),
-        fe.0[1],
-        fe.0[2],
-        fe.0[3],
-    ])
+    Fe([fe.0[0] | (is_zero & 1), fe.0[1], fe.0[2], fe.0[3]])
 }
 
 /// Randomize projective coordinates: (X:Y:Z) -> (lam^2*X : lam^3*Y : lam*Z).
@@ -871,9 +899,7 @@ fn blind_scalar(k: &[u8; 32], r: &[u8; 16]) -> [u8; 48] {
         let mut carry: u128 = 0;
         let mut j = 0;
         while j < 4 {
-            let wide = u128::from(r_limbs[i]) * u128::from(N[j])
-                + u128::from(temp[i + j])
-                + carry;
+            let wide = u128::from(r_limbs[i]) * u128::from(N[j]) + u128::from(temp[i + j]) + carry;
             temp[i + j] = wide as u64;
             carry = wide >> 64;
             j += 1;
@@ -980,7 +1006,10 @@ fn scalar_mul_base(k: &[u8; 32]) -> Point {
 ///
 /// Returns the x-coordinate of the shared point as 32 bytes (big-endian),
 /// or `None` if the public key is invalid.
-pub fn p256_ecdh(scalar: &Secret<[u8; 32]>, peer_pubkey: &P256UncompressedPublicKey) -> Option<Secret<[u8; 32]>> {
+pub fn p256_ecdh(
+    scalar: &Secret<[u8; 32]>,
+    peer_pubkey: &P256UncompressedPublicKey,
+) -> Option<Secret<[u8; 32]>> {
     let q = decode_point_uncompressed(peer_pubkey.as_bytes())?;
     let shared = scalar_mul(scalar.declassify_ref(), q);
     // Use constant-time zero check on Z coordinate to detect identity.
@@ -1014,9 +1043,13 @@ pub fn p256_pubkey_compressed(scalar: &Secret<[u8; 32]>) -> P256CompressedPublic
 /// to uncompressed SEC 1 format (65 bytes).
 ///
 /// Returns `None` if the compressed key is invalid.
-pub fn p256_decompress_pubkey(compressed: &P256CompressedPublicKey) -> Option<P256UncompressedPublicKey> {
+pub fn p256_decompress_pubkey(
+    compressed: &P256CompressedPublicKey,
+) -> Option<P256UncompressedPublicKey> {
     let point = decode_point_compressed(compressed.as_bytes())?;
-    Some(P256UncompressedPublicKey::new(encode_point_uncompressed(point)))
+    Some(P256UncompressedPublicKey::new(encode_point_uncompressed(
+        point,
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -1128,7 +1161,9 @@ fn scalar_gte_n(k: &[u8; 32]) -> bool {
     let mut borrow: u16 = 0;
     let mut i: usize = 31;
     loop {
-        let diff = u16::from(k[i]).wrapping_sub(u16::from(n_bytes[i])).wrapping_sub(borrow);
+        let diff = u16::from(k[i])
+            .wrapping_sub(u16::from(n_bytes[i]))
+            .wrapping_sub(borrow);
         borrow = (diff >> 8) & 1;
         if i == 0 {
             break;
@@ -1235,28 +1270,38 @@ mod tests {
 
     #[test]
     fn fe_sub_zero() {
-        let a = Fe::from_bytes(&hex32("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"));
+        let a = Fe::from_bytes(&hex32(
+            "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        ));
         let result = a.sub(a);
         assert!(result.is_zero());
     }
 
     #[test]
     fn fe_mul_one_identity() {
-        let a = Fe::from_bytes(&hex32("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"));
+        let a = Fe::from_bytes(&hex32(
+            "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        ));
         let result = a.mul(Fe::ONE);
         assert_eq!(result.to_bytes(), a.to_bytes());
     }
 
     #[test]
     fn fe_mul_commutative() {
-        let a = Fe::from_bytes(&hex32("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"));
-        let b = Fe::from_bytes(&hex32("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"));
+        let a = Fe::from_bytes(&hex32(
+            "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        ));
+        let b = Fe::from_bytes(&hex32(
+            "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        ));
         assert_eq!(a.mul(b).to_bytes(), b.mul(a).to_bytes());
     }
 
     #[test]
     fn fe_invert_self_mul_is_one() {
-        let a = Fe::from_bytes(&hex32("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"));
+        let a = Fe::from_bytes(&hex32(
+            "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        ));
         let a_inv = a.invert();
         let product = a.mul(a_inv);
         let mut expected = [0u8; 32];
@@ -1276,7 +1321,9 @@ mod tests {
 
     #[test]
     fn fe_square_vs_mul() {
-        let a = Fe::from_bytes(&hex32("5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b"));
+        let a = Fe::from_bytes(&hex32(
+            "5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b",
+        ));
         assert_eq!(a.square().to_bytes(), a.mul(a).to_bytes());
     }
 
@@ -1316,8 +1363,12 @@ mod tests {
 
     #[test]
     fn fe_sub_add_roundtrip() {
-        let a = Fe::from_bytes(&hex32("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"));
-        let b = Fe::from_bytes(&hex32("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"));
+        let a = Fe::from_bytes(&hex32(
+            "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        ));
+        let b = Fe::from_bytes(&hex32(
+            "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        ));
         let c = a.sub(b);
         let d = c.add(b);
         assert_eq!(d.to_bytes(), a.to_bytes());
@@ -1517,11 +1568,18 @@ mod tests {
     #[test]
     fn ts33501_c44_compressed_decode() {
         // Verify compressed point decoding for the HN public key.
-        let compressed = hex33("0272da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd1");
+        let compressed =
+            hex33("0272da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd1");
         let point = decode_point_compressed(&compressed).unwrap();
         let (x, y) = point.to_affine();
-        assert_eq!(x.to_bytes(), hex32("72da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd1"));
-        assert_eq!(y.to_bytes(), hex32("5a7ded52fcbb097a4ed250e036c7b9c8c7004c4eedc4f068cd7bf8d3f900e3b4"));
+        assert_eq!(
+            x.to_bytes(),
+            hex32("72da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd1")
+        );
+        assert_eq!(
+            y.to_bytes(),
+            hex32("5a7ded52fcbb097a4ed250e036c7b9c8c7004c4eedc4f068cd7bf8d3f900e3b4")
+        );
     }
 
     #[test]
@@ -1616,7 +1674,11 @@ mod tests {
         // (lam^2*X : lam^3*Y : lam*Z) represents the same affine point.
         // Verify: rp.x == g.x * rp.z^2 and rp.y == g.y * rp.z^3
         // (since g.z = 1).
-        let g = Point { x: GX, y: GY, z: Fe::ONE };
+        let g = Point {
+            x: GX,
+            y: GY,
+            z: Fe::ONE,
+        };
         let lam = Fe([7, 0, 0, 0]);
         let rp = randomize_projective(g, lam);
         let rz2 = rp.z.mul(rp.z);
@@ -1627,7 +1689,11 @@ mod tests {
 
     #[test]
     fn randomize_projective_with_one_is_identity() {
-        let g = Point { x: GX, y: GY, z: Fe::ONE };
+        let g = Point {
+            x: GX,
+            y: GY,
+            z: Fe::ONE,
+        };
         let rp = randomize_projective(g, Fe::ONE);
         assert_eq!(rp.x.to_bytes(), g.x.to_bytes());
         assert_eq!(rp.y.to_bytes(), g.y.to_bytes());

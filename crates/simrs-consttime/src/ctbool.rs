@@ -122,8 +122,8 @@ impl core::fmt::Debug for CtBool {
 #[cfg(test)]
 mod tests {
     extern crate alloc;
-    use alloc::format;
     use super::*;
+    use alloc::format;
 
     #[test]
     fn constants() {

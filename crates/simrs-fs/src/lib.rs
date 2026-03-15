@@ -276,8 +276,14 @@ impl EfStructure {
     /// Returns (`record_size`, `num_records`) for record-based EFs, `None` otherwise.
     pub const fn record_params(&self) -> Option<(u8, u8)> {
         match self {
-            Self::LinearFixed { record_size, num_records }
-            | Self::Cyclic { record_size, num_records } => Some((*record_size, *num_records)),
+            Self::LinearFixed {
+                record_size,
+                num_records,
+            }
+            | Self::Cyclic {
+                record_size,
+                num_records,
+            } => Some((*record_size, *num_records)),
             Self::Transparent | Self::BerTlv => None,
         }
     }
@@ -290,8 +296,9 @@ impl EfStructure {
     /// Record size for record-based, 0 for transparent/BER-TLV.
     pub const fn record_size(&self) -> u8 {
         match self {
-            Self::LinearFixed { record_size, .. }
-            | Self::Cyclic { record_size, .. } => *record_size,
+            Self::LinearFixed { record_size, .. } | Self::Cyclic { record_size, .. } => {
+                *record_size
+            }
             Self::Transparent | Self::BerTlv => 0,
         }
     }
@@ -333,13 +340,25 @@ impl EfStructure {
         match self {
             Self::Transparent => ([0x41, DATA_CODING_BER_TLV, 0, 0, 0], 2),
             Self::BerTlv => ([0x39, DATA_CODING_BER_TLV, 0, 0, 0], 2),
-            Self::LinearFixed { record_size, num_records } => {
+            Self::LinearFixed {
+                record_size,
+                num_records,
+            } => {
                 let rs_be = (*record_size as u16).to_be_bytes();
-                ([0x42, DATA_CODING_BER_TLV, *num_records, rs_be[0], rs_be[1]], 5)
+                (
+                    [0x42, DATA_CODING_BER_TLV, *num_records, rs_be[0], rs_be[1]],
+                    5,
+                )
             }
-            Self::Cyclic { record_size, num_records } => {
+            Self::Cyclic {
+                record_size,
+                num_records,
+            } => {
                 let rs_be = (*record_size as u16).to_be_bytes();
-                ([0x46, DATA_CODING_BER_TLV, *num_records, rs_be[0], rs_be[1]], 5)
+                (
+                    [0x46, DATA_CODING_BER_TLV, *num_records, rs_be[0], rs_be[1]],
+                    5,
+                )
             }
         }
     }
@@ -350,10 +369,14 @@ impl EfStructure {
     /// Record-based: returns `Some(record_size * num_records)`.
     pub const fn expected_data_len(&self) -> Option<usize> {
         match self {
-            Self::LinearFixed { record_size, num_records }
-            | Self::Cyclic { record_size, num_records } => {
-                Some(*record_size as usize * *num_records as usize)
+            Self::LinearFixed {
+                record_size,
+                num_records,
             }
+            | Self::Cyclic {
+                record_size,
+                num_records,
+            } => Some(*record_size as usize * *num_records as usize),
             Self::Transparent | Self::BerTlv => None,
         }
     }
@@ -409,17 +432,29 @@ pub struct EfDef {
 
 impl EfDef {
     /// File identifier.
-    pub const fn fid(&self) -> Fid { self.fid }
+    pub const fn fid(&self) -> Fid {
+        self.fid
+    }
     /// Short file identifier, if assigned.
-    pub const fn sfi(&self) -> Option<Sfi> { self.sfi }
+    pub const fn sfi(&self) -> Option<Sfi> {
+        self.sfi
+    }
     /// Internal structure (transparent, linear-fixed, cyclic, or BER-TLV).
-    pub const fn structure(&self) -> EfStructure { self.structure }
+    pub const fn structure(&self) -> EfStructure {
+        self.structure
+    }
     /// Raw file content template.
-    pub const fn data(&self) -> &'static [u8] { self.data }
+    pub const fn data(&self) -> &'static [u8] {
+        self.data
+    }
     /// Access condition for read operations.
-    pub const fn read_ac(&self) -> AccessCondition { self.read_ac }
+    pub const fn read_ac(&self) -> AccessCondition {
+        self.read_ac
+    }
     /// Access condition for update operations.
-    pub const fn update_ac(&self) -> AccessCondition { self.update_ac }
+    pub const fn update_ac(&self) -> AccessCondition {
+        self.update_ac
+    }
 
     /// Override the read access condition (const builder pattern).
     #[must_use]
@@ -442,8 +477,14 @@ impl EfDef {
     /// assert_eq!(EF.data().len(), 10);
     /// ```
     pub const fn transparent(fid: Fid, sfi: Option<Sfi>, data: &'static [u8]) -> Self {
-        Self { fid, sfi, structure: EfStructure::Transparent, data,
-               read_ac: AccessCondition::Pin1, update_ac: AccessCondition::Pin1 }
+        Self {
+            fid,
+            sfi,
+            structure: EfStructure::Transparent,
+            data,
+            read_ac: AccessCondition::Pin1,
+            update_ac: AccessCondition::Pin1,
+        }
     }
 
     /// Create a linear-fixed EF with compile-time data length validation.
@@ -464,8 +505,10 @@ impl EfDef {
     /// static BAD: EfDef = EfDef::linear_fixed(Fid::new(0x6F3A), None, 14, 2, &[0xFF; 10]);
     /// ```
     pub const fn linear_fixed(
-        fid: Fid, sfi: Option<Sfi>,
-        record_size: u8, num_records: u8,
+        fid: Fid,
+        sfi: Option<Sfi>,
+        record_size: u8,
+        num_records: u8,
         data: &'static [u8],
     ) -> Self {
         assert!(
@@ -473,10 +516,15 @@ impl EfDef {
             "linear-fixed data length must equal record_size * num_records"
         );
         Self {
-            fid, sfi,
-            structure: EfStructure::LinearFixed { record_size, num_records },
+            fid,
+            sfi,
+            structure: EfStructure::LinearFixed {
+                record_size,
+                num_records,
+            },
             data,
-            read_ac: AccessCondition::Pin1, update_ac: AccessCondition::Pin1,
+            read_ac: AccessCondition::Pin1,
+            update_ac: AccessCondition::Pin1,
         }
     }
 
@@ -492,8 +540,10 @@ impl EfDef {
     /// assert_eq!(EF.data().len(), 9);
     /// ```
     pub const fn cyclic(
-        fid: Fid, sfi: Option<Sfi>,
-        record_size: u8, num_records: u8,
+        fid: Fid,
+        sfi: Option<Sfi>,
+        record_size: u8,
+        num_records: u8,
         data: &'static [u8],
     ) -> Self {
         assert!(
@@ -501,10 +551,15 @@ impl EfDef {
             "cyclic data length must equal record_size * num_records"
         );
         Self {
-            fid, sfi,
-            structure: EfStructure::Cyclic { record_size, num_records },
+            fid,
+            sfi,
+            structure: EfStructure::Cyclic {
+                record_size,
+                num_records,
+            },
             data,
-            read_ac: AccessCondition::Pin1, update_ac: AccessCondition::Pin1,
+            read_ac: AccessCondition::Pin1,
+            update_ac: AccessCondition::Pin1,
         }
     }
 
@@ -516,8 +571,14 @@ impl EfDef {
     /// assert_eq!(EF.data().len(), 8);
     /// ```
     pub const fn ber_tlv(fid: Fid, sfi: Option<Sfi>, data: &'static [u8]) -> Self {
-        Self { fid, sfi, structure: EfStructure::BerTlv, data,
-               read_ac: AccessCondition::Pin1, update_ac: AccessCondition::Pin1 }
+        Self {
+            fid,
+            sfi,
+            structure: EfStructure::BerTlv,
+            data,
+            read_ac: AccessCondition::Pin1,
+            update_ac: AccessCondition::Pin1,
+        }
     }
 }
 
@@ -835,11 +896,7 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
 
     /// Recursively walk a DF tree, copying EF data into the buffer.
     #[allow(clippy::cast_possible_truncation)]
-    fn walk_tree(
-        &mut self,
-        df: &'static DfDef,
-        next_offset: &mut u16,
-    ) -> Result<(), FsError> {
+    fn walk_tree(&mut self, df: &'static DfDef, next_offset: &mut u16) -> Result<(), FsError> {
         for child in df.children {
             match child {
                 FileRef::Ef(ef) => {
@@ -912,12 +969,7 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
     /// - [`FsError::NotTransparent`] if the EF is record-based.
     /// - [`FsError::FileNotFound`] if the EF is not in the store.
     /// - [`FsError::OffsetOutOfRange`] if `offset + len` exceeds the file.
-    pub fn read_binary(
-        &self,
-        ef: &EfDef,
-        offset: u16,
-        len: u16,
-    ) -> Result<&[u8], FsError> {
+    pub fn read_binary(&self, ef: &EfDef, offset: u16, len: u16) -> Result<&[u8], FsError> {
         if !ef.structure.is_binary_accessible() {
             return Err(FsError::NotTransparent);
         }
@@ -940,7 +992,10 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
     /// - [`FsError::FileNotFound`] if the EF is not in the store.
     /// - [`FsError::RecordOutOfRange`] if `num` is 0 or exceeds `num_records`.
     pub fn read_record(&self, ef: &EfDef, num: u8) -> Result<&[u8], FsError> {
-        let (record_size, num_records) = ef.structure.record_params().ok_or(FsError::NotRecordBased)?;
+        let (record_size, num_records) = ef
+            .structure
+            .record_params()
+            .ok_or(FsError::NotRecordBased)?;
         if num == 0 || num > num_records {
             return Err(FsError::RecordOutOfRange);
         }
@@ -964,17 +1019,11 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
     /// - [`FsError::NotTransparent`] if the EF is record-based.
     /// - [`FsError::FileNotFound`] if the EF is not in the store.
     /// - [`FsError::OffsetOutOfRange`] if `offset + data.len()` exceeds the file.
-    pub fn write_binary(
-        &mut self,
-        ef: &EfDef,
-        offset: u16,
-        data: &[u8],
-    ) -> Result<(), FsError> {
+    pub fn write_binary(&mut self, ef: &EfDef, offset: u16, data: &[u8]) -> Result<(), FsError> {
         if !ef.structure.is_binary_accessible() {
             return Err(FsError::NotTransparent);
         }
-        let (entry_off, entry_len) =
-            self.find_entry(ef).ok_or(FsError::FileNotFound)?;
+        let (entry_off, entry_len) = self.find_entry(ef).ok_or(FsError::FileNotFound)?;
         let start = entry_off as usize + offset as usize;
         let end = start + data.len();
         if end > entry_off as usize + entry_len as usize {
@@ -995,21 +1044,18 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
     /// - [`FsError::FileNotFound`] if the EF is not in the store.
     /// - [`FsError::RecordOutOfRange`] if `num` is 0 or exceeds `num_records`.
     /// - [`FsError::DataTooLarge`] if `data.len()` does not match `record_size`.
-    pub fn write_record(
-        &mut self,
-        ef: &EfDef,
-        num: u8,
-        data: &[u8],
-    ) -> Result<(), FsError> {
-        let (record_size, num_records) = ef.structure.record_params().ok_or(FsError::NotRecordBased)?;
+    pub fn write_record(&mut self, ef: &EfDef, num: u8, data: &[u8]) -> Result<(), FsError> {
+        let (record_size, num_records) = ef
+            .structure
+            .record_params()
+            .ok_or(FsError::NotRecordBased)?;
         if num == 0 || num > num_records {
             return Err(FsError::RecordOutOfRange);
         }
         if data.len() != record_size as usize {
             return Err(FsError::DataTooLarge);
         }
-        let (entry_off, _entry_len) =
-            self.find_entry(ef).ok_or(FsError::FileNotFound)?;
+        let (entry_off, _entry_len) = self.find_entry(ef).ok_or(FsError::FileNotFound)?;
         let idx = (num - 1) as usize;
         let rs = record_size as usize;
         let start = entry_off as usize + idx * rs;
@@ -1030,11 +1076,7 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
     /// - [`FsError::NotRecordBased`] if the EF is not cyclic.
     /// - [`FsError::FileNotFound`] if the EF is not in the store.
     /// - [`FsError::DataTooLarge`] if `value.len()` exceeds the record size.
-    pub fn increase(
-        &mut self,
-        ef: &EfDef,
-        value: &[u8],
-    ) -> Result<&[u8], FsError> {
+    pub fn increase(&mut self, ef: &EfDef, value: &[u8]) -> Result<&[u8], FsError> {
         if !ef.structure.is_cyclic() {
             return Err(FsError::NotRecordBased);
         }
@@ -1043,8 +1085,7 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
         if value.len() > rs {
             return Err(FsError::DataTooLarge);
         }
-        let (entry_off, _entry_len) =
-            self.find_entry(ef).ok_or(FsError::FileNotFound)?;
+        let (entry_off, _entry_len) = self.find_entry(ef).ok_or(FsError::FileNotFound)?;
         let start = entry_off as usize; // record 1 starts at offset 0
         let end = start + rs;
 
@@ -1093,7 +1134,10 @@ impl<const CAP: usize, const MAX_EFS: usize> FsData<CAP, MAX_EFS> {
     /// - [`FsError::NotRecordBased`] if the EF is transparent.
     /// - [`FsError::FileNotFound`] if the EF is not in the store.
     pub fn search_records(&self, ef: &EfDef, pattern: &[u8]) -> Result<([u8; 16], usize), FsError> {
-        let (record_size, num_records) = ef.structure.record_params().ok_or(FsError::NotRecordBased)?;
+        let (record_size, num_records) = ef
+            .structure
+            .record_params()
+            .ok_or(FsError::NotRecordBased)?;
         let (entry_off, _entry_len) = self.find_entry(ef).ok_or(FsError::FileNotFound)?;
         let rs = record_size as usize;
         let mut result = [0u8; 16];
@@ -1252,10 +1296,7 @@ impl SelectionCtx {
     ///
     /// Returns [`FsError::FileNotFound`] if the FID is not found among
     /// the current DF's children (or `0x7FFF` with no active ADF).
-    pub fn select_by_fid(
-        &mut self,
-        fid: Fid,
-    ) -> Result<SelectedFile, FsError> {
+    pub fn select_by_fid(&mut self, fid: Fid) -> Result<SelectedFile, FsError> {
         // 0x3F00: select MF.
         if fid == Fid::MF {
             self.cur_df = self.mf;
@@ -1353,7 +1394,10 @@ impl SelectionCtx {
     /// - [`FsError::RecordOutOfRange`] if `num` is 0 or exceeds `num_records`.
     pub fn read_record(&self, num: u8) -> Result<&'static [u8], FsError> {
         let ef = self.cur_ef.ok_or(FsError::NoEfSelected)?;
-        let (record_size, num_records) = ef.structure.record_params().ok_or(FsError::NotRecordBased)?;
+        let (record_size, num_records) = ef
+            .structure
+            .record_params()
+            .ok_or(FsError::NotRecordBased)?;
         if num == 0 || num > num_records {
             return Err(FsError::RecordOutOfRange);
         }
@@ -1396,11 +1440,7 @@ impl SelectionCtx {
     ///
     /// - [`FsError::InvalidPath`] if `path.len()` is odd.
     /// - [`FsError::FileNotFound`] if any intermediate FID is not found.
-    pub fn select_by_path(
-        &mut self,
-        path: &[u8],
-        from_mf: bool,
-    ) -> Result<SelectedFile, FsError> {
+    pub fn select_by_path(&mut self, path: &[u8], from_mf: bool) -> Result<SelectedFile, FsError> {
         if !path.len().is_multiple_of(2) {
             return Err(FsError::InvalidPath);
         }
@@ -1465,11 +1505,7 @@ impl SelectionCtx {
     /// Walks the MF tree and ADF table to resolve FIDs back to
     /// `&'static` references. Returns `true` on success.
     #[must_use]
-    pub fn restore_state(
-        &mut self,
-        buf: &[u8],
-        adfs: &'static [AdfSlot],
-    ) -> bool {
+    pub fn restore_state(&mut self, buf: &[u8], adfs: &'static [AdfSlot]) -> bool {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return false;
         }
@@ -1490,10 +1526,7 @@ impl SelectionCtx {
         // Resolve cur_df: search MF tree then ADF trees.
         if let Some(df) = find_df_recursive(self.mf, df_fid) {
             self.cur_df = df;
-        } else if let Some(df) = adfs
-            .iter()
-            .find_map(|s| find_df_recursive(s.root, df_fid))
-        {
+        } else if let Some(df) = adfs.iter().find_map(|s| find_df_recursive(s.root, df_fid)) {
             self.cur_df = df;
         } else {
             return false;
@@ -1685,17 +1718,12 @@ mod tests {
 
     static EF_DIR_DATA: [u8; 16] = [
         // Record 1: 8 bytes
-        0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00,
-        // Record 2: 8 bytes
+        0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00, // Record 2: 8 bytes
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
 
-    static EF_DIR: EfDef = EfDef::linear_fixed(
-        Fid::new(0x2F00),
-        Some(Sfi::new(30)),
-        8, 2,
-        &EF_DIR_DATA,
-    );
+    static EF_DIR: EfDef =
+        EfDef::linear_fixed(Fid::new(0x2F00), Some(Sfi::new(30)), 8, 2, &EF_DIR_DATA);
 
     static EF_ADN_DATA: [u8; 42] = [
         // Record 1
@@ -1706,12 +1734,7 @@ mod tests {
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
 
-    static EF_ADN: EfDef = EfDef::linear_fixed(
-        Fid::new(0x6F3A),
-        None,
-        14, 3,
-        &EF_ADN_DATA,
-    );
+    static EF_ADN: EfDef = EfDef::linear_fixed(Fid::new(0x6F3A), None, 14, 3, &EF_ADN_DATA);
 
     static DF_TELECOM: DfDef = DfDef {
         fid: Fid::new(0x7F10),
@@ -1724,11 +1747,7 @@ mod tests {
         &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
     );
 
-    static EF_KC: EfDef = EfDef::transparent(
-        Fid::new(0x6F20),
-        None,
-        &[0xFF; 9],
-    );
+    static EF_KC: EfDef = EfDef::transparent(Fid::new(0x6F20), None, &[0xFF; 9]);
 
     static DF_GSM: DfDef = DfDef {
         fid: Fid::new(0x7F20),
@@ -1781,12 +1800,7 @@ mod tests {
         0x09, 0x0A, 0x0B, 0x0C, // record 3
     ];
 
-    static EF_CYCLIC: EfDef = EfDef::cyclic(
-        Fid::new(0x6F4A),
-        None,
-        4, 3,
-        &EF_CYCLIC_DATA,
-    );
+    static EF_CYCLIC: EfDef = EfDef::cyclic(Fid::new(0x6F4A), None, 4, 3, &EF_CYCLIC_DATA);
 
     static DF_TELECOM_WITH_CYCLIC: DfDef = DfDef {
         fid: Fid::new(0x7F10),
@@ -1885,11 +1899,8 @@ mod tests {
     #[test]
     fn select_7fff_reselects_adf() {
         let mut c = ctx();
-        c.select_by_aid(
-            &[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
-            &ADF_TABLE,
-        )
-        .unwrap();
+        c.select_by_aid(&[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02], &ADF_TABLE)
+            .unwrap();
         // Select an EF first.
         c.select_by_fid(Fid::new(0x6F07)).unwrap();
         // 0x7FFF reselects the ADF root.
@@ -1902,10 +1913,7 @@ mod tests {
     #[test]
     fn select_7fff_with_no_adf() {
         let mut c = ctx();
-        assert_eq!(
-            c.select_by_fid(Fid::CUR_ADF),
-            Err(FsError::FileNotFound)
-        );
+        assert_eq!(c.select_by_fid(Fid::CUR_ADF), Err(FsError::FileNotFound));
     }
 
     // -- SELECT by AID tests --
@@ -1914,10 +1922,7 @@ mod tests {
     fn select_by_full_aid() {
         let mut c = ctx();
         let sel = c
-            .select_by_aid(
-                &[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
-                &ADF_TABLE,
-            )
+            .select_by_aid(&[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02], &ADF_TABLE)
             .unwrap();
         assert_eq!(sel.fid(), Fid::new(0xFF01));
         assert!(c.current_adf().is_some());
@@ -2085,11 +2090,8 @@ mod tests {
         let gsm_imsi = c.read_binary(0, 9).unwrap();
 
         // Select USIM IMSI via AID.
-        c.select_by_aid(
-            &[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
-            &ADF_TABLE,
-        )
-        .unwrap();
+        c.select_by_aid(&[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02], &ADF_TABLE)
+            .unwrap();
         c.select_by_fid(Fid::new(0x6F07)).unwrap();
         let usim_imsi = c.read_binary(0, 9).unwrap();
 
@@ -2174,11 +2176,8 @@ mod tests {
     #[test]
     fn snapshot_save_restore_adf() {
         let mut c = ctx();
-        c.select_by_aid(
-            &[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
-            &ADF_TABLE,
-        )
-        .unwrap();
+        c.select_by_aid(&[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02], &ADF_TABLE)
+            .unwrap();
         c.select_by_fid(Fid::new(0x6F07)).unwrap();
 
         let mut buf = [0u8; SelectionCtx::SNAPSHOT_SIZE];
@@ -2224,9 +2223,7 @@ mod tests {
         // Navigate away from MF first.
         c.select_by_fid(Fid::new(0x7F10)).unwrap();
         // Path from MF: DF.GSM (7F20) -> EF.IMSI (6F07).
-        let sel = c
-            .select_by_path(&[0x7F, 0x20, 0x6F, 0x07], true)
-            .unwrap();
+        let sel = c.select_by_path(&[0x7F, 0x20, 0x6F, 0x07], true).unwrap();
         assert_eq!(sel.fid(), Fid::new(0x6F07));
         assert!(matches!(sel, SelectedFile::Ef(_)));
         assert_eq!(c.current_df().fid, Fid::new(0x7F20));
@@ -2238,9 +2235,7 @@ mod tests {
         // Navigate to DF.GSM first.
         c.select_by_fid(Fid::new(0x7F20)).unwrap();
         // Path from current DF: EF.IMSI (6F07).
-        let sel = c
-            .select_by_path(&[0x6F, 0x07], false)
-            .unwrap();
+        let sel = c.select_by_path(&[0x6F, 0x07], false).unwrap();
         assert_eq!(sel.fid(), Fid::new(0x6F07));
         assert!(matches!(sel, SelectedFile::Ef(_)));
         assert_eq!(c.current_df().fid, Fid::new(0x7F20));
@@ -2324,7 +2319,10 @@ mod tests {
         ];
         for v in variants {
             let s = alloc::format!("{v}");
-            assert!(!s.is_empty(), "Display for {v:?} must produce non-empty string");
+            assert!(
+                !s.is_empty(),
+                "Display for {v:?} must produce non-empty string"
+            );
         }
     }
 
@@ -2332,16 +2330,32 @@ mod tests {
     fn ef_structure_is_binary_accessible() {
         assert!(EfStructure::Transparent.is_binary_accessible());
         assert!(EfStructure::BerTlv.is_binary_accessible());
-        assert!(!EfStructure::LinearFixed { record_size: 10, num_records: 3 }.is_binary_accessible());
-        assert!(!EfStructure::Cyclic { record_size: 10, num_records: 3 }.is_binary_accessible());
+        assert!(!EfStructure::LinearFixed {
+            record_size: 10,
+            num_records: 3
+        }
+        .is_binary_accessible());
+        assert!(!EfStructure::Cyclic {
+            record_size: 10,
+            num_records: 3
+        }
+        .is_binary_accessible());
     }
 
     #[test]
     fn ef_structure_is_record_based() {
         assert!(!EfStructure::Transparent.is_record_based());
         assert!(!EfStructure::BerTlv.is_record_based());
-        assert!(EfStructure::LinearFixed { record_size: 10, num_records: 3 }.is_record_based());
-        assert!(EfStructure::Cyclic { record_size: 10, num_records: 3 }.is_record_based());
+        assert!(EfStructure::LinearFixed {
+            record_size: 10,
+            num_records: 3
+        }
+        .is_record_based());
+        assert!(EfStructure::Cyclic {
+            record_size: 10,
+            num_records: 3
+        }
+        .is_record_based());
     }
 
     #[test]
@@ -2349,11 +2363,19 @@ mod tests {
         assert_eq!(EfStructure::Transparent.record_params(), None);
         assert_eq!(EfStructure::BerTlv.record_params(), None);
         assert_eq!(
-            EfStructure::LinearFixed { record_size: 14, num_records: 5 }.record_params(),
+            EfStructure::LinearFixed {
+                record_size: 14,
+                num_records: 5
+            }
+            .record_params(),
             Some((14, 5))
         );
         assert_eq!(
-            EfStructure::Cyclic { record_size: 3, num_records: 10 }.record_params(),
+            EfStructure::Cyclic {
+                record_size: 3,
+                num_records: 10
+            }
+            .record_params(),
             Some((3, 10))
         );
     }
@@ -2362,39 +2384,103 @@ mod tests {
     fn ef_structure_is_cyclic() {
         assert!(!EfStructure::Transparent.is_cyclic());
         assert!(!EfStructure::BerTlv.is_cyclic());
-        assert!(!EfStructure::LinearFixed { record_size: 10, num_records: 3 }.is_cyclic());
-        assert!(EfStructure::Cyclic { record_size: 10, num_records: 3 }.is_cyclic());
+        assert!(!EfStructure::LinearFixed {
+            record_size: 10,
+            num_records: 3
+        }
+        .is_cyclic());
+        assert!(EfStructure::Cyclic {
+            record_size: 10,
+            num_records: 3
+        }
+        .is_cyclic());
     }
 
     #[test]
     fn ef_structure_record_size() {
         assert_eq!(EfStructure::Transparent.record_size(), 0);
         assert_eq!(EfStructure::BerTlv.record_size(), 0);
-        assert_eq!(EfStructure::LinearFixed { record_size: 14, num_records: 5 }.record_size(), 14);
-        assert_eq!(EfStructure::Cyclic { record_size: 3, num_records: 10 }.record_size(), 3);
+        assert_eq!(
+            EfStructure::LinearFixed {
+                record_size: 14,
+                num_records: 5
+            }
+            .record_size(),
+            14
+        );
+        assert_eq!(
+            EfStructure::Cyclic {
+                record_size: 3,
+                num_records: 10
+            }
+            .record_size(),
+            3
+        );
     }
 
     #[test]
     fn ef_structure_gsm_structure_byte() {
         assert_eq!(EfStructure::Transparent.gsm_structure_byte(), 0x00);
         assert_eq!(EfStructure::BerTlv.gsm_structure_byte(), 0x00);
-        assert_eq!(EfStructure::LinearFixed { record_size: 14, num_records: 5 }.gsm_structure_byte(), 0x01);
-        assert_eq!(EfStructure::Cyclic { record_size: 3, num_records: 10 }.gsm_structure_byte(), 0x03);
+        assert_eq!(
+            EfStructure::LinearFixed {
+                record_size: 14,
+                num_records: 5
+            }
+            .gsm_structure_byte(),
+            0x01
+        );
+        assert_eq!(
+            EfStructure::Cyclic {
+                record_size: 3,
+                num_records: 10
+            }
+            .gsm_structure_byte(),
+            0x03
+        );
     }
 
     #[test]
     fn ef_structure_gsm_increase_byte() {
         assert_eq!(EfStructure::Transparent.gsm_increase_byte(), 0x00);
         assert_eq!(EfStructure::BerTlv.gsm_increase_byte(), 0x00);
-        assert_eq!(EfStructure::LinearFixed { record_size: 14, num_records: 5 }.gsm_increase_byte(), 0x00);
-        assert_eq!(EfStructure::Cyclic { record_size: 3, num_records: 10 }.gsm_increase_byte(), 0x01);
+        assert_eq!(
+            EfStructure::LinearFixed {
+                record_size: 14,
+                num_records: 5
+            }
+            .gsm_increase_byte(),
+            0x00
+        );
+        assert_eq!(
+            EfStructure::Cyclic {
+                record_size: 3,
+                num_records: 10
+            }
+            .gsm_increase_byte(),
+            0x01
+        );
     }
 
     #[test]
     fn ef_structure_fcp_descriptor_byte() {
         assert_eq!(EfStructure::Transparent.fcp_descriptor_byte(), 0x41);
-        assert_eq!(EfStructure::LinearFixed { record_size: 14, num_records: 5 }.fcp_descriptor_byte(), 0x42);
-        assert_eq!(EfStructure::Cyclic { record_size: 3, num_records: 10 }.fcp_descriptor_byte(), 0x46);
+        assert_eq!(
+            EfStructure::LinearFixed {
+                record_size: 14,
+                num_records: 5
+            }
+            .fcp_descriptor_byte(),
+            0x42
+        );
+        assert_eq!(
+            EfStructure::Cyclic {
+                record_size: 3,
+                num_records: 10
+            }
+            .fcp_descriptor_byte(),
+            0x46
+        );
         assert_eq!(EfStructure::BerTlv.fcp_descriptor_byte(), 0x39);
     }
 
@@ -2408,11 +2494,19 @@ mod tests {
         assert_eq!(len, 2);
         assert_eq!(&data[..len], &[0x39, 0x21]);
 
-        let (data, len) = EfStructure::LinearFixed { record_size: 14, num_records: 5 }.fcp_descriptor_data();
+        let (data, len) = EfStructure::LinearFixed {
+            record_size: 14,
+            num_records: 5,
+        }
+        .fcp_descriptor_data();
         assert_eq!(len, 5);
         assert_eq!(&data[..len], &[0x42, 0x21, 5, 0x00, 14]);
 
-        let (data, len) = EfStructure::Cyclic { record_size: 3, num_records: 10 }.fcp_descriptor_data();
+        let (data, len) = EfStructure::Cyclic {
+            record_size: 3,
+            num_records: 10,
+        }
+        .fcp_descriptor_data();
         assert_eq!(len, 5);
         assert_eq!(&data[..len], &[0x46, 0x21, 10, 0x00, 3]);
     }
@@ -2421,8 +2515,22 @@ mod tests {
     fn ef_structure_expected_data_len() {
         assert_eq!(EfStructure::Transparent.expected_data_len(), None);
         assert_eq!(EfStructure::BerTlv.expected_data_len(), None);
-        assert_eq!(EfStructure::LinearFixed { record_size: 14, num_records: 5 }.expected_data_len(), Some(70));
-        assert_eq!(EfStructure::Cyclic { record_size: 3, num_records: 10 }.expected_data_len(), Some(30));
+        assert_eq!(
+            EfStructure::LinearFixed {
+                record_size: 14,
+                num_records: 5
+            }
+            .expected_data_len(),
+            Some(70)
+        );
+        assert_eq!(
+            EfStructure::Cyclic {
+                record_size: 3,
+                num_records: 10
+            }
+            .expected_data_len(),
+            Some(30)
+        );
     }
 }
 
@@ -2434,23 +2542,22 @@ mod tests {
 mod fsdata_tests {
     use super::*;
 
-    static EF_T: EfDef = EfDef::transparent(
-        Fid::new(0x2FE2),
-        None,
-        &[0x01, 0x02, 0x03, 0x04, 0x05],
-    );
+    static EF_T: EfDef =
+        EfDef::transparent(Fid::new(0x2FE2), None, &[0x01, 0x02, 0x03, 0x04, 0x05]);
 
     static EF_LF: EfDef = EfDef::linear_fixed(
         Fid::new(0x2F00),
         None,
-        4, 2,
+        4,
+        2,
         &[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11],
     );
 
     static EF_CY: EfDef = EfDef::cyclic(
         Fid::new(0x6F4A),
         None,
-        3, 2,
+        3,
+        2,
         &[0xA1, 0xA2, 0xA3, 0xB1, 0xB2, 0xB3],
     );
 
@@ -2508,11 +2615,7 @@ mod fsdata_tests {
 
     #[test]
     fn init_with_adfs() {
-        static ADF_EF: EfDef = EfDef::transparent(
-            Fid::new(0x6F07),
-            None,
-            &[0xDD, 0xEE],
-        );
+        static ADF_EF: EfDef = EfDef::transparent(Fid::new(0x6F07), None, &[0xDD, 0xEE]);
         static ADF_ROOT: DfDef = DfDef {
             fid: Fid::new(0xFF01),
             children: &[FileRef::Ef(&ADF_EF)],
@@ -2542,42 +2645,26 @@ mod fsdata_tests {
     #[test]
     fn read_binary_partial() {
         let s = store();
-        assert_eq!(
-            s.read_binary(&EF_T, 1, 3).unwrap(),
-            &[0x02, 0x03, 0x04]
-        );
+        assert_eq!(s.read_binary(&EF_T, 1, 3).unwrap(), &[0x02, 0x03, 0x04]);
     }
 
     #[test]
     fn read_binary_past_end() {
         let s = store();
-        assert_eq!(
-            s.read_binary(&EF_T, 3, 5),
-            Err(FsError::OffsetOutOfRange)
-        );
+        assert_eq!(s.read_binary(&EF_T, 3, 5), Err(FsError::OffsetOutOfRange));
     }
 
     #[test]
     fn read_binary_on_record_ef() {
         let s = store();
-        assert_eq!(
-            s.read_binary(&EF_LF, 0, 4),
-            Err(FsError::NotTransparent)
-        );
+        assert_eq!(s.read_binary(&EF_LF, 0, 4), Err(FsError::NotTransparent));
     }
 
     #[test]
     fn read_binary_unknown_ef() {
-        static UNKNOWN: EfDef = EfDef::transparent(
-            Fid::new(0xAAAA),
-            None,
-            &[],
-        );
+        static UNKNOWN: EfDef = EfDef::transparent(Fid::new(0xAAAA), None, &[]);
         let s = store();
-        assert_eq!(
-            s.read_binary(&UNKNOWN, 0, 0),
-            Err(FsError::FileNotFound)
-        );
+        assert_eq!(s.read_binary(&UNKNOWN, 0, 0), Err(FsError::FileNotFound));
     }
 
     // -- read_record --
@@ -2585,27 +2672,15 @@ mod fsdata_tests {
     #[test]
     fn read_record_linear_fixed() {
         let s = store();
-        assert_eq!(
-            s.read_record(&EF_LF, 1).unwrap(),
-            &[0x0A, 0x0B, 0x0C, 0x0D]
-        );
-        assert_eq!(
-            s.read_record(&EF_LF, 2).unwrap(),
-            &[0x0E, 0x0F, 0x10, 0x11]
-        );
+        assert_eq!(s.read_record(&EF_LF, 1).unwrap(), &[0x0A, 0x0B, 0x0C, 0x0D]);
+        assert_eq!(s.read_record(&EF_LF, 2).unwrap(), &[0x0E, 0x0F, 0x10, 0x11]);
     }
 
     #[test]
     fn read_record_cyclic() {
         let s = store();
-        assert_eq!(
-            s.read_record(&EF_CY, 1).unwrap(),
-            &[0xA1, 0xA2, 0xA3]
-        );
-        assert_eq!(
-            s.read_record(&EF_CY, 2).unwrap(),
-            &[0xB1, 0xB2, 0xB3]
-        );
+        assert_eq!(s.read_record(&EF_CY, 1).unwrap(), &[0xA1, 0xA2, 0xA3]);
+        assert_eq!(s.read_record(&EF_CY, 2).unwrap(), &[0xB1, 0xB2, 0xB3]);
     }
 
     #[test]
@@ -2678,15 +2753,9 @@ mod fsdata_tests {
         let mut s = store();
         s.write_record(&EF_LF, 2, &[0xCC, 0xDD, 0xEE, 0xFF])
             .unwrap();
-        assert_eq!(
-            s.read_record(&EF_LF, 2).unwrap(),
-            &[0xCC, 0xDD, 0xEE, 0xFF]
-        );
+        assert_eq!(s.read_record(&EF_LF, 2).unwrap(), &[0xCC, 0xDD, 0xEE, 0xFF]);
         // Record 1 unchanged.
-        assert_eq!(
-            s.read_record(&EF_LF, 1).unwrap(),
-            &[0x0A, 0x0B, 0x0C, 0x0D]
-        );
+        assert_eq!(s.read_record(&EF_LF, 1).unwrap(), &[0x0A, 0x0B, 0x0C, 0x0D]);
     }
 
     #[test]
@@ -2724,10 +2793,7 @@ mod fsdata_tests {
     fn write_record_cyclic() {
         let mut s = store();
         s.write_record(&EF_CY, 1, &[0xCC, 0xDD, 0xEE]).unwrap();
-        assert_eq!(
-            s.read_record(&EF_CY, 1).unwrap(),
-            &[0xCC, 0xDD, 0xEE]
-        );
+        assert_eq!(s.read_record(&EF_CY, 1).unwrap(), &[0xCC, 0xDD, 0xEE]);
     }
 
     // -- increase --
@@ -2760,19 +2826,13 @@ mod fsdata_tests {
     #[test]
     fn increase_on_transparent_fails() {
         let mut s = store();
-        assert_eq!(
-            s.increase(&EF_T, &[0x01]),
-            Err(FsError::NotRecordBased)
-        );
+        assert_eq!(s.increase(&EF_T, &[0x01]), Err(FsError::NotRecordBased));
     }
 
     #[test]
     fn increase_on_linear_fixed_fails() {
         let mut s = store();
-        assert_eq!(
-            s.increase(&EF_LF, &[0x01]),
-            Err(FsError::NotRecordBased)
-        );
+        assert_eq!(s.increase(&EF_LF, &[0x01]), Err(FsError::NotRecordBased));
     }
 
     #[test]
@@ -2858,11 +2918,7 @@ mod fsdata_tests {
 
     #[test]
     fn fid_collision_uses_pointer_identity() {
-        static EF_A: EfDef = EfDef::transparent(
-            Fid::new(0x6F07),
-            None,
-            &[0xAA, 0xBB],
-        );
+        static EF_A: EfDef = EfDef::transparent(Fid::new(0x6F07), None, &[0xAA, 0xBB]);
         static EF_B: EfDef = EfDef::transparent(
             Fid::new(0x6F07), // same FID, different static
             None,
@@ -2898,22 +2954,16 @@ mod fsdata_tests {
 
     #[test]
     fn ber_tlv_ef_can_be_created() {
-        static EF_BT: EfDef = EfDef::ber_tlv(
-            Fid::new(0x6F42),
-            None,
-            &[0xC0, 0x03, 0x01, 0x02, 0x03],
-        );
+        static EF_BT: EfDef =
+            EfDef::ber_tlv(Fid::new(0x6F42), None, &[0xC0, 0x03, 0x01, 0x02, 0x03]);
         assert!(matches!(EF_BT.structure(), EfStructure::BerTlv));
         assert_eq!(EF_BT.fid(), Fid::new(0x6F42));
     }
 
     #[test]
     fn ber_tlv_ef_supports_binary_read_write() {
-        static EF_BT: EfDef = EfDef::ber_tlv(
-            Fid::new(0x6F42),
-            None,
-            &[0xC0, 0x03, 0x01, 0x02, 0x03],
-        );
+        static EF_BT: EfDef =
+            EfDef::ber_tlv(Fid::new(0x6F42), None, &[0xC0, 0x03, 0x01, 0x02, 0x03]);
         static BT_MF: DfDef = DfDef {
             fid: Fid::new(0x3F00),
             children: &[FileRef::Ef(&EF_BT)],
@@ -2927,7 +2977,8 @@ mod fsdata_tests {
         assert_eq!(data, &[0xC0, 0x03, 0x01, 0x02, 0x03]);
 
         // Binary write also works.
-        s.write_binary(&EF_BT, 0, &[0xD1, 0x02, 0xAA, 0xBB, 0xCC]).unwrap();
+        s.write_binary(&EF_BT, 0, &[0xD1, 0x02, 0xAA, 0xBB, 0xCC])
+            .unwrap();
         assert_eq!(
             s.read_binary(&EF_BT, 0, 5).unwrap(),
             &[0xD1, 0x02, 0xAA, 0xBB, 0xCC]
@@ -2936,11 +2987,8 @@ mod fsdata_tests {
 
     #[test]
     fn ber_tlv_ef_rejects_record_operations() {
-        static EF_BT: EfDef = EfDef::ber_tlv(
-            Fid::new(0x6F42),
-            None,
-            &[0xC0, 0x03, 0x01, 0x02, 0x03],
-        );
+        static EF_BT: EfDef =
+            EfDef::ber_tlv(Fid::new(0x6F42), None, &[0xC0, 0x03, 0x01, 0x02, 0x03]);
         static BT_MF: DfDef = DfDef {
             fid: Fid::new(0x3F00),
             children: &[FileRef::Ef(&EF_BT)],
@@ -2980,7 +3028,8 @@ mod proptests {
     static PT_EF_LF: EfDef = EfDef::linear_fixed(
         Fid::new(0x2F00),
         None,
-        4, 2,
+        4,
+        2,
         &[0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11],
     );
 

@@ -81,7 +81,8 @@ fn when_envelope_simjacker(world: &mut SimWorld) {
     // D6 09 82 02 82 81 99 03 26 00 00: CAT envelope with PROVIDE LOCAL INFO
     let cmd = apdu::envelope(&[
         0xD6, 0x09, 0x82, 0x02, 0x82, 0x81, 0x99, 0x03, 0x26, 0x00, 0x00,
-    ]).build();
+    ])
+    .build();
     do_send_apdu(world, &cmd);
 }
 
@@ -111,9 +112,7 @@ fn then_envelope_rejected(world: &mut SimWorld) {
     }
 }
 
-#[then(
-    regex = r"^the response SW does not indicate that PROVIDE LOCAL INFO ran.*$"
-)]
+#[then(regex = r"^the response SW does not indicate that PROVIDE LOCAL INFO ran.*$")]
 fn then_no_provide_local_info(world: &mut SimWorld) {
     // SW1=91 would indicate a proactive command is pending.
     if let Some((sw1, sw2)) = world.last_sw_opt() {
@@ -128,10 +127,7 @@ fn then_no_provide_local_info(world: &mut SimWorld) {
 fn then_sim_operational(world: &mut SimWorld) {
     // Direct probe: intentionally bypasses do_send_apdu to avoid
     // clobbering the world response that preceding Then steps may check.
-    let cmd = simrs_security_tests::apdu::select_fid(
-        simrs_security_tests::apdu::FID_MF,
-    )
-    .build();
+    let cmd = simrs_security_tests::apdu::select_fid(simrs_security_tests::apdu::FID_MF).build();
     let sim = world.sim_mut();
     let result = simrs_security_tests::send_apdu(sim, &cmd);
     assert!(
@@ -152,7 +148,10 @@ fn build_test_ota_packet() -> (Vec<u8>, Vec<u8>) {
     let mut hdr = CommandPacketHeader::new();
     // command_header = 0x02: CC (cryptographic checksum), no ciphering
     // response_header = 0x01: PoR required
-    hdr.security_parameters = SecurityParameters { command_header: 0x02, response_header: 0x01 };
+    hdr.security_parameters = SecurityParameters {
+        command_header: 0x02,
+        response_header: 0x01,
+    };
     hdr.ciphering_key_id = KeyIdentifier::new(0x01); // AES CBC
     hdr.integrity_key_id = KeyIdentifier::new(0x01); // AES CBC MAC
     hdr.target_app = [0xB0, 0x00, 0x10].into();
@@ -161,7 +160,11 @@ fn build_test_ota_packet() -> (Vec<u8>, Vec<u8>) {
     let payload = b"Hello SIM";
     let mut buf = [0u8; 512];
     let len = simrs_ota::encode_command_packet(
-        &hdr, payload, None, Some(&OtaCryptoKey::Aes(Secret::new(OTA_MAC_KEY))), &mut buf,
+        &hdr,
+        payload,
+        None,
+        Some(&OtaCryptoKey::Aes(Secret::new(OTA_MAC_KEY))),
+        &mut buf,
     )
     .expect("encode_command_packet must succeed");
 
@@ -180,9 +183,8 @@ fn when_decode_correct_key(world: &mut SimWorld) {
     let mut hdr = CommandPacketHeader::new();
     let mut data = [0u8; 256];
     let mac_key = OtaCryptoKey::Aes(Secret::new(OTA_MAC_KEY));
-    let result = simrs_ota::decode_command_packet(
-        &packet, None, Some(&mac_key), &mut hdr, &mut data,
-    );
+    let result =
+        simrs_ota::decode_command_packet(&packet, None, Some(&mac_key), &mut hdr, &mut data);
     match result {
         Ok(len) => {
             world.record_response((0x90, 0x00), data[..len].to_vec());
@@ -204,9 +206,8 @@ fn when_decode_tampered_mac(world: &mut SimWorld) {
     let mut hdr = CommandPacketHeader::new();
     let mut data = [0u8; 256];
     let mac_key = OtaCryptoKey::Aes(Secret::new(OTA_MAC_KEY));
-    let result = simrs_ota::decode_command_packet(
-        &packet, None, Some(&mac_key), &mut hdr, &mut data,
-    );
+    let result =
+        simrs_ota::decode_command_packet(&packet, None, Some(&mac_key), &mut hdr, &mut data);
     // Store result for Then assertion.
     match result {
         Ok(_) => {
@@ -227,9 +228,8 @@ fn when_decode_wrong_key(world: &mut SimWorld) {
     let wrong_key = OtaCryptoKey::Aes(Secret::new([0xBB; 16])); // different from OTA_MAC_KEY
     let mut hdr = CommandPacketHeader::new();
     let mut data = [0u8; 256];
-    let result = simrs_ota::decode_command_packet(
-        &packet, None, Some(&wrong_key), &mut hdr, &mut data,
-    );
+    let result =
+        simrs_ota::decode_command_packet(&packet, None, Some(&wrong_key), &mut hdr, &mut data);
     match result {
         Ok(_) => {
             world.record_response((0x90, 0x00), vec![]);
@@ -263,11 +263,7 @@ fn when_cc_with_device_ids(world: &mut SimWorld) {
 
 #[then("decoding succeeds with the original data")]
 fn then_decode_succeeds(world: &mut SimWorld) {
-    assert_eq!(
-        world.last_sw(),
-        (0x90, 0x00),
-        "Expected successful decode",
-    );
+    assert_eq!(world.last_sw(), (0x90, 0x00), "Expected successful decode",);
     assert_eq!(
         world.last_data(),
         b"Hello SIM",

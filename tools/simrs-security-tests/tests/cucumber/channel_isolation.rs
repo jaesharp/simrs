@@ -96,4 +96,3 @@ fn then_data_contains_channel(world: &mut SimWorld) {
         "Expected channel number 1-3, got {ch}",
     );
 }
-

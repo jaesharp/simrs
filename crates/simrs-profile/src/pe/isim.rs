@@ -1,8 +1,8 @@
 //! PE-ISIM (tag 21) parser.
 
+use super::parse_template_files;
 use crate::error::ProfileError;
 use crate::file::File;
-use super::parse_template_files;
 
 /// PE-ISIM: ADF.ISIM and its child EFs (`ProfileElement` tag 21).
 ///
@@ -22,6 +22,8 @@ impl PeIsim {
     ///
     /// Returns [`ProfileError`] if the DER structure is malformed.
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProfileError> {
-        Ok(Self { files: parse_template_files(data)? })
+        Ok(Self {
+            files: parse_template_files(data)?,
+        })
     }
 }

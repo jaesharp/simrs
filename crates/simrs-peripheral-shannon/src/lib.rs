@@ -525,7 +525,7 @@ mod tests {
         sim.read_reg(REG_SIM_RX); // 0x3B
         assert_ne!(sim.read_reg(REG_SIM_STAT) & STAT_RX_AVAIL, 0);
         sim.read_reg(REG_SIM_RX); // 0x00
-        // Now cleared.
+                                  // Now cleared.
         assert_eq!(sim.read_reg(REG_SIM_STAT) & STAT_RX_AVAIL, 0);
     }
 

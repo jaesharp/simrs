@@ -65,7 +65,9 @@ fn when_send_random_apdus(world: &mut SimWorld, count: usize, seed_str: String) 
     }
 }
 
-#[when(regex = r"^I send APDU \[([0-9A-Fa-f]{2}) <INS> ([0-9A-Fa-f]{2}) ([0-9A-Fa-f]{2})\] for every INS byte from 0x00 to 0xFF$")]
+#[when(
+    regex = r"^I send APDU \[([0-9A-Fa-f]{2}) <INS> ([0-9A-Fa-f]{2}) ([0-9A-Fa-f]{2})\] for every INS byte from 0x00 to 0xFF$"
+)]
 fn when_ins_sweep(world: &mut SimWorld, cla_hex: String, p1_hex: String, p2_hex: String) {
     let cla = u8::from_str_radix(&cla_hex, 16).unwrap();
     let p1 = u8::from_str_radix(&p1_hex, 16).unwrap();
@@ -189,7 +191,10 @@ fn then_third_error(world: &mut SimWorld) {
 
 #[then("the last SELECT returns a valid response")]
 fn then_last_select_valid(world: &mut SimWorld) {
-    assert!(!world.last_apdu_dropped(), "Expected last SELECT to be processed");
+    assert!(
+        !world.last_apdu_dropped(),
+        "Expected last SELECT to be processed"
+    );
     assert!(world.last_sw_opt().is_some(), "Expected a status word");
 }
 

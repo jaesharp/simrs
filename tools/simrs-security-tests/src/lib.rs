@@ -29,7 +29,10 @@
 pub mod apdu;
 
 use simrs_gsm::SubscriberKey as GsmSubscriberKey;
-use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
+use simrs_milenage::{
+    AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber,
+    SubscriberKey,
+};
 use simrs_pin::{PinKey, PinValue};
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
@@ -81,7 +84,14 @@ pub fn create_sim() -> TestSim {
     let puk1 = PinValue::new(apdu::encode_pin(apdu::PUK1_CORRECT));
     sim.usim_app_mut()
         .pin_manager()
-        .add_pin(PinKey::PIN1, &pin1, PIN_MAX_RETRIES, &puk1, PUK_MAX_RETRIES, true)
+        .add_pin(
+            PinKey::PIN1,
+            &pin1,
+            PIN_MAX_RETRIES,
+            &puk1,
+            PUK_MAX_RETRIES,
+            true,
+        )
         .expect("add_pin1 must succeed");
 
     // Configure PIN2 with test values.
@@ -89,7 +99,14 @@ pub fn create_sim() -> TestSim {
     let puk2 = PinValue::new(apdu::encode_pin(apdu::PUK2_CORRECT));
     sim.usim_app_mut()
         .pin_manager()
-        .add_pin(PinKey::PIN2, &pin2, PIN_MAX_RETRIES, &puk2, PUK_MAX_RETRIES, true)
+        .add_pin(
+            PinKey::PIN2,
+            &pin2,
+            PIN_MAX_RETRIES,
+            &puk2,
+            PUK_MAX_RETRIES,
+            true,
+        )
         .expect("add_pin2 must succeed");
 
     sim
@@ -157,8 +174,7 @@ pub fn send_apdu(sim: &mut TestSim, cmd: &[u8]) -> Option<(Vec<u8>, u8, u8)> {
 ///
 /// Panics if the APDU is ignored by the SIM.
 pub fn send_apdu_expect(sim: &mut TestSim, cmd: &[u8]) -> (Vec<u8>, u8, u8) {
-    send_apdu(sim, cmd)
-        .unwrap_or_else(|| panic!("APDU was ignored: {cmd:02X?}"))
+    send_apdu(sim, cmd).unwrap_or_else(|| panic!("APDU was ignored: {cmd:02X?}"))
 }
 
 /// Send an APDU and return just `(sw1, sw2)`, panicking if ignored.
@@ -233,7 +249,11 @@ pub fn select_ef_iccid(sim: &mut TestSim) -> (u8, u8) {
 
 /// Construct a valid AUTN for the test Milenage credentials with a given
 /// SQN and AMF, so AUTHENTICATE will accept the MAC.
-pub fn build_valid_autn(challenge: &[u8; 16], sequence_number: [u8; 6], management_field: [u8; 2]) -> [u8; 16] {
+pub fn build_valid_autn(
+    challenge: &[u8; 16],
+    sequence_number: [u8; 6],
+    management_field: [u8; 2],
+) -> [u8; 16] {
     let params = MilenageParams::with_defaults(TEST_K, TEST_OPC);
     let ch = AuthChallenge::new(*challenge);
     let sqn = SequenceNumber::new(sequence_number);

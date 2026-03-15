@@ -304,17 +304,29 @@ pub enum StatusWord {
 
 impl StatusWord {
     /// `61 XX` -- response bytes available.
-    pub const fn bytes_available(len: u8) -> Self { Self::BytesAvailable(len) }
+    pub const fn bytes_available(len: u8) -> Self {
+        Self::BytesAvailable(len)
+    }
     /// `63 CX` -- PIN retries remaining.
-    pub const fn pin_retries(n: u8) -> Self { Self::PinRetries(n & 0x0F) }
+    pub const fn pin_retries(n: u8) -> Self {
+        Self::PinRetries(n & 0x0F)
+    }
     /// `6A XX` -- wrong parameters.
-    pub const fn wrong_params(sw2: u8) -> Self { Self::WrongParams(sw2) }
+    pub const fn wrong_params(sw2: u8) -> Self {
+        Self::WrongParams(sw2)
+    }
     /// `69 XX` -- command not allowed.
-    pub const fn command_not_allowed(sw2: u8) -> Self { Self::CommandNotAllowed(sw2) }
+    pub const fn command_not_allowed(sw2: u8) -> Self {
+        Self::CommandNotAllowed(sw2)
+    }
     /// `6C XX` -- exact length.
-    pub const fn exact_length(len: u8) -> Self { Self::ExactLength(len) }
+    pub const fn exact_length(len: u8) -> Self {
+        Self::ExactLength(len)
+    }
     /// `91 XX` -- proactive pending.
-    pub const fn proactive_pending(len: u8) -> Self { Self::ProactivePending(len) }
+    pub const fn proactive_pending(len: u8) -> Self {
+        Self::ProactivePending(len)
+    }
 
     /// Encode as `[SW1, SW2]`.
     ///
@@ -324,22 +336,22 @@ impl StatusWord {
     /// ```
     pub const fn to_bytes(self) -> [u8; 2] {
         match self {
-            Self::Success              => [0x90, 0x00],
-            Self::BytesAvailable(n)    => [0x61, n],
-            Self::PinRetries(n)        => [0x63, 0xC0 | (n & 0x0F)],
-            Self::WarningUnchanged(n)  => [0x63, n],
-            Self::WrongLength          => [0x67, 0x00],
-            Self::ExactLength(n)       => [0x6C, n],
+            Self::Success => [0x90, 0x00],
+            Self::BytesAvailable(n) => [0x61, n],
+            Self::PinRetries(n) => [0x63, 0xC0 | (n & 0x0F)],
+            Self::WarningUnchanged(n) => [0x63, n],
+            Self::WrongLength => [0x67, 0x00],
+            Self::ExactLength(n) => [0x6C, n],
             Self::FunctionNotSupported(n) => [0x68, n],
             Self::CommandNotAllowed(n) => [0x69, n],
-            Self::WrongParams(n)       => [0x6A, n],
-            Self::WrongP1P2            => [0x6B, 0x00],
-            Self::InsNotSupported      => [0x6D, 0x00],
-            Self::ClassNotSupported    => [0x6E, 0x00],
-            Self::NoPreciseDiagnosis   => [0x6F, 0x00],
-            Self::ProactivePending(n)  => [0x91, n],
-            Self::AuthenticationError  => [0x98, 0x62],
-            Self::Other(sw1, sw2)      => [sw1, sw2],
+            Self::WrongParams(n) => [0x6A, n],
+            Self::WrongP1P2 => [0x6B, 0x00],
+            Self::InsNotSupported => [0x6D, 0x00],
+            Self::ClassNotSupported => [0x6E, 0x00],
+            Self::NoPreciseDiagnosis => [0x6F, 0x00],
+            Self::ProactivePending(n) => [0x91, n],
+            Self::AuthenticationError => [0x98, 0x62],
+            Self::Other(sw1, sw2) => [sw1, sw2],
         }
     }
 
@@ -354,21 +366,21 @@ impl StatusWord {
     pub const fn from_bytes(sw1: u8, sw2: u8) -> Self {
         match (sw1, sw2) {
             (0x90, 0x00) => Self::Success,
-            (0x61, n)    => Self::BytesAvailable(n),
+            (0x61, n) => Self::BytesAvailable(n),
             (0x63, n) if n & 0xF0 == 0xC0 => Self::PinRetries(n & 0x0F),
-            (0x63, n)    => Self::WarningUnchanged(n),
+            (0x63, n) => Self::WarningUnchanged(n),
             (0x67, 0x00) => Self::WrongLength,
-            (0x6C, n)    => Self::ExactLength(n),
-            (0x68, n)    => Self::FunctionNotSupported(n),
-            (0x69, n)    => Self::CommandNotAllowed(n),
-            (0x6A, n)    => Self::WrongParams(n),
+            (0x6C, n) => Self::ExactLength(n),
+            (0x68, n) => Self::FunctionNotSupported(n),
+            (0x69, n) => Self::CommandNotAllowed(n),
+            (0x6A, n) => Self::WrongParams(n),
             (0x6B, 0x00) => Self::WrongP1P2,
             (0x6D, 0x00) => Self::InsNotSupported,
             (0x6E, 0x00) => Self::ClassNotSupported,
             (0x6F, 0x00) => Self::NoPreciseDiagnosis,
-            (0x91, n)    => Self::ProactivePending(n),
+            (0x91, n) => Self::ProactivePending(n),
             (0x98, 0x62) => Self::AuthenticationError,
-            (s1, s2)     => Self::Other(s1, s2),
+            (s1, s2) => Self::Other(s1, s2),
         }
     }
 
@@ -385,7 +397,10 @@ impl core::fmt::Display for StatusWord {
             Self::Success => write!(f, "{sw1:02X}{sw2:02X} ok"),
             Self::BytesAvailable(n) => write!(f, "{sw1:02X}{sw2:02X} {n} bytes available"),
             Self::PinRetries(n) => write!(f, "{sw1:02X}{sw2:02X} {n} PIN retries remaining"),
-            Self::WarningUnchanged(_) => write!(f, "{sw1:02X}{sw2:02X} warning, non-volatile memory unchanged"),
+            Self::WarningUnchanged(_) => write!(
+                f,
+                "{sw1:02X}{sw2:02X} warning, non-volatile memory unchanged"
+            ),
             Self::WrongLength => write!(f, "{sw1:02X}{sw2:02X} wrong length"),
             Self::ExactLength(n) => write!(f, "{sw1:02X}{sw2:02X} exact length {n}"),
             Self::FunctionNotSupported(_) => write!(f, "{sw1:02X}{sw2:02X} function not supported"),
@@ -395,7 +410,9 @@ impl core::fmt::Display for StatusWord {
             Self::InsNotSupported => write!(f, "{sw1:02X}{sw2:02X} instruction not supported"),
             Self::ClassNotSupported => write!(f, "{sw1:02X}{sw2:02X} class not supported"),
             Self::NoPreciseDiagnosis => write!(f, "{sw1:02X}{sw2:02X} no precise diagnosis"),
-            Self::ProactivePending(n) => write!(f, "{sw1:02X}{sw2:02X} proactive command pending, fetch {n}"),
+            Self::ProactivePending(n) => {
+                write!(f, "{sw1:02X}{sw2:02X} proactive command pending, fetch {n}")
+            }
             Self::AuthenticationError => write!(f, "{sw1:02X}{sw2:02X} authentication error"),
             Self::Other(_, _) => write!(f, "{sw1:02X}{sw2:02X}"),
         }
@@ -587,14 +604,32 @@ impl<'a> Command<'a> {
 
         if bytes.len() == 4 {
             // Case 1: header only
-            return Ok(Self { cla, ins, p1, p2, data: &[], le: None, le_ext: None, extended: false });
+            return Ok(Self {
+                cla,
+                ins,
+                p1,
+                p2,
+                data: &[],
+                le: None,
+                le_ext: None,
+                extended: false,
+            });
         }
 
         let p3 = bytes[4];
 
         if bytes.len() == 5 {
             // Case 2S: Le only (short)
-            return Ok(Self { cla, ins, p1, p2, data: &[], le: Some(p3), le_ext: None, extended: false });
+            return Ok(Self {
+                cla,
+                ins,
+                p1,
+                p2,
+                data: &[],
+                le: Some(p3),
+                le_ext: None,
+                extended: false,
+            });
         }
 
         // Extended format detection: byte[4] == 0x00 and at least 7 bytes.
@@ -621,7 +656,16 @@ impl<'a> Command<'a> {
             Some(remainder[0]) // Case 4S
         };
 
-        Ok(Self { cla, ins, p1, p2, data, le, le_ext: None, extended: false })
+        Ok(Self {
+            cla,
+            ins,
+            p1,
+            p2,
+            data,
+            le,
+            le_ext: None,
+            extended: false,
+        })
     }
 
     /// Parse an extended-length APDU (ISO 7816-4 clause 5.1).
@@ -647,7 +691,10 @@ impl<'a> Command<'a> {
         if bytes.len() == 7 {
             // Case 2E: extended Le only, Lc=0
             return Ok(Self {
-                cla, ins, p1, p2,
+                cla,
+                ins,
+                p1,
+                p2,
                 data: &[],
                 le: None,
                 le_ext: Some(field),
@@ -663,7 +710,10 @@ impl<'a> Command<'a> {
             if bytes.len() >= 9 {
                 let le_val = ((bytes[7] as u16) << 8) | (bytes[8] as u16);
                 return Ok(Self {
-                    cla, ins, p1, p2,
+                    cla,
+                    ins,
+                    p1,
+                    p2,
                     data: &[],
                     le: None,
                     le_ext: Some(le_val),
@@ -671,7 +721,10 @@ impl<'a> Command<'a> {
                 });
             }
             return Ok(Self {
-                cla, ins, p1, p2,
+                cla,
+                ins,
+                p1,
+                p2,
                 data: &[],
                 le: None,
                 le_ext: Some(field),
@@ -693,26 +746,49 @@ impl<'a> Command<'a> {
             None // Case 3E
         };
 
-        Ok(Self { cla, ins, p1, p2, data, le: None, le_ext, extended: true })
+        Ok(Self {
+            cla,
+            ins,
+            p1,
+            p2,
+            data,
+            le: None,
+            le_ext,
+            extended: true,
+        })
     }
 
     /// Parsed CLA byte.
-    pub const fn cla(&self) -> ClassByte { self.cla }
+    pub const fn cla(&self) -> ClassByte {
+        self.cla
+    }
     /// Raw CLA byte value.
-    pub const fn cla_raw(&self) -> u8 { self.cla.raw() }
+    pub const fn cla_raw(&self) -> u8 {
+        self.cla.raw()
+    }
     /// INS (instruction) byte.
-    pub const fn ins(&self) -> u8 { self.ins }
+    pub const fn ins(&self) -> u8 {
+        self.ins
+    }
     /// P1 parameter byte.
-    pub const fn p1(&self) -> u8 { self.p1 }
+    pub const fn p1(&self) -> u8 {
+        self.p1
+    }
     /// P2 parameter byte.
-    pub const fn p2(&self) -> u8 { self.p2 }
+    pub const fn p2(&self) -> u8 {
+        self.p2
+    }
     /// Command data field (may be empty).
-    pub const fn data(&self) -> &[u8] { self.data }
+    pub const fn data(&self) -> &[u8] {
+        self.data
+    }
     /// Le (expected response length) for short APDUs, if present.
     ///
     /// Returns `None` for extended-length APDUs; use
     /// [`le_extended()`](Self::le_extended) instead.
-    pub const fn le(&self) -> Option<u8> { self.le }
+    pub const fn le(&self) -> Option<u8> {
+        self.le
+    }
 
     /// Extended Le (expected response length) as `u16`.
     ///
@@ -732,7 +808,9 @@ impl<'a> Command<'a> {
     }
 
     /// Whether this command used extended-length encoding.
-    pub const fn is_extended(&self) -> bool { self.extended }
+    pub const fn is_extended(&self) -> bool {
+        self.extended
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,7 +1198,7 @@ mod tests {
         bytes[2] = 0x00; // P1
         bytes[3] = 0x81; // P2 (UMTS/EPS/5GS context)
         bytes[4] = 0x20; // Lc = 32
-        // RAND + AUTN = 32 bytes of dummy data
+                         // RAND + AUTN = 32 bytes of dummy data
         let cmd = Command::parse(&bytes).unwrap();
         assert_eq!(cmd.ins(), ins::AUTHENTICATE);
         assert_eq!(cmd.p2(), 0x81);
@@ -1172,7 +1250,9 @@ mod tests {
     #[test]
     fn parse_extended_case4e_data_and_le() {
         // Case 4E: 00 A4 04 00 00 00 02 [2 bytes] 01 00  -- Lc=2, Le=256
-        let bytes = [0x00, 0xA4, 0x04, 0x00, 0x00, 0x00, 0x02, 0x3F, 0x00, 0x01, 0x00];
+        let bytes = [
+            0x00, 0xA4, 0x04, 0x00, 0x00, 0x00, 0x02, 0x3F, 0x00, 0x01, 0x00,
+        ];
         let cmd = Command::parse(&bytes).unwrap();
         assert!(cmd.is_extended());
         assert_eq!(cmd.data(), &[0x3F, 0x00]);
@@ -1380,13 +1460,13 @@ mod tests {
 
     #[test]
     fn apdu_error_display_non_empty() {
-        let variants: &[ApduError] = &[
-            ApduError::TooShort,
-            ApduError::DataTruncated,
-        ];
+        let variants: &[ApduError] = &[ApduError::TooShort, ApduError::DataTruncated];
         for v in variants {
             let s = alloc::format!("{v}");
-            assert!(!s.is_empty(), "Display for {v:?} must produce non-empty string");
+            assert!(
+                !s.is_empty(),
+                "Display for {v:?} must produce non-empty string"
+            );
         }
     }
 }

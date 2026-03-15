@@ -188,9 +188,7 @@ impl ShmemHeader {
             return None;
         }
         let ring_size = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
-        if !ring_size.is_power_of_two()
-            || !(RING_SIZE_MIN..=RING_SIZE_MAX).contains(&ring_size)
-        {
+        if !ring_size.is_power_of_two() || !(RING_SIZE_MIN..=RING_SIZE_MAX).contains(&ring_size) {
             return None;
         }
         Some(Self {
@@ -485,8 +483,7 @@ mod tests {
 
         // Read it back.
         let mut out = [0u8; 261];
-        let (new_tail, len) =
-            ring_read(&ring, new_head, tail, ring_size, &mut out).unwrap();
+        let (new_tail, len) = ring_read(&ring, new_head, tail, ring_size, &mut out).unwrap();
         assert_eq!(len, 10);
         assert_eq!(&out[..10], &data);
         assert_eq!(new_tail, new_head);

@@ -314,18 +314,16 @@ mod tests {
         let mut p = MockPeripheral::new(&[&[0x6F, 0x10, 0x90, 0x00]]);
         p.power_on().unwrap();
         let mut rsp = [0u8; 258];
-        let n = p.exchange(&[0x00, 0xA4, 0x04, 0x04, 0x02, 0x3F, 0x00], &mut rsp).unwrap();
+        let n = p
+            .exchange(&[0x00, 0xA4, 0x04, 0x04, 0x02, 0x3F, 0x00], &mut rsp)
+            .unwrap();
         assert_eq!(n, 4);
         assert_eq!(&rsp[..n], &[0x6F, 0x10, 0x90, 0x00]);
     }
 
     #[test]
     fn exchange_multiple_commands() {
-        let mut p = MockPeripheral::new(&[
-            &[0x90, 0x00],
-            &[0x6A, 0x82],
-            &[0x61, 0x10],
-        ]);
+        let mut p = MockPeripheral::new(&[&[0x90, 0x00], &[0x6A, 0x82], &[0x61, 0x10]]);
         p.power_on().unwrap();
         let mut rsp = [0u8; 258];
 
@@ -335,7 +333,9 @@ mod tests {
         let n = p.exchange(&[0x00, 0xB0, 0x00, 0x00], &mut rsp).unwrap();
         assert_eq!(&rsp[..n], &[0x6A, 0x82]);
 
-        let n = p.exchange(&[0x00, 0xC0, 0x00, 0x00, 0x10], &mut rsp).unwrap();
+        let n = p
+            .exchange(&[0x00, 0xC0, 0x00, 0x00, 0x10], &mut rsp)
+            .unwrap();
         assert_eq!(&rsp[..n], &[0x61, 0x10]);
     }
 
@@ -441,7 +441,10 @@ mod tests {
 
             let mut buf = [0u8; 64];
             let pos = {
-                let mut w = StackWriter { buf: &mut buf, pos: 0 };
+                let mut w = StackWriter {
+                    buf: &mut buf,
+                    pos: 0,
+                };
                 write!(w, "{variant}").unwrap();
                 w.pos
             };
@@ -455,7 +458,10 @@ mod tests {
     #[test]
     fn error_equality() {
         assert_eq!(PeripheralError::NotPowered, PeripheralError::NotPowered);
-        assert_eq!(PeripheralError::BufferTooSmall, PeripheralError::BufferTooSmall);
+        assert_eq!(
+            PeripheralError::BufferTooSmall,
+            PeripheralError::BufferTooSmall
+        );
         assert_ne!(PeripheralError::NotPowered, PeripheralError::IoError);
         assert_ne!(PeripheralError::Timeout, PeripheralError::CardRemoved);
     }

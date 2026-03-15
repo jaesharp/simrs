@@ -36,8 +36,7 @@
 
 // Re-export tacet essentials.
 pub use tacet::{
-    assert_constant_time, assert_no_timing_leak, AttackerModel, InputPair,
-    Outcome, TimingOracle,
+    assert_constant_time, assert_no_timing_leak, AttackerModel, InputPair, Outcome, TimingOracle,
 };
 
 // ---------------------------------------------------------------------------
@@ -66,7 +65,11 @@ impl Rng {
 
     /// Create a PRNG with a fixed seed (for reproducible tests).
     pub const fn from_seed(seed: u64) -> Self {
-        Self(if seed == 0 { 0xDEAD_BEEF_CAFE_BABE } else { seed })
+        Self(if seed == 0 {
+            0xDEAD_BEEF_CAFE_BABE
+        } else {
+            seed
+        })
     }
 
     /// Generate the next `u64` value.

@@ -159,9 +159,9 @@
 
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 use simrs_fs::AccessCondition;
-use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, Sfi};
 #[cfg(test)]
 use simrs_fs::EfStructure;
+use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, Sfi};
 
 // ---------------------------------------------------------------------------
 // EFs under MF
@@ -181,9 +181,7 @@ pub static EF_ICCID: EfDef = EfDef::transparent(
 ///
 /// Format: `61 09 4F 07 A0000000871002 ...padding`
 static EF_DIR_RECORD_USIM: [u8; 16] = [
-    0x61, 0x09, 0x4F, 0x07,
-    0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x61, 0x09, 0x4F, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
 /// Single DIR record for ISIM AID.
@@ -191,9 +189,7 @@ static EF_DIR_RECORD_USIM: [u8; 16] = [
 /// Format: `61 09 4F 07 A0000000871004 ...padding`
 #[cfg(feature = "isim")]
 static EF_DIR_RECORD_ISIM: [u8; 16] = [
-    0x61, 0x09, 0x4F, 0x07,
-    0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x04,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x61, 0x09, 0x4F, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x04, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
 /// Single DIR record for HPSIM AID.
@@ -201,9 +197,7 @@ static EF_DIR_RECORD_ISIM: [u8; 16] = [
 /// Format: `61 09 4F 07 A000000087100A ...padding`
 #[cfg(feature = "hpsim")]
 static EF_DIR_RECORD_HPSIM: [u8; 16] = [
-    0x61, 0x09, 0x4F, 0x07,
-    0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x0A,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x61, 0x09, 0x4F, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x0A, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
 /// Helper: concatenate two 16-byte records into a 32-byte array.
@@ -262,33 +256,21 @@ static EF_DIR_DATA: [u8; 48] = concat_3(
 /// which ADF features are enabled (USIM always present; ISIM and HPSIM
 /// are optional).
 #[cfg(all(not(feature = "isim"), not(feature = "hpsim")))]
-pub static EF_DIR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x2F00),
-    Some(Sfi::new(30)),
-    16, 1,
-    &EF_DIR_DATA,
-);
+pub static EF_DIR: EfDef =
+    EfDef::linear_fixed(Fid::new(0x2F00), Some(Sfi::new(30)), 16, 1, &EF_DIR_DATA);
 
 /// EF.DIR (2F00) -- Application Directory (USIM + one ADF).
 #[cfg(any(
     all(feature = "isim", not(feature = "hpsim")),
     all(not(feature = "isim"), feature = "hpsim"),
 ))]
-pub static EF_DIR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x2F00),
-    Some(Sfi::new(30)),
-    16, 2,
-    &EF_DIR_DATA,
-);
+pub static EF_DIR: EfDef =
+    EfDef::linear_fixed(Fid::new(0x2F00), Some(Sfi::new(30)), 16, 2, &EF_DIR_DATA);
 
 /// EF.DIR (2F00) -- Application Directory (USIM + ISIM + HPSIM).
 #[cfg(all(feature = "isim", feature = "hpsim"))]
-pub static EF_DIR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x2F00),
-    Some(Sfi::new(30)),
-    16, 3,
-    &EF_DIR_DATA,
-);
+pub static EF_DIR: EfDef =
+    EfDef::linear_fixed(Fid::new(0x2F00), Some(Sfi::new(30)), 16, 3, &EF_DIR_DATA);
 
 /// EF.ARR data: one empty record.
 static EF_ARR_DATA: [u8; 8] = [0xFF; 8];
@@ -296,12 +278,7 @@ static EF_ARR_DATA: [u8; 8] = [0xFF; 8];
 /// EF.ARR (2F06) -- Access Rule Reference.
 ///
 /// Linear-fixed, 1 record of 8 bytes. Default: empty (all 0xFF).
-pub static EF_ARR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x2F06),
-    None,
-    8, 1,
-    &EF_ARR_DATA,
-);
+pub static EF_ARR: EfDef = EfDef::linear_fixed(Fid::new(0x2F06), None, 8, 1, &EF_ARR_DATA);
 
 // ---------------------------------------------------------------------------
 // EFs under ADF.USIM
@@ -326,11 +303,7 @@ pub static EF_IMSI: EfDef = EfDef::transparent(
 ///
 /// 4-byte transparent EF. Byte 0: MS operation mode (0x00 = normal).
 /// Bytes 1-2: reserved. Byte 3: MNC length (2 digits).
-pub static EF_AD: EfDef = EfDef::transparent(
-    Fid::new(0x6FAD),
-    None,
-    &[0x00, 0x00, 0x00, 0x02],
-);
+pub static EF_AD: EfDef = EfDef::transparent(Fid::new(0x6FAD), None, &[0x00, 0x00, 0x00, 0x02]);
 
 /// EF.UST (6F38) -- USIM Service Table.
 ///
@@ -359,28 +332,22 @@ static EF_UST_DATA: [u8; 19] = [
     0xFF, 0xFF, 0xFF, 0x29, // bytes 0-3: services 1-32 (1-25,28,30 enabled)
     0x00, 0x00, 0x00, 0x00, // bytes 4-7: services 33-64
     0x08, 0x02, 0x00, 0x00, // bytes 8-11: services 65-96 (68,74)
-    0x00, 0x66, 0xBC, 0x2F, // bytes 12-15: services 97-128 (106,107,110,111,115,116,117,118,120,121-124,126)
-    0x6B, 0x7F, 0xEE,       // bytes 16-18: services 129-152 (129,130,132,134,135,137-143,146-148,150,151,152)
+    0x00, 0x66, 0xBC,
+    0x2F, // bytes 12-15: services 97-128 (106,107,110,111,115,116,117,118,120,121-124,126)
+    0x6B, 0x7F,
+    0xEE, // bytes 16-18: services 129-152 (129,130,132,134,135,137-143,146-148,150,151,152)
 ];
 
 /// EF.UST (6F38) -- USIM Service Table.
 ///
 /// 19-byte transparent EF. Each bit enables a service per [3GPP TS 31.102 V19.4.0 clause 4.2.8](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 /// See `EF_UST_DATA` for which services are enabled.
-pub static EF_UST: EfDef = EfDef::transparent(
-    Fid::new(0x6F38),
-    None,
-    &EF_UST_DATA,
-);
+pub static EF_UST: EfDef = EfDef::transparent(Fid::new(0x6F38), None, &EF_UST_DATA);
 
 /// EF.ACC (6F78) -- Access Control Class.
 ///
 /// 2-byte transparent EF. Default: class 0 (bit 0 set).
-pub static EF_ACC: EfDef = EfDef::transparent(
-    Fid::new(0x6F78),
-    None,
-    &[0x00, 0x01],
-);
+pub static EF_ACC: EfDef = EfDef::transparent(Fid::new(0x6F78), None, &[0x00, 0x01]);
 
 /// EF.LOCI (6F7E) -- Location Information.
 ///
@@ -393,40 +360,28 @@ pub static EF_LOCI: EfDef = EfDef::transparent(
     None,
     &[
         0xFF, 0xFF, 0xFF, 0xFF, // TMSI: unprovisioned
-        0xFF, 0xFF, 0xFF,       // LAI: MCC/MNC
-        0xFF, 0xFF,             // LAI: LAC
-        0xFF,                   // TMSI TIME
-        0x02,                   // location update status: not updated
+        0xFF, 0xFF, 0xFF, // LAI: MCC/MNC
+        0xFF, 0xFF, // LAI: LAC
+        0xFF, // TMSI TIME
+        0x02, // location update status: not updated
     ],
 );
 
 /// EF.PSLOCI (6FE7) -- Packet Switched Location Information.
 ///
 /// 14-byte transparent EF. Default: zero-filled.
-pub static EF_PSLOCI: EfDef = EfDef::transparent(
-    Fid::new(0x6FE7),
-    None,
-    &[0x00; 14],
-);
+pub static EF_PSLOCI: EfDef = EfDef::transparent(Fid::new(0x6FE7), None, &[0x00; 14]);
 
 /// EF.FPLMN (6F7B) -- Forbidden PLMNs.
 ///
 /// 12-byte transparent EF (4 PLMN entries x 3 bytes each).
 /// Default: all 0xFF (no forbidden PLMNs).
-pub static EF_FPLMN: EfDef = EfDef::transparent(
-    Fid::new(0x6F7B),
-    None,
-    &[0xFF; 12],
-);
+pub static EF_FPLMN: EfDef = EfDef::transparent(Fid::new(0x6F7B), None, &[0xFF; 12]);
 
 /// EF.HPPLMN (6F31) -- Higher Priority PLMN Search Period.
 ///
 /// 1-byte transparent EF. Value in units of N * 6 minutes. Default: 0x3C (60 = 6 hours).
-pub static EF_HPPLMN: EfDef = EfDef::transparent(
-    Fid::new(0x6F31),
-    None,
-    &[0x3C],
-);
+pub static EF_HPPLMN: EfDef = EfDef::transparent(Fid::new(0x6F31), None, &[0x3C]);
 
 /// EF.Keys (6F08) -- Ciphering and Integrity Keys.
 ///
@@ -438,10 +393,10 @@ pub static EF_KEYS: EfDef = EfDef::transparent(
     Some(Sfi::new(8)),
     &[
         0x07, // KSI = 7 (no key available)
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // CK
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // IK
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, // CK
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, // IK
     ],
 );
 
@@ -454,10 +409,10 @@ pub static EF_KEYS_PS: EfDef = EfDef::transparent(
     Some(Sfi::new(9)),
     &[
         0x07, // KSI = 7 (no key available)
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // CK
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // IK
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, // CK
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, // IK
     ],
 );
 
@@ -470,11 +425,7 @@ pub static EF_KEYS_PS: EfDef = EfDef::transparent(
 /// Transparent EF, 10 bytes. Contains language preferences.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A58%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C493%5D). SFI 0x02.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_LI: EfDef = EfDef::transparent(
-    Fid::new(0x6F05),
-    Some(Sfi::new(2)),
-    &[0xFF; 10],
-);
+pub static EF_LI: EfDef = EfDef::transparent(Fid::new(0x6F05), Some(Sfi::new(2)), &[0xFF; 10]);
 
 /// EF.MSISDN data: two empty records of 30 bytes each.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -485,12 +436,7 @@ static EF_MSISDN_DATA: [u8; 60] = [0xFF; 60];
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.26](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A108%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_MSISDN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F40),
-    None,
-    30, 2,
-    &EF_MSISDN_DATA,
-);
+pub static EF_MSISDN: EfDef = EfDef::linear_fixed(Fid::new(0x6F40), None, 30, 2, &EF_MSISDN_DATA);
 
 /// EF.SMSP data: two records of 52 bytes each.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -501,12 +447,7 @@ static EF_SMSP_DATA: [u8; 104] = [0xFF; 104];
 /// Linear-fixed, 2 records of 52 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.27](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A108%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C409%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_SMSP: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F42),
-    None,
-    52, 2,
-    &EF_SMSP_DATA,
-);
+pub static EF_SMSP: EfDef = EfDef::linear_fixed(Fid::new(0x6F42), None, 52, 2, &EF_SMSP_DATA);
 
 /// EF.FDN data: 2 empty records of 30 bytes each.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -517,12 +458,8 @@ static EF_FDN_DATA: [u8; 60] = [0xFF; 60];
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.24](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A104%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C666%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_FDN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F3B),
-    None,
-    30, 2,
-    &EF_FDN_DATA,
-).with_update_ac(AccessCondition::Pin2);
+pub static EF_FDN: EfDef = EfDef::linear_fixed(Fid::new(0x6F3B), None, 30, 2, &EF_FDN_DATA)
+    .with_update_ac(AccessCondition::Pin2);
 
 /// EF.SPN (6F46) -- Service Provider Name.
 ///
@@ -534,8 +471,8 @@ pub static EF_SPN: EfDef = EfDef::transparent(
     Fid::new(0x6F46),
     None,
     &[
-        0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF,
     ],
 );
 
@@ -544,33 +481,22 @@ pub static EF_SPN: EfDef = EfDef::transparent(
 /// 20-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.14](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A86%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C470%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_CBMI: EfDef = EfDef::transparent(
-    Fid::new(0x6F45),
-    None,
-    &[0xFF; 20],
-);
+pub static EF_CBMI: EfDef = EfDef::transparent(Fid::new(0x6F45), None, &[0xFF; 20]);
 
 /// EF.CBMID (6F48) -- Cell Broadcast Message Identifier for Data Download.
 ///
 /// 20-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.20](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A96%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C431%5D). SFI 0x0E.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_CBMID: EfDef = EfDef::transparent(
-    Fid::new(0x6F48),
-    Some(Sfi::new(0x0E)),
-    &[0xFF; 20],
-);
+pub static EF_CBMID: EfDef =
+    EfDef::transparent(Fid::new(0x6F48), Some(Sfi::new(0x0E)), &[0xFF; 20]);
 
 /// EF.CBMIR (6F50) -- Cell Broadcast Message Identifier Range selection.
 ///
 /// 20-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.22](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A100%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C591%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_CBMIR: EfDef = EfDef::transparent(
-    Fid::new(0x6F50),
-    None,
-    &[0xFF; 20],
-);
+pub static EF_CBMIR: EfDef = EfDef::transparent(Fid::new(0x6F50), None, &[0xFF; 20]);
 
 /// EF.SMS data: 2 records of 176 bytes each.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -586,23 +512,14 @@ static EF_SMS_DATA: [u8; 352] = {
 /// Linear-fixed, 2 records of 176 bytes. Default: free (status byte 0x00).
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.25](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A104%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C257%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_SMS: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F3C),
-    None,
-    176, 2,
-    &EF_SMS_DATA,
-);
+pub static EF_SMS: EfDef = EfDef::linear_fixed(Fid::new(0x6F3C), None, 176, 2, &EF_SMS_DATA);
 
 /// EF.SMSS (6F43) -- SMS Status.
 ///
 /// 2-byte transparent EF. Byte 0: last TP-MR. Byte 1: memory cap exceeded flag.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.28](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A112%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C703%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_SMSS: EfDef = EfDef::transparent(
-    Fid::new(0x6F43),
-    None,
-    &[0x0B, 0xFF],
-);
+pub static EF_SMSS: EfDef = EfDef::transparent(Fid::new(0x6F43), None, &[0x0B, 0xFF]);
 
 /// EF.SMSR data: 2 records of 30 bytes each.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -613,12 +530,7 @@ static EF_SMSR_DATA: [u8; 60] = [0xFF; 60];
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.32](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A116%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C586%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_SMSR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F47),
-    None,
-    30, 2,
-    &EF_SMSR_DATA,
-);
+pub static EF_SMSR: EfDef = EfDef::linear_fixed(Fid::new(0x6F47), None, 30, 2, &EF_SMSR_DATA);
 
 /// EF.ECC data: 5 records of 16 bytes each.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -638,12 +550,8 @@ static EF_ECC_DATA: [u8; 80] = {
 /// Linear-fixed, 5 records of 16 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.21](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A98%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D). SFI 0x01.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_ECC: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FB7),
-    Some(Sfi::new(1)),
-    16, 5,
-    &EF_ECC_DATA,
-);
+pub static EF_ECC: EfDef =
+    EfDef::linear_fixed(Fid::new(0x6FB7), Some(Sfi::new(1)), 16, 5, &EF_ECC_DATA);
 
 /// EF.PLMNwAcT data: 60 bytes (12 PLMN entries x 5 bytes).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -660,11 +568,8 @@ static EF_PLMNWACT_DATA: [u8; 60] = {
 /// Transparent, 60 bytes. 12 entries of 5 bytes (3 PLMN + 2 AcT).
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.5](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A64%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C687%5D). SFI 0x0A.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_PLMNWACT: EfDef = EfDef::transparent(
-    Fid::new(0x6F60),
-    Some(Sfi::new(0x0A)),
-    &EF_PLMNWACT_DATA,
-);
+pub static EF_PLMNWACT: EfDef =
+    EfDef::transparent(Fid::new(0x6F60), Some(Sfi::new(0x0A)), &EF_PLMNWACT_DATA);
 
 /// EF.OPLMNwACT data: 60 bytes.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -680,11 +585,8 @@ static EF_OPLMNWACT_DATA: [u8; 60] = {
 /// Transparent, 60 bytes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.53](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C235%5D). SFI 0x11.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_OPLMNWACT: EfDef = EfDef::transparent(
-    Fid::new(0x6F61),
-    Some(Sfi::new(0x11)),
-    &EF_OPLMNWACT_DATA,
-);
+pub static EF_OPLMNWACT: EfDef =
+    EfDef::transparent(Fid::new(0x6F61), Some(Sfi::new(0x11)), &EF_OPLMNWACT_DATA);
 
 /// EF.HPLMNwAcT data: 60 bytes.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -700,11 +602,8 @@ static EF_HPLMNWACT_DATA: [u8; 60] = {
 /// Transparent, 60 bytes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.54](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A146%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C419%5D). SFI 0x13.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_HPLMNWACT: EfDef = EfDef::transparent(
-    Fid::new(0x6F62),
-    Some(Sfi::new(0x13)),
-    &EF_HPLMNWACT_DATA,
-);
+pub static EF_HPLMNWACT: EfDef =
+    EfDef::transparent(Fid::new(0x6F62), Some(Sfi::new(0x13)), &EF_HPLMNWACT_DATA);
 
 /// EF.EHPLMN (6FD9) -- Equivalent HPLMN.
 ///
@@ -729,12 +628,8 @@ static EF_PNN_DATA: [u8; 96] = [0xFF; 96];
 /// Linear-fixed, 4 records of 24 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.58](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A154%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C546%5D). SFI 0x19.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_PNN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FC5),
-    Some(Sfi::new(0x19)),
-    24, 4,
-    &EF_PNN_DATA,
-);
+pub static EF_PNN: EfDef =
+    EfDef::linear_fixed(Fid::new(0x6FC5), Some(Sfi::new(0x19)), 24, 4, &EF_PNN_DATA);
 
 /// EF.OPL data: 1 record of 8 bytes.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -745,67 +640,42 @@ static EF_OPL_DATA: [u8; 8] = [0xFF; 8];
 /// Linear-fixed, 1 record of 8 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.59](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A156%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C509%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_OPL: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FC6),
-    None,
-    8, 1,
-    &EF_OPL_DATA,
-);
+pub static EF_OPL: EfDef = EfDef::linear_fixed(Fid::new(0x6FC6), None, 8, 1, &EF_OPL_DATA);
 
 /// EF.GID1 (6F3E) -- Group Identifier Level 1.
 ///
 /// 10-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.10](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A80%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C252%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_GID1: EfDef = EfDef::transparent(
-    Fid::new(0x6F3E),
-    None,
-    &[0xFF; 10],
-);
+pub static EF_GID1: EfDef = EfDef::transparent(Fid::new(0x6F3E), None, &[0xFF; 10]);
 
 /// EF.GID2 (6F3F) -- Group Identifier Level 2.
 ///
 /// 10-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.11](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A82%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C649%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_GID2: EfDef = EfDef::transparent(
-    Fid::new(0x6F3F),
-    None,
-    &[0xFF; 10],
-);
+pub static EF_GID2: EfDef = EfDef::transparent(Fid::new(0x6F3F), None, &[0xFF; 10]);
 
 /// EF.SPDI (6FCD) -- Service Provider Display Information.
 ///
 /// 33-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.66](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A168%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D). SFI 0x1B.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_SPDI: EfDef = EfDef::transparent(
-    Fid::new(0x6FCD),
-    Some(Sfi::new(0x1B)),
-    &[0xFF; 33],
-);
+pub static EF_SPDI: EfDef = EfDef::transparent(Fid::new(0x6FCD), Some(Sfi::new(0x1B)), &[0xFF; 33]);
 
 /// EF.ACL (6F57) -- Access Point Name Control List.
 ///
 /// 4-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.48](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A138%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C157%5D).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_ACL: EfDef = EfDef::transparent(
-    Fid::new(0x6F57),
-    None,
-    &[0xFF; 4],
-);
+pub static EF_ACL: EfDef = EfDef::transparent(Fid::new(0x6F57), None, &[0xFF; 4]);
 
 /// EF.EST (6F56) -- Enabled Services Table.
 ///
 /// 9-byte transparent EF. Default: all services disabled.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.47](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A138%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D). SFI 0x05.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_EST: EfDef = EfDef::transparent(
-    Fid::new(0x6F56),
-    Some(Sfi::new(5)),
-    &[0x00; 9],
-);
+pub static EF_EST: EfDef = EfDef::transparent(Fid::new(0x6F56), Some(Sfi::new(5)), &[0x00; 9]);
 
 /// EF.EPSLOCI (6FE3) -- EPS Location Information.
 ///
@@ -816,23 +686,18 @@ pub static EF_EPSLOCI: EfDef = EfDef::transparent(
     Fid::new(0x6FE3),
     Some(Sfi::new(0x1E)),
     &[
-        0x0B, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFE, 0x02,
+        0x0B, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFE, 0x02,
     ],
 );
 
 /// EF.EPSNSC data: 1 record of 54 bytes.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 static EF_EPSNSC_DATA: [u8; 54] = [
-    0xA0, 0x34, 0x80, 0x01, 0x07, 0x81, 0x20,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0x82, 0x04, 0x00, 0x00, 0x00, 0x00,
-    0x83, 0x04, 0x00, 0x00, 0x00, 0x00,
-    0x84, 0x01, 0xFF,
+    0xA0, 0x34, 0x80, 0x01, 0x07, 0x81, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x82, 0x04, 0x00, 0x00, 0x00, 0x00, 0x83, 0x04, 0x00,
+    0x00, 0x00, 0x00, 0x84, 0x01, 0xFF,
 ];
 
 /// EF.EPSNSC (6FE4) -- EPS NAS Security Context.
@@ -843,7 +708,8 @@ static EF_EPSNSC_DATA: [u8; 54] = [
 pub static EF_EPSNSC: EfDef = EfDef::linear_fixed(
     Fid::new(0x6FE4),
     Some(Sfi::new(0x18)),
-    54, 1,
+    54,
+    1,
     &EF_EPSNSC_DATA,
 );
 
@@ -856,33 +722,22 @@ pub static EF_EPSNSC: EfDef = EfDef::linear_fixed(
 /// 16-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.49](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A140%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C605%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_DCK: EfDef = EfDef::transparent(
-    Fid::new(0x6F2C),
-    None,
-    &[0xFF; 16],
-);
+pub static EF_DCK: EfDef = EfDef::transparent(Fid::new(0x6F2C), None, &[0xFF; 16]);
 
 /// EF.CNL (6F32) -- Co-operative Network List.
 ///
 /// 24-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.50](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A140%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C307%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_CNL: EfDef = EfDef::transparent(
-    Fid::new(0x6F32),
-    None,
-    &[0xFF; 24],
-);
+pub static EF_CNL: EfDef = EfDef::transparent(Fid::new(0x6F32), None, &[0xFF; 24]);
 
 /// EF.ACMmax (6F37) -- ACM Maximum Value.
 ///
 /// 3-byte transparent EF. Default: 0x000000 (no maximum).
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.7](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A68%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C495%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_ACMMAX: EfDef = EfDef::transparent(
-    Fid::new(0x6F37),
-    None,
-    &[0x00, 0x00, 0x00],
-).with_update_ac(AccessCondition::Pin2);
+pub static EF_ACMMAX: EfDef = EfDef::transparent(Fid::new(0x6F37), None, &[0x00, 0x00, 0x00])
+    .with_update_ac(AccessCondition::Pin2);
 
 /// EF.ACM data: 3 records of 3 bytes each.
 #[cfg(feature = "profile-full")]
@@ -893,23 +748,18 @@ static EF_ACM_DATA: [u8; 9] = [0x00; 9];
 /// Cyclic, 3 records of 3 bytes. Default: zero.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.9](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A80%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C648%5D). SFI 0x1C.
 #[cfg(feature = "profile-full")]
-pub static EF_ACM: EfDef = EfDef::cyclic(
-    Fid::new(0x6F39),
-    Some(Sfi::new(0x1C)),
-    3, 3,
-    &EF_ACM_DATA,
-).with_update_ac(AccessCondition::Pin2);
+pub static EF_ACM: EfDef =
+    EfDef::cyclic(Fid::new(0x6F39), Some(Sfi::new(0x1C)), 3, 3, &EF_ACM_DATA)
+        .with_update_ac(AccessCondition::Pin2);
 
 /// EF.PUCT (6F41) -- Price per Unit and Currency Table.
 ///
 /// 5-byte transparent EF. Default: empty currency, zero price.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.13](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A84%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C506%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_PUCT: EfDef = EfDef::transparent(
-    Fid::new(0x6F41),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0x00, 0x00],
-).with_update_ac(AccessCondition::Pin2);
+pub static EF_PUCT: EfDef =
+    EfDef::transparent(Fid::new(0x6F41), None, &[0xFF, 0xFF, 0xFF, 0x00, 0x00])
+        .with_update_ac(AccessCondition::Pin2);
 
 /// EF.SDN data: 2 records of 30 bytes each.
 #[cfg(feature = "profile-full")]
@@ -920,12 +770,7 @@ static EF_SDN_DATA: [u8; 60] = [0xFF; 60];
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.29](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A112%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C282%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_SDN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F49),
-    None,
-    30, 2,
-    &EF_SDN_DATA,
-);
+pub static EF_SDN: EfDef = EfDef::linear_fixed(Fid::new(0x6F49), None, 30, 2, &EF_SDN_DATA);
 
 /// EF.EXT2 data: 2 records of 13 bytes each.
 #[cfg(feature = "profile-full")]
@@ -941,12 +786,8 @@ static EF_EXT2_DATA: [u8; 26] = {
 /// Linear-fixed, 2 records of 13 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.30](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A114%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C532%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EXT2: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F4B),
-    None,
-    13, 2,
-    &EF_EXT2_DATA,
-).with_update_ac(AccessCondition::Pin2);
+pub static EF_EXT2: EfDef = EfDef::linear_fixed(Fid::new(0x6F4B), None, 13, 2, &EF_EXT2_DATA)
+    .with_update_ac(AccessCondition::Pin2);
 
 /// EF.EXT3 data: 2 records of 13 bytes each.
 #[cfg(feature = "profile-full")]
@@ -957,12 +798,7 @@ static EF_EXT3_DATA: [u8; 26] = [0xFF; 26];
 /// Linear-fixed, 2 records of 13 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.31](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A114%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C287%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EXT3: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F4C),
-    None,
-    13, 2,
-    &EF_EXT3_DATA,
-);
+pub static EF_EXT3: EfDef = EfDef::linear_fixed(Fid::new(0x6F4C), None, 13, 2, &EF_EXT3_DATA);
 
 /// EF.BDN data: 4 records of 29 bytes each.
 #[cfg(feature = "profile-full")]
@@ -973,12 +809,7 @@ static EF_BDN_DATA: [u8; 116] = [0xFF; 116];
 /// Linear-fixed, 4 records of 29 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.44](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A134%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C422%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_BDN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F4D),
-    None,
-    29, 4,
-    &EF_BDN_DATA,
-);
+pub static EF_BDN: EfDef = EfDef::linear_fixed(Fid::new(0x6F4D), None, 29, 4, &EF_BDN_DATA);
 
 /// EF.EXT5 data: 4 records of 13 bytes each.
 #[cfg(feature = "profile-full")]
@@ -989,12 +820,7 @@ static EF_EXT5_DATA: [u8; 52] = [0xFF; 52];
 /// Linear-fixed, 4 records of 13 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.37](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A128%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C612%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EXT5: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F4E),
-    None,
-    13, 4,
-    &EF_EXT5_DATA,
-);
+pub static EF_EXT5: EfDef = EfDef::linear_fixed(Fid::new(0x6F4E), None, 13, 4, &EF_EXT5_DATA);
 
 /// EF.CCP2 data: 4 records of 15 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1005,12 +831,8 @@ static EF_CCP2_DATA: [u8; 60] = [0xFF; 60];
 /// Linear-fixed, 4 records of 15 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.38](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A128%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C367%5D). SFI 0x16.
 #[cfg(feature = "profile-full")]
-pub static EF_CCP2: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F4F),
-    Some(Sfi::new(0x16)),
-    15, 4,
-    &EF_CCP2_DATA,
-);
+pub static EF_CCP2: EfDef =
+    EfDef::linear_fixed(Fid::new(0x6F4F), Some(Sfi::new(0x16)), 15, 4, &EF_CCP2_DATA);
 
 // EF_EXT4 data: 2 records of 13 bytes.
 #[cfg(feature = "profile-full")]
@@ -1023,12 +845,7 @@ static EF_EXT4_DATA: [u8; 26] = [0xFF; 26];
 /// Service 7.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.45](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A136%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C744%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EXT4: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F55),
-    None,
-    13, 2,
-    &EF_EXT4_DATA,
-);
+pub static EF_EXT4: EfDef = EfDef::linear_fixed(Fid::new(0x6F55), None, 13, 2, &EF_EXT4_DATA);
 
 /// EF.CMI data: 4 records of 11 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1039,12 +856,7 @@ static EF_CMI_DATA: [u8; 44] = [0xFF; 44];
 /// Linear-fixed, 4 records of 11 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.46](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A136%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C499%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_CMI: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F58),
-    None,
-    11, 4,
-    &EF_CMI_DATA,
-);
+pub static EF_CMI: EfDef = EfDef::linear_fixed(Fid::new(0x6F58), None, 11, 4, &EF_CMI_DATA);
 
 /// EF.START_HFN (6F5B) -- Initialisation values for Hyperframe number.
 ///
@@ -1062,19 +874,14 @@ pub static EF_START_HFN: EfDef = EfDef::transparent(
 /// 3-byte transparent EF. Default: 0xFFFFFF.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.52](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C471%5D). SFI 0x10.
 #[cfg(feature = "profile-full")]
-pub static EF_THRESHOLD: EfDef = EfDef::transparent(
-    Fid::new(0x6F5C),
-    Some(Sfi::new(0x10)),
-    &[0xFF, 0xFF, 0xFF],
-);
+pub static EF_THRESHOLD: EfDef =
+    EfDef::transparent(Fid::new(0x6F5C), Some(Sfi::new(0x10)), &[0xFF, 0xFF, 0xFF]);
 
 /// EF.ICI data: 1 record of 30 bytes.
 #[cfg(feature = "profile-full")]
 static EF_ICI_DATA: [u8; 30] = [
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0x00, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF,
 ];
 
 /// EF.ICI (6F80) -- Incoming Call Information.
@@ -1082,20 +889,14 @@ static EF_ICI_DATA: [u8; 30] = [
 /// Cyclic, 1 record of 30 bytes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.33](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A116%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C143%5D). SFI 0x14.
 #[cfg(feature = "profile-full")]
-pub static EF_ICI: EfDef = EfDef::cyclic(
-    Fid::new(0x6F80),
-    Some(Sfi::new(0x14)),
-    30, 1,
-    &EF_ICI_DATA,
-);
+pub static EF_ICI: EfDef =
+    EfDef::cyclic(Fid::new(0x6F80), Some(Sfi::new(0x14)), 30, 1, &EF_ICI_DATA);
 
 /// EF.OCI data: 1 record of 30 bytes.
 #[cfg(feature = "profile-full")]
 static EF_OCI_DATA: [u8; 30] = [
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF,
 ];
 
 /// EF.OCI (6F81) -- Outgoing Call Information.
@@ -1103,12 +904,8 @@ static EF_OCI_DATA: [u8; 30] = [
 /// Cyclic, 1 record of 30 bytes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.34](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A124%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C634%5D). SFI 0x15.
 #[cfg(feature = "profile-full")]
-pub static EF_OCI: EfDef = EfDef::cyclic(
-    Fid::new(0x6F81),
-    Some(Sfi::new(0x15)),
-    30, 1,
-    &EF_OCI_DATA,
-);
+pub static EF_OCI: EfDef =
+    EfDef::cyclic(Fid::new(0x6F81), Some(Sfi::new(0x15)), 30, 1, &EF_OCI_DATA);
 
 /// EF.ICT data: 1 record of 3 bytes.
 #[cfg(feature = "profile-full")]
@@ -1119,12 +916,7 @@ static EF_ICT_DATA: [u8; 3] = [0x00; 3];
 /// Cyclic, 1 record of 3 bytes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.35](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A126%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_ICT: EfDef = EfDef::cyclic(
-    Fid::new(0x6F82),
-    None,
-    3, 1,
-    &EF_ICT_DATA,
-);
+pub static EF_ICT: EfDef = EfDef::cyclic(Fid::new(0x6F82), None, 3, 1, &EF_ICT_DATA);
 
 /// EF.OCT data: 1 record of 3 bytes.
 #[cfg(feature = "profile-full")]
@@ -1135,78 +927,49 @@ static EF_OCT_DATA: [u8; 3] = [0x00; 3];
 /// Cyclic, 1 record of 3 bytes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.36](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A126%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C219%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_OCT: EfDef = EfDef::cyclic(
-    Fid::new(0x6F83),
-    None,
-    3, 1,
-    &EF_OCT_DATA,
-);
+pub static EF_OCT: EfDef = EfDef::cyclic(Fid::new(0x6F83), None, 3, 1, &EF_OCT_DATA);
 
 /// EF.VGCS (6FB1) -- Voice Group Call Service.
 ///
 /// 40-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.73](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A182%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C415%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_VGCS: EfDef = EfDef::transparent(
-    Fid::new(0x6FB1),
-    None,
-    &[0xFF; 40],
-);
+pub static EF_VGCS: EfDef = EfDef::transparent(Fid::new(0x6FB1), None, &[0xFF; 40]);
 
 /// EF.VGCSS (6FB2) -- Voice Group Call Service Status.
 ///
 /// 7-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.74](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A186%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C743%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_VGCSS: EfDef = EfDef::transparent(
-    Fid::new(0x6FB2),
-    None,
-    &[0xFF; 7],
-);
+pub static EF_VGCSS: EfDef = EfDef::transparent(Fid::new(0x6FB2), None, &[0xFF; 7]);
 
 /// EF.VBS (6FB3) -- Voice Broadcast Service.
 ///
 /// 40-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.75](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A186%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C166%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_VBS: EfDef = EfDef::transparent(
-    Fid::new(0x6FB3),
-    None,
-    &[0xFF; 40],
-);
+pub static EF_VBS: EfDef = EfDef::transparent(Fid::new(0x6FB3), None, &[0xFF; 40]);
 
 /// EF.VBSS (6FB4) -- Voice Broadcast Service Status.
 ///
 /// 7-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.76](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A190%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C461%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_VBSS: EfDef = EfDef::transparent(
-    Fid::new(0x6FB4),
-    None,
-    &[0xFF; 7],
-);
+pub static EF_VBSS: EfDef = EfDef::transparent(Fid::new(0x6FB4), None, &[0xFF; 7]);
 
 /// EF.eMLPP (6FB5) -- enhanced Multi-Level Pre-emption and Priority.
 ///
 /// 2-byte transparent EF. Default: 0x0000.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.39](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A130%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C747%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EMLPP: EfDef = EfDef::transparent(
-    Fid::new(0x6FB5),
-    None,
-    &[0x00, 0x00],
-);
+pub static EF_EMLPP: EfDef = EfDef::transparent(Fid::new(0x6FB5), None, &[0x00, 0x00]);
 
 /// EF.AaeM (6FB6) -- Automatic Answer for eMLPP.
 ///
 /// 1-byte transparent EF. Default: 0x00.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.40](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A132%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C648%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_AAEM: EfDef = EfDef::transparent(
-    Fid::new(0x6FB6),
-    None,
-    &[0x00],
-);
+pub static EF_AAEM: EfDef = EfDef::transparent(Fid::new(0x6FB6), None, &[0x00]);
 
 /// EF.Hiddenkey (6FC3) -- Hidden Key.
 ///
@@ -1214,23 +977,15 @@ pub static EF_AAEM: EfDef = EfDef::transparent(
 /// UST service 23.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.42](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf).
 #[cfg(feature = "profile-full")]
-pub static EF_HIDDENKEY: EfDef = EfDef::transparent(
-    Fid::new(0x6FC3),
-    None,
-    &[0xFF; 4],
-);
+pub static EF_HIDDENKEY: EfDef = EfDef::transparent(Fid::new(0x6FC3), None, &[0xFF; 4]);
 
 /// EF.NETPAR data: 62 bytes.
 #[cfg(feature = "profile-full")]
 static EF_NETPAR_DATA: [u8; 62] = [
-    0xA0, 0x08, 0x80, 0x02, 0x24, 0x9F, 0x81, 0x02,
-    0x24, 0x9F, 0xA1, 0x04, 0x80, 0x02, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0xA0, 0x08, 0x80, 0x02, 0x24, 0x9F, 0x81, 0x02, 0x24, 0x9F, 0xA1, 0x04, 0x80, 0x02, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
 /// EF.NETPAR (6FC4) -- Network Parameters.
@@ -1238,11 +993,7 @@ static EF_NETPAR_DATA: [u8; 62] = [
 /// 62-byte transparent EF.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.57](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A150%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C754%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_NETPAR: EfDef = EfDef::transparent(
-    Fid::new(0x6FC4),
-    None,
-    &EF_NETPAR_DATA,
-);
+pub static EF_NETPAR: EfDef = EfDef::transparent(Fid::new(0x6FC4), None, &EF_NETPAR_DATA);
 
 /// EF.MBDN data: 4 records of 24 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1253,12 +1004,7 @@ static EF_MBDN_DATA: [u8; 96] = [0xFF; 96];
 /// Linear-fixed, 4 records of 24 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.60](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A158%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C518%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MBDN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FC7),
-    None,
-    24, 4,
-    &EF_MBDN_DATA,
-);
+pub static EF_MBDN: EfDef = EfDef::linear_fixed(Fid::new(0x6FC7), None, 24, 4, &EF_MBDN_DATA);
 
 /// EF.EXT6 data: 4 records of 13 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1269,12 +1015,7 @@ static EF_EXT6_DATA: [u8; 52] = [0xFF; 52];
 /// Linear-fixed, 4 records of 13 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.61](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A158%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C143%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EXT6: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FC8),
-    None,
-    13, 4,
-    &EF_EXT6_DATA,
-);
+pub static EF_EXT6: EfDef = EfDef::linear_fixed(Fid::new(0x6FC8), None, 13, 4, &EF_EXT6_DATA);
 
 /// EF.MBI data: 4 records of 4 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1285,12 +1026,7 @@ static EF_MBI_DATA: [u8; 16] = [0xFF; 16];
 /// Linear-fixed, 4 records of 4 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.62](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A160%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C596%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MBI: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FC9),
-    None,
-    4, 4,
-    &EF_MBI_DATA,
-);
+pub static EF_MBI: EfDef = EfDef::linear_fixed(Fid::new(0x6FC9), None, 4, 4, &EF_MBI_DATA);
 
 /// EF.MWIS data: 4 records of 5 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1301,12 +1037,7 @@ static EF_MWIS_DATA: [u8; 20] = [0xFF; 20];
 /// Linear-fixed, 4 records of 5 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.63](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A160%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C143%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MWIS: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FCA),
-    None,
-    5, 4,
-    &EF_MWIS_DATA,
-);
+pub static EF_MWIS: EfDef = EfDef::linear_fixed(Fid::new(0x6FCA), None, 5, 4, &EF_MWIS_DATA);
 
 /// EF.CFIS data: 4 records of 16 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1317,12 +1048,7 @@ static EF_CFIS_DATA: [u8; 64] = [0xFF; 64];
 /// Linear-fixed, 4 records of 16 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.64](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A164%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C533%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_CFIS: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FCB),
-    None,
-    16, 4,
-    &EF_CFIS_DATA,
-);
+pub static EF_CFIS: EfDef = EfDef::linear_fixed(Fid::new(0x6FCB), None, 16, 4, &EF_CFIS_DATA);
 
 /// EF.EXT7 data: 4 records of 13 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1333,12 +1059,7 @@ static EF_EXT7_DATA: [u8; 52] = [0xFF; 52];
 /// Linear-fixed, 4 records of 13 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.65](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A166%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C499%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EXT7: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FCC),
-    None,
-    13, 4,
-    &EF_EXT7_DATA,
-);
+pub static EF_EXT7: EfDef = EfDef::linear_fixed(Fid::new(0x6FCC), None, 13, 4, &EF_EXT7_DATA);
 
 /// EF.MMSN data: 4 records of 24 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1349,12 +1070,7 @@ static EF_MMSN_DATA: [u8; 96] = [0xFF; 96];
 /// Linear-fixed, 4 records of 24 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.67](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A168%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C237%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MMSN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FCE),
-    None,
-    24, 4,
-    &EF_MMSN_DATA,
-);
+pub static EF_MMSN: EfDef = EfDef::linear_fixed(Fid::new(0x6FCE), None, 24, 4, &EF_MMSN_DATA);
 
 /// EF.EXT8 data: 4 records of 64 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1365,23 +1081,14 @@ static EF_EXT8_DATA: [u8; 256] = [0xFF; 256];
 /// Linear-fixed, 4 records of 64 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.68](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A172%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C586%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EXT8: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FCF),
-    None,
-    64, 4,
-    &EF_EXT8_DATA,
-);
+pub static EF_EXT8: EfDef = EfDef::linear_fixed(Fid::new(0x6FCF), None, 64, 4, &EF_EXT8_DATA);
 
 /// EF.MMSICP (6FD0) -- MMS Issuer Connectivity Parameters.
 ///
 /// 32-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.69](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A174%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MMSICP: EfDef = EfDef::transparent(
-    Fid::new(0x6FD0),
-    None,
-    &[0xFF; 32],
-);
+pub static EF_MMSICP: EfDef = EfDef::transparent(Fid::new(0x6FD0), None, &[0xFF; 32]);
 
 /// EF.MMSUP data: 1 record of 64 bytes.
 #[cfg(feature = "profile-full")]
@@ -1392,23 +1099,14 @@ static EF_MMSUP_DATA: [u8; 64] = [0xFF; 64];
 /// Linear-fixed, 1 record of 64 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.70](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A178%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C623%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MMSUP: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FD1),
-    None,
-    64, 1,
-    &EF_MMSUP_DATA,
-);
+pub static EF_MMSUP: EfDef = EfDef::linear_fixed(Fid::new(0x6FD1), None, 64, 1, &EF_MMSUP_DATA);
 
 /// EF.MMSUCP (6FD2) -- MMS User Connectivity Parameters.
 ///
 /// 4-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.71](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A180%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C609%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MMSUCP: EfDef = EfDef::transparent(
-    Fid::new(0x6FD2),
-    None,
-    &[0xFF; 4],
-);
+pub static EF_MMSUCP: EfDef = EfDef::transparent(Fid::new(0x6FD2), None, &[0xFF; 4]);
 
 /// EF.NIA data: 1 record of 21 bytes.
 #[cfg(feature = "profile-full")]
@@ -1419,23 +1117,14 @@ static EF_NIA_DATA: [u8; 21] = [0xFF; 21];
 /// Linear-fixed, 1 record of 21 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.72](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A180%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C232%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_NIA: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FD3),
-    None,
-    21, 1,
-    &EF_NIA_DATA,
-);
+pub static EF_NIA: EfDef = EfDef::linear_fixed(Fid::new(0x6FD3), None, 21, 1, &EF_NIA_DATA);
 
 /// EF.VGCSCA (6FD4) -- Voice Group Call Service Ciphering Algorithm.
 ///
 /// 20-byte transparent EF. Default: all zeroes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.77](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A192%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C781%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_VGCSCA: EfDef = EfDef::transparent(
-    Fid::new(0x6FD4),
-    None,
-    &[0x00; 20],
-);
+pub static EF_VGCSCA: EfDef = EfDef::transparent(Fid::new(0x6FD4), None, &[0x00; 20]);
 
 /// EF.VBSCA (6FD5) -- Voice Broadcast Service Ciphering Algorithm.
 ///
@@ -1444,22 +1133,14 @@ pub static EF_VGCSCA: EfDef = EfDef::transparent(
 /// Coding same as EF_VGCSCA. Service 65.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.78](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A194%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C781%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_VBSCA: EfDef = EfDef::transparent(
-    Fid::new(0x6FD5),
-    None,
-    &[0x00; 20],
-);
+pub static EF_VBSCA: EfDef = EfDef::transparent(Fid::new(0x6FD5), None, &[0x00; 20]);
 
 /// EF.GBABP (6FD6) -- GBA Bootstrapping Parameters.
 ///
 /// 64-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.79](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A194%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C383%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_GBABP: EfDef = EfDef::transparent(
-    Fid::new(0x6FD6),
-    None,
-    &[0xFF; 64],
-);
+pub static EF_GBABP: EfDef = EfDef::transparent(Fid::new(0x6FD6), None, &[0xFF; 64]);
 
 /// EF.MSK data: 4 records of 20 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1470,12 +1151,7 @@ static EF_MSK_DATA: [u8; 80] = [0xFF; 80];
 /// Linear-fixed, 4 records of 20 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.80](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A196%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C539%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MSK: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FD7),
-    None,
-    20, 4,
-    &EF_MSK_DATA,
-);
+pub static EF_MSK: EfDef = EfDef::linear_fixed(Fid::new(0x6FD7), None, 20, 4, &EF_MSK_DATA);
 
 /// EF.MUK data: 1 record of 40 bytes.
 #[cfg(feature = "profile-full")]
@@ -1486,12 +1162,7 @@ static EF_MUK_DATA: [u8; 40] = [0xFF; 40];
 /// Linear-fixed, 1 record of 40 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.81](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A198%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C573%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MUK: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FD8),
-    None,
-    40, 1,
-    &EF_MUK_DATA,
-);
+pub static EF_MUK: EfDef = EfDef::linear_fixed(Fid::new(0x6FD8), None, 40, 1, &EF_MUK_DATA);
 
 /// EF.GBANL data: 1 record of 4 bytes.
 #[cfg(feature = "profile-full")]
@@ -1502,23 +1173,14 @@ static EF_GBANL_DATA: [u8; 4] = [0xFF; 4];
 /// Linear-fixed, 1 record of 4 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.83](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A200%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C520%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_GBANL: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FDA),
-    None,
-    4, 1,
-    &EF_GBANL_DATA,
-);
+pub static EF_GBANL: EfDef = EfDef::linear_fixed(Fid::new(0x6FDA), None, 4, 1, &EF_GBANL_DATA);
 
 /// EF.EHPLMNPI (6FDB) -- EHPLMN Presentation Indication.
 ///
 /// 1-byte transparent EF. 0x02 = display highest priority EHPLMN only.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.85](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A202%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C286%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EHPLMNPI: EfDef = EfDef::transparent(
-    Fid::new(0x6FDB),
-    None,
-    &[0x02],
-);
+pub static EF_EHPLMNPI: EfDef = EfDef::transparent(Fid::new(0x6FDB), None, &[0x02]);
 
 /// EF.LRPLMNSI (6FDC) -- Last RPLMN Selection Indication.
 ///
@@ -1526,11 +1188,7 @@ pub static EF_EHPLMNPI: EfDef = EfDef::transparent(
 /// 0x01 = attempt HPLMN or last RPLMN per TS 23.122. Service 74.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.86](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A204%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C687%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_LRPLMNSI: EfDef = EfDef::transparent(
-    Fid::new(0x6FDC),
-    None,
-    &[0x00],
-);
+pub static EF_LRPLMNSI: EfDef = EfDef::transparent(Fid::new(0x6FDC), None, &[0x00]);
 
 /// EF.NAFKCA data: 2 records of 32 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1541,23 +1199,14 @@ static EF_NAFKCA_DATA: [u8; 64] = [0xFF; 64];
 /// Linear-fixed, 2 records of 32 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.87](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A204%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C359%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_NAFKCA: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FDD),
-    None,
-    32, 2,
-    &EF_NAFKCA_DATA,
-);
+pub static EF_NAFKCA: EfDef = EfDef::linear_fixed(Fid::new(0x6FDD), None, 32, 2, &EF_NAFKCA_DATA);
 
 /// EF.SPNI (6FDE) -- Service Provider Name Icon.
 ///
 /// 30-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.88](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A206%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C535%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_SPNI: EfDef = EfDef::transparent(
-    Fid::new(0x6FDE),
-    None,
-    &[0xFF; 30],
-);
+pub static EF_SPNI: EfDef = EfDef::transparent(Fid::new(0x6FDE), None, &[0xFF; 30]);
 
 /// EF.PNNI data: 3 records of 30 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1568,24 +1217,15 @@ static EF_PNNI_DATA: [u8; 90] = [0xFF; 90];
 /// Linear-fixed, 3 records of 30 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.89](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A208%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C427%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_PNNI: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FDF),
-    None,
-    30, 3,
-    &EF_PNNI_DATA,
-);
+pub static EF_PNNI: EfDef = EfDef::linear_fixed(Fid::new(0x6FDF), None, 30, 3, &EF_PNNI_DATA);
 
 /// EF.NCP_IP data: 1 record of 54 bytes.
 #[cfg(feature = "profile-full")]
 static EF_NCP_IP_DATA: [u8; 54] = [
-    0xA0, 0x34, 0x80, 0x01, 0x07, 0x81, 0x20,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0x82, 0x04, 0x00, 0x00, 0x00, 0x00,
-    0x83, 0x04, 0x00, 0x00, 0x00, 0x00,
-    0x84, 0x01, 0xFF,
+    0xA0, 0x34, 0x80, 0x01, 0x07, 0x81, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x82, 0x04, 0x00, 0x00, 0x00, 0x00, 0x83, 0x04, 0x00,
+    0x00, 0x00, 0x00, 0x84, 0x01, 0xFF,
 ];
 
 /// EF.NCP-IP (6FE2) -- Network Connectivity Parameters for USIM IP connections.
@@ -1593,45 +1233,28 @@ static EF_NCP_IP_DATA: [u8; 54] = [
 /// Linear-fixed, 1 record of 54 bytes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.90](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A208%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C172%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_NCP_IP: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FE2),
-    None,
-    54, 1,
-    &EF_NCP_IP_DATA,
-);
+pub static EF_NCP_IP: EfDef = EfDef::linear_fixed(Fid::new(0x6FE2), None, 54, 1, &EF_NCP_IP_DATA);
 
 /// EF.UFC (6FE6) -- UICC IARI Feature Codes.
 ///
 /// 64-byte transparent EF. Default: all zeroes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.93](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A223%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C109%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_UFC: EfDef = EfDef::transparent(
-    Fid::new(0x6FE6),
-    None,
-    &[0x00; 64],
-);
+pub static EF_UFC: EfDef = EfDef::transparent(Fid::new(0x6FE6), None, &[0x00; 64]);
 
 /// EF.NASCONFIG (6FE8) -- Non Access Stratum Configuration.
 ///
 /// 4-byte transparent EF. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.94](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A225%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C555%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_NASCONFIG: EfDef = EfDef::transparent(
-    Fid::new(0x6FE8),
-    None,
-    &[0xFF; 4],
-);
+pub static EF_NASCONFIG: EfDef = EfDef::transparent(Fid::new(0x6FE8), None, &[0xFF; 4]);
 
 /// EF.PWS (6FEC) -- Public Warning System.
 ///
 /// 3-byte transparent EF. Default: all zeroes.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.96](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A241%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C427%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_PWS: EfDef = EfDef::transparent(
-    Fid::new(0x6FEC),
-    None,
-    &[0x00, 0x00, 0x00],
-);
+pub static EF_PWS: EfDef = EfDef::transparent(Fid::new(0x6FEC), None, &[0x00, 0x00, 0x00]);
 
 /// EF.FDNURI data: 1 record of 4 bytes.
 #[cfg(feature = "profile-full")]
@@ -1642,12 +1265,7 @@ static EF_FDNURI_DATA: [u8; 4] = [0xFF; 4];
 /// Linear-fixed, 1 record of 4 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.97](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A243%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C744%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_FDNURI: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FED),
-    None,
-    4, 1,
-    &EF_FDNURI_DATA,
-);
+pub static EF_FDNURI: EfDef = EfDef::linear_fixed(Fid::new(0x6FED), None, 4, 1, &EF_FDNURI_DATA);
 
 /// EF.BDNURI data: 4 records of 128 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1658,12 +1276,7 @@ static EF_BDNURI_DATA: [u8; 512] = [0xFF; 512];
 /// Linear-fixed, 4 records of 128 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.98](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A243%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C167%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_BDNURI: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FEE),
-    None,
-    128, 4,
-    &EF_BDNURI_DATA,
-);
+pub static EF_BDNURI: EfDef = EfDef::linear_fixed(Fid::new(0x6FEE), None, 128, 4, &EF_BDNURI_DATA);
 
 /// EF.SDNURI data: 1 record of 4 bytes.
 #[cfg(feature = "profile-full")]
@@ -1674,12 +1287,7 @@ static EF_SDNURI_DATA: [u8; 4] = [0xFF; 4];
 /// Linear-fixed, 1 record of 4 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.99](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A245%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C277%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_SDNURI: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FEF),
-    None,
-    4, 1,
-    &EF_SDNURI_DATA,
-);
+pub static EF_SDNURI: EfDef = EfDef::linear_fixed(Fid::new(0x6FEF), None, 4, 1, &EF_SDNURI_DATA);
 
 /// EF.IPS data: 5 records of 4 bytes each.
 #[cfg(feature = "profile-full")]
@@ -1690,23 +1298,14 @@ static EF_IPS_DATA: [u8; 20] = [0xFF; 20];
 /// Cyclic, 5 records of 4 bytes. Default: empty.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.101](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A249%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C318%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_IPS: EfDef = EfDef::cyclic(
-    Fid::new(0x6FF1),
-    None,
-    4, 5,
-    &EF_IPS_DATA,
-);
+pub static EF_IPS: EfDef = EfDef::cyclic(Fid::new(0x6FF1), None, 4, 5, &EF_IPS_DATA);
 
 /// EF.FromPreferred (6FF7) -- From Preferred.
 ///
 /// 1-byte transparent EF. Default: 0xFF.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.106](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A259%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C235%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_FROM_PREFERRED: EfDef = EfDef::transparent(
-    Fid::new(0x6FF7),
-    None,
-    &[0xFF],
-);
+pub static EF_FROM_PREFERRED: EfDef = EfDef::transparent(Fid::new(0x6FF7), None, &[0xFF]);
 
 // ---------------------------------------------------------------------------
 // New ADF_USIM root EFs -- P0 (mandatory + Shannon-critical)
@@ -1726,7 +1325,8 @@ static EF_ARR_USIM_DATA: [u8; 32] = [0xFF; 32];
 pub static EF_ARR_USIM: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F06),
     Some(Sfi::new(0x17)),
-    32, 1,
+    32,
+    1,
     &EF_ARR_USIM_DATA,
 );
 
@@ -1736,11 +1336,8 @@ pub static EF_ARR_USIM: EfDef = EfDef::linear_fixed(
 /// Contains IMS Integrated Resource Identifiers for UICC applications.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.95](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A239%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C263%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_UICCIARI: EfDef = EfDef::transparent(
-    Fid::new(0x6FE9),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_UICCIARI: EfDef =
+    EfDef::transparent(Fid::new(0x6FE9), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.ePDGId (6FF3) -- Home ePDG Identifier.
 ///
@@ -1749,11 +1346,8 @@ pub static EF_UICCIARI: EfDef = EfDef::transparent(
 /// Services 106+107.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.103](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A253%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C527%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EPDG_ID: EfDef = EfDef::transparent(
-    Fid::new(0x6FF3),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_EPDG_ID: EfDef =
+    EfDef::transparent(Fid::new(0x6FF3), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.ePDGSelection (6FF4) -- ePDG Selection Information.
 ///
@@ -1762,11 +1356,8 @@ pub static EF_EPDG_ID: EfDef = EfDef::transparent(
 /// Services 106+107.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.104](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A255%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EPDG_SELECTION: EfDef = EfDef::transparent(
-    Fid::new(0x6FF4),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_EPDG_SELECTION: EfDef =
+    EfDef::transparent(Fid::new(0x6FF4), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.3GPPPSDATAOFF (6FF9) -- 3GPP PS Data Off.
 ///
@@ -1775,11 +1366,8 @@ pub static EF_EPDG_SELECTION: EfDef = EfDef::transparent(
 /// Service 117.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.109](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A265%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C670%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_3GPP_PS_DATA_OFF: EfDef = EfDef::transparent(
-    Fid::new(0x6FF9),
-    None,
-    &[0x00, 0x00, 0x00, 0x00],
-);
+pub static EF_3GPP_PS_DATA_OFF: EfDef =
+    EfDef::transparent(Fid::new(0x6FF9), None, &[0x00, 0x00, 0x00, 0x00]);
 
 // EF_3GPPPSDATAOFFservicelist data: 1 record of 32 bytes.
 #[cfg(feature = "profile-full")]
@@ -1792,12 +1380,8 @@ static EF_3GPP_PS_DATA_OFF_SVC_DATA: [u8; 32] = [0xFF; 32];
 /// Service 118.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.110](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A267%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C539%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_3GPP_PS_DATA_OFF_SVC: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FFA),
-    None,
-    32, 1,
-    &EF_3GPP_PS_DATA_OFF_SVC_DATA,
-);
+pub static EF_3GPP_PS_DATA_OFF_SVC: EfDef =
+    EfDef::linear_fixed(Fid::new(0x6FFA), None, 32, 1, &EF_3GPP_PS_DATA_OFF_SVC_DATA);
 
 /// EF.EARFCNList (6FFD) -- EARFCN List.
 ///
@@ -1806,11 +1390,8 @@ pub static EF_3GPP_PS_DATA_OFF_SVC: EfDef = EfDef::linear_fixed(
 /// Service 121.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.112](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A269%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C683%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EARFCN_LIST: EfDef = EfDef::transparent(
-    Fid::new(0x6FFD),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_EARFCN_LIST: EfDef =
+    EfDef::transparent(Fid::new(0x6FFD), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.eAKA (6F01) -- Enhanced AKA Configuration.
 ///
@@ -1819,11 +1400,7 @@ pub static EF_EARFCN_LIST: EfDef = EfDef::transparent(
 /// 1 = supported. Rel-18.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.114](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A271%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C611%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EAKA: EfDef = EfDef::transparent(
-    Fid::new(0x6F01),
-    None,
-    &[0x00],
-);
+pub static EF_EAKA: EfDef = EfDef::transparent(Fid::new(0x6F01), None, &[0x00]);
 
 /// EF.OPLMNwACT_LSP (6F0C) -- Operator PLMN with ACT and LSP.
 ///
@@ -1848,11 +1425,7 @@ pub static EF_OPLMNWACT_LSP: EfDef = EfDef::transparent(
 /// Service 152.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.119](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A279%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C696%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_LSPPLMN: EfDef = EfDef::transparent(
-    Fid::new(0x6F0D),
-    None,
-    &[0x00],
-);
+pub static EF_LSPPLMN: EfDef = EfDef::transparent(Fid::new(0x6F0D), None, &[0x00]);
 
 // ---------------------------------------------------------------------------
 // New ADF_USIM root EFs -- P1 (remaining high-value)
@@ -1865,11 +1438,8 @@ pub static EF_LSPPLMN: EfDef = EfDef::transparent(
 /// Services 110+111.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.104a](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A259%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EPDG_ID_EM: EfDef = EfDef::transparent(
-    Fid::new(0x6FF5),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_EPDG_ID_EM: EfDef =
+    EfDef::transparent(Fid::new(0x6FF5), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.ePDGSelectionEm (6FF6) -- Emergency ePDG Selection Information.
 ///
@@ -1878,11 +1448,8 @@ pub static EF_EPDG_ID_EM: EfDef = EfDef::transparent(
 /// Services 110+111.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.105](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A259%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C489%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_EPDG_SELECTION_EM: EfDef = EfDef::transparent(
-    Fid::new(0x6FF6),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_EPDG_SELECTION_EM: EfDef =
+    EfDef::transparent(Fid::new(0x6FF6), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 // EF_IAL data: 1 record of 18 bytes.
 #[cfg(feature = "profile-full")]
@@ -1894,12 +1461,7 @@ static EF_IAL_DATA: [u8; 18] = [0xFF; 18];
 /// Contains TAC and optional SVN allowed list for device pairing.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.100](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A247%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C338%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_IAL: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FF0),
-    None,
-    18, 1,
-    &EF_IAL_DATA,
-);
+pub static EF_IAL: EfDef = EfDef::linear_fixed(Fid::new(0x6FF0), None, 18, 1, &EF_IAL_DATA);
 
 // EF_IPD data: 1 record of 10 bytes.
 #[cfg(feature = "profile-full")]
@@ -1911,12 +1473,7 @@ static EF_IPD_DATA: [u8; 10] = [0xFF; 10];
 /// Contains IMEI(SV) of the paired device.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.102](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A251%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C332%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_IPD: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FF2),
-    None,
-    10, 1,
-    &EF_IPD_DATA,
-);
+pub static EF_IPD: EfDef = EfDef::linear_fixed(Fid::new(0x6FF2), None, 10, 1, &EF_IPD_DATA);
 
 /// EF.OCST (6F02) -- Operator Controlled SENSE Threshold.
 ///
@@ -1925,11 +1482,7 @@ pub static EF_IPD: EfDef = EfDef::linear_fixed(
 /// Service 148.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.115](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A273%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_OCST: EfDef = EfDef::transparent(
-    Fid::new(0x6F02),
-    None,
-    &[0x00],
-);
+pub static EF_OCST: EfDef = EfDef::transparent(Fid::new(0x6F02), None, &[0x00]);
 
 // ---------------------------------------------------------------------------
 // New ADF_USIM root EFs -- P2 (TS 31.103 cross-refs + niche)
@@ -1943,11 +1496,8 @@ pub static EF_OCST: EfDef = EfDef::transparent(
 /// Service 115.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.107](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A261%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C525%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_IMS_CONFIG_DATA: EfDef = EfDef::transparent(
-    Fid::new(0x6FF8),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_IMS_CONFIG_DATA: EfDef =
+    EfDef::transparent(Fid::new(0x6FF8), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 // EF_TVCONFIG data: 1 record of 16 bytes.
 #[cfg(feature = "profile-full")]
@@ -1960,12 +1510,8 @@ static EF_TVCONFIG_DATA: [u8; 16] = [0xFF; 16];
 /// Service 116.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.108](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A261%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C389%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_TVCONFIG: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6FFB),
-    None,
-    16, 1,
-    &EF_TVCONFIG_DATA,
-);
+pub static EF_TVCONFIG: EfDef =
+    EfDef::linear_fixed(Fid::new(0x6FFB), None, 16, 1, &EF_TVCONFIG_DATA);
 
 /// EF.XCAPConfigData (6FFC) -- XCAP Configuration Data.
 ///
@@ -1975,11 +1521,8 @@ pub static EF_TVCONFIG: EfDef = EfDef::linear_fixed(
 /// Service 120.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.111](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A267%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C138%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_XCAP_CONFIG_DATA: EfDef = EfDef::transparent(
-    Fid::new(0x6FFC),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_XCAP_CONFIG_DATA: EfDef =
+    EfDef::transparent(Fid::new(0x6FFC), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.MuDMiDConfigData (6FFE) -- MuD and MiD Configuration Data.
 ///
@@ -1989,11 +1532,8 @@ pub static EF_XCAP_CONFIG_DATA: EfDef = EfDef::transparent(
 /// Service 134.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.113](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A271%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C747%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_MUDMID_CONFIG_DATA: EfDef = EfDef::transparent(
-    Fid::new(0x6FFE),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_MUDMID_CONFIG_DATA: EfDef =
+    EfDef::transparent(Fid::new(0x6FFE), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.AC_GBAUAPI (6F0A) -- Access Control to GBA_U_API.
 ///
@@ -2003,11 +1543,8 @@ pub static EF_MUDMID_CONFIG_DATA: EfDef = EfDef::transparent(
 /// Service 68.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.116](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A275%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C429%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_AC_GBAUAPI: EfDef = EfDef::transparent(
-    Fid::new(0x6F0A),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_AC_GBAUAPI: EfDef =
+    EfDef::transparent(Fid::new(0x6F0A), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.IMSDCI (6F0B) -- IMS Data Channel Indication.
 ///
@@ -2017,11 +1554,7 @@ pub static EF_AC_GBAUAPI: EfDef = EfDef::transparent(
 /// Service 150.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.117](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A275%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C281%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_IMSDCI: EfDef = EfDef::transparent(
-    Fid::new(0x6F0B),
-    None,
-    &[0x00],
-);
+pub static EF_IMSDCI: EfDef = EfDef::transparent(Fid::new(0x6F0B), None, &[0x00]);
 
 // ---------------------------------------------------------------------------
 // DF.PHONEBOOK (5F3A) under ADF.USIM -- full tier
@@ -2034,8 +1567,7 @@ pub static EF_IMSDCI: EfDef = EfDef::transparent(
 #[cfg(feature = "profile-full")]
 static PB_EF_PBR_DATA: [u8; 64] = [
     // Type 1 files (A8) -- paired 1:1 with ADN records
-    0xA8, 0x20,
-    0xC0, 0x02, 0x4F, 0x31, // EF_ADN (4F31)
+    0xA8, 0x20, 0xC0, 0x02, 0x4F, 0x31, // EF_ADN (4F31)
     0xC5, 0x02, 0x4F, 0x34, // EF_PBC (4F34)
     0xC4, 0x02, 0x4F, 0x35, // EF_ANR (4F35)
     0xC3, 0x02, 0x4F, 0x36, // EF_SNE (4F36)
@@ -2044,14 +1576,12 @@ static PB_EF_PBR_DATA: [u8; 64] = [
     0xC9, 0x02, 0x4F, 0x3B, // EF_UID (4F3B)
     0xCC, 0x02, 0x4F, 0x3D, // EF_PURI (4F3D)
     // Type 3 files (AA) -- shared, linked by record identifier
-    0xAA, 0x10,
-    0xC2, 0x02, 0x4F, 0x32, // EF_EXT1 (4F32)
+    0xAA, 0x10, 0xC2, 0x02, 0x4F, 0x32, // EF_EXT1 (4F32)
     0xC7, 0x02, 0x4F, 0x38, // EF_AAS (4F38)
     0xC8, 0x02, 0x4F, 0x39, // EF_GAS (4F39)
     0xCB, 0x02, 0x4F, 0x3A, // EF_CCP1 (4F3A)
     // padding
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
 /// EF.PBR (4F30) -- Phone Book Reference file.
@@ -2062,12 +1592,7 @@ static PB_EF_PBR_DATA: [u8; 64] = [
 /// CC=PURI. Tags grouped under A8 (Type 1), A9 (Type 2), AA (Type 3).
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A291%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_PBR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F30),
-    None,
-    64, 1,
-    &PB_EF_PBR_DATA,
-);
+pub static PB_EF_PBR: EfDef = EfDef::linear_fixed(Fid::new(0x4F30), None, 64, 1, &PB_EF_PBR_DATA);
 
 // EF_ADN data: 5 records of 28 bytes (14B alpha + 14B dialling number data).
 #[cfg(feature = "profile-full")]
@@ -2080,12 +1605,7 @@ static PB_EF_ADN_DATA: [u8; 140] = [0xFF; 140];
 /// 1B EXT1 ID. X=14, total=28.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.3](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A295%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C332%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_ADN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F31),
-    None,
-    28, 5,
-    &PB_EF_ADN_DATA,
-);
+pub static PB_EF_ADN: EfDef = EfDef::linear_fixed(Fid::new(0x4F31), None, 28, 5, &PB_EF_ADN_DATA);
 
 // EF_EXT1 data: 5 records of 13 bytes.
 #[cfg(feature = "profile-full")]
@@ -2097,12 +1617,7 @@ static PB_EF_EXT1_DATA: [u8; 65] = [0xFF; 65];
 /// 01=additional data, FF=free) + 11B extension data + 1B next record ID.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.4](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A301%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C346%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_EXT1: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F32),
-    None,
-    13, 5,
-    &PB_EF_EXT1_DATA,
-);
+pub static PB_EF_EXT1: EfDef = EfDef::linear_fixed(Fid::new(0x4F32), None, 13, 5, &PB_EF_EXT1_DATA);
 
 // EF_IAP data: 5 records of 1 byte.
 #[cfg(feature = "profile-full")]
@@ -2114,12 +1629,7 @@ static PB_EF_IAP_DATA: [u8; 5] = [0xFF; 5];
 /// Type 2 file. Record length = number of Type 2 files per PBR record.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.2](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A295%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C756%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_IAP: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F33),
-    None,
-    1, 5,
-    &PB_EF_IAP_DATA,
-);
+pub static PB_EF_IAP: EfDef = EfDef::linear_fixed(Fid::new(0x4F33), None, 1, 5, &PB_EF_IAP_DATA);
 
 // EF_PBC data: 5 records of 2 bytes.
 #[cfg(feature = "profile-full")]
@@ -2131,12 +1641,7 @@ static PB_EF_PBC_DATA: [u8; 10] = [0x00; 10];
 /// byte 2: change counter/modification flag.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.5](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A305%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C465%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_PBC: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F34),
-    None,
-    2, 5,
-    &PB_EF_PBC_DATA,
-);
+pub static PB_EF_PBC: EfDef = EfDef::linear_fixed(Fid::new(0x4F34), None, 2, 5, &PB_EF_PBC_DATA);
 
 // EF_ANR data: 5 records of 15 bytes.
 #[cfg(feature = "profile-full")]
@@ -2149,12 +1654,7 @@ static PB_EF_ANR_DATA: [u8; 75] = [0xFF; 75];
 /// 1B CCP2 ID + 1B EXT1 ID.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.9](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C216%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_ANR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F35),
-    None,
-    15, 5,
-    &PB_EF_ANR_DATA,
-);
+pub static PB_EF_ANR: EfDef = EfDef::linear_fixed(Fid::new(0x4F35), None, 15, 5, &PB_EF_ANR_DATA);
 
 // EF_SNE data: 5 records of 18 bytes (16B alpha + 2B extension ref).
 #[cfg(feature = "profile-full")]
@@ -2166,12 +1666,7 @@ static PB_EF_SNE_DATA: [u8; 90] = [0xFF; 90];
 /// optional 2 bytes extension reference. X=16.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.10](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A313%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C402%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_SNE: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F36),
-    None,
-    18, 5,
-    &PB_EF_SNE_DATA,
-);
+pub static PB_EF_SNE: EfDef = EfDef::linear_fixed(Fid::new(0x4F36), None, 18, 5, &PB_EF_SNE_DATA);
 
 /// EF.GRP (4F37) -- Grouping file.
 ///
@@ -2179,12 +1674,7 @@ pub static PB_EF_SNE: EfDef = EfDef::linear_fixed(
 /// EF_GAS identifying a group association.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.6](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A307%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C627%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_GRP: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F37),
-    None,
-    1, 5,
-    &[0xFF; 5],
-);
+pub static PB_EF_GRP: EfDef = EfDef::linear_fixed(Fid::new(0x4F37), None, 1, 5, &[0xFF; 5]);
 
 // EF_AAS data: 2 records of 16 bytes.
 #[cfg(feature = "profile-full")]
@@ -2196,12 +1686,7 @@ static PB_EF_AAS_DATA: [u8; 32] = [0xFF; 32];
 /// additional numbers (ANR). Referenced by ANR AAS record identifier.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.7](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A307%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C222%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_AAS: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F38),
-    None,
-    16, 2,
-    &PB_EF_AAS_DATA,
-);
+pub static PB_EF_AAS: EfDef = EfDef::linear_fixed(Fid::new(0x4F38), None, 16, 2, &PB_EF_AAS_DATA);
 
 // EF_GAS data: 2 records of 16 bytes.
 #[cfg(feature = "profile-full")]
@@ -2213,12 +1698,7 @@ static PB_EF_GAS_DATA: [u8; 32] = [0xFF; 32];
 /// groups. Referenced by GRP group association record number.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.8](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A309%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C535%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_GAS: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F39),
-    None,
-    16, 2,
-    &PB_EF_GAS_DATA,
-);
+pub static PB_EF_GAS: EfDef = EfDef::linear_fixed(Fid::new(0x4F39), None, 16, 2, &PB_EF_GAS_DATA);
 
 // EF_CCP1 data: 2 records of 15 bytes.
 #[cfg(feature = "profile-full")]
@@ -2230,12 +1710,7 @@ static PB_EF_CCP1_DATA: [u8; 30] = [0xFF; 30];
 /// information element per TS 24.008.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.11](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A315%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C576%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_CCP1: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F3A),
-    None,
-    15, 2,
-    &PB_EF_CCP1_DATA,
-);
+pub static PB_EF_CCP1: EfDef = EfDef::linear_fixed(Fid::new(0x4F3A), None, 15, 2, &PB_EF_CCP1_DATA);
 
 // EF_UID data: 5 records of 2 bytes.
 #[cfg(feature = "profile-full")]
@@ -2247,12 +1722,7 @@ static PB_EF_UID_DATA: [u8; 10] = [0xFF; 10];
 /// unique identifier for phonebook synchronization.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.12.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A315%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C176%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_UID: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F3B),
-    None,
-    2, 5,
-    &PB_EF_UID_DATA,
-);
+pub static PB_EF_UID: EfDef = EfDef::linear_fixed(Fid::new(0x4F3B), None, 2, 5, &PB_EF_UID_DATA);
 
 // EF_EMAIL data: 5 records of 32 bytes.
 #[cfg(feature = "profile-full")]
@@ -2264,12 +1734,8 @@ static PB_EF_EMAIL_DATA: [u8; 160] = [0xFF; 160];
 /// with a phonebook entry.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.13](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A321%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C400%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_EMAIL: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F3C),
-    None,
-    32, 5,
-    &PB_EF_EMAIL_DATA,
-);
+pub static PB_EF_EMAIL: EfDef =
+    EfDef::linear_fixed(Fid::new(0x4F3C), None, 32, 5, &PB_EF_EMAIL_DATA);
 
 // EF_PURI data: 2 records of 32 bytes.
 #[cfg(feature = "profile-full")]
@@ -2281,12 +1747,7 @@ static PB_EF_PURI_DATA: [u8; 64] = [0xFF; 64];
 /// a phonebook entry.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.15](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A323%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C320%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_PURI: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F3D),
-    None,
-    32, 2,
-    &PB_EF_PURI_DATA,
-);
+pub static PB_EF_PURI: EfDef = EfDef::linear_fixed(Fid::new(0x4F3D), None, 32, 2, &PB_EF_PURI_DATA);
 
 /// EF.PSC (4F22) -- Phone book Synchronisation Counter.
 ///
@@ -2294,11 +1755,7 @@ pub static PB_EF_PURI: EfDef = EfDef::linear_fixed(
 /// modification. Fixed FID per spec.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.12.2](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A317%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C455%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_PSC: EfDef = EfDef::transparent(
-    Fid::new(0x4F22),
-    None,
-    &[0x00, 0x00, 0x00, 0x00],
-);
+pub static PB_EF_PSC: EfDef = EfDef::transparent(Fid::new(0x4F22), None, &[0x00, 0x00, 0x00, 0x00]);
 
 /// EF.CC (4F23) -- Change Counter.
 ///
@@ -2306,11 +1763,7 @@ pub static PB_EF_PSC: EfDef = EfDef::transparent(
 /// change (add/delete/modify). Fixed FID per spec.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.12.3](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A319%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C413%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_CC: EfDef = EfDef::transparent(
-    Fid::new(0x4F23),
-    None,
-    &[0x00, 0x00],
-);
+pub static PB_EF_CC: EfDef = EfDef::transparent(Fid::new(0x4F23), None, &[0x00, 0x00]);
 
 /// EF.PUID (4F24) -- Previous Unique Identifier.
 ///
@@ -2318,11 +1771,7 @@ pub static PB_EF_CC: EfDef = EfDef::transparent(
 /// used. Fixed FID per spec.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.2.12.4](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A321%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C744%5D).
 #[cfg(feature = "profile-full")]
-pub static PB_EF_PUID: EfDef = EfDef::transparent(
-    Fid::new(0x4F24),
-    None,
-    &[0x00, 0x00],
-);
+pub static PB_EF_PUID: EfDef = EfDef::transparent(Fid::new(0x4F24), None, &[0x00, 0x00]);
 
 /// DF.PHONEBOOK (5F3A) -- Phonebook sub-DF under ADF.USIM.
 ///
@@ -2412,10 +1861,7 @@ pub static EF_KC_GPRS: EfDef = EfDef::transparent(
 #[cfg(feature = "profile-full")]
 pub static DF_GSM_ACCESS: DfDef = DfDef {
     fid: Fid::new(0x5F3B),
-    children: &[
-        FileRef::Ef(&EF_KC),
-        FileRef::Ef(&EF_KC_GPRS),
-    ],
+    children: &[FileRef::Ef(&EF_KC), FileRef::Ef(&EF_KC_GPRS)],
 };
 
 #[cfg(feature = "profile-full")]
@@ -2437,11 +1883,8 @@ static EF_5GS_3GPP_LOCI_DATA: [u8; 20] = [0x00; 20];
 /// EF.5GS3GPPLOCI (4F01) -- 5GS 3GPP access location info.
 ///
 /// Transparent, 20 bytes. Service 122, Rel-15.
-pub static EF_5GS3GPPLOCI: EfDef = EfDef::transparent(
-    Fid::new(0x4F01),
-    Some(Sfi::new(1)),
-    &EF_5GS_3GPP_LOCI_DATA,
-);
+pub static EF_5GS3GPPLOCI: EfDef =
+    EfDef::transparent(Fid::new(0x4F01), Some(Sfi::new(1)), &EF_5GS_3GPP_LOCI_DATA);
 
 /// EF.5GSN3GPPLOCI (4F02) -- 5GS non-3GPP Location Information.
 ///
@@ -2452,11 +1895,8 @@ static EF_5GS_N3GPP_LOCI_DATA: [u8; 20] = [0x00; 20];
 /// EF.5GSN3GPPLOCI (4F02) -- 5GS non-3GPP access location info.
 ///
 /// Transparent, 20 bytes. Service 122, Rel-15.
-pub static EF_5GSN3GPPLOCI: EfDef = EfDef::transparent(
-    Fid::new(0x4F02),
-    Some(Sfi::new(2)),
-    &EF_5GS_N3GPP_LOCI_DATA,
-);
+pub static EF_5GSN3GPPLOCI: EfDef =
+    EfDef::transparent(Fid::new(0x4F02), Some(Sfi::new(2)), &EF_5GS_N3GPP_LOCI_DATA);
 
 /// EF.5GS3GPPNSC (4F03) -- 5G NAS Security Context (3GPP access).
 ///
@@ -2469,7 +1909,8 @@ static EF_5GS_3GPP_NSC_DATA: [u8; 57] = [0xFF; 57];
 pub static EF_5GS3GPPNSC: EfDef = EfDef::linear_fixed(
     Fid::new(0x4F03),
     Some(Sfi::new(3)),
-    57, 1,
+    57,
+    1,
     &EF_5GS_3GPP_NSC_DATA,
 );
 
@@ -2484,7 +1925,8 @@ static EF_5GS_N3GPP_NSC_DATA: [u8; 57] = [0xFF; 57];
 pub static EF_5GSN3GPPNSC: EfDef = EfDef::linear_fixed(
     Fid::new(0x4F04),
     Some(Sfi::new(4)),
-    57, 1,
+    57,
+    1,
     &EF_5GS_N3GPP_NSC_DATA,
 );
 
@@ -2497,11 +1939,8 @@ static EF_5G_AUTH_KEYS_DATA: [u8; 68] = [0x00; 68];
 /// EF.5GAUTHKEYS (4F05) -- 5G authentication keys.
 ///
 /// Transparent, 68 bytes. Service 123, Rel-15.
-pub static EF_5GAUTHKEYS: EfDef = EfDef::transparent(
-    Fid::new(0x4F05),
-    Some(Sfi::new(5)),
-    &EF_5G_AUTH_KEYS_DATA,
-);
+pub static EF_5GAUTHKEYS: EfDef =
+    EfDef::transparent(Fid::new(0x4F05), Some(Sfi::new(5)), &EF_5G_AUTH_KEYS_DATA);
 
 /// EF.UAC_AIC (4F06) -- UAC Access Identity Configuration.
 ///
@@ -2527,19 +1966,16 @@ static EF_SUCI_CALC_INFO_DATA: [u8; 80] = {
     d[1] = 0x02; // length
     d[2] = 0x00; // protection scheme identifier (0x00 = null scheme)
     d[3] = 0x00; // home network public key index (0x00 = none)
-    // Bytes 4..80 are 0xFF padding, available for Profile A/B key provisioning
-    // via UPDATE BINARY. See TS 31.102 V19.4.0 clause 4.4.11.8.
+                 // Bytes 4..80 are 0xFF padding, available for Profile A/B key provisioning
+                 // via UPDATE BINARY. See TS 31.102 V19.4.0 clause 4.4.11.8.
     d
 };
 
 /// EF.SUCI_Calc_Info (4F07) -- SUCI calculation info.
 ///
 /// Transparent, TLV-structured. Service 124, Rel-15.
-pub static EF_SUCI_CALC_INFO: EfDef = EfDef::transparent(
-    Fid::new(0x4F07),
-    Some(Sfi::new(7)),
-    &EF_SUCI_CALC_INFO_DATA,
-);
+pub static EF_SUCI_CALC_INFO: EfDef =
+    EfDef::transparent(Fid::new(0x4F07), Some(Sfi::new(7)), &EF_SUCI_CALC_INFO_DATA);
 
 /// EF.OPL5G (4F08) -- 5G Operator PLMN List.
 ///
@@ -2549,30 +1985,18 @@ static EF_OPL5G_DATA: [u8; 5] = [0xFF; 5];
 /// EF.OPL5G (4F08) -- 5G operator PLMN list.
 ///
 /// Linear-fixed, 1 record x 5 bytes. Service 129, Rel-15.
-pub static EF_OPL5G: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F08),
-    None,
-    5, 1,
-    &EF_OPL5G_DATA,
-);
+pub static EF_OPL5G: EfDef = EfDef::linear_fixed(Fid::new(0x4F08), None, 5, 1, &EF_OPL5G_DATA);
 
 /// EF.SUPI_NAI (4F09) -- Non-IMSI SUPI as NAI.
 ///
 /// 32-byte transparent EF. Default: 0xFF (not provisioned).
-pub static EF_SUPI_NAI: EfDef = EfDef::transparent(
-    Fid::new(0x4F09),
-    None,
-    &[0xFF; 32],
-);
+pub static EF_SUPI_NAI: EfDef = EfDef::transparent(Fid::new(0x4F09), None, &[0xFF; 32]);
 
 /// EF.Routing_Indicator (4F0A) -- SUCI Routing Indicator.
 ///
 /// 4-byte transparent EF. Default: 0xFF (not provisioned).
-pub static EF_ROUTING_INDICATOR: EfDef = EfDef::transparent(
-    Fid::new(0x4F0A),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_ROUTING_INDICATOR: EfDef =
+    EfDef::transparent(Fid::new(0x4F0A), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.URSP (4F0B) -- UE Route Selection Policies.
 ///
@@ -2582,65 +2006,37 @@ static EF_URSP_DATA: [u8; 64] = [0xFF; 64];
 /// EF.URSP (4F0B) -- UE route selection policies.
 ///
 /// Transparent, 64 bytes. Service 132, Rel-16.
-pub static EF_URSP: EfDef = EfDef::transparent(
-    Fid::new(0x4F0B),
-    None,
-    &EF_URSP_DATA,
-);
+pub static EF_URSP: EfDef = EfDef::transparent(Fid::new(0x4F0B), None, &EF_URSP_DATA);
 
 /// EF.TN3GPPSNN (4F0C) -- Trusted Non-3GPP Serving Network Name.
 ///
 /// 32-byte transparent EF. Default: 0xFF (not provisioned).
-pub static EF_TN3GPPSNN: EfDef = EfDef::transparent(
-    Fid::new(0x4F0C),
-    None,
-    &[0xFF; 32],
-);
+pub static EF_TN3GPPSNN: EfDef = EfDef::transparent(Fid::new(0x4F0C), None, &[0xFF; 32]);
 
 /// EF.CAG (4F0D) -- CAG Information List.
 ///
 /// 32-byte transparent EF. Default: 0xFF (no CAG info).
-pub static EF_CAG: EfDef = EfDef::transparent(
-    Fid::new(0x4F0D),
-    None,
-    &[0xFF; 32],
-);
+pub static EF_CAG: EfDef = EfDef::transparent(Fid::new(0x4F0D), None, &[0xFF; 32]);
 
 /// EF.SOR_CMCI (4F0E) -- Steering of Roaming Connected Mode Control Info.
 ///
 /// 32-byte transparent EF. Default: 0xFF (not provisioned).
-pub static EF_SOR_CMCI: EfDef = EfDef::transparent(
-    Fid::new(0x4F0E),
-    None,
-    &[0xFF; 32],
-);
+pub static EF_SOR_CMCI: EfDef = EfDef::transparent(Fid::new(0x4F0E), None, &[0xFF; 32]);
 
 /// EF.DRI (4F0F) -- Disaster Roaming Information.
 ///
 /// 16-byte transparent EF. Default: 0xFF (not provisioned).
-pub static EF_DRI: EfDef = EfDef::transparent(
-    Fid::new(0x4F0F),
-    None,
-    &[0xFF; 16],
-);
+pub static EF_DRI: EfDef = EfDef::transparent(Fid::new(0x4F0F), None, &[0xFF; 16]);
 
 /// EF.5GSEDRX (4F10) -- 5GS eDRX Parameters.
 ///
 /// 3-byte transparent EF. Default: 0x00 (eDRX not configured).
-pub static EF_5GSEDRX: EfDef = EfDef::transparent(
-    Fid::new(0x4F10),
-    None,
-    &[0x00, 0x00, 0x00],
-);
+pub static EF_5GSEDRX: EfDef = EfDef::transparent(Fid::new(0x4F10), None, &[0x00, 0x00, 0x00]);
 
 /// EF.5GNSWO_CONF (4F11) -- 5G Non-Seamless WLAN Offload Configuration.
 ///
 /// 2-byte transparent EF. Default: 0x00 (NSWO not configured).
-pub static EF_5GNSWO_CONF: EfDef = EfDef::transparent(
-    Fid::new(0x4F11),
-    None,
-    &[0x00, 0x00],
-);
+pub static EF_5GNSWO_CONF: EfDef = EfDef::transparent(Fid::new(0x4F11), None, &[0x00, 0x00]);
 
 /// EF.MCHPPLMN (4F15) -- Multiplier Coefficient for Higher Priority PLMN search.
 ///
@@ -2648,11 +2044,7 @@ pub static EF_5GNSWO_CONF: EfDef = EfDef::transparent(
 /// Multiplier N used to extend HPPLMN search period: T_search = N * T_HPPLMN.
 /// UST service 144, Rel-18.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.11.20].
-pub static EF_MCHPPLMN: EfDef = EfDef::transparent(
-    Fid::new(0x4F15),
-    Some(Sfi::new(0x15)),
-    &[0x0A],
-);
+pub static EF_MCHPPLMN: EfDef = EfDef::transparent(Fid::new(0x4F15), Some(Sfi::new(0x15)), &[0x0A]);
 
 /// EF.KAUSF_DERIVATION (4F16) -- KAUSF Derivation Configuration.
 ///
@@ -2660,11 +2052,8 @@ pub static EF_MCHPPLMN: EfDef = EfDef::transparent(
 /// Contains configuration for KAUSF key derivation method.
 /// UST service 145, Rel-18.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.11.21].
-pub static EF_KAUSF_DERIVATION: EfDef = EfDef::transparent(
-    Fid::new(0x4F16),
-    Some(Sfi::new(0x16)),
-    &[0x00],
-);
+pub static EF_KAUSF_DERIVATION: EfDef =
+    EfDef::transparent(Fid::new(0x4F16), Some(Sfi::new(0x16)), &[0x00]);
 
 /// DF.5GS (5FC0) -- 5G System dedicated file.
 ///
@@ -2727,11 +2116,7 @@ const _: () = simrs_fs::assert_fids_unique(&[
 /// UST service 143.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.12.2](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A471%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C629%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_PWS_SNPN: EfDef = EfDef::transparent(
-    Fid::new(0x4F01),
-    Some(Sfi::new(1)),
-    &[0x00],
-);
+pub static EF_PWS_SNPN: EfDef = EfDef::transparent(Fid::new(0x4F01), Some(Sfi::new(1)), &[0x00]);
 
 // EF_NID data: 1 record of 6 bytes.
 #[cfg(feature = "profile-full")]
@@ -2744,12 +2129,8 @@ static EF_NID_DATA: [u8; 6] = [0xFF; 6];
 /// UST service 146.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.12.3](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A471%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C244%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_NID: EfDef = EfDef::linear_fixed(
-    Fid::new(0x4F02),
-    Some(Sfi::new(2)),
-    6, 1,
-    &EF_NID_DATA,
-);
+pub static EF_NID: EfDef =
+    EfDef::linear_fixed(Fid::new(0x4F02), Some(Sfi::new(2)), 6, 1, &EF_NID_DATA);
 
 /// DF.SNPN (5FE0) -- Standalone Non-Public Network dedicated file.
 ///
@@ -2758,10 +2139,7 @@ pub static EF_NID: EfDef = EfDef::linear_fixed(
 #[cfg(feature = "profile-full")]
 pub static DF_SNPN: DfDef = DfDef {
     fid: Fid::new(0x5FE0),
-    children: &[
-        FileRef::Ef(&EF_PWS_SNPN),
-        FileRef::Ef(&EF_NID),
-    ],
+    children: &[FileRef::Ef(&EF_PWS_SNPN), FileRef::Ef(&EF_NID)],
 };
 
 #[cfg(feature = "profile-full")]
@@ -2781,11 +2159,8 @@ const _: () = simrs_fs::assert_fids_unique(&[
 /// UST service 139.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A475%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C608%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_ST: EfDef = EfDef::transparent(
-    Fid::new(0x4F01),
-    Some(Sfi::new(1)),
-    &[0x00, 0x00],
-);
+pub static EF_5G_PROSE_ST: EfDef =
+    EfDef::transparent(Fid::new(0x4F01), Some(Sfi::new(1)), &[0x00, 0x00]);
 
 /// EF.5G_PROSE_DD (4F02) -- 5G ProSe Direct Discovery.
 ///
@@ -2793,11 +2168,8 @@ pub static EF_5G_PROSE_ST: EfDef = EfDef::transparent(
 /// Contains TLV-coded 5G ProSe direct discovery configuration.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.3](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A477%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C690%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_DD: EfDef = EfDef::transparent(
-    Fid::new(0x4F02),
-    Some(Sfi::new(2)),
-    &[0xFF; 26],
-);
+pub static EF_5G_PROSE_DD: EfDef =
+    EfDef::transparent(Fid::new(0x4F02), Some(Sfi::new(2)), &[0xFF; 26]);
 
 /// EF.5G_PROSE_DC (4F03) -- 5G ProSe Direct Communication.
 ///
@@ -2805,11 +2177,8 @@ pub static EF_5G_PROSE_DD: EfDef = EfDef::transparent(
 /// Contains TLV-coded 5G ProSe direct communication configuration.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.4](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A483%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_DC: EfDef = EfDef::transparent(
-    Fid::new(0x4F03),
-    Some(Sfi::new(3)),
-    &[0xFF; 12],
-);
+pub static EF_5G_PROSE_DC: EfDef =
+    EfDef::transparent(Fid::new(0x4F03), Some(Sfi::new(3)), &[0xFF; 12]);
 
 /// EF.5G_PROSE_U2NRU (4F04) -- 5G ProSe UE-to-Network Relay UE.
 ///
@@ -2817,11 +2186,8 @@ pub static EF_5G_PROSE_DC: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for UE-to-network relay UE role.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.5](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A487%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C290%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_U2NRU: EfDef = EfDef::transparent(
-    Fid::new(0x4F04),
-    Some(Sfi::new(4)),
-    &[0xFF; 32],
-);
+pub static EF_5G_PROSE_U2NRU: EfDef =
+    EfDef::transparent(Fid::new(0x4F04), Some(Sfi::new(4)), &[0xFF; 32]);
 
 /// EF.5G_PROSE_RU (4F05) -- 5G ProSe Remote UE.
 ///
@@ -2829,11 +2195,8 @@ pub static EF_5G_PROSE_U2NRU: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for remote UE role.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.6](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A495%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C290%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_RU: EfDef = EfDef::transparent(
-    Fid::new(0x4F05),
-    Some(Sfi::new(5)),
-    &[0xFF; 29],
-);
+pub static EF_5G_PROSE_RU: EfDef =
+    EfDef::transparent(Fid::new(0x4F05), Some(Sfi::new(5)), &[0xFF; 29]);
 
 /// EF.5G_PROSE_UIR (4F06) -- 5G ProSe Usage Information Reporting.
 ///
@@ -2841,11 +2204,8 @@ pub static EF_5G_PROSE_RU: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for ProSe usage information reporting.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.7](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A503%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C471%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_UIR: EfDef = EfDef::transparent(
-    Fid::new(0x4F06),
-    Some(Sfi::new(6)),
-    &[0xFF; 32],
-);
+pub static EF_5G_PROSE_UIR: EfDef =
+    EfDef::transparent(Fid::new(0x4F06), Some(Sfi::new(6)), &[0xFF; 32]);
 
 /// EF.5G_PROSE_U2URU (4F07) -- 5G ProSe UE-to-UE Relay UE.
 ///
@@ -2853,11 +2213,8 @@ pub static EF_5G_PROSE_UIR: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for UE-to-UE relay UE role.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.8](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A507%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C315%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_U2URU: EfDef = EfDef::transparent(
-    Fid::new(0x4F07),
-    Some(Sfi::new(7)),
-    &[0xFF; 46],
-);
+pub static EF_5G_PROSE_U2URU: EfDef =
+    EfDef::transparent(Fid::new(0x4F07), Some(Sfi::new(7)), &[0xFF; 46]);
 
 /// EF.5G_PROSE_EU (4F08) -- 5G ProSe End UE.
 ///
@@ -2865,11 +2222,8 @@ pub static EF_5G_PROSE_U2URU: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for ProSe end UE role.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.9](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A513%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C532%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_EU: EfDef = EfDef::transparent(
-    Fid::new(0x4F08),
-    Some(Sfi::new(8)),
-    &[0xFF; 46],
-);
+pub static EF_5G_PROSE_EU: EfDef =
+    EfDef::transparent(Fid::new(0x4F08), Some(Sfi::new(8)), &[0xFF; 46]);
 
 /// EF.5G_PROSE_MU2NRU (4F09) -- 5G ProSe Multi-hop UE-to-Network Relay UE.
 ///
@@ -2877,11 +2231,8 @@ pub static EF_5G_PROSE_EU: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for multi-hop UE-to-network relay UE.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.10](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A519%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_MU2NRU: EfDef = EfDef::transparent(
-    Fid::new(0x4F09),
-    Some(Sfi::new(9)),
-    &[0xFF; 46],
-);
+pub static EF_5G_PROSE_MU2NRU: EfDef =
+    EfDef::transparent(Fid::new(0x4F09), Some(Sfi::new(9)), &[0xFF; 46]);
 
 /// EF.5G_PROSE_IMU2NRU (4F0A) -- 5G ProSe Intermediate UE-to-Network Relay UE.
 ///
@@ -2889,11 +2240,8 @@ pub static EF_5G_PROSE_MU2NRU: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for intermediate multi-hop relay UE.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.11](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A525%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C270%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_IMU2NRU: EfDef = EfDef::transparent(
-    Fid::new(0x4F0A),
-    Some(Sfi::new(0x0A)),
-    &[0xFF; 46],
-);
+pub static EF_5G_PROSE_IMU2NRU: EfDef =
+    EfDef::transparent(Fid::new(0x4F0A), Some(Sfi::new(0x0A)), &[0xFF; 46]);
 
 /// EF.5G_PROSE_MRU (4F0B) -- 5G ProSe Multi-hop Remote UE.
 ///
@@ -2901,11 +2249,8 @@ pub static EF_5G_PROSE_IMU2NRU: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for multi-hop remote UE role.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.12](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A533%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C270%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_MRU: EfDef = EfDef::transparent(
-    Fid::new(0x4F0B),
-    Some(Sfi::new(0x0B)),
-    &[0xFF; 29],
-);
+pub static EF_5G_PROSE_MRU: EfDef =
+    EfDef::transparent(Fid::new(0x4F0B), Some(Sfi::new(0x0B)), &[0xFF; 29]);
 
 /// EF.5G_PROSE_MU2URU (4F0C) -- 5G ProSe Multi-hop UE-to-UE Relay UE.
 ///
@@ -2913,11 +2258,8 @@ pub static EF_5G_PROSE_MRU: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for multi-hop UE-to-UE relay UE.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.13](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A541%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C407%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_MU2URU: EfDef = EfDef::transparent(
-    Fid::new(0x4F0C),
-    Some(Sfi::new(0x0C)),
-    &[0xFF; 46],
-);
+pub static EF_5G_PROSE_MU2URU: EfDef =
+    EfDef::transparent(Fid::new(0x4F0C), Some(Sfi::new(0x0C)), &[0xFF; 46]);
 
 /// EF.5G_PROSE_MEU (4F0D) -- 5G ProSe Multi-hop End UE.
 ///
@@ -2925,11 +2267,8 @@ pub static EF_5G_PROSE_MU2URU: EfDef = EfDef::transparent(
 /// Contains TLV-coded configuration for multi-hop end UE role.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.13.14](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A547%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C783%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5G_PROSE_MEU: EfDef = EfDef::transparent(
-    Fid::new(0x4F0D),
-    Some(Sfi::new(0x0D)),
-    &[0xFF; 46],
-);
+pub static EF_5G_PROSE_MEU: EfDef =
+    EfDef::transparent(Fid::new(0x4F0D), Some(Sfi::new(0x0D)), &[0xFF; 46]);
 
 /// DF.5G_ProSe (5FF0) -- 5G Proximity Services dedicated file.
 ///
@@ -2984,11 +2323,8 @@ const _: () = simrs_fs::assert_fids_unique(&[
 /// UST service 147.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.14.2](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A551%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C283%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5MBS_CONFIG: EfDef = EfDef::transparent(
-    Fid::new(0x4F01),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_5MBS_CONFIG: EfDef =
+    EfDef::transparent(Fid::new(0x4F01), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// EF.5MBSUSD (4F08) -- 5MBS User Service Description.
 ///
@@ -2998,11 +2334,8 @@ pub static EF_5MBS_CONFIG: EfDef = EfDef::transparent(
 /// UST service 147.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.14.3](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A557%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C159%5D).
 #[cfg(feature = "profile-full")]
-pub static EF_5MBS_USD: EfDef = EfDef::transparent(
-    Fid::new(0x4F08),
-    None,
-    &[0xFF, 0xFF, 0xFF, 0xFF],
-);
+pub static EF_5MBS_USD: EfDef =
+    EfDef::transparent(Fid::new(0x4F08), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
 /// DF.5MBSUECONFIG (5FF1) -- 5G Multicast/Broadcast UE configuration.
 ///
@@ -3012,10 +2345,7 @@ pub static EF_5MBS_USD: EfDef = EfDef::transparent(
 #[cfg(feature = "profile-full")]
 pub static DF_5MBSUECONFIG: DfDef = DfDef {
     fid: Fid::new(0x5FF1),
-    children: &[
-        FileRef::Ef(&EF_5MBS_CONFIG),
-        FileRef::Ef(&EF_5MBS_USD),
-    ],
+    children: &[FileRef::Ef(&EF_5MBS_CONFIG), FileRef::Ef(&EF_5MBS_USD)],
 };
 
 #[cfg(feature = "profile-full")]
@@ -3034,11 +2364,8 @@ const _: () = simrs_fs::assert_fids_unique(&[
 /// Contains pseudonym identity for WLAN access authentication.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.2].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_PSEUDO: EfDef = EfDef::transparent(
-    Fid::new(0x4F01),
-    Some(Sfi::new(1)),
-    &[0xFF; 32],
-);
+pub static WLAN_EF_PSEUDO: EfDef =
+    EfDef::transparent(Fid::new(0x4F01), Some(Sfi::new(1)), &[0xFF; 32]);
 
 /// EF.UPLMNWLAN (4F02) -- User controlled PLMN selector for I-WLAN.
 ///
@@ -3046,11 +2373,8 @@ pub static WLAN_EF_PSEUDO: EfDef = EfDef::transparent(
 /// Contains user-preferred PLMN list for WLAN interworking.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.3].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_UPLMNWLAN: EfDef = EfDef::transparent(
-    Fid::new(0x4F02),
-    Some(Sfi::new(2)),
-    &[0xFF; 12],
-);
+pub static WLAN_EF_UPLMNWLAN: EfDef =
+    EfDef::transparent(Fid::new(0x4F02), Some(Sfi::new(2)), &[0xFF; 12]);
 
 /// EF.OPLMNWLAN (4F03) -- Operator controlled PLMN selector for I-WLAN.
 ///
@@ -3058,11 +2382,8 @@ pub static WLAN_EF_UPLMNWLAN: EfDef = EfDef::transparent(
 /// Contains operator-preferred PLMN list for WLAN interworking.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.4].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_OPLMNWLAN: EfDef = EfDef::transparent(
-    Fid::new(0x4F03),
-    Some(Sfi::new(3)),
-    &[0xFF; 12],
-);
+pub static WLAN_EF_OPLMNWLAN: EfDef =
+    EfDef::transparent(Fid::new(0x4F03), Some(Sfi::new(3)), &[0xFF; 12]);
 
 /// EF.UWSIDL (4F04) -- User controlled WLAN Specific Identifier List.
 ///
@@ -3070,11 +2391,8 @@ pub static WLAN_EF_OPLMNWLAN: EfDef = EfDef::transparent(
 /// Contains user-preferred WLAN specific identifiers (SSIDs).
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.5].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_UWSIDL: EfDef = EfDef::transparent(
-    Fid::new(0x4F04),
-    Some(Sfi::new(4)),
-    &[0xFF; 32],
-);
+pub static WLAN_EF_UWSIDL: EfDef =
+    EfDef::transparent(Fid::new(0x4F04), Some(Sfi::new(4)), &[0xFF; 32]);
 
 /// EF.OWSIDL (4F05) -- Operator controlled WLAN Specific Identifier List.
 ///
@@ -3082,11 +2400,8 @@ pub static WLAN_EF_UWSIDL: EfDef = EfDef::transparent(
 /// Contains operator-preferred WLAN specific identifiers (SSIDs).
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.6].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_OWSIDL: EfDef = EfDef::transparent(
-    Fid::new(0x4F05),
-    Some(Sfi::new(5)),
-    &[0xFF; 32],
-);
+pub static WLAN_EF_OWSIDL: EfDef =
+    EfDef::transparent(Fid::new(0x4F05), Some(Sfi::new(5)), &[0xFF; 32]);
 
 /// EF.WRI (4F06) -- WLAN Reauthentication Identity.
 ///
@@ -3094,11 +2409,8 @@ pub static WLAN_EF_OWSIDL: EfDef = EfDef::transparent(
 /// Contains reauthentication identity for fast re-auth in EAP-SIM/AKA.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.7].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_WRI: EfDef = EfDef::transparent(
-    Fid::new(0x4F06),
-    Some(Sfi::new(6)),
-    &[0xFF; 32],
-);
+pub static WLAN_EF_WRI: EfDef =
+    EfDef::transparent(Fid::new(0x4F06), Some(Sfi::new(6)), &[0xFF; 32]);
 
 /// EF.HWSIDL (4F07) -- Home I-WLAN Specific Identifier List.
 ///
@@ -3106,11 +2418,8 @@ pub static WLAN_EF_WRI: EfDef = EfDef::transparent(
 /// Contains home PLMN WLAN specific identifiers.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.8].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_HWSIDL: EfDef = EfDef::transparent(
-    Fid::new(0x4F07),
-    Some(Sfi::new(7)),
-    &[0xFF; 32],
-);
+pub static WLAN_EF_HWSIDL: EfDef =
+    EfDef::transparent(Fid::new(0x4F07), Some(Sfi::new(7)), &[0xFF; 32]);
 
 /// EF.WEHPLMNPI (4F08) -- I-WLAN EHPLMN Presentation Indication.
 ///
@@ -3118,11 +2427,8 @@ pub static WLAN_EF_HWSIDL: EfDef = EfDef::transparent(
 /// Bit 1: display EHPLMN in WLAN network selection (0=no, 1=yes).
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.9].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_WEHPLMNPI: EfDef = EfDef::transparent(
-    Fid::new(0x4F08),
-    Some(Sfi::new(8)),
-    &[0x00],
-);
+pub static WLAN_EF_WEHPLMNPI: EfDef =
+    EfDef::transparent(Fid::new(0x4F08), Some(Sfi::new(8)), &[0x00]);
 
 /// EF.WHPI (4F09) -- I-WLAN HPLMN Priority Indication.
 ///
@@ -3130,11 +2436,7 @@ pub static WLAN_EF_WEHPLMNPI: EfDef = EfDef::transparent(
 /// Bit 1: HPLMN priority in WLAN (0=no priority, 1=priority).
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.10].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_WHPI: EfDef = EfDef::transparent(
-    Fid::new(0x4F09),
-    Some(Sfi::new(9)),
-    &[0x00],
-);
+pub static WLAN_EF_WHPI: EfDef = EfDef::transparent(Fid::new(0x4F09), Some(Sfi::new(9)), &[0x00]);
 
 /// EF.WLRPLMN (4F0A) -- I-WLAN Last Registered PLMN.
 ///
@@ -3142,11 +2444,8 @@ pub static WLAN_EF_WHPI: EfDef = EfDef::transparent(
 /// Contains the last registered PLMN for WLAN access (3-byte PLMN ID).
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.11].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_WLRPLMN: EfDef = EfDef::transparent(
-    Fid::new(0x4F0A),
-    Some(Sfi::new(0x0A)),
-    &[0xFF, 0xFF, 0xFF],
-);
+pub static WLAN_EF_WLRPLMN: EfDef =
+    EfDef::transparent(Fid::new(0x4F0A), Some(Sfi::new(0x0A)), &[0xFF, 0xFF, 0xFF]);
 
 /// EF.HPLMNDAI (4F0B) -- HPLMN Direct Access Indicator.
 ///
@@ -3154,11 +2453,8 @@ pub static WLAN_EF_WLRPLMN: EfDef = EfDef::transparent(
 /// Bit 1: direct access to HPLMN I-WLAN indicator.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.5.12].
 #[cfg(feature = "profile-full")]
-pub static WLAN_EF_HPLMNDAI: EfDef = EfDef::transparent(
-    Fid::new(0x4F0B),
-    Some(Sfi::new(0x0B)),
-    &[0x00],
-);
+pub static WLAN_EF_HPLMNDAI: EfDef =
+    EfDef::transparent(Fid::new(0x4F0B), Some(Sfi::new(0x0B)), &[0x00]);
 
 /// DF.WLAN (5F40) -- I-WLAN sub-DF under ADF.USIM.
 ///
@@ -3207,11 +2503,8 @@ const _: () = simrs_fs::assert_fids_unique(&[
 /// Contains allowed Closed Subscriber Group lists with associated PLMNs.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.6.2].
 #[cfg(feature = "profile-full")]
-pub static HNB_EF_ACSGL: EfDef = EfDef::transparent(
-    Fid::new(0x4F01),
-    Some(Sfi::new(1)),
-    &[0xFF; 32],
-);
+pub static HNB_EF_ACSGL: EfDef =
+    EfDef::transparent(Fid::new(0x4F01), Some(Sfi::new(1)), &[0xFF; 32]);
 
 // EF_CSGT data: 2 records of 32 bytes.
 #[cfg(feature = "profile-full")]
@@ -3226,7 +2519,8 @@ static HNB_EF_CSGT_DATA: [u8; 64] = [0xFF; 64];
 pub static HNB_EF_CSGT: EfDef = EfDef::linear_fixed(
     Fid::new(0x4F02),
     Some(Sfi::new(2)),
-    32, 2,
+    32,
+    2,
     &HNB_EF_CSGT_DATA,
 );
 
@@ -3243,7 +2537,8 @@ static HNB_EF_HNBN_DATA: [u8; 64] = [0xFF; 64];
 pub static HNB_EF_HNBN: EfDef = EfDef::linear_fixed(
     Fid::new(0x4F03),
     Some(Sfi::new(3)),
-    32, 2,
+    32,
+    2,
     &HNB_EF_HNBN_DATA,
 );
 
@@ -3253,11 +2548,8 @@ pub static HNB_EF_HNBN: EfDef = EfDef::linear_fixed(
 /// Contains operator-controlled Closed Subscriber Group lists.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.6.5].
 #[cfg(feature = "profile-full")]
-pub static HNB_EF_OCSGL: EfDef = EfDef::transparent(
-    Fid::new(0x4F04),
-    Some(Sfi::new(4)),
-    &[0xFF; 32],
-);
+pub static HNB_EF_OCSGL: EfDef =
+    EfDef::transparent(Fid::new(0x4F04), Some(Sfi::new(4)), &[0xFF; 32]);
 
 // EF_OCSGT data: 2 records of 32 bytes.
 #[cfg(feature = "profile-full")]
@@ -3272,7 +2564,8 @@ static HNB_EF_OCSGT_DATA: [u8; 64] = [0xFF; 64];
 pub static HNB_EF_OCSGT: EfDef = EfDef::linear_fixed(
     Fid::new(0x4F05),
     Some(Sfi::new(5)),
-    32, 2,
+    32,
+    2,
     &HNB_EF_OCSGT_DATA,
 );
 
@@ -3289,7 +2582,8 @@ static HNB_EF_OHNBN_DATA: [u8; 64] = [0xFF; 64];
 pub static HNB_EF_OHNBN: EfDef = EfDef::linear_fixed(
     Fid::new(0x4F06),
     Some(Sfi::new(6)),
-    32, 2,
+    32,
+    2,
     &HNB_EF_OHNBN_DATA,
 );
 
@@ -3330,11 +2624,8 @@ const _: () = simrs_fs::assert_fids_unique(&[
 /// Contains parameters for ProSe direct discovery monitoring.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.2].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_MON: EfDef = EfDef::transparent(
-    Fid::new(0x4F01),
-    Some(Sfi::new(1)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_MON: EfDef =
+    EfDef::transparent(Fid::new(0x4F01), Some(Sfi::new(1)), &[0xFF; 32]);
 
 /// EF.PROSE_ANN (4F02) -- ProSe Announcing Parameters.
 ///
@@ -3342,11 +2633,8 @@ pub static PROSE_EF_MON: EfDef = EfDef::transparent(
 /// Contains parameters for ProSe direct discovery announcing.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.3].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_ANN: EfDef = EfDef::transparent(
-    Fid::new(0x4F02),
-    Some(Sfi::new(2)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_ANN: EfDef =
+    EfDef::transparent(Fid::new(0x4F02), Some(Sfi::new(2)), &[0xFF; 32]);
 
 /// EF.PROSEFUNC (4F03) -- HPLMN ProSe Function.
 ///
@@ -3354,11 +2642,8 @@ pub static PROSE_EF_ANN: EfDef = EfDef::transparent(
 /// Contains address of HPLMN ProSe Function for D2D services.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.4].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_FUNC: EfDef = EfDef::transparent(
-    Fid::new(0x4F03),
-    Some(Sfi::new(3)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_FUNC: EfDef =
+    EfDef::transparent(Fid::new(0x4F03), Some(Sfi::new(3)), &[0xFF; 32]);
 
 /// EF.PROSE_RADIO_COM (4F04) -- ProSe Direct Communication Radio Parameters.
 ///
@@ -3366,11 +2651,8 @@ pub static PROSE_EF_FUNC: EfDef = EfDef::transparent(
 /// Contains radio parameters for ProSe direct communication.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.5].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_RADIO_COM: EfDef = EfDef::transparent(
-    Fid::new(0x4F04),
-    Some(Sfi::new(4)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_RADIO_COM: EfDef =
+    EfDef::transparent(Fid::new(0x4F04), Some(Sfi::new(4)), &[0xFF; 32]);
 
 /// EF.PROSE_RADIO_MON (4F05) -- ProSe Direct Discovery Monitoring Radio Parameters.
 ///
@@ -3378,11 +2660,8 @@ pub static PROSE_EF_RADIO_COM: EfDef = EfDef::transparent(
 /// Contains radio parameters for ProSe discovery monitoring.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.6].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_RADIO_MON: EfDef = EfDef::transparent(
-    Fid::new(0x4F05),
-    Some(Sfi::new(5)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_RADIO_MON: EfDef =
+    EfDef::transparent(Fid::new(0x4F05), Some(Sfi::new(5)), &[0xFF; 32]);
 
 /// EF.PROSE_RADIO_ANN (4F06) -- ProSe Direct Discovery Announcing Radio Parameters.
 ///
@@ -3390,11 +2669,8 @@ pub static PROSE_EF_RADIO_MON: EfDef = EfDef::transparent(
 /// Contains radio parameters for ProSe discovery announcing.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.7].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_RADIO_ANN: EfDef = EfDef::transparent(
-    Fid::new(0x4F06),
-    Some(Sfi::new(6)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_RADIO_ANN: EfDef =
+    EfDef::transparent(Fid::new(0x4F06), Some(Sfi::new(6)), &[0xFF; 32]);
 
 /// EF.PROSE_POLICY (4F07) -- ProSe Policy Parameters.
 ///
@@ -3402,11 +2678,8 @@ pub static PROSE_EF_RADIO_ANN: EfDef = EfDef::transparent(
 /// Contains ProSe policy parameters for D2D operation.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.8].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_POLICY: EfDef = EfDef::transparent(
-    Fid::new(0x4F07),
-    Some(Sfi::new(7)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_POLICY: EfDef =
+    EfDef::transparent(Fid::new(0x4F07), Some(Sfi::new(7)), &[0xFF; 32]);
 
 /// EF.PROSE_PLMN (4F08) -- ProSe PLMN Parameters.
 ///
@@ -3414,11 +2687,8 @@ pub static PROSE_EF_POLICY: EfDef = EfDef::transparent(
 /// Contains per-PLMN ProSe configuration parameters.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.9].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_PLMN: EfDef = EfDef::transparent(
-    Fid::new(0x4F08),
-    Some(Sfi::new(8)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_PLMN: EfDef =
+    EfDef::transparent(Fid::new(0x4F08), Some(Sfi::new(8)), &[0xFF; 32]);
 
 /// EF.PROSE_GC (4F09) -- ProSe Group Counter.
 ///
@@ -3438,11 +2708,8 @@ pub static PROSE_EF_GC: EfDef = EfDef::transparent(
 /// Contains bitmap of available ProSe services.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.11].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_PST: EfDef = EfDef::transparent(
-    Fid::new(0x4F0A),
-    Some(Sfi::new(0x0A)),
-    &[0x00],
-);
+pub static PROSE_EF_PST: EfDef =
+    EfDef::transparent(Fid::new(0x4F0A), Some(Sfi::new(0x0A)), &[0x00]);
 
 /// EF.PROSE_GM_DISCOVERY (4F0B) -- ProSe Group Member Discovery Parameters.
 ///
@@ -3450,11 +2717,8 @@ pub static PROSE_EF_PST: EfDef = EfDef::transparent(
 /// Contains parameters for ProSe group member discovery.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.12].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_GM_DISCOVERY: EfDef = EfDef::transparent(
-    Fid::new(0x4F0B),
-    Some(Sfi::new(0x0B)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_GM_DISCOVERY: EfDef =
+    EfDef::transparent(Fid::new(0x4F0B), Some(Sfi::new(0x0B)), &[0xFF; 32]);
 
 /// EF.PROSE_RELAY (4F0C) -- ProSe Relay Parameters.
 ///
@@ -3462,11 +2726,8 @@ pub static PROSE_EF_GM_DISCOVERY: EfDef = EfDef::transparent(
 /// Contains ProSe UE-to-network relay parameters.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.13].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_RELAY: EfDef = EfDef::transparent(
-    Fid::new(0x4F0C),
-    Some(Sfi::new(0x0C)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_RELAY: EfDef =
+    EfDef::transparent(Fid::new(0x4F0C), Some(Sfi::new(0x0C)), &[0xFF; 32]);
 
 /// EF.PROSE_RELAY_DISCOVERY (4F0D) -- ProSe Relay Discovery Parameters.
 ///
@@ -3474,11 +2735,8 @@ pub static PROSE_EF_RELAY: EfDef = EfDef::transparent(
 /// Contains ProSe relay discovery parameters.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.8.14].
 #[cfg(feature = "profile-full")]
-pub static PROSE_EF_RELAY_DISCOVERY: EfDef = EfDef::transparent(
-    Fid::new(0x4F0D),
-    Some(Sfi::new(0x0D)),
-    &[0xFF; 32],
-);
+pub static PROSE_EF_RELAY_DISCOVERY: EfDef =
+    EfDef::transparent(Fid::new(0x4F0D), Some(Sfi::new(0x0D)), &[0xFF; 32]);
 
 /// DF.ProSe (5F90) -- Proximity Services sub-DF under ADF.USIM.
 ///
@@ -3534,11 +2792,8 @@ const _: () = simrs_fs::assert_fids_unique(&[
 /// UST service 112.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.9.2].
 #[cfg(feature = "profile-full")]
-pub static ACDC_EF_LIST: EfDef = EfDef::transparent(
-    Fid::new(0x4F01),
-    Some(Sfi::new(1)),
-    &[0xFF; 32],
-);
+pub static ACDC_EF_LIST: EfDef =
+    EfDef::transparent(Fid::new(0x4F01), Some(Sfi::new(1)), &[0xFF; 32]);
 
 /// EF.ACDC_OS_CONFIG (4F02) -- ACDC OS-specific Application Configuration.
 ///
@@ -3547,11 +2802,8 @@ pub static ACDC_EF_LIST: EfDef = EfDef::transparent(
 /// OS-specific application identification.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.9.3].
 #[cfg(feature = "profile-full")]
-pub static ACDC_EF_OS_CONFIG: EfDef = EfDef::transparent(
-    Fid::new(0x4F02),
-    Some(Sfi::new(2)),
-    &[0xFF; 32],
-);
+pub static ACDC_EF_OS_CONFIG: EfDef =
+    EfDef::transparent(Fid::new(0x4F02), Some(Sfi::new(2)), &[0xFF; 32]);
 
 /// DF.ACDC (5FA0) -- Application specific Congestion control for Data Communication.
 ///
@@ -3561,10 +2813,7 @@ pub static ACDC_EF_OS_CONFIG: EfDef = EfDef::transparent(
 #[cfg(feature = "profile-full")]
 pub static DF_ACDC: DfDef = DfDef {
     fid: Fid::new(0x5FA0),
-    children: &[
-        FileRef::Ef(&ACDC_EF_LIST),
-        FileRef::Ef(&ACDC_EF_OS_CONFIG),
-    ],
+    children: &[FileRef::Ef(&ACDC_EF_LIST), FileRef::Ef(&ACDC_EF_OS_CONFIG)],
 };
 
 #[cfg(feature = "profile-full")]
@@ -3584,11 +2833,7 @@ const _: () = simrs_fs::assert_fids_unique(&[
 /// UST service 116.
 /// [3GPP TS 31.102 V19.4.0 clause 4.4.10.2].
 #[cfg(feature = "profile-full")]
-pub static TV_EF_TVUSD: EfDef = EfDef::transparent(
-    Fid::new(0x4F01),
-    None,
-    &[0xFF; 32],
-);
+pub static TV_EF_TVUSD: EfDef = EfDef::transparent(Fid::new(0x4F01), None, &[0xFF; 32]);
 
 /// DF.TV (5FB0) -- TV Service Configuration sub-DF under ADF.USIM.
 ///
@@ -3598,9 +2843,7 @@ pub static TV_EF_TVUSD: EfDef = EfDef::transparent(
 #[cfg(feature = "profile-full")]
 pub static DF_TV: DfDef = DfDef {
     fid: Fid::new(0x5FB0),
-    children: &[
-        FileRef::Ef(&TV_EF_TVUSD),
-    ],
+    children: &[FileRef::Ef(&TV_EF_TVUSD)],
 };
 
 #[cfg(feature = "profile-full")]
@@ -4030,17 +3273,11 @@ const fn concat_impu_records() -> [u8; 128] {
     // Record 1: 0x80, 0x30, <48 bytes>, <14 bytes 0xFF pad>  = 64 bytes
     // Record 2: <64 bytes 0xFF>
     let rec1: [u8; 64] = [
-        0x80, 0x30,
-        b's', b'i', b'p', b':',
-        b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9',
-        b'@',
-        b'i', b'm', b's', b'.',
-        b'm', b'n', b'c', b'0', b'0', b'1', b'.',
-        b'm', b'c', b'c', b'0', b'0', b'1', b'.',
-        b'3', b'g', b'p', b'p', b'n', b'e', b't', b'w', b'o', b'r', b'k', b'.', b'o', b'r', b'g',
-        // pad: 64 - 2 - 48 = 14 bytes
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x80, 0x30, b's', b'i', b'p', b':', b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8',
+        b'9', b'@', b'i', b'm', b's', b'.', b'm', b'n', b'c', b'0', b'0', b'1', b'.', b'm', b'c',
+        b'c', b'0', b'0', b'1', b'.', b'3', b'g', b'p', b'p', b'n', b'e', b't', b'w', b'o', b'r',
+        b'k', b'.', b'o', b'r', b'g', // pad: 64 - 2 - 48 = 14 bytes
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
     let mut out = [0xFF; 128];
     let mut i = 0;
@@ -4066,16 +3303,12 @@ pub static ISIM_EF_IMPI: EfDef = EfDef::transparent(
     None,
     // 0x80 || len(44) || "0123456789@ims.mnc001.mcc001.3gppnetwork.org" || FF-pad
     &[
-        0x80, 0x2C,
-        b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9',
-        b'@',
-        b'i', b'm', b's', b'.',
-        b'm', b'n', b'c', b'0', b'0', b'1', b'.',
-        b'm', b'c', b'c', b'0', b'0', b'1', b'.',
-        b'3', b'g', b'p', b'p', b'n', b'e', b't', b'w', b'o', b'r', b'k', b'.', b'o', b'r', b'g',
-        // pad to 64 bytes: 64 - 2 (tag+len) - 44 (value) = 18 bytes
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x80, 0x2C, b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'@', b'i', b'm',
+        b's', b'.', b'm', b'n', b'c', b'0', b'0', b'1', b'.', b'm', b'c', b'c', b'0', b'0', b'1',
+        b'.', b'3', b'g', b'p', b'p', b'n', b'e', b't', b'w', b'o', b'r', b'k', b'.', b'o', b'r',
+        b'g', // pad to 64 bytes: 64 - 2 (tag+len) - 44 (value) = 18 bytes
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF,
     ],
 );
 
@@ -4090,16 +3323,12 @@ pub static ISIM_EF_DOMAIN: EfDef = EfDef::transparent(
     None,
     // 0x80 || len(33) || "ims.mnc001.mcc001.3gppnetwork.org" || FF-pad
     &[
-        0x80, 0x21,
-        b'i', b'm', b's', b'.',
-        b'm', b'n', b'c', b'0', b'0', b'1', b'.',
-        b'm', b'c', b'c', b'0', b'0', b'1', b'.',
-        b'3', b'g', b'p', b'p', b'n', b'e', b't', b'w', b'o', b'r', b'k', b'.', b'o', b'r', b'g',
+        0x80, 0x21, b'i', b'm', b's', b'.', b'm', b'n', b'c', b'0', b'0', b'1', b'.', b'm', b'c',
+        b'c', b'0', b'0', b'1', b'.', b'3', b'g', b'p', b'p', b'n', b'e', b't', b'w', b'o', b'r',
+        b'k', b'.', b'o', b'r', b'g',
         // pad to 64 bytes: 64 - 2 (tag+len) - 33 (value) = 29 bytes
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ],
 );
 
@@ -4110,24 +3339,15 @@ pub static ISIM_EF_DOMAIN: EfDef = EfDef::transparent(
 /// Record 2: empty.
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.4](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A34%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C438%5D).
 #[cfg(feature = "isim")]
-pub static ISIM_EF_IMPU: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F04),
-    None,
-    64, 2,
-    &concat_impu_records(),
-);
+pub static ISIM_EF_IMPU: EfDef =
+    EfDef::linear_fixed(Fid::new(0x6F04), None, 64, 2, &concat_impu_records());
 
 /// EF.ARR (6F06) under ADF.ISIM -- Access Rule Reference.
 ///
 /// Linear-fixed, 2 records of 32 bytes. Default: empty.
 /// ETSI TS 102 221.
 #[cfg(feature = "isim")]
-pub static ISIM_EF_ARR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F06),
-    None,
-    32, 2,
-    &[0xFF; 64],
-);
+pub static ISIM_EF_ARR: EfDef = EfDef::linear_fixed(Fid::new(0x6F06), None, 32, 2, &[0xFF; 64]);
 
 /// EF.IST (6F07) under ADF.ISIM -- ISIM Service Table.
 ///
@@ -4137,57 +3357,36 @@ pub static ISIM_EF_ARR: EfDef = EfDef::linear_fixed(
 /// Default: services 1-4 enabled (0x0F).
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.7](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A38%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C489%5D).
 #[cfg(feature = "isim")]
-pub static ISIM_EF_IST: EfDef = EfDef::transparent(
-    Fid::new(0x6F07),
-    None,
-    &[0x0F, 0x00, 0x00, 0x00],
-);
+pub static ISIM_EF_IST: EfDef =
+    EfDef::transparent(Fid::new(0x6F07), None, &[0x0F, 0x00, 0x00, 0x00]);
 
 /// EF.P-CSCF (6F09) under ADF.ISIM -- P-CSCF Address.
 ///
 /// 64-byte transparent EF. Default: empty.
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.8](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A42%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C648%5D).
 #[cfg(feature = "isim")]
-pub static ISIM_EF_PCSCF: EfDef = EfDef::transparent(
-    Fid::new(0x6F09),
-    None,
-    &[0xFF; 64],
-);
+pub static ISIM_EF_PCSCF: EfDef = EfDef::transparent(Fid::new(0x6F09), None, &[0xFF; 64]);
 
 /// EF.GBABP (6F3A) under ADF.ISIM -- GBA Bootstrapping Parameters.
 ///
 /// 64-byte transparent EF. Default: empty.
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.9](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A44%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C605%5D).
 #[cfg(feature = "isim")]
-pub static ISIM_EF_GBABP: EfDef = EfDef::transparent(
-    Fid::new(0x6F3A),
-    None,
-    &[0xFF; 64],
-);
+pub static ISIM_EF_GBABP: EfDef = EfDef::transparent(Fid::new(0x6F3A), None, &[0xFF; 64]);
 
 /// EF.GBANL (6F3B) under ADF.ISIM -- GBA NAF List.
 ///
 /// Linear-fixed, 1 record of 4 bytes. Default: empty.
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.10](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A46%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C767%5D).
 #[cfg(feature = "isim")]
-pub static ISIM_EF_GBANL: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F3B),
-    None,
-    4, 1,
-    &[0xFF; 4],
-);
+pub static ISIM_EF_GBANL: EfDef = EfDef::linear_fixed(Fid::new(0x6F3B), None, 4, 1, &[0xFF; 4]);
 
 /// EF.NAFKCA (6F3C) under ADF.ISIM -- NAF Key Centre Address.
 ///
 /// Linear-fixed, 1 record of 32 bytes. Default: empty.
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.11](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A46%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C125%5D).
 #[cfg(feature = "isim")]
-pub static ISIM_EF_NAFKCA: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F3C),
-    None,
-    32, 1,
-    &[0xFF; 32],
-);
+pub static ISIM_EF_NAFKCA: EfDef = EfDef::linear_fixed(Fid::new(0x6F3C), None, 32, 1, &[0xFF; 32]);
 
 /// EF.AD (6FAD) under ADF.ISIM -- Administrative Data.
 ///
@@ -4195,11 +3394,8 @@ pub static ISIM_EF_NAFKCA: EfDef = EfDef::linear_fixed(
 /// byte 4: MNC length (0x02 = 2-digit MNC).
 /// [3GPP TS 31.103 V19.0.0 clause 4.2.5](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf#%5B%7B%22num%22%3A36%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D).
 #[cfg(feature = "isim")]
-pub static ISIM_EF_AD: EfDef = EfDef::transparent(
-    Fid::new(0x6FAD),
-    None,
-    &[0x00, 0x00, 0x00, 0x02],
-);
+pub static ISIM_EF_AD: EfDef =
+    EfDef::transparent(Fid::new(0x6FAD), None, &[0x00, 0x00, 0x00, 0x02]);
 
 /// ADF.ISIM root DF.
 ///
@@ -4248,34 +3444,21 @@ pub static HPSIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x0A];
 /// Linear-fixed, 1 record of 8 bytes. Default: empty.
 /// ETSI TS 102 221.
 #[cfg(feature = "hpsim")]
-pub static HPSIM_EF_ARR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F06),
-    None,
-    8, 1,
-    &[0xFF; 8],
-);
+pub static HPSIM_EF_ARR: EfDef = EfDef::linear_fixed(Fid::new(0x6F06), None, 8, 1, &[0xFF; 8]);
 
 /// EF.HPST (6F07) under ADF.HPSIM -- HPSIM Service Table.
 ///
 /// 2-byte transparent EF. Default: empty.
 /// [3GPP TS 31.104 V19.0.0 clause 4.2.2](../../../docs/specs/3gpp/ts-31.104/ts_131104v190000p.pdf#%5B%7B%22num%22%3A25%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C498%5D).
 #[cfg(feature = "hpsim")]
-pub static HPSIM_EF_HPST: EfDef = EfDef::transparent(
-    Fid::new(0x6F07),
-    None,
-    &[0xFF; 2],
-);
+pub static HPSIM_EF_HPST: EfDef = EfDef::transparent(Fid::new(0x6F07), None, &[0xFF; 2]);
 
 /// EF.AD (6FAD) under ADF.HPSIM -- Administrative Data.
 ///
 /// 4-byte transparent EF. Default: empty.
 /// [3GPP TS 31.104 V19.0.0 clause 4.2.3](../../../docs/specs/3gpp/ts-31.104/ts_131104v190000p.pdf#%5B%7B%22num%22%3A25%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C253%5D).
 #[cfg(feature = "hpsim")]
-pub static HPSIM_EF_AD: EfDef = EfDef::transparent(
-    Fid::new(0x6FAD),
-    None,
-    &[0xFF; 4],
-);
+pub static HPSIM_EF_AD: EfDef = EfDef::transparent(Fid::new(0x6FAD), None, &[0xFF; 4]);
 
 /// ADF.HPSIM root DF.
 ///
@@ -4361,143 +3544,88 @@ pub static ADF_TABLE: [AdfSlot; 3] = [
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.1.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_ADN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F3A),
-    None,
-    30, 2,
-    &[0xFF; 60],
-);
+pub static TELECOM_EF_ADN: EfDef = EfDef::linear_fixed(Fid::new(0x6F3A), None, 30, 2, &[0xFF; 60]);
 
 /// EF.FDN (6F3B) under DF.TELECOM -- Fixed Dialling Numbers.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.2.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_FDN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F3B),
-    None,
-    30, 2,
-    &[0xFF; 60],
-).with_update_ac(AccessCondition::Pin2);
+pub static TELECOM_EF_FDN: EfDef = EfDef::linear_fixed(Fid::new(0x6F3B), None, 30, 2, &[0xFF; 60])
+    .with_update_ac(AccessCondition::Pin2);
 
 /// EF.SMS (6F3C) under DF.TELECOM -- Short Messages.
 ///
 /// Linear-fixed, 2 records of 176 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.3.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_SMS: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F3C),
-    None,
-    176, 2,
-    &[0xFF; 352],
-);
+pub static TELECOM_EF_SMS: EfDef =
+    EfDef::linear_fixed(Fid::new(0x6F3C), None, 176, 2, &[0xFF; 352]);
 
 /// EF.CCP (6F3D) under DF.TELECOM -- Capability Configuration Parameters.
 ///
 /// Linear-fixed, 3 records of 14 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.4.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_CCP: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F3D),
-    None,
-    14, 3,
-    &[0xFF; 42],
-);
+pub static TELECOM_EF_CCP: EfDef = EfDef::linear_fixed(Fid::new(0x6F3D), None, 14, 3, &[0xFF; 42]);
 
 /// EF.MSISDN (6F40) under DF.TELECOM -- MSISDN.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.5.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_MSISDN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F40),
-    None,
-    30, 2,
-    &[0xFF; 60],
-);
+pub static TELECOM_EF_MSISDN: EfDef =
+    EfDef::linear_fixed(Fid::new(0x6F40), None, 30, 2, &[0xFF; 60]);
 
 /// EF.SMSP (6F42) under DF.TELECOM -- Short Message Service Parameters.
 ///
 /// Linear-fixed, 2 records of 44 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.6.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_SMSP: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F42),
-    None,
-    44, 2,
-    &[0xFF; 88],
-);
+pub static TELECOM_EF_SMSP: EfDef = EfDef::linear_fixed(Fid::new(0x6F42), None, 44, 2, &[0xFF; 88]);
 
 /// EF.SMSS (6F43) under DF.TELECOM -- SMS Status.
 ///
 /// 2-byte transparent EF. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.7.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_SMSS: EfDef = EfDef::transparent(
-    Fid::new(0x6F43),
-    None,
-    &[0xFF; 2],
-);
+pub static TELECOM_EF_SMSS: EfDef = EfDef::transparent(Fid::new(0x6F43), None, &[0xFF; 2]);
 
 /// EF.LND (6F44) under DF.TELECOM -- Last Number Dialled.
 ///
 /// Cyclic, 3 records of 30 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.8.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_LND: EfDef = EfDef::cyclic(
-    Fid::new(0x6F44),
-    None,
-    30, 3,
-    &[0xFF; 90],
-);
+pub static TELECOM_EF_LND: EfDef = EfDef::cyclic(Fid::new(0x6F44), None, 30, 3, &[0xFF; 90]);
 
 /// EF.SMSR (6F47) under DF.TELECOM -- Short Message Status Reports.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.9.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_SMSR: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F47),
-    None,
-    30, 2,
-    &[0xFF; 60],
-);
+pub static TELECOM_EF_SMSR: EfDef = EfDef::linear_fixed(Fid::new(0x6F47), None, 30, 2, &[0xFF; 60]);
 
 /// EF.SDN (6F49) under DF.TELECOM -- Service Dialling Numbers.
 ///
 /// Linear-fixed, 2 records of 30 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.10.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_SDN: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F49),
-    None,
-    30, 2,
-    &[0xFF; 60],
-);
+pub static TELECOM_EF_SDN: EfDef = EfDef::linear_fixed(Fid::new(0x6F49), None, 30, 2, &[0xFF; 60]);
 
 /// EF.EXT1 (6F4A) under DF.TELECOM -- Extension 1.
 ///
 /// Linear-fixed, 2 records of 13 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.11.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_EXT1: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F4A),
-    None,
-    13, 2,
-    &[0xFF; 26],
-);
+pub static TELECOM_EF_EXT1: EfDef = EfDef::linear_fixed(Fid::new(0x6F4A), None, 13, 2, &[0xFF; 26]);
 
 /// EF.EXT2 (6F4B) under DF.TELECOM -- Extension 2.
 ///
 /// Linear-fixed, 2 records of 13 bytes. Default: empty.
 /// ETSI TS 102 221 V16.4.0 clause 13.4.12.
 #[cfg(feature = "telecom")]
-pub static TELECOM_EF_EXT2: EfDef = EfDef::linear_fixed(
-    Fid::new(0x6F4B),
-    None,
-    13, 2,
-    &[0xFF; 26],
-).with_update_ac(AccessCondition::Pin2);
+pub static TELECOM_EF_EXT2: EfDef = EfDef::linear_fixed(Fid::new(0x6F4B), None, 13, 2, &[0xFF; 26])
+    .with_update_ac(AccessCondition::Pin2);
 
 /// DF.TELECOM (7F10) -- Telecom DF.
 ///
@@ -4551,11 +3679,7 @@ pub static DF_TELECOM: DfDef = DfDef {
 ///
 /// 10-byte transparent EF under MF. Default: empty.
 /// [ETSI TS 102 221 V18.3.0 clause 13.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A491%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
-pub static EF_PL: EfDef = EfDef::transparent(
-    Fid::new(0x2F05),
-    None,
-    &[0xFF; 10],
-);
+pub static EF_PL: EfDef = EfDef::transparent(Fid::new(0x2F05), None, &[0xFF; 10]);
 
 /// Reference Master File (MF).
 ///
@@ -4689,17 +3813,24 @@ mod tests {
                 match child {
                     FileRef::Ef(ef) => {
                         let expected = match ef.structure() {
-                            EfStructure::LinearFixed { record_size, num_records }
-                            | EfStructure::Cyclic { record_size, num_records } => {
-                                Some(record_size as usize * num_records as usize)
+                            EfStructure::LinearFixed {
+                                record_size,
+                                num_records,
                             }
+                            | EfStructure::Cyclic {
+                                record_size,
+                                num_records,
+                            } => Some(record_size as usize * num_records as usize),
                             _ => None,
                         };
                         if let Some(exp) = expected {
                             assert_eq!(
-                                ef.data().len(), exp,
+                                ef.data().len(),
+                                exp,
                                 "EF {:#06X}: data.len()={} != record_size*num_records={}",
-                                ef.fid().value(), ef.data().len(), exp,
+                                ef.fid().value(),
+                                ef.data().len(),
+                                exp,
                             );
                         }
                     }
@@ -4727,11 +3858,7 @@ mod tests {
 
     #[test]
     fn df_5gs_fid_is_5fc0() {
-        assert_eq!(
-            DF_5GS.fid,
-            Fid::new(0x5FC0),
-            "DF_5GS must have FID 0x5FC0"
-        );
+        assert_eq!(DF_5GS.fid, Fid::new(0x5FC0), "DF_5GS must have FID 0x5FC0");
     }
 
     #[test]
@@ -4765,25 +3892,25 @@ mod tests {
     fn df_5gs_ef_data_sizes() {
         // (FID, expected data length)
         let expected: [(u16, usize); 19] = [
-            (0x4F01, 20),  // EF5GS3GPPLOCI
-            (0x4F02, 20),  // EF5GSN3GPPLOCI
-            (0x4F03, 57),  // EF5GS3GPPNSC
-            (0x4F04, 57),  // EF5GSN3GPPNSC
-            (0x4F05, 68),  // EF5GAUTHKEYS
-            (0x4F06, 4),   // EFUAC_AIC
-            (0x4F07, 80),  // EFSUCI_Calc_Info (TLV: A0 02 00 00 + 0xFF padding)
-            (0x4F08, 5),   // EFOPL5G
-            (0x4F09, 32),  // EFSUPI_NAI
-            (0x4F0A, 4),   // EFRouting_Indicator
-            (0x4F0B, 64),  // EFURSP
-            (0x4F0C, 32),  // EFTN3GPPSNN
-            (0x4F0D, 32),  // EFCAG
-            (0x4F0E, 32),  // EFSOR_CMCI
-            (0x4F0F, 16),  // EFDRI
-            (0x4F10, 3),   // EF5GSEDRX
-            (0x4F11, 2),   // EF5GNSWO_CONF
-            (0x4F15, 1),   // EFMCHPPLMN
-            (0x4F16, 1),   // EFKAUSF_DERIVATION
+            (0x4F01, 20), // EF5GS3GPPLOCI
+            (0x4F02, 20), // EF5GSN3GPPLOCI
+            (0x4F03, 57), // EF5GS3GPPNSC
+            (0x4F04, 57), // EF5GSN3GPPNSC
+            (0x4F05, 68), // EF5GAUTHKEYS
+            (0x4F06, 4),  // EFUAC_AIC
+            (0x4F07, 80), // EFSUCI_Calc_Info (TLV: A0 02 00 00 + 0xFF padding)
+            (0x4F08, 5),  // EFOPL5G
+            (0x4F09, 32), // EFSUPI_NAI
+            (0x4F0A, 4),  // EFRouting_Indicator
+            (0x4F0B, 64), // EFURSP
+            (0x4F0C, 32), // EFTN3GPPSNN
+            (0x4F0D, 32), // EFCAG
+            (0x4F0E, 32), // EFSOR_CMCI
+            (0x4F0F, 16), // EFDRI
+            (0x4F10, 3),  // EF5GSEDRX
+            (0x4F11, 2),  // EF5GNSWO_CONF
+            (0x4F15, 1),  // EFMCHPPLMN
+            (0x4F16, 1),  // EFKAUSF_DERIVATION
         ];
 
         for (fid, exp_len) in &expected {
@@ -4906,17 +4033,24 @@ mod tests {
         for child in df.children {
             if let FileRef::Ef(ef) = child {
                 let expected = match ef.structure() {
-                    EfStructure::LinearFixed { record_size, num_records }
-                    | EfStructure::Cyclic { record_size, num_records } => {
-                        Some(record_size as usize * num_records as usize)
+                    EfStructure::LinearFixed {
+                        record_size,
+                        num_records,
                     }
+                    | EfStructure::Cyclic {
+                        record_size,
+                        num_records,
+                    } => Some(record_size as usize * num_records as usize),
                     _ => None,
                 };
                 if let Some(exp) = expected {
                     assert_eq!(
-                        ef.data().len(), exp,
+                        ef.data().len(),
+                        exp,
                         "{label} EF {:#06X}: data.len()={} != record_size*num_records={}",
-                        ef.fid().value(), ef.data().len(), exp,
+                        ef.fid().value(),
+                        ef.data().len(),
+                        exp,
                     );
                 }
             }
@@ -4927,8 +4061,11 @@ mod tests {
     /// DF_TELECOM and EF.PL that were added in later phases).
     #[test]
     fn mf_children_fids_unique_exhaustive() {
-        assert!(REFERENCE_MF.children.len() >= 4,
-            "MF must have at least 4 children, got {}", REFERENCE_MF.children.len());
+        assert!(
+            REFERENCE_MF.children.len() >= 4,
+            "MF must have at least 4 children, got {}",
+            REFERENCE_MF.children.len()
+        );
         assert_fids_unique(&REFERENCE_MF, "MF");
     }
 
@@ -4936,8 +4073,11 @@ mod tests {
     #[cfg(feature = "telecom")]
     #[test]
     fn df_telecom_fids_unique() {
-        assert_eq!(DF_TELECOM.children.len(), 12,
-            "DF_TELECOM must have 12 children when telecom enabled");
+        assert_eq!(
+            DF_TELECOM.children.len(),
+            12,
+            "DF_TELECOM must have 12 children when telecom enabled"
+        );
         assert_fids_unique(&DF_TELECOM, "DF_TELECOM");
     }
 
@@ -4952,7 +4092,11 @@ mod tests {
     #[cfg(feature = "isim")]
     #[test]
     fn adf_isim_fids_unique() {
-        assert_eq!(ADF_ISIM_ROOT.children.len(), 10, "ADF.ISIM must have 10 children");
+        assert_eq!(
+            ADF_ISIM_ROOT.children.len(),
+            10,
+            "ADF.ISIM must have 10 children"
+        );
         assert_fids_unique(&ADF_ISIM_ROOT, "ADF.ISIM");
     }
 
@@ -4967,7 +4111,11 @@ mod tests {
     #[cfg(feature = "hpsim")]
     #[test]
     fn adf_hpsim_fids_unique() {
-        assert_eq!(ADF_HPSIM_ROOT.children.len(), 3, "ADF.HPSIM must have 3 children");
+        assert_eq!(
+            ADF_HPSIM_ROOT.children.len(),
+            3,
+            "ADF.HPSIM must have 3 children"
+        );
         assert_fids_unique(&ADF_HPSIM_ROOT, "ADF.HPSIM");
     }
 
@@ -4982,7 +4130,11 @@ mod tests {
     #[cfg(feature = "profile-full")]
     #[test]
     fn df_gsm_access_fids_unique() {
-        assert_eq!(DF_GSM_ACCESS.children.len(), 2, "DF.GSM-ACCESS must have 2 children");
+        assert_eq!(
+            DF_GSM_ACCESS.children.len(),
+            2,
+            "DF.GSM-ACCESS must have 2 children"
+        );
         assert_fids_unique(&DF_GSM_ACCESS, "DF.GSM-ACCESS");
     }
 
@@ -5014,7 +4166,11 @@ mod tests {
     #[cfg(feature = "profile-full")]
     #[test]
     fn df_prose_children() {
-        assert_eq!(DF_PROSE.children.len(), 13, "DF.ProSe must have 13 children");
+        assert_eq!(
+            DF_PROSE.children.len(),
+            13,
+            "DF.ProSe must have 13 children"
+        );
         assert_fids_unique(&DF_PROSE, "DF.ProSe");
     }
 
@@ -5042,13 +4198,20 @@ mod tests {
             if let FileRef::Ef(ef) = child {
                 if let Some(sfi) = ef.sfi() {
                     let val = sfi.value();
-                    assert!((1..=30).contains(&val),
+                    assert!(
+                        (1..=30).contains(&val),
                         "EF {:#06X} SFI {} is outside range 1..=30",
-                        ef.fid().value(), val);
+                        ef.fid().value(),
+                        val
+                    );
                     for s in &sfis[..count] {
-                        assert_ne!(*s, val,
+                        assert_ne!(
+                            *s,
+                            val,
                             "EF {:#06X} has duplicate SFI {} already used by another EF",
-                            ef.fid().value(), val);
+                            ef.fid().value(),
+                            val
+                        );
                     }
                     sfis[count] = val;
                     count += 1;
@@ -5068,12 +4231,20 @@ mod tests {
             if let FileRef::Ef(ef) = child {
                 if let Some(sfi) = ef.sfi() {
                     let val = sfi.value();
-                    assert!((1..=30).contains(&val),
+                    assert!(
+                        (1..=30).contains(&val),
                         "MF EF {:#06X} SFI {} is outside range 1..=30",
-                        ef.fid().value(), val);
+                        ef.fid().value(),
+                        val
+                    );
                     for s in &sfis[..count] {
-                        assert_ne!(*s, val,
-                            "MF EF {:#06X} has duplicate SFI {}", ef.fid().value(), val);
+                        assert_ne!(
+                            *s,
+                            val,
+                            "MF EF {:#06X} has duplicate SFI {}",
+                            ef.fid().value(),
+                            val
+                        );
                     }
                     sfis[count] = val;
                     count += 1;
@@ -5086,10 +4257,12 @@ mod tests {
     #[test]
     fn aid_bytes_correct() {
         assert_eq!(USIM_AID.len(), 7, "USIM AID must be 7 bytes");
-        assert_eq!(&USIM_AID[..5], &[0xA0, 0x00, 0x00, 0x00, 0x87],
-            "USIM AID must start with 3GPP RID A0000000 87");
-        assert_eq!(&USIM_AID[5..], &[0x10, 0x02],
-            "USIM AID PIX must be 1002");
+        assert_eq!(
+            &USIM_AID[..5],
+            &[0xA0, 0x00, 0x00, 0x00, 0x87],
+            "USIM AID must start with 3GPP RID A0000000 87"
+        );
+        assert_eq!(&USIM_AID[5..], &[0x10, 0x02], "USIM AID PIX must be 1002");
     }
 
     /// ISIM AID is correct per [3GPP TS 31.103 V19.0.0](../../../docs/specs/3gpp/ts-31.103/ts_131103v190000p.pdf).
@@ -5097,10 +4270,12 @@ mod tests {
     #[test]
     fn isim_aid_bytes_correct() {
         assert_eq!(ISIM_AID.len(), 7, "ISIM AID must be 7 bytes");
-        assert_eq!(&ISIM_AID[..5], &[0xA0, 0x00, 0x00, 0x00, 0x87],
-            "ISIM AID must start with 3GPP RID A0000000 87");
-        assert_eq!(&ISIM_AID[5..], &[0x10, 0x04],
-            "ISIM AID PIX must be 1004");
+        assert_eq!(
+            &ISIM_AID[..5],
+            &[0xA0, 0x00, 0x00, 0x00, 0x87],
+            "ISIM AID must start with 3GPP RID A0000000 87"
+        );
+        assert_eq!(&ISIM_AID[5..], &[0x10, 0x04], "ISIM AID PIX must be 1004");
     }
 
     /// HPSIM AID is correct per [3GPP TS 31.104 V19.0.0](../../../docs/specs/3gpp/ts-31.104/ts_131104v190000p.pdf).
@@ -5108,10 +4283,12 @@ mod tests {
     #[test]
     fn hpsim_aid_bytes_correct() {
         assert_eq!(HPSIM_AID.len(), 7, "HPSIM AID must be 7 bytes");
-        assert_eq!(&HPSIM_AID[..5], &[0xA0, 0x00, 0x00, 0x00, 0x87],
-            "HPSIM AID must start with 3GPP RID A0000000 87");
-        assert_eq!(&HPSIM_AID[5..], &[0x10, 0x0A],
-            "HPSIM AID PIX must be 100A");
+        assert_eq!(
+            &HPSIM_AID[..5],
+            &[0xA0, 0x00, 0x00, 0x00, 0x87],
+            "HPSIM AID must start with 3GPP RID A0000000 87"
+        );
+        assert_eq!(&HPSIM_AID[5..], &[0x10, 0x0A], "HPSIM AID PIX must be 100A");
     }
 
     /// FsData::init succeeds for the full tree -- no TooManyFiles or StoreFull.
@@ -5120,8 +4297,11 @@ mod tests {
         use simrs_fs::FsData;
         let mut data = FsData::<16384, 290>::new();
         let result = data.init_with_adfs(&REFERENCE_MF, &ADF_TABLE);
-        assert!(result.is_ok(),
-            "FsData::init_with_adfs failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "FsData::init_with_adfs failed: {:?}",
+            result.err()
+        );
     }
 
     /// FsData::init succeeds with the active profile's FS_CAP and FS_MAX_EFS.
@@ -5133,9 +4313,13 @@ mod tests {
         use simrs_fs::FsData;
         let mut data = FsData::<{ crate::FS_CAP }, { crate::FS_MAX_EFS }>::new();
         let result = data.init_with_adfs(&REFERENCE_MF, &ADF_TABLE);
-        assert!(result.is_ok(),
+        assert!(
+            result.is_ok(),
             "FsData::<{}, {}>::init_with_adfs failed for active profile tier: {:?}",
-            crate::FS_CAP, crate::FS_MAX_EFS, result.err());
+            crate::FS_CAP,
+            crate::FS_MAX_EFS,
+            result.err()
+        );
     }
 
     /// All record EFs in the entire tree (MF + ADF.USIM + sub-DFs) have consistent
@@ -5147,17 +4331,24 @@ mod tests {
                 match child {
                     FileRef::Ef(ef) => {
                         let expected = match ef.structure() {
-                            EfStructure::LinearFixed { record_size, num_records }
-                            | EfStructure::Cyclic { record_size, num_records } => {
-                                Some(record_size as usize * num_records as usize)
+                            EfStructure::LinearFixed {
+                                record_size,
+                                num_records,
                             }
+                            | EfStructure::Cyclic {
+                                record_size,
+                                num_records,
+                            } => Some(record_size as usize * num_records as usize),
                             _ => None,
                         };
                         if let Some(exp) = expected {
                             assert_eq!(
-                                ef.data().len(), exp,
+                                ef.data().len(),
+                                exp,
                                 "EF {:#06X}: data.len()={} != record_size*num_records={}",
-                                ef.fid().value(), ef.data().len(), exp,
+                                ef.fid().value(),
+                                ef.data().len(),
+                                exp,
                             );
                         }
                     }
@@ -5181,7 +4372,8 @@ mod tests {
                         if matches!(ef.structure(), EfStructure::Transparent) {
                             assert!(
                                 !ef.data().is_empty(),
-                                "Transparent EF {:#06X} has empty data", ef.fid().value(),
+                                "Transparent EF {:#06X} has empty data",
+                                ef.fid().value(),
                             );
                         }
                     }
@@ -5226,7 +4418,11 @@ mod tests {
         // Find EF.FDN (6F3B) in ADF.USIM
         let usim_fdn = ADF_USIM_ROOT.children.iter().find_map(|c| {
             if let FileRef::Ef(ef) = c {
-                if ef.fid() == Fid::new(0x6F3B) { Some(*ef) } else { None }
+                if ef.fid() == Fid::new(0x6F3B) {
+                    Some(*ef)
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -5236,18 +4432,27 @@ mod tests {
         // Find EF.FDN (6F3B) in DF_TELECOM
         let telecom_fdn = DF_TELECOM.children.iter().find_map(|c| {
             if let FileRef::Ef(ef) = c {
-                if ef.fid() == Fid::new(0x6F3B) { Some(*ef) } else { None }
+                if ef.fid() == Fid::new(0x6F3B) {
+                    Some(*ef)
+                } else {
+                    None
+                }
             } else {
                 None
             }
         });
-        assert!(telecom_fdn.is_some(), "EF.FDN (6F3B) not found in DF_TELECOM");
+        assert!(
+            telecom_fdn.is_some(),
+            "EF.FDN (6F3B) not found in DF_TELECOM"
+        );
 
         // They must be different static definitions (different addresses).
         let usim_ptr: *const EfDef = usim_fdn.unwrap();
         let telecom_ptr: *const EfDef = telecom_fdn.unwrap();
-        assert_ne!(usim_ptr, telecom_ptr,
-            "EF.FDN in ADF.USIM and DF_TELECOM must be different static definitions");
+        assert_ne!(
+            usim_ptr, telecom_ptr,
+            "EF.FDN in ADF.USIM and DF_TELECOM must be different static definitions"
+        );
     }
 
     /// EF.PL exists under MF with FID 2F05.
@@ -5294,7 +4499,8 @@ mod tests {
     #[test]
     fn adf_usim_full_child_count() {
         assert_eq!(
-            ADF_USIM_ROOT.children.len(), 126,
+            ADF_USIM_ROOT.children.len(),
+            126,
             "profile-full ADF.USIM must have 126 children (115 EFs + 11 sub-DFs)"
         );
     }
@@ -5336,7 +4542,10 @@ mod tests {
                 false
             }
         });
-        assert!(has, "ADF.USIM must contain DF.GSM-ACCESS (5F3B) in profile-full");
+        assert!(
+            has,
+            "ADF.USIM must contain DF.GSM-ACCESS (5F3B) in profile-full"
+        );
     }
 
     /// EF.Kc and EF.KcGPRS under DF.GSM-ACCESS are each 9 bytes.
@@ -5345,8 +4554,12 @@ mod tests {
     fn df_gsm_access_ef_sizes() {
         for child in DF_GSM_ACCESS.children {
             if let FileRef::Ef(ef) = child {
-                assert_eq!(ef.data().len(), 9,
-                    "EF {:#06X} in DF.GSM-ACCESS must be 9 bytes", ef.fid().value());
+                assert_eq!(
+                    ef.data().len(),
+                    9,
+                    "EF {:#06X} in DF.GSM-ACCESS must be 9 bytes",
+                    ef.fid().value()
+                );
             }
         }
     }
@@ -5357,7 +4570,11 @@ mod tests {
     fn isim_ef_impi_properties() {
         assert_eq!(ISIM_EF_IMPI.fid(), Fid::new(0x6F02));
         assert!(matches!(ISIM_EF_IMPI.structure(), EfStructure::Transparent));
-        assert_eq!(ISIM_EF_IMPI.data().len(), 64, "ISIM EF.IMPI must be 64 bytes");
+        assert_eq!(
+            ISIM_EF_IMPI.data().len(),
+            64,
+            "ISIM EF.IMPI must be 64 bytes"
+        );
     }
 
     /// ISIM EF.IMPU exists and is linear-fixed.
@@ -5365,7 +4582,10 @@ mod tests {
     #[test]
     fn isim_ef_impu_is_linear_fixed() {
         match ISIM_EF_IMPU.structure() {
-            EfStructure::LinearFixed { record_size, num_records } => {
+            EfStructure::LinearFixed {
+                record_size,
+                num_records,
+            } => {
                 assert_eq!(record_size, 64, "ISIM EF.IMPU record size must be 64");
                 assert_eq!(num_records, 2, "ISIM EF.IMPU must have 2 records");
             }
@@ -5377,7 +4597,11 @@ mod tests {
     #[cfg(feature = "hpsim")]
     #[test]
     fn hpsim_ef_hpst_size() {
-        assert_eq!(HPSIM_EF_HPST.data().len(), 2, "HPSIM EF.HPST must be 2 bytes");
+        assert_eq!(
+            HPSIM_EF_HPST.data().len(),
+            2,
+            "HPSIM EF.HPST must be 2 bytes"
+        );
         assert_eq!(HPSIM_EF_HPST.fid(), Fid::new(0x6F07));
     }
 }
@@ -5389,8 +4613,8 @@ mod tests {
 #[cfg(test)]
 mod profile_proptests {
     extern crate alloc;
-    use alloc::vec::Vec;
     use super::*;
+    use alloc::vec::Vec;
     use proptest::prelude::*;
 
     /// Collect all EfDefs from a DF recursively.

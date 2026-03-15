@@ -8,13 +8,10 @@
 
 use cucumber::{given, then, when};
 use simrs_security_tests::{
-    apdu, create_sim_powered_on, create_sim_with_suci_powered_on,
-    send_apdu_sw, verify_pin1,
+    apdu, create_sim_powered_on, create_sim_with_suci_powered_on, send_apdu_sw, verify_pin1,
 };
 
-use super::world::{
-    do_send_apdu, reset_state_snapshots, select_adf_usim, Response, SimWorld,
-};
+use super::world::{do_send_apdu, reset_state_snapshots, select_adf_usim, Response, SimWorld};
 
 // =========================================================================
 // Test constants
@@ -22,10 +19,8 @@ use super::world::{
 
 /// Test HN private key for Profile A (X25519).
 const TEST_HN_SK_A: [u8; 32] = [
-    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0xFF, 0xEE,
-    0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88, 0x77, 0x66,
-    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-    0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88, 0x77, 0x66,
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
 ];
 
 /// Build `EF_SUCI_CALC_INFO` TLV data for Profile A with the test HN public key.
@@ -166,7 +161,10 @@ fn when_get_identity_stash(world: &mut SimWorld) {
     let cmd = apdu::get_identity_suci().build();
     do_send_apdu(world, &cmd);
     let (sw1, sw2) = world.last_sw();
-    assert_eq!(sw1, 0x61, "GET IDENTITY must return 61 XX, got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        sw1, 0x61,
+        "GET IDENTITY must return 61 XX, got {sw1:02X} {sw2:02X}"
+    );
     let get_rsp = apdu::get_response(sw2).build();
     do_send_apdu(world, &get_rsp);
     world.first_auth_response = Some(world.response().clone());
@@ -341,7 +339,10 @@ fn then_suci_eph_key_differs(world: &mut SimWorld) {
         .as_ref()
         .expect("No stashed SUCI response");
 
-    let Response::Received { data: first_data, .. } = first else {
+    let Response::Received {
+        data: first_data, ..
+    } = first
+    else {
         panic!("Stashed response is not Received")
     };
 
@@ -351,7 +352,10 @@ fn then_suci_eph_key_differs(world: &mut SimWorld) {
     // Ephemeral PK starts at offset 10: tag(1) + len(1) + SUPI(1) + MCC_MNC(3) + routing(2) + scheme(1) + key_idx(1)
     // For Profile A: 32 bytes of X25519 ephemeral public key.
     assert!(first_data.len() >= 42, "Stashed SUCI too short for eph_pk");
-    assert!(current_data.len() >= 42, "Current SUCI too short for eph_pk");
+    assert!(
+        current_data.len() >= 42,
+        "Current SUCI too short for eph_pk"
+    );
 
     let first_eph_pk = &first_data[10..42];
     let current_eph_pk = &current_data[10..42];

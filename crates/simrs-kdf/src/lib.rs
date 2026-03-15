@@ -113,7 +113,10 @@ impl HmacSha256 {
         let mut inner = Sha256::new();
         inner.update(&ipad_key);
 
-        Self { inner, opad_key: Secret::new(opad_key) }
+        Self {
+            inner,
+            opad_key: Secret::new(opad_key),
+        }
     }
 
     /// Feed data into the HMAC computation.
@@ -207,7 +210,11 @@ pub fn derive_eps_anchor_key(
     let mut key = [0u8; 32];
     key[..16].copy_from_slice(ck.declassify());
     key[16..].copy_from_slice(ik.declassify());
-    EpsAnchorKey::classify(kdf(&Secret::new(key), 0x10, &[network_id.as_bytes(), concealed_sqn.as_bytes()]))
+    EpsAnchorKey::classify(kdf(
+        &Secret::new(key),
+        0x10,
+        &[network_id.as_bytes(), concealed_sqn.as_bytes()],
+    ))
 }
 
 /// 3GPP abbreviation for [`derive_eps_anchor_key`].
@@ -251,12 +258,12 @@ pub fn derive_kenb(kasme: &EpsAnchorKey, ul_nas_count: u32) -> EpsBaseStationKey
 /// - 0x04: RRC integrity (`K_RRCint`)
 /// - 0x05: UP encryption (`K_UPenc`)
 /// - 0x06: UP integrity (`K_UPint`)
-pub fn derive_algorithm_key(
-    key: &[u8; 32],
-    alg_distinguisher: u8,
-    alg_id: u8,
-) -> AlgorithmKey {
-    AlgorithmKey::classify(kdf(&Secret::new(*key), 0x15, &[&[alg_distinguisher], &[alg_id]]))
+pub fn derive_algorithm_key(key: &[u8; 32], alg_distinguisher: u8, alg_id: u8) -> AlgorithmKey {
+    AlgorithmKey::classify(kdf(
+        &Secret::new(*key),
+        0x15,
+        &[&[alg_distinguisher], &[alg_id]],
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -287,12 +294,19 @@ pub fn derive_ck_prime_ik_prime(
     let mut key = [0u8; 32];
     key[..16].copy_from_slice(ck.declassify());
     key[16..].copy_from_slice(ik.declassify());
-    let out = kdf(&Secret::new(key), 0x20, &[network_name, sqn_xor_ak.as_bytes()]);
+    let out = kdf(
+        &Secret::new(key),
+        0x20,
+        &[network_name, sqn_xor_ak.as_bytes()],
+    );
     let mut ck_prime = [0u8; 16];
     let mut ik_prime = [0u8; 16];
     ck_prime.copy_from_slice(&out[..16]);
     ik_prime.copy_from_slice(&out[16..32]);
-    (CipherKey::classify(ck_prime), IntegrityKey::classify(ik_prime))
+    (
+        CipherKey::classify(ck_prime),
+        IntegrityKey::classify(ik_prime),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -319,7 +333,11 @@ pub fn derive_auth_server_key(
     let mut key = [0u8; 32];
     key[..16].copy_from_slice(ck.declassify());
     key[16..].copy_from_slice(ik.declassify());
-    AuthServerKey::classify(kdf(&Secret::new(key), 0x6A, &[serving_network_name, concealed_sqn.as_bytes()]))
+    AuthServerKey::classify(kdf(
+        &Secret::new(key),
+        0x6A,
+        &[serving_network_name, concealed_sqn.as_bytes()],
+    ))
 }
 
 /// 3GPP abbreviation for [`derive_auth_server_key`].
@@ -353,7 +371,11 @@ pub fn derive_hash_response(
     let mut key = [0u8; 32];
     key[..16].copy_from_slice(ck.declassify());
     key[16..].copy_from_slice(ik.declassify());
-    let full = kdf(&Secret::new(key), 0x6B, &[serving_network_name, rand.as_bytes(), res]);
+    let full = kdf(
+        &Secret::new(key),
+        0x6B,
+        &[serving_network_name, rand.as_bytes(), res],
+    );
     // 128 LSBs = bytes 16..32
     let mut out = [0u8; 16];
     out.copy_from_slice(&full[16..32]);
@@ -378,8 +400,15 @@ pub fn derive_res_star(
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.6:
 /// - FC = 0x6C
 /// - P0 = serving network name
-pub fn derive_security_anchor_key(kausf: &AuthServerKey, serving_network_name: &[u8]) -> SecurityAnchorKey {
-    SecurityAnchorKey::classify(kdf(&Secret::new(*kausf.declassify()), 0x6C, &[serving_network_name]))
+pub fn derive_security_anchor_key(
+    kausf: &AuthServerKey,
+    serving_network_name: &[u8],
+) -> SecurityAnchorKey {
+    SecurityAnchorKey::classify(kdf(
+        &Secret::new(*kausf.declassify()),
+        0x6C,
+        &[serving_network_name],
+    ))
 }
 
 /// 3GPP abbreviation for [`derive_security_anchor_key`].
@@ -395,7 +424,11 @@ pub fn derive_kseaf(kausf: &AuthServerKey, snn: &[u8]) -> SecurityAnchorKey {
 /// - FC = 0x6D
 /// - P0 = SUPI (IMSI as ASCII digits)
 /// - P1 = ABBA parameter (2 bytes for primary authentication)
-pub fn derive_mobility_management_key(kseaf: &SecurityAnchorKey, supi: &[u8], abba: &[u8]) -> MobilityManagementKey {
+pub fn derive_mobility_management_key(
+    kseaf: &SecurityAnchorKey,
+    supi: &[u8],
+    abba: &[u8],
+) -> MobilityManagementKey {
     MobilityManagementKey::classify(kdf(&Secret::new(*kseaf.declassify()), 0x6D, &[supi, abba]))
 }
 
@@ -412,14 +445,26 @@ pub fn derive_kamf(kseaf: &SecurityAnchorKey, supi: &[u8], abba: &[u8]) -> Mobil
 /// - FC = 0x6E
 /// - P0 = uplink NAS count (4 bytes, big-endian)
 /// - P1 = access type distinguisher (1 byte: 0x01 = 3GPP, 0x02 = non-3GPP)
-pub fn derive_nr_base_station_key(kamf: &MobilityManagementKey, ul_nas_count: u32, access_type: u8) -> NrBaseStationKey {
+pub fn derive_nr_base_station_key(
+    kamf: &MobilityManagementKey,
+    ul_nas_count: u32,
+    access_type: u8,
+) -> NrBaseStationKey {
     let count_be = ul_nas_count.to_be_bytes();
-    NrBaseStationKey::classify(kdf(&Secret::new(*kamf.declassify()), 0x6E, &[&count_be, &[access_type]]))
+    NrBaseStationKey::classify(kdf(
+        &Secret::new(*kamf.declassify()),
+        0x6E,
+        &[&count_be, &[access_type]],
+    ))
 }
 
 /// 3GPP abbreviation for [`derive_nr_base_station_key`].
 #[deprecated(note = "3GPP K_gNB (TS 33.501 A.9) -- prefer derive_nr_base_station_key()")]
-pub fn derive_kgnb(kamf: &MobilityManagementKey, ul_nas_count: u32, access_type: u8) -> NrBaseStationKey {
+pub fn derive_kgnb(
+    kamf: &MobilityManagementKey,
+    ul_nas_count: u32,
+    access_type: u8,
+) -> NrBaseStationKey {
     derive_nr_base_station_key(kamf, ul_nas_count, access_type)
 }
 
@@ -447,10 +492,14 @@ impl GbaSessionKey {
 
     /// Classify a raw 256-bit value as a GBA session key.
     #[inline]
-    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    pub const fn classify(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
-    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
 }
 
 impl core::fmt::Debug for GbaSessionKey {
@@ -471,10 +520,14 @@ pub struct GbaNafKey(Secret<[u8; 32]>);
 impl GbaNafKey {
     /// Classify a raw 256-bit value as a GBA NAF key.
     #[inline]
-    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    pub const fn classify(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
-    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
 }
 
 impl core::fmt::Debug for GbaNafKey {
@@ -533,12 +586,7 @@ pub fn derive_gba_int_naf_key(
 
 /// 3GPP abbreviation for [`derive_gba_ext_naf_key`].
 #[deprecated(note = "3GPP Ks_NAF / Ks_ext_NAF (TS 33.220 B.3) -- prefer derive_gba_ext_naf_key()")]
-pub fn derive_ks_naf(
-    ks: &GbaSessionKey,
-    rand: &[u8; 16],
-    impi: &[u8],
-    naf_id: &[u8],
-) -> GbaNafKey {
+pub fn derive_ks_naf(ks: &GbaSessionKey, rand: &[u8; 16], impi: &[u8], naf_id: &[u8]) -> GbaNafKey {
     derive_gba_ext_naf_key(ks, rand, impi, naf_id)
 }
 
@@ -576,7 +624,10 @@ const KDF_X963_MAX_OUT: usize = 256;
 ///
 /// Panics if `out_len > 256`, `out_len == 0`, or `out.len() < out_len`.
 pub fn kdf_x963(z: &[u8], shared_info: &[u8], out_len: usize, out: &mut [u8]) {
-    assert!(out_len > 0 && out_len <= KDF_X963_MAX_OUT, "invalid output length");
+    assert!(
+        out_len > 0 && out_len <= KDF_X963_MAX_OUT,
+        "invalid output length"
+    );
     assert!(out.len() >= out_len, "output buffer too small");
 
     let mut counter: u32 = 1;
@@ -619,10 +670,14 @@ pub struct EpsAnchorKey(Secret<[u8; 32]>);
 impl EpsAnchorKey {
     /// Classify a raw 256-bit value as an EPS anchor key.
     #[inline]
-    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    pub const fn classify(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
-    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
 }
 
 impl core::fmt::Debug for EpsAnchorKey {
@@ -651,10 +706,14 @@ pub struct EpsBaseStationKey(Secret<[u8; 32]>);
 impl EpsBaseStationKey {
     /// Classify a raw 256-bit value as an EPS base station key.
     #[inline]
-    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    pub const fn classify(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
-    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
 }
 
 impl core::fmt::Debug for EpsBaseStationKey {
@@ -683,10 +742,14 @@ pub struct AlgorithmKey(Secret<[u8; 32]>);
 impl AlgorithmKey {
     /// Classify a raw 256-bit value as an algorithm-derived key.
     #[inline]
-    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    pub const fn classify(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
-    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
 }
 
 impl core::fmt::Debug for AlgorithmKey {
@@ -715,10 +778,14 @@ pub struct AuthServerKey(Secret<[u8; 32]>);
 impl AuthServerKey {
     /// Classify a raw 256-bit value as an authentication server key.
     #[inline]
-    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    pub const fn classify(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
-    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
 }
 
 impl core::fmt::Debug for AuthServerKey {
@@ -747,10 +814,14 @@ pub struct SecurityAnchorKey(Secret<[u8; 32]>);
 impl SecurityAnchorKey {
     /// Classify a raw 256-bit value as a security anchor key.
     #[inline]
-    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    pub const fn classify(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
-    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
 }
 
 impl core::fmt::Debug for SecurityAnchorKey {
@@ -779,10 +850,14 @@ pub struct MobilityManagementKey(Secret<[u8; 32]>);
 impl MobilityManagementKey {
     /// Classify a raw 256-bit value as a mobility management key.
     #[inline]
-    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    pub const fn classify(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
-    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
 }
 
 impl core::fmt::Debug for MobilityManagementKey {
@@ -811,10 +886,14 @@ pub struct NrBaseStationKey(Secret<[u8; 32]>);
 impl NrBaseStationKey {
     /// Classify a raw 256-bit value as an NR base station key.
     #[inline]
-    pub const fn classify(raw: [u8; 32]) -> Self { Self(Secret::new(raw)) }
+    pub const fn classify(raw: [u8; 32]) -> Self {
+        Self(Secret::new(raw))
+    }
     /// Borrow the raw key bytes (leaves the CT-protected domain).
     #[inline]
-    pub const fn declassify(&self) -> &[u8; 32] { self.0.declassify_ref() }
+    pub const fn declassify(&self) -> &[u8; 32] {
+        self.0.declassify_ref()
+    }
 }
 
 impl core::fmt::Debug for NrBaseStationKey {
@@ -841,11 +920,21 @@ pub struct NetworkId([u8; 3]);
 
 impl NetworkId {
     /// Create a network identity from raw MCC/MNC bytes.
-    #[inline] pub const fn new(raw: [u8; 3]) -> Self { Self(raw) }
+    #[inline]
+    pub const fn new(raw: [u8; 3]) -> Self {
+        Self(raw)
+    }
     /// Borrow the underlying 3-byte representation.
-    #[inline] pub const fn as_bytes(&self) -> &[u8; 3] { &self.0 }
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8; 3] {
+        &self.0
+    }
 }
-impl From<[u8; 3]> for NetworkId { fn from(raw: [u8; 3]) -> Self { Self(raw) } }
+impl From<[u8; 3]> for NetworkId {
+    fn from(raw: [u8; 3]) -> Self {
+        Self(raw)
+    }
+}
 
 /// 3GPP abbreviation for [`NetworkId`].
 ///
@@ -865,11 +954,21 @@ pub struct ConcealedSequenceNumber([u8; 6]);
 
 impl ConcealedSequenceNumber {
     /// Create a concealed sequence number from raw bytes.
-    #[inline] pub const fn new(raw: [u8; 6]) -> Self { Self(raw) }
+    #[inline]
+    pub const fn new(raw: [u8; 6]) -> Self {
+        Self(raw)
+    }
     /// Borrow the underlying 6-byte representation.
-    #[inline] pub const fn as_bytes(&self) -> &[u8; 6] { &self.0 }
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8; 6] {
+        &self.0
+    }
 }
-impl From<[u8; 6]> for ConcealedSequenceNumber { fn from(raw: [u8; 6]) -> Self { Self(raw) } }
+impl From<[u8; 6]> for ConcealedSequenceNumber {
+    fn from(raw: [u8; 6]) -> Self {
+        Self(raw)
+    }
+}
 
 /// 3GPP abbreviation for [`ConcealedSequenceNumber`].
 ///
@@ -890,11 +989,21 @@ pub struct HashResponse([u8; 16]);
 
 impl HashResponse {
     /// Create a hash response from raw bytes.
-    #[inline] pub const fn new(raw: [u8; 16]) -> Self { Self(raw) }
+    #[inline]
+    pub const fn new(raw: [u8; 16]) -> Self {
+        Self(raw)
+    }
     /// Borrow the underlying 16-byte representation.
-    #[inline] pub const fn as_bytes(&self) -> &[u8; 16] { &self.0 }
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
 }
-impl From<[u8; 16]> for HashResponse { fn from(raw: [u8; 16]) -> Self { Self(raw) } }
+impl From<[u8; 16]> for HashResponse {
+    fn from(raw: [u8; 16]) -> Self {
+        Self(raw)
+    }
+}
 
 /// 3GPP abbreviation for [`HashResponse`].
 ///
@@ -949,14 +1058,20 @@ mod tests {
         // Key = 20 bytes of 0x0b, Data = "Hi There"
         let key = [0x0bu8; 20];
         let tag = hmac_sha256(&Secret::new(key), b"Hi There");
-        assert_eq!(tag, hex32("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"));
+        assert_eq!(
+            tag,
+            hex32("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
+        );
     }
 
     #[test]
     fn rfc4231_tc2() {
         // Key = "Jefe", Data = "what do ya want for nothing?"
         let tag = hmac_sha256(&Secret::new(*b"Jefe"), b"what do ya want for nothing?");
-        assert_eq!(tag, hex32("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"));
+        assert_eq!(
+            tag,
+            hex32("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+        );
     }
 
     #[test]
@@ -965,7 +1080,10 @@ mod tests {
         let key = [0xaau8; 20];
         let data = [0xddu8; 50];
         let tag = hmac_sha256(&Secret::new(key), &data);
-        assert_eq!(tag, hex32("773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe"));
+        assert_eq!(
+            tag,
+            hex32("773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe")
+        );
     }
 
     #[test]
@@ -979,7 +1097,10 @@ mod tests {
         }
         let data = [0xcdu8; 50];
         let tag = hmac_sha256(&Secret::new(key), &data);
-        assert_eq!(tag, hex32("82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b"));
+        assert_eq!(
+            tag,
+            hex32("82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b")
+        );
     }
 
     #[test]
@@ -991,8 +1112,10 @@ mod tests {
         // Verify the first 16 bytes match the RFC's truncated value.
         assert_eq!(
             &tag[..16],
-            &[0xa3, 0xb6, 0x16, 0x74, 0x73, 0x10, 0x0e, 0xe0,
-              0x6e, 0x0c, 0x79, 0x6c, 0x29, 0x55, 0x55, 0x2b]
+            &[
+                0xa3, 0xb6, 0x16, 0x74, 0x73, 0x10, 0x0e, 0xe0, 0x6e, 0x0c, 0x79, 0x6c, 0x29, 0x55,
+                0x55, 0x2b
+            ]
         );
     }
 
@@ -1001,8 +1124,14 @@ mod tests {
         // Key = 131 bytes of 0xaa (longer than block size)
         // Data = "Test Using Larger Than Block-Size Key - Hash Key First"
         let key = [0xaau8; 131];
-        let tag = hmac_sha256(&Secret::new(key), b"Test Using Larger Than Block-Size Key - Hash Key First");
-        assert_eq!(tag, hex32("60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"));
+        let tag = hmac_sha256(
+            &Secret::new(key),
+            b"Test Using Larger Than Block-Size Key - Hash Key First",
+        );
+        assert_eq!(
+            tag,
+            hex32("60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54")
+        );
     }
 
     #[test]
@@ -1013,7 +1142,10 @@ mod tests {
         let key = [0xaau8; 131];
         let data = b"This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm.";
         let tag = hmac_sha256(&Secret::new(key), data);
-        assert_eq!(tag, hex32("9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2"));
+        assert_eq!(
+            tag,
+            hex32("9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2")
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1115,7 +1247,7 @@ mod tests {
         // Verify S = FC || P0 || L0 || P1 || L1 with two params.
         let key = [0xBB; 32];
         let p0 = [0x0A, 0x0B]; // 2 bytes -> L0 = 0x0002
-        let p1 = [0x0C];       // 1 byte  -> L1 = 0x0001
+        let p1 = [0x0C]; // 1 byte  -> L1 = 0x0001
 
         let kdf_result = kdf(&Secret::new(key), 0x20, &[&p0, &p1]);
 
@@ -1165,7 +1297,11 @@ mod tests {
         let mut key = [0u8; 32];
         key[..16].copy_from_slice(ck.declassify());
         key[16..].copy_from_slice(ik.declassify());
-        let expected = kdf(&Secret::new(key), 0x10, &[&plmn.as_bytes()[..], &sqn_ak.as_bytes()[..]]);
+        let expected = kdf(
+            &Secret::new(key),
+            0x10,
+            &[&plmn.as_bytes()[..], &sqn_ak.as_bytes()[..]],
+        );
 
         assert_eq!(*kasme.declassify(), expected);
     }
@@ -1222,7 +1358,11 @@ mod tests {
         let mut key = [0u8; 32];
         key[..16].copy_from_slice(ck.declassify());
         key[16..].copy_from_slice(ik.declassify());
-        let full = kdf(&Secret::new(key), 0x6B, &[snn, &rand.as_bytes()[..], &res[..]]);
+        let full = kdf(
+            &Secret::new(key),
+            0x6B,
+            &[snn, &rand.as_bytes()[..], &res[..]],
+        );
 
         assert_eq!(*res_star.as_bytes(), full[16..32]);
     }
@@ -1447,8 +1587,14 @@ mod tests {
 
         let (ck_prime, ik_prime) = derive_ck_prime_ik_prime(&ck, &ik, b"WLAN", &sqn_ak);
 
-        assert_eq!(*ck_prime.declassify(), hex16("0093962d0dd84aa5684b045c9edffa04"));
-        assert_eq!(*ik_prime.declassify(), hex16("ccfc230ca74fcc96c0a5d61164f5a76c"));
+        assert_eq!(
+            *ck_prime.declassify(),
+            hex16("0093962d0dd84aa5684b045c9edffa04")
+        );
+        assert_eq!(
+            *ik_prime.declassify(),
+            hex16("ccfc230ca74fcc96c0a5d61164f5a76c")
+        );
     }
 
     #[test]
@@ -1460,8 +1606,14 @@ mod tests {
 
         let (ck_prime, ik_prime) = derive_ck_prime_ik_prime(&ck, &ik, b"HRPD", &sqn_ak);
 
-        assert_eq!(*ck_prime.declassify(), hex16("3820f0277fa5f77732b1fb1d90c1a0da"));
-        assert_eq!(*ik_prime.declassify(), hex16("db94a0ab557ef6c9ab48619ca05b9a9f"));
+        assert_eq!(
+            *ck_prime.declassify(),
+            hex16("3820f0277fa5f77732b1fb1d90c1a0da")
+        );
+        assert_eq!(
+            *ik_prime.declassify(),
+            hex16("db94a0ab557ef6c9ab48619ca05b9a9f")
+        );
     }
 
     #[test]
@@ -1473,8 +1625,14 @@ mod tests {
 
         let (ck_prime, ik_prime) = derive_ck_prime_ik_prime(&ck, &ik, b"WLAN", &sqn_ak);
 
-        assert_eq!(*ck_prime.declassify(), hex16("cd4c8e5c68f57dd1d7d7dfd0c538e577"));
-        assert_eq!(*ik_prime.declassify(), hex16("3ece6b705dbbf7dfc459a11280c65524"));
+        assert_eq!(
+            *ck_prime.declassify(),
+            hex16("cd4c8e5c68f57dd1d7d7dfd0c538e577")
+        );
+        assert_eq!(
+            *ik_prime.declassify(),
+            hex16("3ece6b705dbbf7dfc459a11280c65524")
+        );
     }
 
     #[test]
@@ -1503,7 +1661,11 @@ mod tests {
         let mut key = [0u8; 32];
         key[..16].copy_from_slice(ck.declassify());
         key[16..].copy_from_slice(ik.declassify());
-        let expected = kdf(&Secret::new(key), 0x20, &[&network[..], &sqn_ak.as_bytes()[..]]);
+        let expected = kdf(
+            &Secret::new(key),
+            0x20,
+            &[&network[..], &sqn_ak.as_bytes()[..]],
+        );
 
         assert_eq!(*ck_prime.declassify(), expected[..16]);
         assert_eq!(*ik_prime.declassify(), expected[16..32]);
@@ -1804,14 +1966,15 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
 
     /// HMAC-SHA-256 timing must be independent of key content.
     /// Class 0: fixed key, random data.
     /// Class 1: random key, random data.
     #[test]
     fn test_hmac_sha256_ct() {
-        let outcome = ct_test(0xA0AC_256C,
+        let outcome = ct_test(
+            0xA0AC_256C,
             |rng| {
                 let key = [0xAAu8; 32];
                 let mut data = [0u8; 32];
@@ -1835,7 +1998,8 @@ mod ct_validation {
     /// 3GPP KDF timing must be independent of key content.
     #[test]
     fn test_kdf_ct() {
-        let outcome = ct_test(0x3BEE_CDFC,
+        let outcome = ct_test(
+            0x3BEE_CDFC,
             |rng| {
                 let key = [0xBBu8; 32];
                 let mut param = [0u8; 16];
@@ -1861,7 +2025,8 @@ mod ct_validation {
     /// Class 1: random Z, random SharedInfo.
     #[test]
     fn test_kdf_x963_ct() {
-        let outcome = ct_test(0x963C_DFBA,
+        let outcome = ct_test(
+            0x963C_DFBA,
             |rng| {
                 let z = [0xCCu8; 32];
                 let mut si = [0u8; 33];

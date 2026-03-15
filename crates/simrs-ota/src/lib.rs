@@ -16,11 +16,11 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![deny(clippy::all, clippy::pedantic)]
-#![allow(clippy::doc_markdown)]        // ETSI/3GPP terms: OTA, SecurityParameters, KeyIdentifier, ToolkitAppReference, etc.
-#![allow(clippy::missing_errors_doc)]  // Error types are self-documenting
-#![allow(clippy::must_use_candidate)]  // matches workspace lint config
+#![allow(clippy::doc_markdown)] // ETSI/3GPP terms: OTA, SecurityParameters, KeyIdentifier, ToolkitAppReference, etc.
+#![allow(clippy::missing_errors_doc)] // Error types are self-documenting
+#![allow(clippy::must_use_candidate)] // matches workspace lint config
 #![allow(clippy::module_name_repetitions)]
-#![allow(clippy::match_same_arms)]     // explicit arms improve readability for bitfield decode
+#![allow(clippy::match_same_arms)] // explicit arms improve readability for bitfield decode
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -42,11 +42,21 @@ use simrs_secret::Secret;
 pub struct ToolkitAppReference([u8; 3]);
 impl ToolkitAppReference {
     /// Create a new `ToolkitAppReference` from raw bytes.
-    #[inline] pub const fn new(raw: [u8; 3]) -> Self { Self(raw) }
+    #[inline]
+    pub const fn new(raw: [u8; 3]) -> Self {
+        Self(raw)
+    }
     /// Access the raw bytes.
-    #[inline] pub const fn as_bytes(&self) -> &[u8; 3] { &self.0 }
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8; 3] {
+        &self.0
+    }
 }
-impl From<[u8; 3]> for ToolkitAppReference { fn from(raw: [u8; 3]) -> Self { Self(raw) } }
+impl From<[u8; 3]> for ToolkitAppReference {
+    fn from(raw: [u8; 3]) -> Self {
+        Self(raw)
+    }
+}
 
 /// ETSI abbreviation for [`ToolkitAppReference`].
 ///
@@ -63,11 +73,21 @@ pub type Tar = ToolkitAppReference;
 pub struct OtaCounter([u8; 5]);
 impl OtaCounter {
     /// Create a new `OtaCounter` from raw bytes.
-    #[inline] pub const fn new(raw: [u8; 5]) -> Self { Self(raw) }
+    #[inline]
+    pub const fn new(raw: [u8; 5]) -> Self {
+        Self(raw)
+    }
     /// Access the raw bytes.
-    #[inline] pub const fn as_bytes(&self) -> &[u8; 5] { &self.0 }
+    #[inline]
+    pub const fn as_bytes(&self) -> &[u8; 5] {
+        &self.0
+    }
 }
-impl From<[u8; 5]> for OtaCounter { fn from(raw: [u8; 5]) -> Self { Self(raw) } }
+impl From<[u8; 5]> for OtaCounter {
+    fn from(raw: [u8; 5]) -> Self {
+        Self(raw)
+    }
+}
 
 /// AES block size in bytes.
 const AES_BLOCK: usize = 16;
@@ -329,7 +349,10 @@ impl CommandPacketHeader {
     /// Create a default (empty) header.
     pub const fn new() -> Self {
         Self {
-            security_parameters: SecurityParameters { command_header: 0, response_header: 0 },
+            security_parameters: SecurityParameters {
+                command_header: 0,
+                response_header: 0,
+            },
             ciphering_key_id: KeyIdentifier::new(0),
             integrity_key_id: KeyIdentifier::new(0),
             target_app: ToolkitAppReference::new([0; 3]),
@@ -415,10 +438,7 @@ impl Default for RemoteApdu {
 /// assert_eq!(len, 7); // CLA + INS + P1 + P2 + Lc + 2 data bytes
 /// assert_eq!(&buf[..7], &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
 /// ```
-pub fn encode_remote_apdus(
-    apdus: &[RemoteApdu],
-    buf: &mut [u8],
-) -> Result<usize, OtaError> {
+pub fn encode_remote_apdus(apdus: &[RemoteApdu], buf: &mut [u8]) -> Result<usize, OtaError> {
     let mut pos = 0;
     for apdu in apdus {
         let dlen = apdu.data_len as usize;
@@ -653,7 +673,9 @@ const DES_CC_SIZE: usize = 4;
 /// Returns the CC size for the given key, or 0 (AES default) if no key.
 const fn cc_size_for(key: Option<&OtaCryptoKey>) -> usize {
     match key {
-        Some(OtaCryptoKey::Des(_) | OtaCryptoKey::TripleDes(_) | OtaCryptoKey::TripleDes3(_)) => DES_CC_SIZE,
+        Some(OtaCryptoKey::Des(_) | OtaCryptoKey::TripleDes(_) | OtaCryptoKey::TripleDes3(_)) => {
+            DES_CC_SIZE
+        }
         _ => AES_CC_SIZE,
     }
 }
@@ -718,7 +740,10 @@ pub fn encode_command_packet(
     key_mac: Option<&OtaCryptoKey>,
     buf: &mut [u8],
 ) -> Result<usize, OtaError> {
-    let has_cc = matches!(hdr.security_parameters.redundancy_check(), RedundancyCheck::CryptographicChecksum);
+    let has_cc = matches!(
+        hdr.security_parameters.redundancy_check(),
+        RedundancyCheck::CryptographicChecksum
+    );
     let has_cipher = hdr.security_parameters.ciphering();
 
     let cc_sz = cc_size_for(key_mac);
@@ -877,12 +902,18 @@ pub fn decode_command_packet(
     let total = cpl + 2;
 
     // Decode SecurityParameters, CipheringKeyId, IntegrityKeyId, TargetApp
-    hdr_out.security_parameters = SecurityParameters { command_header: packet[3], response_header: packet[4] };
+    hdr_out.security_parameters = SecurityParameters {
+        command_header: packet[3],
+        response_header: packet[4],
+    };
     hdr_out.ciphering_key_id = KeyIdentifier::new(packet[5]);
     hdr_out.integrity_key_id = KeyIdentifier::new(packet[6]);
     hdr_out.target_app = ToolkitAppReference::new([packet[7], packet[8], packet[9]]);
 
-    let has_cc = matches!(hdr_out.security_parameters.redundancy_check(), RedundancyCheck::CryptographicChecksum);
+    let has_cc = matches!(
+        hdr_out.security_parameters.redundancy_check(),
+        RedundancyCheck::CryptographicChecksum
+    );
     let has_cipher = hdr_out.security_parameters.ciphering();
     let cc_sz = cc_size_for(key_mac);
     let rc_size = if has_cc { cc_sz } else { 0 };
@@ -1028,7 +1059,10 @@ pub fn encode_response_packet(
     key_mac: Option<&OtaCryptoKey>,
     buf: &mut [u8],
 ) -> Result<usize, OtaError> {
-    let has_cc = matches!(security_params.redundancy_check(), RedundancyCheck::CryptographicChecksum);
+    let has_cc = matches!(
+        security_params.redundancy_check(),
+        RedundancyCheck::CryptographicChecksum
+    );
     let has_cipher = security_params.por_ciphered();
     let cc_sz = cc_size_for(key_mac);
     let rc_size = if has_cc { cc_sz } else { 0 };
@@ -1138,32 +1172,53 @@ mod tests {
     // 1. Security parameters redundancy check = None
     #[test]
     fn security_parameters_redundancy_check_none() {
-        let sp = SecurityParameters { command_header: 0x00, response_header: 0x00 };
+        let sp = SecurityParameters {
+            command_header: 0x00,
+            response_header: 0x00,
+        };
         assert_eq!(sp.redundancy_check(), RedundancyCheck::None);
     }
 
     // 2. Security parameters redundancy check = CryptographicChecksum
     #[test]
     fn security_parameters_redundancy_check_cc() {
-        let sp = SecurityParameters { command_header: 0x02, response_header: 0x00 };
-        assert_eq!(sp.redundancy_check(), RedundancyCheck::CryptographicChecksum);
+        let sp = SecurityParameters {
+            command_header: 0x02,
+            response_header: 0x00,
+        };
+        assert_eq!(
+            sp.redundancy_check(),
+            RedundancyCheck::CryptographicChecksum
+        );
     }
 
     // 3. Security parameters ciphering flag
     #[test]
     fn security_parameters_ciphering_enabled() {
-        let sp_on = SecurityParameters { command_header: 0x04, response_header: 0x00 };
+        let sp_on = SecurityParameters {
+            command_header: 0x04,
+            response_header: 0x00,
+        };
         assert!(sp_on.ciphering());
-        let sp_off = SecurityParameters { command_header: 0x00, response_header: 0x00 };
+        let sp_off = SecurityParameters {
+            command_header: 0x00,
+            response_header: 0x00,
+        };
         assert!(!sp_off.ciphering());
     }
 
     // 4. Security parameters counter available flag
     #[test]
     fn security_parameters_counter_available() {
-        let sp_on = SecurityParameters { command_header: 0x08, response_header: 0x00 };
+        let sp_on = SecurityParameters {
+            command_header: 0x08,
+            response_header: 0x00,
+        };
         assert!(sp_on.counter_available());
-        let sp_off = SecurityParameters { command_header: 0x00, response_header: 0x00 };
+        let sp_off = SecurityParameters {
+            command_header: 0x00,
+            response_header: 0x00,
+        };
         assert!(!sp_off.counter_available());
     }
 
@@ -1214,7 +1269,10 @@ mod tests {
     #[test]
     fn encode_command_packet_no_security() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x00, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x00,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x00),
             integrity_key_id: KeyIdentifier::new(0x00),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1241,7 +1299,10 @@ mod tests {
     #[test]
     fn encode_command_packet_with_mac() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 }, // CC mode
+            security_parameters: SecurityParameters {
+                command_header: 0x02,
+                response_header: 0x00,
+            }, // CC mode
             ciphering_key_id: KeyIdentifier::new(0x02),
             integrity_key_id: KeyIdentifier::new(0x02),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1269,7 +1330,10 @@ mod tests {
     #[test]
     fn decode_command_packet_roundtrip() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x00, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x00,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x00),
             integrity_key_id: KeyIdentifier::new(0x00),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1284,10 +1348,18 @@ mod tests {
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], None, None, &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            None,
+            None,
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
-        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
+        assert_eq!(
+            *decoded_hdr.target_app.as_bytes(),
+            *hdr.target_app.as_bytes()
+        );
         assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1296,7 +1368,10 @@ mod tests {
     #[test]
     fn decode_command_packet_mac_verify() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x02,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x02),
             integrity_key_id: KeyIdentifier::new(0x02),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1312,8 +1387,13 @@ mod tests {
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], None, Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            None,
+            Some(&key_mac),
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1322,7 +1402,10 @@ mod tests {
     #[test]
     fn decode_command_packet_bad_mac_fails() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x02,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x02),
             integrity_key_id: KeyIdentifier::new(0x02),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1341,7 +1424,11 @@ mod tests {
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let result = decode_command_packet(
-            &buf[..enc_len], None, Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+            &buf[..enc_len],
+            None,
+            Some(&key_mac),
+            &mut decoded_hdr,
+            &mut decoded_data,
         );
         assert_eq!(result, Err(OtaError::MacVerifyFailed));
     }
@@ -1351,12 +1438,14 @@ mod tests {
     fn encode_response_packet_basic() {
         let tar = ToolkitAppReference::new([0xB0, 0x00, 0x10]);
         let counter = OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]);
-        let sp = SecurityParameters { command_header: 0x00, response_header: 0x00 };
+        let sp = SecurityParameters {
+            command_header: 0x00,
+            response_header: 0x00,
+        };
 
         let mut buf = [0u8; 256];
-        let len = encode_response_packet(
-            &tar, &counter, 0x00, &[], &sp, None, None, &mut buf,
-        ).unwrap();
+        let len =
+            encode_response_packet(&tar, &counter, 0x00, &[], &sp, None, None, &mut buf).unwrap();
 
         // RPL(2) + RHL(1) + TAR(3) + CNTR(5) + PCNTR(1) + STATUS(1) = 13
         assert_eq!(len, 13);
@@ -1416,7 +1505,10 @@ mod tests {
     #[test]
     fn command_packet_with_counter() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x08, response_header: 0x00 }, // counter available
+            security_parameters: SecurityParameters {
+                command_header: 0x08,
+                response_header: 0x00,
+            }, // counter available
             ciphering_key_id: KeyIdentifier::new(0x00),
             integrity_key_id: KeyIdentifier::new(0x00),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1431,10 +1523,18 @@ mod tests {
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], None, None, &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            None,
+            None,
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
-        assert_eq!(*decoded_hdr.counter.as_bytes(), [0x00, 0x00, 0x00, 0x01, 0x23]);
+        assert_eq!(
+            *decoded_hdr.counter.as_bytes(),
+            [0x00, 0x00, 0x00, 0x01, 0x23]
+        );
         assert!(decoded_hdr.security_parameters.counter_available());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1443,7 +1543,10 @@ mod tests {
     #[test]
     fn buffer_too_small_error() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x00, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x00,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x00),
             integrity_key_id: KeyIdentifier::new(0x00),
             target_app: ToolkitAppReference::new([0x00; 3]),
@@ -1466,16 +1569,14 @@ mod tests {
         //   AES-ECB:   3ad77bb4 0d7a3660 a89ecaf3 2466ef97
         // MAC (first 8 bytes of final ciphertext block): 3ad77bb4 0d7a3660
         let key: [u8; 16] = [
-            0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
-            0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C,
+            0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6, 0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF,
+            0x4F, 0x3C,
         ];
         let plaintext: [u8; 16] = [
-            0x6B, 0xC1, 0xBE, 0xE2, 0x2E, 0x40, 0x9F, 0x96,
-            0xE9, 0x3D, 0x7E, 0x11, 0x73, 0x93, 0x17, 0x2A,
+            0x6B, 0xC1, 0xBE, 0xE2, 0x2E, 0x40, 0x9F, 0x96, 0xE9, 0x3D, 0x7E, 0x11, 0x73, 0x93,
+            0x17, 0x2A,
         ];
-        let expected_mac: [u8; 8] = [
-            0x3A, 0xD7, 0x7B, 0xB4, 0x0D, 0x7A, 0x36, 0x60,
-        ];
+        let expected_mac: [u8; 8] = [0x3A, 0xD7, 0x7B, 0xB4, 0x0D, 0x7A, 0x36, 0x60];
 
         let mac = aes_cbc_mac(&Secret::new(key), &plaintext);
         assert_eq!(mac, expected_mac);
@@ -1485,7 +1586,10 @@ mod tests {
     #[test]
     fn decode_command_packet_cipher_roundtrip() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x04, response_header: 0x00 }, // cipher, no CC
+            security_parameters: SecurityParameters {
+                command_header: 0x04,
+                response_header: 0x00,
+            }, // cipher, no CC
             ciphering_key_id: KeyIdentifier::new(0x02),
             integrity_key_id: KeyIdentifier::new(0x00),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1496,17 +1600,24 @@ mod tests {
         let key_cipher = OtaCryptoKey::Aes(Secret::new([0x11u8; 16]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, Some(&key_cipher), None, &mut buf,
-        ).unwrap();
+        let enc_len =
+            encode_command_packet(&hdr, &data, Some(&key_cipher), None, &mut buf).unwrap();
 
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], Some(&key_cipher), None, &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            Some(&key_cipher),
+            None,
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
-        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
+        assert_eq!(
+            *decoded_hdr.target_app.as_bytes(),
+            *hdr.target_app.as_bytes()
+        );
         assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1515,7 +1626,10 @@ mod tests {
     #[test]
     fn decode_command_packet_cipher_mac_roundtrip() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x06, response_header: 0x00 }, // cipher + CC
+            security_parameters: SecurityParameters {
+                command_header: 0x06,
+                response_header: 0x00,
+            }, // cipher + CC
             ciphering_key_id: KeyIdentifier::new(0x02),
             integrity_key_id: KeyIdentifier::new(0x02),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1527,9 +1641,9 @@ mod tests {
         let key_mac = OtaCryptoKey::Aes(Secret::new([0x22u8; 16]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf,
-        ).unwrap();
+        let enc_len =
+            encode_command_packet(&hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf)
+                .unwrap();
 
         // Ciphertext region should not contain plaintext counter
         assert_ne!(&buf[10..15], hdr.counter.as_bytes());
@@ -1537,10 +1651,18 @@ mod tests {
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            Some(&key_cipher),
+            Some(&key_mac),
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
-        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
+        assert_eq!(
+            *decoded_hdr.target_app.as_bytes(),
+            *hdr.target_app.as_bytes()
+        );
         assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1549,7 +1671,10 @@ mod tests {
     #[test]
     fn decode_command_packet_cipher_mac_tampered() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x06, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x06,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x02),
             integrity_key_id: KeyIdentifier::new(0x02),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1561,9 +1686,9 @@ mod tests {
         let key_mac = OtaCryptoKey::Aes(Secret::new([0x22u8; 16]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf,
-        ).unwrap();
+        let enc_len =
+            encode_command_packet(&hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf)
+                .unwrap();
 
         // Tamper with ciphertext
         buf[enc_len - 1] ^= 0xFF;
@@ -1571,7 +1696,11 @@ mod tests {
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let result = decode_command_packet(
-            &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+            &buf[..enc_len],
+            Some(&key_cipher),
+            Some(&key_mac),
+            &mut decoded_hdr,
+            &mut decoded_data,
         );
         assert_eq!(result, Err(OtaError::MacVerifyFailed));
     }
@@ -1580,7 +1709,10 @@ mod tests {
     #[test]
     fn decode_command_packet_cipher_no_key() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x04, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x04,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x02),
             integrity_key_id: KeyIdentifier::new(0x00),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1591,14 +1723,17 @@ mod tests {
         let key_cipher = OtaCryptoKey::Aes(Secret::new([0x11u8; 16]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, Some(&key_cipher), None, &mut buf,
-        ).unwrap();
+        let enc_len =
+            encode_command_packet(&hdr, &data, Some(&key_cipher), None, &mut buf).unwrap();
 
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let result = decode_command_packet(
-            &buf[..enc_len], None, None, &mut decoded_hdr, &mut decoded_data,
+            &buf[..enc_len],
+            None,
+            None,
+            &mut decoded_hdr,
+            &mut decoded_data,
         );
         assert_eq!(result, Err(OtaError::UnknownAlgorithm));
     }
@@ -1611,9 +1746,12 @@ mod tests {
     #[test]
     fn des_mac_roundtrip() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
-            ciphering_key_id: KeyIdentifier::new(0x01),  // DES algo
-            integrity_key_id: KeyIdentifier::new(0x01),  // DES algo
+            security_parameters: SecurityParameters {
+                command_header: 0x02,
+                response_header: 0x00,
+            },
+            ciphering_key_id: KeyIdentifier::new(0x01), // DES algo
+            integrity_key_id: KeyIdentifier::new(0x01), // DES algo
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]),
             padding_counter: 0,
@@ -1622,25 +1760,34 @@ mod tests {
         let key_mac = OtaCryptoKey::TripleDes(Secret::new([0x55u8; 16]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, None, Some(&key_mac), &mut buf,
-        ).unwrap();
+        let enc_len = encode_command_packet(&hdr, &data, None, Some(&key_mac), &mut buf).unwrap();
 
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], None, Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            None,
+            Some(&key_mac),
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
         assert_eq!(&decoded_data[..dec_len], &data);
-        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
+        assert_eq!(
+            *decoded_hdr.target_app.as_bytes(),
+            *hdr.target_app.as_bytes()
+        );
     }
 
     // 26. 3DES (2-key) MAC tampered -> MacVerifyFailed
     #[test]
     fn des_mac_tampered() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x02,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x01),
             integrity_key_id: KeyIdentifier::new(0x01),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1651,9 +1798,7 @@ mod tests {
         let key_mac = OtaCryptoKey::TripleDes(Secret::new([0x55u8; 16]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, None, Some(&key_mac), &mut buf,
-        ).unwrap();
+        let enc_len = encode_command_packet(&hdr, &data, None, Some(&key_mac), &mut buf).unwrap();
 
         // Tamper with DES MAC (4 bytes at offset 16)
         buf[16] ^= 0xFF;
@@ -1661,7 +1806,11 @@ mod tests {
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let result = decode_command_packet(
-            &buf[..enc_len], None, Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
+            &buf[..enc_len],
+            None,
+            Some(&key_mac),
+            &mut decoded_hdr,
+            &mut decoded_data,
         );
         assert_eq!(result, Err(OtaError::MacVerifyFailed));
     }
@@ -1670,7 +1819,10 @@ mod tests {
     #[test]
     fn des_cipher_roundtrip() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x04, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x04,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x01),
             integrity_key_id: KeyIdentifier::new(0x00),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1681,15 +1833,19 @@ mod tests {
         let key_cipher = OtaCryptoKey::TripleDes(Secret::new([0x33u8; 16]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, Some(&key_cipher), None, &mut buf,
-        ).unwrap();
+        let enc_len =
+            encode_command_packet(&hdr, &data, Some(&key_cipher), None, &mut buf).unwrap();
 
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], Some(&key_cipher), None, &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            Some(&key_cipher),
+            None,
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
         assert_eq!(&decoded_data[..dec_len], &data);
         assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
@@ -1699,21 +1855,26 @@ mod tests {
     #[test]
     fn des_cipher_mac_roundtrip() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x06, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x06,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x01),
             integrity_key_id: KeyIdentifier::new(0x01),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x03]),
             padding_counter: 0,
         };
-        let data = [0xA0, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00, 0xC0, 0x00, 0x00, 0x10];
+        let data = [
+            0xA0, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00, 0xC0, 0x00, 0x00, 0x10,
+        ];
         let key_cipher = OtaCryptoKey::TripleDes(Secret::new([0x33u8; 16]));
         let key_mac = OtaCryptoKey::TripleDes(Secret::new([0x55u8; 16]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf,
-        ).unwrap();
+        let enc_len =
+            encode_command_packet(&hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf)
+                .unwrap();
 
         // Ciphertext should not contain plaintext counter
         assert_ne!(&buf[10..15], hdr.counter.as_bytes());
@@ -1721,11 +1882,19 @@ mod tests {
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            Some(&key_cipher),
+            Some(&key_mac),
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
         assert_eq!(&decoded_data[..dec_len], &data);
-        assert_eq!(*decoded_hdr.target_app.as_bytes(), *hdr.target_app.as_bytes());
+        assert_eq!(
+            *decoded_hdr.target_app.as_bytes(),
+            *hdr.target_app.as_bytes()
+        );
         assert_eq!(*decoded_hdr.counter.as_bytes(), *hdr.counter.as_bytes());
     }
 
@@ -1733,27 +1902,37 @@ mod tests {
     #[test]
     fn des3_3key_cipher_mac_roundtrip() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x06, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x06,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x01),
             integrity_key_id: KeyIdentifier::new(0x01),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
             counter: OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x04]),
             padding_counter: 0,
         };
-        let data = [0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
+        let data = [
+            0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+        ];
         let key_cipher = OtaCryptoKey::TripleDes3(Secret::new([0x11u8; 24]));
         let key_mac = OtaCryptoKey::TripleDes3(Secret::new([0x22u8; 24]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf,
-        ).unwrap();
+        let enc_len =
+            encode_command_packet(&hdr, &data, Some(&key_cipher), Some(&key_mac), &mut buf)
+                .unwrap();
 
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], Some(&key_cipher), Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            Some(&key_cipher),
+            Some(&key_mac),
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1762,7 +1941,10 @@ mod tests {
     #[test]
     fn des_single_key_mac_roundtrip() {
         let hdr = CommandPacketHeader {
-            security_parameters: SecurityParameters { command_header: 0x02, response_header: 0x00 },
+            security_parameters: SecurityParameters {
+                command_header: 0x02,
+                response_header: 0x00,
+            },
             ciphering_key_id: KeyIdentifier::new(0x01),
             integrity_key_id: KeyIdentifier::new(0x01),
             target_app: ToolkitAppReference::new([0xB0, 0x00, 0x10]),
@@ -1773,15 +1955,18 @@ mod tests {
         let key_mac = OtaCryptoKey::Des(Secret::new([0x77u8; 8]));
 
         let mut buf = [0u8; 256];
-        let enc_len = encode_command_packet(
-            &hdr, &data, None, Some(&key_mac), &mut buf,
-        ).unwrap();
+        let enc_len = encode_command_packet(&hdr, &data, None, Some(&key_mac), &mut buf).unwrap();
 
         let mut decoded_hdr = CommandPacketHeader::new();
         let mut decoded_data = [0u8; 256];
         let dec_len = decode_command_packet(
-            &buf[..enc_len], None, Some(&key_mac), &mut decoded_hdr, &mut decoded_data,
-        ).unwrap();
+            &buf[..enc_len],
+            None,
+            Some(&key_mac),
+            &mut decoded_hdr,
+            &mut decoded_data,
+        )
+        .unwrap();
 
         assert_eq!(&decoded_data[..dec_len], &data);
     }
@@ -1792,13 +1977,24 @@ mod tests {
         let tar = ToolkitAppReference::new([0xB0, 0x00, 0x10]);
         let counter = OtaCounter::new([0x00, 0x00, 0x00, 0x00, 0x01]);
         // command_header 0x02 = CC mode (redundancy_check bits)
-        let sp = SecurityParameters { command_header: 0x02, response_header: 0x01 };
+        let sp = SecurityParameters {
+            command_header: 0x02,
+            response_header: 0x01,
+        };
         let key_mac = OtaCryptoKey::TripleDes(Secret::new([0x55u8; 16]));
 
         let mut buf = [0u8; 256];
         let len = encode_response_packet(
-            &tar, &counter, 0x00, &[], &sp, None, Some(&key_mac), &mut buf,
-        ).unwrap();
+            &tar,
+            &counter,
+            0x00,
+            &[],
+            &sp,
+            None,
+            Some(&key_mac),
+            &mut buf,
+        )
+        .unwrap();
 
         // Total: RPL(2) + RHL(1) + TAR(3) + CNTR(5) + PCNTR(1) + STATUS(1) + CC(4) = 17
         assert_eq!(len, 17);
@@ -1817,14 +2013,15 @@ mod tests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
 
     /// AES-CBC-MAC timing must be independent of key content.
     /// Class 0: fixed key, random 2-block data.
     /// Class 1: random key, random 2-block data.
     #[test]
     fn test_aes_cbc_mac_ct() {
-        let outcome = ct_test(0x07A_CBC0,
+        let outcome = ct_test(
+            0x07A_CBC0,
             |rng| {
                 let key = [0xAAu8; 16];
                 let mut data = [0u8; 32];

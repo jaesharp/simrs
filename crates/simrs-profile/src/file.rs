@@ -171,10 +171,7 @@ mod tests {
         assert_eq!(file.fills[1].0, 5); // offset 3 + 2 = 5
 
         let built = file.build_data(8).unwrap();
-        assert_eq!(
-            built,
-            [0xFF, 0xFF, 0xFF, 0xAA, 0xBB, 0xCC, 0xFF, 0xFF]
-        );
+        assert_eq!(built, [0xFF, 0xFF, 0xFF, 0xAA, 0xBB, 0xCC, 0xFF, 0xFF]);
     }
 
     #[test]

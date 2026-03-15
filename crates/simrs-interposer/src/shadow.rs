@@ -30,7 +30,10 @@ impl SimTerminal {
     /// Create a new SimTerminal with the given auth config and filesystem.
     pub fn new(config: &AuthConfig, atr: &'static [u8], mf: &'static DfDef) -> Self {
         let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::SubscriberKey::reclassify(config.ki));
-        let mil = MilenageParams::with_defaults(SubscriberKey::reclassify(config.k), OperatorVariant::reclassify_operator_cipher(config.opc));
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::reclassify(config.k),
+            OperatorVariant::reclassify_operator_cipher(config.opc),
+        );
         let usim = simrs_usim::UsimApp::new(mf, &[], mil);
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
 
@@ -123,13 +126,12 @@ impl ShadowSim {
     ///
     /// The GSM Ki and USIM K/OPc are configured from the [`AuthConfig`].
     /// The filesystem uses the provided MF definition.
-    pub fn new(
-        config: &AuthConfig,
-        atr: &'static [u8],
-        mf: &'static DfDef,
-    ) -> Self {
+    pub fn new(config: &AuthConfig, atr: &'static [u8], mf: &'static DfDef) -> Self {
         let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::SubscriberKey::reclassify(config.ki));
-        let mil = MilenageParams::with_defaults(SubscriberKey::reclassify(config.k), OperatorVariant::reclassify_operator_cipher(config.opc));
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::reclassify(config.k),
+            OperatorVariant::reclassify_operator_cipher(config.opc),
+        );
         let usim = simrs_usim::UsimApp::new(mf, &[], mil);
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
 
@@ -176,14 +178,9 @@ mod tests {
     use simrs_fs::{DfDef, EfDef, Fid, FileRef};
     use simrs_secret::Secret;
 
-    static ICCID_DATA: [u8; 10] =
-        [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
+    static ICCID_DATA: [u8; 10] = [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
 
-    static EF_ICCID: EfDef = EfDef::transparent(
-        Fid::new(0x2FE2),
-        None,
-        &ICCID_DATA,
-    );
+    static EF_ICCID: EfDef = EfDef::transparent(Fid::new(0x2FE2), None, &ICCID_DATA);
 
     static TEST_MF: DfDef = DfDef {
         fid: Fid::new(0x3F00),
@@ -306,9 +303,10 @@ mod tests {
 
         // Run GSM ALGORITHM command which uses Ki
         // This returns 9F 0C (12 bytes available) - need GET RESPONSE
-        let run_gsm_algo = [0xA0, 0x88, 0x00, 0x00, 0x10,
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-            0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F];
+        let run_gsm_algo = [
+            0xA0, 0x88, 0x00, 0x00, 0x10, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        ];
 
         let _n1 = term1.exchange(&run_gsm_algo, &mut rsp1).unwrap();
         let _n2 = term2.exchange(&run_gsm_algo, &mut rsp2).unwrap();
@@ -324,7 +322,10 @@ mod tests {
         assert!(n2 >= 14, "Should return SRES(4) + Kc(8) + SW(2), got {n2}");
 
         // With different Ki, the SRES/Kc data must differ
-        assert_ne!(&rsp1[..n1 - 2], &rsp2[..n2 - 2],
-            "Different Ki should produce different SRES/Kc");
+        assert_ne!(
+            &rsp1[..n1 - 2],
+            &rsp2[..n2 - 2],
+            "Different Ki should produce different SRES/Kc"
+        );
     }
 }

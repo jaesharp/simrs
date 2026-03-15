@@ -58,14 +58,17 @@ pub mod profile;
 use simrs_bertlv::Encoder;
 use simrs_fs::{
     AccessCondition, AdfSlot, DeactivationTracker, DfDef, EfDef, Fid, FsData, FsError,
-    SelectionCtx, SelectedFile, Sfi,
+    SelectedFile, SelectionCtx, Sfi,
 };
 use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
 use simrs_kdf::HmacSha256;
-use simrs_milenage::{AuthChallenge, AuthToken, AuthenticationAlgorithm, AuthenticationError, CipherKey, IntegrityKey, MilenageParams};
-use simrs_pin::{PinKey, PinManager};
+use simrs_milenage::{
+    AuthChallenge, AuthToken, AuthenticationAlgorithm, AuthenticationError, CipherKey,
+    IntegrityKey, MilenageParams,
+};
 #[cfg(test)]
 use simrs_pin::PinValue;
+use simrs_pin::{PinKey, PinManager};
 use simrs_proactive::ProactiveState;
 use simrs_redact::Redact;
 use simrs_secret::Secret;
@@ -83,9 +86,16 @@ use simrs_secret::Secret;
 /// Note: DF_5GS (19 EFs) is included in all tiers.
 #[cfg(feature = "profile-full")]
 const FS_CAP: usize = 16384;
-#[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
+#[cfg(all(
+    not(feature = "profile-full"),
+    any(feature = "profile-standard", not(feature = "profile-minimal"))
+))]
 const FS_CAP: usize = 4096;
-#[cfg(all(feature = "profile-minimal", not(feature = "profile-standard"), not(feature = "profile-full")))]
+#[cfg(all(
+    feature = "profile-minimal",
+    not(feature = "profile-standard"),
+    not(feature = "profile-full")
+))]
 const FS_CAP: usize = 1024;
 
 /// Maximum number of EFs in the filesystem, selected by feature flag.
@@ -97,9 +107,16 @@ const FS_CAP: usize = 1024;
 /// Note: DF_5GS (19 EFs) is included in all tiers.
 #[cfg(feature = "profile-full")]
 const FS_MAX_EFS: usize = 290;
-#[cfg(all(not(feature = "profile-full"), any(feature = "profile-standard", not(feature = "profile-minimal"))))]
+#[cfg(all(
+    not(feature = "profile-full"),
+    any(feature = "profile-standard", not(feature = "profile-minimal"))
+))]
 const FS_MAX_EFS: usize = 80;
-#[cfg(all(feature = "profile-minimal", not(feature = "profile-standard"), not(feature = "profile-full")))]
+#[cfg(all(
+    feature = "profile-minimal",
+    not(feature = "profile-standard"),
+    not(feature = "profile-full")
+))]
 const FS_MAX_EFS: usize = 40;
 
 /// CLA byte for ETSI CAT (proactive) commands.
@@ -307,7 +324,11 @@ impl AuthenticationResult {
     /// Returns the number of bytes written.
     pub fn encode(&self, buf: &mut [u8]) -> usize {
         match self {
-            Self::Success { response, cipher_key, integrity_key } => {
+            Self::Success {
+                response,
+                cipher_key,
+                integrity_key,
+            } => {
                 // 0xDB <inner_len> <res_len> [RES] <ck_len> [CK] <ik_len> [IK]
                 let inner_len: u8 = AUTH_SUCCESS_INNER_LEN;
                 let mut pos: usize = 0;
@@ -352,7 +373,6 @@ impl AuthenticationResult {
         }
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // SUCI helpers (GET IDENTITY, TS 31.102 V19.4.0 clause 7.5)
@@ -553,16 +573,25 @@ const fn split_mcc_mnc(digits: &[u8; 15], count: usize, mnc_len: u8) -> ([u8; 3]
 /// Returns the new write position.
 fn write_ims_domain(q: &mut [u8], start: usize, mnc: [u8; 3], mcc: [u8; 3]) -> usize {
     let mut pos = start;
-    q[pos..pos + 7].copy_from_slice(b"ims.mnc"); pos += 7;
+    q[pos..pos + 7].copy_from_slice(b"ims.mnc");
+    pos += 7;
     // Zero-padded 3-digit MNC per TS 23.003 clause 13.2.
-    q[pos] = mnc[0]; pos += 1;
-    q[pos] = mnc[1]; pos += 1;
-    q[pos] = mnc[2]; pos += 1;
-    q[pos..pos + 4].copy_from_slice(b".mcc"); pos += 4;
-    q[pos] = mcc[0]; pos += 1;
-    q[pos] = mcc[1]; pos += 1;
-    q[pos] = mcc[2]; pos += 1;
-    q[pos..pos + 16].copy_from_slice(b".3gppnetwork.org"); pos += 16;
+    q[pos] = mnc[0];
+    pos += 1;
+    q[pos] = mnc[1];
+    pos += 1;
+    q[pos] = mnc[2];
+    pos += 1;
+    q[pos..pos + 4].copy_from_slice(b".mcc");
+    pos += 4;
+    q[pos] = mcc[0];
+    pos += 1;
+    q[pos] = mcc[1];
+    pos += 1;
+    q[pos] = mcc[2];
+    pos += 1;
+    q[pos..pos + 16].copy_from_slice(b".3gppnetwork.org");
+    pos += 16;
     pos
 }
 
@@ -652,11 +681,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
     /// let app = UsimApp::new(&MF, &[], mil);
     /// ```
-    pub fn new(
-        mf: &'static DfDef,
-        adfs: &'static [AdfSlot],
-        auth: A,
-    ) -> Self {
+    pub fn new(mf: &'static DfDef, adfs: &'static [AdfSlot], auth: A) -> Self {
         let mut data = FsData::<FS_CAP, FS_MAX_EFS>::new();
         // Panic on init failure: the static filesystem tree must fit in CAP.
         if let Err(e) = data.init_with_adfs(mf, adfs) {
@@ -800,8 +825,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     pub const GBA_SNAPSHOT_SIZE: usize = 0;
 
     /// Total snapshot buffer size in bytes (deterministic, feature-dependent).
-    pub const SNAPSHOT_SIZE: usize =
-        SelectionCtx::SNAPSHOT_SIZE
+    pub const SNAPSHOT_SIZE: usize = SelectionCtx::SNAPSHOT_SIZE
         + FsData::<FS_CAP, FS_MAX_EFS>::SNAPSHOT_SIZE
         + PinManager::<5>::SNAPSHOT_SIZE
         + A::SNAPSHOT_SIZE
@@ -936,7 +960,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         }
         off += ResponseQueue::<64>::SNAPSHOT_SIZE;
         // terminal_capability
-        self.terminal_capability.copy_from_slice(&buf[off..off + 16]);
+        self.terminal_capability
+            .copy_from_slice(&buf[off..off + 16]);
         off += 16;
         self.terminal_capability_len = buf[off];
         off += 1;
@@ -982,9 +1007,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 self.gba_rand = None;
                 off += 48;
             }
-            self.gba_ks_lifetime = u32::from_le_bytes([
-                buf[off], buf[off + 1], buf[off + 2], buf[off + 3],
-            ]);
+            self.gba_ks_lifetime =
+                u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]]);
             off += 4;
         }
         // SUCI state
@@ -996,8 +1020,14 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 seed_bytes.copy_from_slice(&buf[off..off + 32]);
                 off += 32;
                 let counter = u64::from_le_bytes([
-                    buf[off], buf[off + 1], buf[off + 2], buf[off + 3],
-                    buf[off + 4], buf[off + 5], buf[off + 6], buf[off + 7],
+                    buf[off],
+                    buf[off + 1],
+                    buf[off + 2],
+                    buf[off + 3],
+                    buf[off + 4],
+                    buf[off + 5],
+                    buf[off + 6],
+                    buf[off + 7],
                 ]);
                 off += 8;
                 let mut state = SuciState::new(SuciSeed::new(seed_bytes));
@@ -1022,11 +1052,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// is pending, overrides to `91 XX`.
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
-    pub fn handle<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    pub fn handle<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
         let cla = cmd.cla();
 
         // CLA check: accept interindustry (0x00-0x03, 0x40-0x43, 0x60-0x63)
@@ -1142,7 +1168,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         let ctx = if channel == 0 {
             &mut self.fs
         } else {
-            self.channels[channel as usize].as_mut().expect("channel not open")
+            self.channels[channel as usize]
+                .as_mut()
+                .expect("channel not open")
         };
         match cmd.p1() {
             0x00 => {
@@ -1176,7 +1204,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                             self.queue_fcp(sel, None, buf)
                         }
                     }
-                    Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
+                    Err(FsError::FileNotFound) => {
+                        write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND))
+                    }
                     Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
                 }
             }
@@ -1217,7 +1247,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 match ctx.select_by_path(cmd.data(), from_mf) {
                     Ok(_) if no_data => write_sw(buf, StatusWord::Success),
                     Ok(sel) => self.queue_fcp(sel, None, buf),
-                    Err(FsError::FileNotFound) => write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND)),
+                    Err(FsError::FileNotFound) => {
+                        write_sw(buf, StatusWord::wrong_params(sw2::FILE_NOT_FOUND))
+                    }
                     Err(FsError::InvalidPath) => write_sw(buf, StatusWord::WrongLength),
                     Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
                 }
@@ -1241,11 +1273,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     // -- GET RESPONSE --
 
-    fn handle_get_response<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    fn handle_get_response<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
             return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
@@ -1301,7 +1329,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        if self.pin1_denied() {
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
+        }
         let ctx = self.channel_ctx(channel);
 
         // SFI-based access: P1 bit 7 set means SFI in P1[4:0], offset in P2.
@@ -1319,17 +1352,26 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         };
         // Per-file access condition check.
         if self.access_denied(ef.read_ac()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
         }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         }
         let le = u16::from(cmd.le().unwrap_or(0));
 
         match self.data.read_binary(ef, offset, le) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
-            Err(FsError::NotTransparent) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(FsError::NotTransparent) => write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE),
+            ),
             Err(FsError::OffsetOutOfRange) => write_sw(buf, StatusWord::WrongP1P2),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
@@ -1353,7 +1395,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 if p1 == 0 {
                     Ok(1)
                 } else {
-                    p1.checked_add(1).ok_or(StatusWord::wrong_params(sw2::RECORD_NOT_FOUND))
+                    p1.checked_add(1)
+                        .ok_or(StatusWord::wrong_params(sw2::RECORD_NOT_FOUND))
                 }
             }
             0x03 => {
@@ -1374,7 +1417,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        if self.pin1_denied() {
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
+        }
         let rec_num = match Self::resolve_record_num(cmd.p1(), cmd.p2()) {
             Ok(n) => n,
             Err(sw) => return write_sw(buf, sw),
@@ -1385,17 +1433,28 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         };
         // Per-file access condition check.
         if self.access_denied(ef.read_ac()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
         }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         }
 
         match self.data.read_record(ef, rec_num) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
-            Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
-            Err(FsError::RecordOutOfRange) => write_sw(buf, StatusWord::wrong_params(sw2::RECORD_NOT_FOUND)),
+            Err(FsError::NotRecordBased) => write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE),
+            ),
+            Err(FsError::RecordOutOfRange) => {
+                write_sw(buf, StatusWord::wrong_params(sw2::RECORD_NOT_FOUND))
+            }
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
     }
@@ -1408,7 +1467,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        if self.pin1_denied() {
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
+        }
         let ctx = self.channel_ctx(channel);
 
         // SFI-based access: P1 bit 7 set means SFI in P1[4:0], offset in P2.
@@ -1426,11 +1490,17 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         };
         // Per-file access condition check.
         if self.access_denied(ef.update_ac()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
         }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         }
 
         match self.data.write_binary(ef, offset, cmd.data()) {
@@ -1439,7 +1509,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 self.increment_phonebook_counters(channel, ef.fid());
                 write_sw(buf, StatusWord::Success)
             }
-            Err(FsError::NotTransparent) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(FsError::NotTransparent) => write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE),
+            ),
             Err(FsError::OffsetOutOfRange) => write_sw(buf, StatusWord::WrongLength),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
@@ -1453,7 +1526,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        if self.pin1_denied() {
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
+        }
         let rec_num = match Self::resolve_record_num(cmd.p1(), cmd.p2()) {
             Ok(n) => n,
             Err(sw) => return write_sw(buf, sw),
@@ -1463,11 +1541,17 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         };
         // Per-file access condition check.
         if self.access_denied(ef.update_ac()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
         }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         }
         match self.data.write_record(ef, rec_num, cmd.data()) {
             Ok(()) => {
@@ -1475,8 +1559,13 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 self.increment_phonebook_counters(channel, ef.fid());
                 write_sw(buf, StatusWord::Success)
             }
-            Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
-            Err(FsError::RecordOutOfRange) => write_sw(buf, StatusWord::wrong_params(sw2::RECORD_NOT_FOUND)),
+            Err(FsError::NotRecordBased) => write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE),
+            ),
+            Err(FsError::RecordOutOfRange) => {
+                write_sw(buf, StatusWord::wrong_params(sw2::RECORD_NOT_FOUND))
+            }
             Err(FsError::DataTooLarge) => write_sw(buf, StatusWord::WrongLength),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
@@ -1490,17 +1579,28 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        if self.pin1_denied() {
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
+        }
         let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Per-file access condition check.
         if self.access_denied(ef.update_ac()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
         }
         match self.data.increase(ef, cmd.data()) {
             Ok(new_val) => write_data_sw(buf, new_val, StatusWord::Success),
-            Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(FsError::NotRecordBased) => write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE),
+            ),
             Err(FsError::IncreaseOverflow) => write_sw(buf, StatusWord::Other(0x98, 0x50)),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
@@ -1542,11 +1642,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Wraps on overflow.
     #[cfg(feature = "profile-full")]
     #[allow(clippy::cast_possible_truncation)]
-    fn increment_counter(
-        data: &mut FsData<FS_CAP, FS_MAX_EFS>,
-        ef: &'static EfDef,
-        size: usize,
-    ) {
+    fn increment_counter(data: &mut FsData<FS_CAP, FS_MAX_EFS>, ef: &'static EfDef, size: usize) {
         if let Ok(current) = data.read_binary(ef, 0, size as u16) {
             let mut val = [0u8; 4];
             let start = 4 - size;
@@ -1585,28 +1681,22 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     /// STATUS response for P1=0x00/0x01: return data according to P2.
     #[allow(clippy::cast_possible_truncation)]
-    fn status_with_data<'buf>(
-        &self,
-        channel: u8,
-        p2: u8,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    fn status_with_data<'buf>(&self, channel: u8, p2: u8, buf: &'buf mut [u8]) -> &'buf [u8] {
         let ctx = self.channel_ctx(channel);
         match p2 {
             0x00 => {
                 let mut fcp_buf = [0u8; FCP_BUF_CAP];
-                let fcp_len = build_fcp(
-                    SelectedFile::Df(ctx.current_df()),
-                    None,
-                    &mut fcp_buf,
-                );
+                let fcp_len = build_fcp(SelectedFile::Df(ctx.current_df()), None, &mut fcp_buf);
                 write_data_sw(buf, &fcp_buf[..fcp_len], StatusWord::Success)
             }
             0x01 => {
                 // Return just the AID as TLV tag 0x84 if an ADF is
                 // selected; otherwise fall back to full FCP.
                 let aid = ctx.current_adf().and_then(|adf| {
-                    self.adfs.iter().find(|s| core::ptr::eq(s.root, adf)).map(|s| s.aid)
+                    self.adfs
+                        .iter()
+                        .find(|s| core::ptr::eq(s.root, adf))
+                        .map(|s| s.aid)
                 });
                 if let Some(aid_bytes) = aid {
                     // tag 0x84, length, AID bytes.
@@ -1620,11 +1710,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                     &buf[..tlv_len + 2]
                 } else {
                     let mut fcp_buf = [0u8; FCP_BUF_CAP];
-                    let fcp_len = build_fcp(
-                        SelectedFile::Df(ctx.current_df()),
-                        None,
-                        &mut fcp_buf,
-                    );
+                    let fcp_len = build_fcp(SelectedFile::Df(ctx.current_df()), None, &mut fcp_buf);
                     write_data_sw(buf, &fcp_buf[..fcp_len], StatusWord::Success)
                 }
             }
@@ -1636,11 +1722,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     // -- AUTHENTICATE (Milenage UMTS / GSM / GBA context) --
 
     #[allow(clippy::cast_possible_truncation)]
-    fn handle_authenticate<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    fn handle_authenticate<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
         // Note: AUTHENTICATE does not require PIN1 verification per
         // ETSI TS 102 221 -- it has its own security context.
         match cmd.p2() {
@@ -1684,7 +1766,8 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        let Some((challenge, auth_token, _rand_bytes)) = Self::parse_auth_vectors(cmd.data()) else {
+        let Some((challenge, auth_token, _rand_bytes)) = Self::parse_auth_vectors(cmd.data())
+        else {
             return write_sw(buf, StatusWord::WrongLength);
         };
 
@@ -1696,7 +1779,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             },
             Err(AuthenticationError::MacFailure) => AuthenticationResult::MacFailure,
             Err(AuthenticationError::SyncFailure { resync_token }) => {
-                AuthenticationResult::SyncFailure { resync_token: *resync_token.as_bytes() }
+                AuthenticationResult::SyncFailure {
+                    resync_token: *resync_token.as_bytes(),
+                }
             }
         };
 
@@ -1803,9 +1888,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 self.rsp_queue.set_len(n);
                 write_sw(buf, StatusWord::bytes_available(n as u8))
             }
-            Err(AuthenticationError::MacFailure) => {
-                write_sw(buf, StatusWord::AuthenticationError)
-            }
+            Err(AuthenticationError::MacFailure) => write_sw(buf, StatusWord::AuthenticationError),
             Err(AuthenticationError::SyncFailure { resync_token }) => {
                 let result = AuthenticationResult::SyncFailure {
                     resync_token: *resync_token.as_bytes(),
@@ -1834,10 +1917,16 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
         // Must have Ks from a prior GBA bootstrap, and Ks must not be expired.
         let (Some(ks), Some(rand)) = (&self.gba_ks, &self.gba_rand) else {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         };
         if self.gba_ks_lifetime == 0 {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         }
 
         // Command data: NAF_ID_len(1) || NAF_ID || IMPI_len(1) || IMPI
@@ -1877,11 +1966,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// - P2=0x01: SUCI context (returns TLV tag 0xA1)
     /// - P2=0x02: IMPI context (returns TLV tag 0xA2)
     /// - P2=0x03: Home Network Domain Name context (returns TLV tag 0xA3)
-    fn handle_get_identity<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    fn handle_get_identity<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
         if cmd.p1() != 0x00 {
             return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
@@ -1895,19 +1980,25 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     /// GET IDENTITY P2=0x01: SUCI on-card computation.
     #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
-    fn handle_get_identity_suci<'buf>(
-        &mut self,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    fn handle_get_identity_suci<'buf>(&mut self, buf: &'buf mut [u8]) -> &'buf [u8] {
         // SUCI computation requires provisioned DRBG seed.
         let Some(suci) = &mut self.suci else {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         };
 
         // Read EF_SUCI_CALC_INFO to determine protection scheme and HN public key.
         let calc_info_len = profile::EF_SUCI_CALC_INFO.data().len() as u16;
-        let Ok(calc_info) = self.data.read_binary(&profile::EF_SUCI_CALC_INFO, 0, calc_info_len) else {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+        let Ok(calc_info) = self
+            .data
+            .read_binary(&profile::EF_SUCI_CALC_INFO, 0, calc_info_len)
+        else {
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         };
 
         // Parse Protection Scheme Identifier List (tag 0xA0).
@@ -1955,14 +2046,22 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 // SUCI = A1 <len> 01 <MCC+MNC:3> <RoutingInd:2> 00 <key_index> <MSIN_BCD:5>
                 let inner_len = 1 + 3 + 2 + 1 + 1 + MSIN_FIXED_LEN;
                 let mut pos = 0usize;
-                q[pos] = SUCI_TLV_TAG; pos += 1;
-                q[pos] = inner_len as u8; pos += 1;
-                q[pos] = SUPI_TYPE_IMSI; pos += 1;
-                q[pos..pos + 3].copy_from_slice(&mcc_mnc); pos += 3;
-                q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]); pos += 2;
-                q[pos] = SCHEME_NULL; pos += 1;
-                q[pos] = key_index; pos += 1;
-                q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&msin); pos += MSIN_FIXED_LEN;
+                q[pos] = SUCI_TLV_TAG;
+                pos += 1;
+                q[pos] = inner_len as u8;
+                pos += 1;
+                q[pos] = SUPI_TYPE_IMSI;
+                pos += 1;
+                q[pos..pos + 3].copy_from_slice(&mcc_mnc);
+                pos += 3;
+                q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]);
+                pos += 2;
+                q[pos] = SCHEME_NULL;
+                pos += 1;
+                q[pos] = key_index;
+                pos += 1;
+                q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&msin);
+                pos += MSIN_FIXED_LEN;
                 self.rsp_queue.set_len(pos);
                 write_sw(buf, StatusWord::bytes_available(pos as u8))
             }
@@ -1978,22 +2077,36 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 pk.copy_from_slice(hn_key);
 
                 let eph_sk = Secret::new(suci.next_ephemeral_key());
-                let result = simrs_ecies::ecies_profile_a_encrypt(&simrs_ecies::X25519PublicKey::new(pk), &msin, &eph_sk);
+                let result = simrs_ecies::ecies_profile_a_encrypt(
+                    &simrs_ecies::X25519PublicKey::new(pk),
+                    &msin,
+                    &eph_sk,
+                );
 
                 // Scheme output: ephemeral_pk(32) || ciphertext(MSIN_FIXED_LEN) || mac(8)
                 let scheme_output_len = 32 + MSIN_FIXED_LEN + 8;
                 let inner_len = 1 + 3 + 2 + 1 + 1 + scheme_output_len;
                 let mut pos = 0usize;
-                q[pos] = SUCI_TLV_TAG; pos += 1;
-                q[pos] = inner_len as u8; pos += 1;
-                q[pos] = SUPI_TYPE_IMSI; pos += 1;
-                q[pos..pos + 3].copy_from_slice(&mcc_mnc); pos += 3;
-                q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]); pos += 2;
-                q[pos] = SCHEME_PROFILE_A; pos += 1;
-                q[pos] = key_index; pos += 1;
-                q[pos..pos + 32].copy_from_slice(result.ephemeral_pk.as_bytes()); pos += 32;
-                q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&result.ciphertext[..MSIN_FIXED_LEN]); pos += MSIN_FIXED_LEN;
-                q[pos..pos + 8].copy_from_slice(result.mac.as_bytes()); pos += 8;
+                q[pos] = SUCI_TLV_TAG;
+                pos += 1;
+                q[pos] = inner_len as u8;
+                pos += 1;
+                q[pos] = SUPI_TYPE_IMSI;
+                pos += 1;
+                q[pos..pos + 3].copy_from_slice(&mcc_mnc);
+                pos += 3;
+                q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]);
+                pos += 2;
+                q[pos] = SCHEME_PROFILE_A;
+                pos += 1;
+                q[pos] = key_index;
+                pos += 1;
+                q[pos..pos + 32].copy_from_slice(result.ephemeral_pk.as_bytes());
+                pos += 32;
+                q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&result.ciphertext[..MSIN_FIXED_LEN]);
+                pos += MSIN_FIXED_LEN;
+                q[pos..pos + 8].copy_from_slice(result.mac.as_bytes());
+                pos += 8;
                 self.rsp_queue.set_len(pos);
                 write_sw(buf, StatusWord::bytes_available(pos as u8))
             }
@@ -2043,22 +2156,36 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                     j += 1;
                 }
 
-                let result = simrs_ecies::ecies_profile_b_encrypt(&simrs_ecies::P256UncompressedPublicKey::new(pk), &msin, &Secret::new(eph_sk));
+                let result = simrs_ecies::ecies_profile_b_encrypt(
+                    &simrs_ecies::P256UncompressedPublicKey::new(pk),
+                    &msin,
+                    &Secret::new(eph_sk),
+                );
 
                 // Scheme output: ephemeral_pk(33) || ciphertext(MSIN_FIXED_LEN) || mac(8)
                 let scheme_output_len = 33 + MSIN_FIXED_LEN + 8;
                 let inner_len = 1 + 3 + 2 + 1 + 1 + scheme_output_len;
                 let mut pos = 0usize;
-                q[pos] = SUCI_TLV_TAG; pos += 1;
-                q[pos] = inner_len as u8; pos += 1;
-                q[pos] = SUPI_TYPE_IMSI; pos += 1;
-                q[pos..pos + 3].copy_from_slice(&mcc_mnc); pos += 3;
-                q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]); pos += 2;
-                q[pos] = SCHEME_PROFILE_B; pos += 1;
-                q[pos] = key_index; pos += 1;
-                q[pos..pos + 33].copy_from_slice(result.ephemeral_pk.as_bytes()); pos += 33;
-                q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&result.ciphertext[..MSIN_FIXED_LEN]); pos += MSIN_FIXED_LEN;
-                q[pos..pos + 8].copy_from_slice(result.mac.as_bytes()); pos += 8;
+                q[pos] = SUCI_TLV_TAG;
+                pos += 1;
+                q[pos] = inner_len as u8;
+                pos += 1;
+                q[pos] = SUPI_TYPE_IMSI;
+                pos += 1;
+                q[pos..pos + 3].copy_from_slice(&mcc_mnc);
+                pos += 3;
+                q[pos..pos + 2].copy_from_slice(&[routing_ind[0], routing_ind[1]]);
+                pos += 2;
+                q[pos] = SCHEME_PROFILE_B;
+                pos += 1;
+                q[pos] = key_index;
+                pos += 1;
+                q[pos..pos + 33].copy_from_slice(result.ephemeral_pk.as_bytes());
+                pos += 33;
+                q[pos..pos + MSIN_FIXED_LEN].copy_from_slice(&result.ciphertext[..MSIN_FIXED_LEN]);
+                pos += MSIN_FIXED_LEN;
+                q[pos..pos + 8].copy_from_slice(result.mac.as_bytes());
+                pos += 8;
                 self.rsp_queue.set_len(pos);
                 write_sw(buf, StatusWord::bytes_available(pos as u8))
             }
@@ -2071,12 +2198,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Per TS 23.003 clause 13.2, IMPI = `<IMSI>@ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org`.
     /// Returned as TLV with tag 0xA2 via GET RESPONSE.
     #[allow(clippy::cast_possible_truncation)]
-    fn handle_get_identity_impi<'buf>(
-        &mut self,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    fn handle_get_identity_impi<'buf>(&mut self, buf: &'buf mut [u8]) -> &'buf [u8] {
         if self.pin1_denied() {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
         }
 
         let Ok(imsi_data) = self.data.read_binary(&profile::EF_IMSI, 0, 9) else {
@@ -2097,14 +2224,15 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // Build IMPI: <IMSI>@ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org
         let q = self.rsp_queue.buf_mut();
         let mut pos = 2usize; // skip tag + length (filled last)
-        // IMSI digits as ASCII.
+                              // IMSI digits as ASCII.
         let mut i = 0;
         while i < digit_count {
             q[pos] = imsi_digits[i];
             pos += 1;
             i += 1;
         }
-        q[pos] = b'@'; pos += 1;
+        q[pos] = b'@';
+        pos += 1;
         pos = write_ims_domain(q, pos, mnc, mcc);
         // Fill tag + length.
         let inner_len = pos - 2;
@@ -2119,12 +2247,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Per TS 23.003 clause 13.2, domain = `ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org`.
     /// Returned as TLV with tag 0xA3 via GET RESPONSE.
     #[allow(clippy::cast_possible_truncation)]
-    fn handle_get_identity_domain<'buf>(
-        &mut self,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    fn handle_get_identity_domain<'buf>(&mut self, buf: &'buf mut [u8]) -> &'buf [u8] {
         if self.pin1_denied() {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
         }
 
         let Ok(imsi_data) = self.data.read_binary(&profile::EF_IMSI, 0, 9) else {
@@ -2158,7 +2286,11 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         simrs_pin::apdu_verify(&mut self.pin, cmd, buf)
     }
 
-    fn handle_change_ref_data<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
+    fn handle_change_ref_data<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
         simrs_pin::apdu_change(&mut self.pin, cmd, buf)
     }
 
@@ -2182,17 +2314,28 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         cmd: &Command<'_>,
         buf: &'buf mut [u8],
     ) -> &'buf [u8] {
-        if self.pin1_denied() { return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED)); }
+        if self.pin1_denied() {
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
+        }
         let Some(ef) = self.channel_ctx(channel).current_ef() else {
             return write_sw(buf, StatusWord::command_not_allowed(sw2::NO_CURRENT_EF));
         };
         // Per-file access condition check.
         if self.access_denied(ef.read_ac()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::SECURITY_NOT_SATISFIED),
+            );
         }
         // Check deactivation.
         if self.deactivation.is_deactivated(ef.fid()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         }
         let pattern = cmd.data();
         match self.data.search_records(ef, pattern) {
@@ -2203,7 +2346,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                     write_data_sw(buf, &matches[..count], StatusWord::Success)
                 }
             }
-            Err(FsError::NotRecordBased) => write_sw(buf, StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE)),
+            Err(FsError::NotRecordBased) => write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::INCOMPATIBLE_FILE_STRUCTURE),
+            ),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
     }
@@ -2290,7 +2436,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 let ch = cmd.p2();
                 if ch == 0 {
                     // Cannot close basic channel.
-                    return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+                    return write_sw(
+                        buf,
+                        StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+                    );
                 }
                 if ch > 3 {
                     return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
@@ -2319,14 +2468,13 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     // -- FETCH --
 
-    fn handle_fetch<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    fn handle_fetch<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
         if !self.proactive.has_pending() {
             // Per TS 102 223: FETCH with no pending command is not allowed.
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         }
 
         let le = cmd.le().unwrap_or(0) as usize;
@@ -2356,7 +2504,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // If we have a valid Command Details TLV in the data but no active
         // proactive session, reject with 69 85 (conditions not satisfied).
         if !self.proactive_session_active && Self::has_command_details(cmd.data()) {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         }
         // Session concludes with TERMINAL RESPONSE.
         self.proactive_session_active = false;
@@ -2382,10 +2533,14 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         while pos < data.len() {
             let tag = data[pos];
             pos += 1;
-            if pos >= data.len() { break; }
+            if pos >= data.len() {
+                break;
+            }
             let len = data[pos] as usize;
             pos += 1;
-            if pos + len > data.len() { break; }
+            if pos + len > data.len() {
+                break;
+            }
             if tag == 0x81 && len >= 3 {
                 // [cmd_number, cmd_type, cmd_qualifier]
                 return data[pos + 2];
@@ -2404,10 +2559,14 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         while pos < data.len() {
             let tag = data[pos];
             pos += 1;
-            if pos >= data.len() { break; }
+            if pos >= data.len() {
+                break;
+            }
             let len = data[pos] as usize;
             pos += 1;
-            if pos + len > data.len() { break; }
+            if pos + len > data.len() {
+                break;
+            }
             if tag == 0x81 && len >= 3 {
                 return true;
             }
@@ -2499,7 +2658,9 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         while pos + 1 < inner.len() {
             let tag = inner[pos];
             pos += 1;
-            if pos >= inner.len() { break; }
+            if pos >= inner.len() {
+                break;
+            }
             let len = inner[pos] as usize;
             pos += 1;
             // Tag 0x82 = Device Identities (COMPREHENSION-TLV, CR bit set).
@@ -2512,17 +2673,16 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         false
     }
 
-    fn handle_envelope<'buf>(
-        &mut self,
-        cmd: &Command<'_>,
-        buf: &'buf mut [u8],
-    ) -> &'buf [u8] {
+    fn handle_envelope<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
         let data = cmd.data();
 
         // Per ETSI TS 102 221 V18.3.0 clause 11.2.2: ENVELOPE requires a prior
         // TERMINAL PROFILE to have been sent in this session.
         if !self.proactive.has_terminal_profile() {
-            return write_sw(buf, StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED));
+            return write_sw(
+                buf,
+                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+            );
         }
 
         // Reject empty data (no BER-TLV tag present).
@@ -2560,8 +2720,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             Self::ENV_TAG_SMS_PP_DOWNLOAD => {
                 // Gate on UST service 28 (Data download via SMS-PP).
                 if !self.is_service_enabled(UST_SERVICE_SMS_PP_DOWNLOAD) {
-                    return write_sw(buf, StatusWord::command_not_allowed(
-                        sw2::CONDITIONS_NOT_SATISFIED));
+                    return write_sw(
+                        buf,
+                        StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+                    );
                 }
                 // SMS-PP Data Download: accept and pass to proactive state.
                 self.proactive.process_envelope(data);
@@ -2570,8 +2732,10 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             Self::ENV_TAG_CALL_CONTROL => {
                 // Gate on UST service 30 (Call Control by USIM).
                 if !self.is_service_enabled(UST_SERVICE_CALL_CONTROL) {
-                    return write_sw(buf, StatusWord::command_not_allowed(
-                        sw2::CONDITIONS_NOT_SATISFIED));
+                    return write_sw(
+                        buf,
+                        StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+                    );
                 }
                 // Validate inner TLV structure: Device Identities (tag 0x82)
                 // is mandatory per ETSI TS 102 223 clause 7.3.1.
@@ -2609,11 +2773,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 ///
 /// Uses the dry-run/real-run pattern: first pass counts bytes, second
 /// writes them.
-fn build_fcp(
-    sel: SelectedFile,
-    aid: Option<&[u8]>,
-    out: &mut [u8],
-) -> usize {
+fn build_fcp(sel: SelectedFile, aid: Option<&[u8]>, out: &mut [u8]) -> usize {
     // Dry run to compute inner content length.
     let inner_len = fcp_inner_len(sel, aid);
 
@@ -2685,10 +2845,7 @@ fn write_fcp_df(
 
 /// FCP inner content for an EF.
 #[allow(clippy::cast_possible_truncation)]
-fn write_fcp_ef(
-    enc: &mut Encoder<'_>,
-    ef: &EfDef,
-) -> Result<(), simrs_bertlv::BerError> {
+fn write_fcp_ef(enc: &mut Encoder<'_>, ef: &EfDef) -> Result<(), simrs_bertlv::BerError> {
     // File descriptor.
     let (fd_data, fd_len) = ef.structure().fcp_descriptor_data();
     enc.tag_length_value(fcp::FILE_DESCRIPTOR, &fd_data[..fd_len])?;
@@ -2719,10 +2876,7 @@ fn write_fcp_ef(
 }
 
 /// Write a BER-encoded length using the encoder.
-fn write_ber_len(
-    enc: &mut Encoder<'_>,
-    len: usize,
-) -> Result<(), simrs_bertlv::BerError> {
+fn write_ber_len(enc: &mut Encoder<'_>, len: usize) -> Result<(), simrs_bertlv::BerError> {
     #[allow(clippy::cast_possible_truncation)]
     if len <= simrs_bertlv::BER_SHORT_FORM_MAX {
         enc.raw(&[len as u8])
@@ -2730,7 +2884,6 @@ fn write_ber_len(
         enc.raw(&[simrs_bertlv::BER_LONG_FORM_1, len as u8])
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -2753,16 +2906,12 @@ mod tests {
     );
 
     static EF_DIR_DATA: [u8; 16] = [
-        0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF,
     ];
 
-    static EF_DIR: EfDef = EfDef::linear_fixed(
-        Fid::new(0x2F00),
-        Some(Sfi::new(30)),
-        8, 2,
-        &EF_DIR_DATA,
-    );
+    static EF_DIR: EfDef =
+        EfDef::linear_fixed(Fid::new(0x2F00), Some(Sfi::new(30)), 8, 2, &EF_DIR_DATA);
 
     static EF_IMSI: EfDef = EfDef::transparent(
         Fid::new(0x6F07),
@@ -2770,36 +2919,20 @@ mod tests {
         &[0x08, 0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0xF0],
     );
 
-    static EF_UST: EfDef = EfDef::transparent(
-        Fid::new(0x6F38),
-        None,
-        &[0xFF, 0xFF, 0xFF, 0xFF],
-    );
+    static EF_UST: EfDef = EfDef::transparent(Fid::new(0x6F38), None, &[0xFF, 0xFF, 0xFF, 0xFF]);
 
     static EF_FDN_DATA: [u8; 20] = [
-        0x41, 0x6C, 0x69, 0x63, 0x65, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0x42, 0x6F, 0x62, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x41, 0x6C, 0x69, 0x63, 0x65, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x42, 0x6F, 0x62, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
 
-    static EF_FDN: EfDef = EfDef::linear_fixed(
-        Fid::new(0x6F3B),
-        None,
-        10, 2,
-        &EF_FDN_DATA,
-    );
+    static EF_FDN: EfDef = EfDef::linear_fixed(Fid::new(0x6F3B), None, 10, 2, &EF_FDN_DATA);
 
     static EF_ACC_DATA: [u8; 12] = [
-        0x00, 0x00, 0x01, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
-    static EF_ACC: EfDef = EfDef::cyclic(
-        Fid::new(0x6F78),
-        None,
-        4, 3,
-        &EF_ACC_DATA,
-    );
+    static EF_ACC: EfDef = EfDef::cyclic(Fid::new(0x6F78), None, 4, 3, &EF_ACC_DATA);
 
     static ADF_USIM_ROOT: DfDef = DfDef {
         fid: Fid::new(0xFF01),
@@ -2820,20 +2953,17 @@ mod tests {
 
     static MF: DfDef = DfDef {
         fid: Fid::new(0x3F00),
-        children: &[
-            FileRef::Ef(&EF_ICCID),
-            FileRef::Ef(&EF_DIR),
-        ],
+        children: &[FileRef::Ef(&EF_ICCID), FileRef::Ef(&EF_DIR)],
     };
 
     // ETSI TS 135 208 Test Set 1 values.
     static K: SubscriberKey = SubscriberKey::classify([
-        0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F,
-        0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6, 0xBC,
+        0x46, 0x5B, 0x5C, 0xE8, 0xB1, 0x99, 0xB4, 0x9F, 0xAA, 0x5F, 0x0A, 0x2E, 0xE2, 0x38, 0xA6,
+        0xBC,
     ]);
     static OPC: OperatorVariant = OperatorVariant::operator_cipher([
-        0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E,
-        0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B, 0xAF,
+        0xCD, 0x63, 0xCB, 0x71, 0x95, 0x4A, 0x9F, 0x4E, 0x48, 0xA5, 0x99, 0x4E, 0x37, 0xA0, 0x2B,
+        0xAF,
     ]);
 
     fn app() -> UsimApp {
@@ -2945,7 +3075,7 @@ mod tests {
         // Tag 0x80: file size.
         let size_val = find_tlv_tag(inner, 0x80).unwrap();
         assert_eq!(size_val, &[0x00, 0x0A]); // 10 bytes
-        // Tag 0x83: FID = 2FE2.
+                                             // Tag 0x83: FID = 2FE2.
         let fid_val = find_tlv_tag(inner, 0x83).unwrap();
         assert_eq!(fid_val, &[0x2F, 0xE2]);
     }
@@ -2972,8 +3102,9 @@ mod tests {
         let mut app = app();
         let (buf, _len) = send(
             &mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
         );
         assert_eq!(buf[0], 0x61); // FCP available
         let fcp_len = buf[1] as usize;
@@ -2991,8 +3122,9 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x6A, 0x82));
     }
@@ -3080,7 +3212,7 @@ mod tests {
     fn read_record_mode_absolute() {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
-        // P2=0x04: absolute mode, P1=2 -> record 2.
+                                                                     // P2=0x04: absolute mode, P1=2 -> record 2.
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x02, 0x04, 0x08]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(len, 8 + 2);
@@ -3092,11 +3224,11 @@ mod tests {
     fn read_record_mode_next() {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
-        // P2=0x02: next mode, P1=0 -> record 1 (first).
+                                                                     // P2=0x02: next mode, P1=0 -> record 1 (first).
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x00, 0x02, 0x08]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(buf[0], 0x61); // first record starts with TLV tag
-        // P2=0x02: next mode, P1=1 -> record 2.
+                                  // P2=0x02: next mode, P1=1 -> record 2.
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x02, 0x08]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(buf[0], 0xFF); // second record
@@ -3106,11 +3238,11 @@ mod tests {
     fn read_record_mode_previous() {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
-        // P2=0x03: previous mode, P1=2 -> record 1.
+                                                                     // P2=0x03: previous mode, P1=2 -> record 1.
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x02, 0x03, 0x08]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(buf[0], 0x61); // first record
-        // P2=0x03: previous mode, P1=1 -> error (no record 0).
+                                  // P2=0x03: previous mode, P1=1 -> error (no record 0).
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x03, 0x08]);
         assert_eq!(sw(&buf, len), (0x6A, 0x83));
     }
@@ -3134,8 +3266,9 @@ mod tests {
         let mut app = app();
         send(
             &mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
         );
         let (buf, len) = send(&mut app, &[0x00, 0xF2, 0x00, 0x00, 0x00]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
@@ -3154,14 +3287,15 @@ mod tests {
         // Select ADF.USIM first (required for AUTHENTICATE).
         send(
             &mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
         );
 
         // ETSI TS 135 208 Test Set 1 RAND and build AUTN.
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let mut params = MilenageParams::with_defaults(K, OPC);
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
@@ -3205,7 +3339,9 @@ mod tests {
         assert_eq!(buf[0], 0xDB);
 
         // Verify against direct Milenage computation.
-        let expected = params.authenticate(&ch, &AuthToken::new(auth_token)).unwrap();
+        let expected = params
+            .authenticate(&ch, &AuthToken::new(auth_token))
+            .unwrap();
         // RES at offset 3 (after 0xDB, len, 0x08).
         assert_eq!(&buf[3..11], expected.response.as_bytes());
         // CK at offset 12 (after 0x10).
@@ -3238,8 +3374,9 @@ mod tests {
         // Only 8 bytes of data instead of 34.
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x88, 0x00, 0x81, 0x08,
-              0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
+            &[
+                0x00, 0x88, 0x00, 0x81, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x67, 0x00));
     }
@@ -3249,8 +3386,8 @@ mod tests {
         let mut app = app();
         // Use ETSI TS 135 208 Test Set 1 RAND.
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
 
         // Build AUTHENTICATE APDU: P2=0x00 (GSM context), data = 0x10 || RAND.
@@ -3298,8 +3435,10 @@ mod tests {
         // Send only 10 bytes of data instead of 17 (0x10 || RAND).
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x88, 0x00, 0x00, 0x0A,
-              0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09],
+            &[
+                0x00, 0x88, 0x00, 0x00, 0x0A, 0x10, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                0x09,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x67, 0x00));
     }
@@ -3326,8 +3465,8 @@ mod tests {
         // Use ETSI TS 135 208 Test Set 1 to produce known RES/CK/IK values.
         let mut params = MilenageParams::with_defaults(K, OPC);
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
@@ -3343,7 +3482,9 @@ mod tests {
         auth_token[6..8].copy_from_slice(&management_field);
         auth_token[8..16].copy_from_slice(params.compute_auth_mac(&ch, &sqn, &amf).as_bytes());
 
-        let output = params.authenticate(&ch, &AuthToken::new(auth_token)).unwrap();
+        let output = params
+            .authenticate(&ch, &AuthToken::new(auth_token))
+            .unwrap();
         let result = AuthenticationResult::Success {
             response: *output.response.as_bytes(),
             cipher_key: output.cipher_key,
@@ -3356,7 +3497,7 @@ mod tests {
         // Total length: 2 (tag+len) + 1+8 (RES) + 1+16 (CK) + 1+16 (IK) = 45.
         assert_eq!(n, 45);
         assert_eq!(buf[0], 0xDB); // AUTH_SUCCESS_TAG
-        assert_eq!(buf[1], 43);   // inner length = 1+8+1+16+1+16
+        assert_eq!(buf[1], 43); // inner length = 1+8+1+16+1+16
         assert_eq!(buf[2], 0x08); // RES length prefix
         assert_eq!(&buf[3..11], output.response.as_bytes());
         assert_eq!(buf[11], 0x10); // CK length prefix
@@ -3368,8 +3509,7 @@ mod tests {
     #[test]
     fn authenticate_result_encode_sync_failure() {
         let resync_token: [u8; 14] = [
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD,
-            0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32,
         ];
         let result = AuthenticationResult::SyncFailure { resync_token };
 
@@ -3397,8 +3537,9 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x20, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
@@ -3408,8 +3549,9 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x20, 0x00, 0x01, 0x08,
-              0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x63, 0xC2));
     }
@@ -3417,15 +3559,17 @@ mod tests {
     #[test]
     fn verify_blocked_pin() {
         let mut app = app();
-        let wrong = [0x00, 0x20, 0x00, 0x01, 0x08,
-                     0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        let wrong = [
+            0x00, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x20, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x69, 0x83));
     }
@@ -3435,23 +3579,26 @@ mod tests {
     #[test]
     fn unblock_with_correct_puk() {
         let mut app = app();
-        let wrong = [0x00, 0x20, 0x00, 0x01, 0x08,
-                     0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        let wrong = [
+            0x00, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x2C, 0x00, 0x01, 0x10,
-              0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
-              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x2C, 0x00, 0x01, 0x10, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x35,
+                0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // New PIN "5678" works.
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x20, 0x00, 0x01, 0x08,
-              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
@@ -3464,16 +3611,18 @@ mod tests {
         // Old PIN "1234" + new PIN "5678".
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x24, 0x00, 0x01, 0x10,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
-              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x24, 0x00, 0x01, 0x10, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF, 0x35,
+                0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Verify with new PIN.
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x20, 0x00, 0x01, 0x08,
-              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
@@ -3483,9 +3632,10 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x24, 0x00, 0x01, 0x10,
-              0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
-              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x24, 0x00, 0x01, 0x10, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF, 0x35,
+                0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x63, 0xC2));
     }
@@ -3493,16 +3643,18 @@ mod tests {
     #[test]
     fn change_ref_data_blocked() {
         let mut app = app();
-        let wrong = [0x00, 0x20, 0x00, 0x01, 0x08,
-                     0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        let wrong = [
+            0x00, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x24, 0x00, 0x01, 0x10,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
-              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x24, 0x00, 0x01, 0x10, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF, 0x35,
+                0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x69, 0x83));
     }
@@ -3512,9 +3664,10 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x24, 0x00, 0xFF, 0x10,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
-              0x35, 0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x24, 0x00, 0xFF, 0x10, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF, 0x35,
+                0x36, 0x37, 0x38, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x6A, 0x88));
     }
@@ -3525,8 +3678,9 @@ mod tests {
         // Only 8 bytes instead of 16.
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x24, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x24, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x67, 0x00));
     }
@@ -3538,15 +3692,17 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x26, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // VERIFY should now return "disabled" (69 84).
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x20, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x69, 0x84));
     }
@@ -3556,8 +3712,9 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x26, 0x00, 0x01, 0x08,
-              0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x26, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x63, 0xC2));
     }
@@ -3565,15 +3722,17 @@ mod tests {
     #[test]
     fn disable_pin_blocked() {
         let mut app = app();
-        let wrong = [0x00, 0x20, 0x00, 0x01, 0x08,
-                     0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        let wrong = [
+            0x00, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x26, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x69, 0x83));
     }
@@ -3583,8 +3742,9 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x26, 0x00, 0xFF, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x26, 0x00, 0xFF, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x6A, 0x88));
     }
@@ -3594,8 +3754,7 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x26, 0x00, 0x01, 0x04,
-              0x31, 0x32, 0x33, 0x34],
+            &[0x00, 0x26, 0x00, 0x01, 0x04, 0x31, 0x32, 0x33, 0x34],
         );
         assert_eq!(sw(&buf, len), (0x67, 0x00));
     }
@@ -3606,14 +3765,16 @@ mod tests {
         // Disable once.
         send(
             &mut app,
-            &[0x00, 0x26, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         // Second disable returns "already disabled" (69 84).
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x26, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x69, 0x84));
     }
@@ -3626,21 +3787,24 @@ mod tests {
         // Disable first.
         send(
             &mut app,
-            &[0x00, 0x26, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         // Enable.
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x28, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x28, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // VERIFY should work again.
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x20, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
@@ -3651,14 +3815,16 @@ mod tests {
         // Disable first.
         send(
             &mut app,
-            &[0x00, 0x26, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x26, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         // Enable with wrong PIN.
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x28, 0x00, 0x01, 0x08,
-              0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x28, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x63, 0xC2));
     }
@@ -3666,15 +3832,17 @@ mod tests {
     #[test]
     fn enable_pin_blocked() {
         let mut app = app();
-        let wrong = [0x00, 0x20, 0x00, 0x01, 0x08,
-                     0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF];
+        let wrong = [
+            0x00, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         send(&mut app, &wrong);
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x28, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x28, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x69, 0x83));
     }
@@ -3684,8 +3852,9 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x28, 0x00, 0xFF, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x28, 0x00, 0xFF, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x6A, 0x88));
     }
@@ -3695,8 +3864,7 @@ mod tests {
         let mut app = app();
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x28, 0x00, 0x01, 0x04,
-              0x31, 0x32, 0x33, 0x34],
+            &[0x00, 0x28, 0x00, 0x01, 0x04, 0x31, 0x32, 0x33, 0x34],
         );
         assert_eq!(sw(&buf, len), (0x67, 0x00));
     }
@@ -3707,8 +3875,9 @@ mod tests {
         // PIN is already enabled by default. Enable again is a no-op success.
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x28, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x28, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
@@ -3765,10 +3934,7 @@ mod tests {
     #[test]
     fn terminal_response_accepted() {
         let mut app = app();
-        let (buf, len) = send(
-            &mut app,
-            &[0x80, 0x14, 0x00, 0x00, 0x02, 0x00, 0x00],
-        );
+        let (buf, len) = send(&mut app, &[0x80, 0x14, 0x00, 0x00, 0x02, 0x00, 0x00]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
 
@@ -3778,8 +3944,8 @@ mod tests {
     fn send_terminal_profile(app: &mut UsimApp) {
         let apdu = [
             0x80, 0x10, 0x00, 0x00, // CLA INS P1 P2
-            0x04,                     // Lc = 4 bytes
-            0xFF, 0xFF, 0xFF, 0xFF,  // profile data (all features)
+            0x04, // Lc = 4 bytes
+            0xFF, 0xFF, 0xFF, 0xFF, // profile data (all features)
         ];
         let (buf, len) = send(app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
@@ -3790,10 +3956,7 @@ mod tests {
         let mut app = app();
         send_terminal_profile(&mut app);
         // Tag D0, length 0x00 -- zero-length TLV is semantically invalid.
-        let (buf, len) = send(
-            &mut app,
-            &[0x80, 0xC2, 0x00, 0x00, 0x02, 0xD0, 0x00],
-        );
+        let (buf, len) = send(&mut app, &[0x80, 0xC2, 0x00, 0x00, 0x02, 0xD0, 0x00]);
         assert_eq!(sw(&buf, len), (0x6A, 0x80));
     }
 
@@ -3803,7 +3966,9 @@ mod tests {
         // No TERMINAL PROFILE sent -- ENVELOPE must be rejected.
         let (buf, len) = send(
             &mut app,
-            &[0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, 0x82, 0x02, 0x83, 0x81],
+            &[
+                0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, 0x82, 0x02, 0x83, 0x81,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x69, 0x85));
     }
@@ -3823,7 +3988,9 @@ mod tests {
         // ENVELOPE must be rejected again -- no TERMINAL PROFILE in new session.
         let (buf, len) = send(
             &mut app,
-            &[0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, 0x82, 0x02, 0x83, 0x81],
+            &[
+                0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, 0x82, 0x02, 0x83, 0x81,
+            ],
         );
         assert_eq!(sw(&buf, len), (0x69, 0x85));
     }
@@ -3836,9 +4003,9 @@ mod tests {
         // (tag D3, length 3, inner: tag 90, length 1, item_id = 2)
         let apdu = [
             0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
-            0x05,                     // Lc = 5 bytes of data
-            0xD3, 0x03,               // Menu Selection tag + length
-            0x90, 0x01, 0x02,         // Item Identifier: tag 90, len 1, value 2
+            0x05, // Lc = 5 bytes of data
+            0xD3, 0x03, // Menu Selection tag + length
+            0x90, 0x01, 0x02, // Item Identifier: tag 90, len 1, value 2
         ];
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
@@ -3858,9 +4025,9 @@ mod tests {
         // SMS-PP Data Download envelope: tag D1, length 4, then some inner TLVs.
         let apdu = [
             0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
-            0x06,                     // Lc = 6 bytes of data
-            0xD1, 0x04,               // SMS-PP Download tag + length
-            0x82, 0x02, 0x83, 0x81,  // Device Identities: network -> UICC
+            0x06, // Lc = 6 bytes of data
+            0xD1, 0x04, // SMS-PP Download tag + length
+            0x82, 0x02, 0x83, 0x81, // Device Identities: network -> UICC
         ];
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
@@ -3873,9 +4040,9 @@ mod tests {
         // Call Control envelope: tag D4, length 4, then some inner TLVs.
         let apdu = [
             0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
-            0x06,                     // Lc = 6 bytes of data
-            0xD4, 0x04,               // Call Control tag + length
-            0x82, 0x02, 0x83, 0x81,  // Device Identities
+            0x06, // Lc = 6 bytes of data
+            0xD4, 0x04, // Call Control tag + length
+            0x82, 0x02, 0x83, 0x81, // Device Identities
         ];
         let (buf, len) = send(&mut app, &apdu);
         // Call Control: allowed without modification returns 90 00.
@@ -3890,9 +4057,9 @@ mod tests {
         // so the catch-all branch rejects it.
         let apdu = [
             0x80, 0xC2, 0x00, 0x00, // CLA INS P1 P2
-            0x04,                     // Lc = 4 bytes of data
-            0xE0, 0x02,               // Unknown tag + length
-            0x01, 0x02,               // Arbitrary data
+            0x04, // Lc = 4 bytes of data
+            0xE0, 0x02, // Unknown tag + length
+            0x01, 0x02, // Arbitrary data
         ];
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x6A, 0x80));
@@ -3905,14 +4072,15 @@ mod tests {
         send_terminal_profile(&mut app);
         // Call Control envelope with arbitrary data but no Device Identities tag.
         let apdu = [
-            0x80, 0xC2, 0x00, 0x00,
-            0x06,
-            0xD4, 0x04, // Call Control tag + length
+            0x80, 0xC2, 0x00, 0x00, 0x06, 0xD4, 0x04, // Call Control tag + length
             0x06, 0x02, 0xAA, 0xBB, // tag 0x06 (Address), not Device Identities
         ];
         let (buf, len) = send(&mut app, &apdu);
-        assert_eq!(sw(&buf, len), (0x6A, 0x80),
-            "Call Control without Device Identities must be rejected");
+        assert_eq!(
+            sw(&buf, len),
+            (0x6A, 0x80),
+            "Call Control without Device Identities must be rejected"
+        );
     }
 
     /// SMS-PP Download rejected when UST service 28 is disabled.
@@ -3926,17 +4094,20 @@ mod tests {
             panic!("EF_UST not found in ref profile");
         };
         let new_byte3 = ust_byte3[0] & !(1 << 3); // clear service 28
-        app.data.write_binary(&profile::EF_UST, 3, &[new_byte3]).unwrap();
+        app.data
+            .write_binary(&profile::EF_UST, 3, &[new_byte3])
+            .unwrap();
 
         let apdu = [
-            0x80, 0xC2, 0x00, 0x00,
-            0x06,
-            0xD1, 0x04, // SMS-PP tag + length
+            0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, // SMS-PP tag + length
             0x82, 0x02, 0x83, 0x81, // Device Identities
         ];
         let (buf, len) = send(&mut app, &apdu);
-        assert_eq!(sw(&buf, len), (0x69, 0x85),
-            "SMS-PP Download must be rejected when UST service 28 is disabled");
+        assert_eq!(
+            sw(&buf, len),
+            (0x69, 0x85),
+            "SMS-PP Download must be rejected when UST service 28 is disabled"
+        );
     }
 
     /// Call Control rejected when UST service 30 is disabled.
@@ -3950,17 +4121,20 @@ mod tests {
             panic!("EF_UST not found in ref profile");
         };
         let new_byte3 = ust_byte3[0] & !(1 << 5); // clear service 30
-        app.data.write_binary(&profile::EF_UST, 3, &[new_byte3]).unwrap();
+        app.data
+            .write_binary(&profile::EF_UST, 3, &[new_byte3])
+            .unwrap();
 
         let apdu = [
-            0x80, 0xC2, 0x00, 0x00,
-            0x06,
-            0xD4, 0x04, // Call Control tag + length
+            0x80, 0xC2, 0x00, 0x00, 0x06, 0xD4, 0x04, // Call Control tag + length
             0x82, 0x02, 0x83, 0x81, // Device Identities
         ];
         let (buf, len) = send(&mut app, &apdu);
-        assert_eq!(sw(&buf, len), (0x69, 0x85),
-            "Call Control must be rejected when UST service 30 is disabled");
+        assert_eq!(
+            sw(&buf, len),
+            (0x69, 0x85),
+            "Call Control must be rejected when UST service 30 is disabled"
+        );
     }
 
     /// SMS-PP Download succeeds when UST service 28 is enabled (reference profile).
@@ -3970,14 +4144,15 @@ mod tests {
         let mut app = ref_app();
         send_terminal_profile(&mut app);
         let apdu = [
-            0x80, 0xC2, 0x00, 0x00,
-            0x06,
-            0xD1, 0x04, // SMS-PP tag + length
+            0x80, 0xC2, 0x00, 0x00, 0x06, 0xD1, 0x04, // SMS-PP tag + length
             0x82, 0x02, 0x83, 0x81, // Device Identities
         ];
         let (buf, len) = send(&mut app, &apdu);
-        assert_eq!(sw(&buf, len), (0x90, 0x00),
-            "SMS-PP Download must succeed when UST service 28 is enabled");
+        assert_eq!(
+            sw(&buf, len),
+            (0x90, 0x00),
+            "SMS-PP Download must succeed when UST service 28 is enabled"
+        );
     }
 
     /// Call Control succeeds when UST service 30 is enabled (reference profile).
@@ -3987,14 +4162,15 @@ mod tests {
         let mut app = ref_app();
         send_terminal_profile(&mut app);
         let apdu = [
-            0x80, 0xC2, 0x00, 0x00,
-            0x06,
-            0xD4, 0x04, // Call Control tag + length
+            0x80, 0xC2, 0x00, 0x00, 0x06, 0xD4, 0x04, // Call Control tag + length
             0x82, 0x02, 0x83, 0x81, // Device Identities
         ];
         let (buf, len) = send(&mut app, &apdu);
-        assert_eq!(sw(&buf, len), (0x90, 0x00),
-            "Call Control must succeed when UST service 30 is enabled");
+        assert_eq!(
+            sw(&buf, len),
+            (0x90, 0x00),
+            "Call Control must succeed when UST service 30 is enabled"
+        );
     }
 
     #[test]
@@ -4003,21 +4179,21 @@ mod tests {
         // Send TERMINAL_PROFILE with 4 bytes of profile data.
         let apdu = [
             0x80, 0x10, 0x00, 0x00, // CLA INS P1 P2
-            0x04,                     // Lc = 4 bytes
-            0xFF, 0x0F, 0x00, 0x80,  // profile data
+            0x04, // Lc = 4 bytes
+            0xFF, 0x0F, 0x00, 0x80, // profile data
         ];
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         // Verify the profile was stored.
         let ps = app.proactive_state();
-        assert!(ps.terminal_supports(0, 0));  // byte 0 bit 0 of 0xFF
-        assert!(ps.terminal_supports(0, 7));  // byte 0 bit 7 of 0xFF
-        assert!(ps.terminal_supports(1, 0));  // byte 1 bit 0 of 0x0F
-        assert!(ps.terminal_supports(1, 3));  // byte 1 bit 3 of 0x0F
+        assert!(ps.terminal_supports(0, 0)); // byte 0 bit 0 of 0xFF
+        assert!(ps.terminal_supports(0, 7)); // byte 0 bit 7 of 0xFF
+        assert!(ps.terminal_supports(1, 0)); // byte 1 bit 0 of 0x0F
+        assert!(ps.terminal_supports(1, 3)); // byte 1 bit 3 of 0x0F
         assert!(!ps.terminal_supports(1, 4)); // byte 1 bit 4 of 0x0F
         assert!(!ps.terminal_supports(2, 0)); // byte 2 = 0x00
-        assert!(ps.terminal_supports(3, 7));  // byte 3 bit 7 of 0x80
+        assert!(ps.terminal_supports(3, 7)); // byte 3 bit 7 of 0x80
         assert!(!ps.terminal_supports(4, 0)); // beyond profile
     }
 
@@ -4038,8 +4214,9 @@ mod tests {
         // VERIFY correct PIN (would normally return 90 00).
         let (buf, len) = send(
             &mut app,
-            &[0x00, 0x20, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
         );
         // Overridden to 91 XX.
         assert_eq!(buf[len - 2], 0x91);
@@ -4058,10 +4235,7 @@ mod tests {
         app.proactive_state().queue_command(&cmd).unwrap();
 
         // SELECT nonexistent FID (error 6A 82 should not be overridden).
-        let (buf, len) = send(
-            &mut app,
-            &[0x00, 0xA4, 0x00, 0x04, 0x02, 0xFF, 0xFF],
-        );
+        let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0xFF, 0xFF]);
         assert_eq!(sw(&buf, len), (0x6A, 0x82));
     }
 
@@ -4073,8 +4247,7 @@ mod tests {
         // SELECT EF.ICCID
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
         // UPDATE BINARY: offset 0, 3 bytes [0xAA, 0xBB, 0xCC]
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xD6, 0x00, 0x00, 0x03, 0xAA, 0xBB, 0xCC]);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x03, 0xAA, 0xBB, 0xCC]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // READ BINARY to verify
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
@@ -4088,8 +4261,7 @@ mod tests {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
         // UPDATE BINARY at offset 5: 2 bytes [0xDD, 0xEE]
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xD6, 0x00, 0x05, 0x02, 0xDD, 0xEE]);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x05, 0x02, 0xDD, 0xEE]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x04, 0x04]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
@@ -4101,8 +4273,7 @@ mod tests {
         let mut app = app();
         // SELECT EF.DIR (linear-fixed)
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]);
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xD6, 0x00, 0x00, 0x01, 0xFF]);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x01, 0xFF]);
         assert_eq!(sw(&buf, len), (0x69, 0x81)); // incompatible file structure
     }
 
@@ -4111,16 +4282,14 @@ mod tests {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
         // EF.ICCID is 10 bytes. Write 3 at offset 9 exceeds.
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xD6, 0x00, 0x09, 0x03, 0xAA, 0xBB, 0xCC]);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x09, 0x03, 0xAA, 0xBB, 0xCC]);
         assert_eq!(sw(&buf, len), (0x67, 0x00)); // wrong length
     }
 
     #[test]
     fn update_binary_no_ef_selected() {
         let mut app = app();
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xD6, 0x00, 0x00, 0x01, 0xFF]);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x01, 0xFF]);
         assert_eq!(sw(&buf, len), (0x69, 0x86)); // no current EF
     }
 
@@ -4130,9 +4299,12 @@ mod tests {
     fn update_record_and_readback() {
         let mut app = app();
         // SELECT ADF.USIM by AID, then EF.FDN
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         // UPDATE RECORD 2 (10 bytes): "NewName" + padding
         let mut apdu = [0xFFu8; 5 + 10];
@@ -4158,8 +4330,7 @@ mod tests {
     fn update_record_on_transparent() {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xDC, 0x01, 0x04, 0x01, 0xFF]);
+        let (buf, len) = send(&mut app, &[0x00, 0xDC, 0x01, 0x04, 0x01, 0xFF]);
         assert_eq!(sw(&buf, len), (0x69, 0x81)); // incompatible file structure
     }
 
@@ -4167,22 +4338,30 @@ mod tests {
     fn update_record_wrong_size() {
         let mut app = app();
         // SELECT ADF.USIM, then EF.FDN (record_size=10)
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         // Try writing 5 bytes (not 10)
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xDC, 0x01, 0x04, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05]);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xDC, 0x01, 0x04, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05],
+        );
         assert_eq!(sw(&buf, len), (0x67, 0x00)); // wrong length
     }
 
     #[test]
     fn update_record_out_of_range() {
         let mut app = app();
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         // EF.FDN has 2 records. Try record 3.
         let mut apdu = [0xFFu8; 5 + 10];
@@ -4198,8 +4377,7 @@ mod tests {
     #[test]
     fn update_record_no_ef_selected() {
         let mut app = app();
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xDC, 0x01, 0x04, 0x01, 0xFF]);
+        let (buf, len) = send(&mut app, &[0x00, 0xDC, 0x01, 0x04, 0x01, 0xFF]);
         assert_eq!(sw(&buf, len), (0x69, 0x86)); // no current EF
     }
 
@@ -4207,9 +4385,12 @@ mod tests {
     fn update_record_mode_next() {
         let mut app = app();
         // SELECT ADF.USIM, then EF.FDN (linear-fixed, record_size=10, 2 records).
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         // UPDATE RECORD with P2=0x02 (next), P1=1 -> writes record 2.
         let mut apdu = [0x58u8; 5 + 10];
@@ -4218,7 +4399,7 @@ mod tests {
         apdu[2] = 0x01; // P1 = 1
         apdu[3] = 0x02; // P2 = next mode
         apdu[4] = 0x0A; // Lc = 10
-        // data bytes 5..15 are 0x58 (from initialization)
+                        // data bytes 5..15 are 0x58 (from initialization)
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Verify record 2 was written (absolute read).
@@ -4237,13 +4418,18 @@ mod tests {
     fn increase_on_cyclic_ef() {
         let mut app = app();
         // SELECT ADF.USIM, then EF.ACC (cyclic, FID 0x6F78)
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x78]);
         // INCREASE by [0x00, 0x00, 0x00, 0x05]: record 1 = 0x000100 + 5 = 0x000105
-        let (buf, len) = send(&mut app,
-            &[0x00, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x05]);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x05],
+        );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(len, 4 + 2); // 4-byte record + 2-byte SW
         assert_eq!(&buf[..4], &[0x00, 0x00, 0x01, 0x05]);
@@ -4253,16 +4439,14 @@ mod tests {
     fn increase_on_transparent_fails() {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
-        let (buf, len) = send(&mut app,
-            &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
+        let (buf, len) = send(&mut app, &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
         assert_eq!(sw(&buf, len), (0x69, 0x81)); // incompatible file structure
     }
 
     #[test]
     fn increase_no_ef_selected() {
         let mut app = app();
-        let (buf, len) = send(&mut app,
-            &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
+        let (buf, len) = send(&mut app, &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
         assert_eq!(sw(&buf, len), (0x69, 0x86)); // no current EF
     }
 
@@ -4271,18 +4455,22 @@ mod tests {
         let mut app = app();
         // SELECT ADF.USIM, then EF.ACC (cyclic, record_size=4, 3 records).
         // Record 1 = [0x00, 0x00, 0x01, 0x00].
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x78]);
         // Increase to max: 0xFFFFFFFF - 0x00000100 = 0xFFFFFEFF.
-        let (buf, len) = send(&mut app,
-            &[0x00, 0x32, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFE, 0xFF]);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0x32, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFE, 0xFF],
+        );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(&buf[..4], &[0xFF, 0xFF, 0xFF, 0xFF]);
         // Now any further increase should overflow: SW 98 50.
-        let (buf, len) = send(&mut app,
-            &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
+        let (buf, len) = send(&mut app, &[0x00, 0x32, 0x00, 0x00, 0x01, 0x01]);
         assert_eq!(sw(&buf, len), (0x98, 0x50));
     }
 
@@ -4324,12 +4512,20 @@ mod tests {
     fn snapshot_roundtrip_preserves_state() {
         let mut src = app();
         // Select ADF.USIM by AID, then EF.IMSI.
-        send(&mut src, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-                         0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut src,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut src, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]);
         // Degrade PIN retries.
-        send(&mut src, &[0x00, 0x20, 0x00, 0x01, 0x08,
-                         0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF]);
+        send(
+            &mut src,
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
+        );
 
         // Save.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
@@ -4337,7 +4533,10 @@ mod tests {
         assert_eq!(written, UsimApp::<MilenageParams>::SNAPSHOT_SIZE);
 
         // Restore into fresh app (same adfs).
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -4346,9 +4545,12 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x63, 0xC2));
 
         // Re-verify PIN1 so we can read files (PIN gate enforced).
-        send(&mut dst,
-            &[0x00, 0x20, 0x00, 0x01, 0x08,
-              0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        send(
+            &mut dst,
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
+        );
 
         // Read EF.IMSI (fs state restored).
         let (buf, len) = send(&mut dst, &[0x00, 0xB0, 0x00, 0x00, 0x09]);
@@ -4361,8 +4563,8 @@ mod tests {
         let src = app();
         // Build valid AUTN for ETSI test set 1.
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let params = MilenageParams::with_defaults(K, OPC);
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
@@ -4382,7 +4584,10 @@ mod tests {
         // Save and restore.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -4417,7 +4622,10 @@ mod tests {
         // Save and restore.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
 
@@ -4432,7 +4640,10 @@ mod tests {
         let mut small = [0u8; 10];
         assert_eq!(src.save_state(&mut small), 0);
 
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&small));
     }
@@ -4453,7 +4664,10 @@ mod tests {
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = src.save_state(&mut snap);
         snap[RSP_QUEUE_LEN_OFFSET] = u8::MAX;
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(!dst.restore_state(&snap));
     }
@@ -4468,8 +4682,9 @@ mod tests {
         // Select ADF.USIM by AID.
         send(
             &mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
         );
         // Select EF.IMSI by FID.
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]);
@@ -4537,8 +4752,12 @@ mod tests {
     fn read_binary_with_pin1_succeeds() {
         let mut app = app_with_pin1_enabled();
         // Verify PIN1.
-        send(&mut app,
-            &[0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        send(
+            &mut app,
+            &[
+                0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            ],
+        );
         // Select EF.ICCID.
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
         // READ BINARY should now succeed.
@@ -4551,8 +4770,7 @@ mod tests {
         let mut app = app_with_pin1_enabled();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0xE2]);
         // UPDATE BINARY without PIN1.
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
         assert_eq!(sw(&buf, len), (0x69, 0x82));
     }
 
@@ -4560,7 +4778,7 @@ mod tests {
     fn read_record_without_pin1_rejected() {
         let mut app = app_with_pin1_enabled();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
-        // READ RECORD without PIN1.
+                                                                     // READ RECORD without PIN1.
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x08]);
         assert_eq!(sw(&buf, len), (0x69, 0x82));
     }
@@ -4569,13 +4787,15 @@ mod tests {
     fn increase_without_pin1_rejected() {
         let mut app = app_with_pin1_enabled();
         // Select ADF USIM, then EF.ACC (cyclic).
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x78]);
         // INCREASE without PIN1.
-        let (buf, len) = send(&mut app,
-            &[0x00, 0x32, 0x00, 0x00, 0x03, 0x00, 0x00, 0x01]);
+        let (buf, len) = send(&mut app, &[0x00, 0x32, 0x00, 0x00, 0x03, 0x00, 0x00, 0x01]);
         assert_eq!(sw(&buf, len), (0x69, 0x82));
     }
 
@@ -4605,10 +4825,7 @@ mod tests {
         let mut app = app();
         // SELECT by path from MF: EF.ICCID (2FE2).
         // P1=0x08, P2=0x04 (FCP requested), data = path bytes.
-        let (buf, len) = send(
-            &mut app,
-            &[0x00, 0xA4, 0x08, 0x04, 0x02, 0x2F, 0xE2],
-        );
+        let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x08, 0x04, 0x02, 0x2F, 0xE2]);
         // Should return 61 XX (FCP available via GET RESPONSE).
         assert_eq!(buf[0], 0x61);
         assert_eq!(len, 2);
@@ -4620,15 +4837,13 @@ mod tests {
         // First select ADF USIM by AID to set current DF.
         send(
             &mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
         );
         // SELECT by path from current DF: EF.IMSI (6F07).
         // P1=0x09, P2=0x04 (FCP requested), data = path bytes.
-        let (buf, len) = send(
-            &mut app,
-            &[0x00, 0xA4, 0x09, 0x04, 0x02, 0x6F, 0x07],
-        );
+        let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x09, 0x04, 0x02, 0x6F, 0x07]);
         assert_eq!(buf[0], 0x61);
         assert_eq!(len, 2);
     }
@@ -4655,10 +4870,7 @@ mod tests {
         let mut app = app();
         // UPDATE BINARY via SFI=2 (EF_ICCID): P1 = 0x80 | 0x02 = 0x82,
         // P2 = 0x00 (offset), data = 2 bytes to write.
-        let (buf, len) = send(
-            &mut app,
-            &[0x00, 0xD6, 0x82, 0x00, 0x02, 0xAA, 0xBB],
-        );
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x82, 0x00, 0x02, 0xAA, 0xBB]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Verify the write by reading back via SFI.
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x82, 0x00, 0x02]);
@@ -4716,8 +4928,9 @@ mod tests {
         // Select ADF USIM by AID.
         send(
             &mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
         );
         // STATUS P1=0x00, P2=0x01 (DF name / AID).
         let (buf, len) = send(&mut app, &[0x00, 0xF2, 0x00, 0x01, 0x00]);
@@ -4792,25 +5005,34 @@ mod tests {
 
         /// Select ADF.USIM by AID, then EF.ACC (cyclic, FID 0x6F78).
         fn select_ef_acc(app: &mut UsimApp) {
-            send(app,
-                &[0x00, 0xA4, 0x04, 0x04, 0x07,
-                  0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+            send(
+                app,
+                &[
+                    0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+                ],
+            );
             send(app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x78]);
         }
 
         /// Select ADF.USIM by AID, then EF.FDN (linear-fixed, FID 0x6F3B).
         fn select_ef_fdn(app: &mut UsimApp) {
-            send(app,
-                &[0x00, 0xA4, 0x04, 0x04, 0x07,
-                  0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+            send(
+                app,
+                &[
+                    0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+                ],
+            );
             send(app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         }
 
         /// Verify PIN1 with the correct value ("1234" padded).
         fn verify_pin1(app: &mut UsimApp) {
-            send(app,
-                &[0x00, 0x20, 0x00, 0x01, 0x08,
-                  0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+            send(
+                app,
+                &[
+                    0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+                ],
+            );
         }
 
         const SECURITY_NOT_SATISFIED: (u8, u8) = (0x69, 0x82);
@@ -4827,7 +5049,8 @@ mod tests {
             select_ef_iccid(&mut app);
             let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
             assert_eq!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "READ BINARY must be rejected when PIN1 is not verified"
             );
         }
@@ -4839,7 +5062,8 @@ mod tests {
             select_ef_iccid(&mut app);
             let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x0A]);
             assert_ne!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "READ BINARY must succeed when PIN1 is verified"
             );
         }
@@ -4850,10 +5074,10 @@ mod tests {
         fn update_binary_rejected_without_pin1() {
             let mut app = app_with_pin1_enabled();
             select_ef_iccid(&mut app);
-            let (buf, len) = send(&mut app,
-                &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+            let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
             assert_eq!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "UPDATE BINARY must be rejected when PIN1 is not verified"
             );
         }
@@ -4863,10 +5087,10 @@ mod tests {
             let mut app = app_with_pin1_enabled();
             verify_pin1(&mut app);
             select_ef_iccid(&mut app);
-            let (buf, len) = send(&mut app,
-                &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+            let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
             assert_ne!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "UPDATE BINARY must succeed when PIN1 is verified"
             );
         }
@@ -4880,7 +5104,8 @@ mod tests {
             // P1=1, P2=0x04 (absolute), Le=0x08.
             let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x08]);
             assert_eq!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "READ RECORD must be rejected when PIN1 is not verified"
             );
         }
@@ -4892,7 +5117,8 @@ mod tests {
             select_ef_dir(&mut app);
             let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x08]);
             assert_ne!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "READ RECORD must succeed when PIN1 is verified"
             );
         }
@@ -4912,7 +5138,8 @@ mod tests {
             apdu[4] = 0x0A; // Lc = 10
             let (buf, len) = send(&mut app, &apdu);
             assert_eq!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "UPDATE RECORD must be rejected when PIN1 is not verified"
             );
         }
@@ -4930,7 +5157,8 @@ mod tests {
             apdu[4] = 0x0A;
             let (buf, len) = send(&mut app, &apdu);
             assert_ne!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "UPDATE RECORD must succeed when PIN1 is verified"
             );
         }
@@ -4942,10 +5170,13 @@ mod tests {
             let mut app = app_with_pin1_enabled();
             select_ef_acc(&mut app);
             // INCREASE by 1 (4-byte value for 4-byte record).
-            let (buf, len) = send(&mut app,
-                &[0x00, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01]);
+            let (buf, len) = send(
+                &mut app,
+                &[0x00, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01],
+            );
             assert_eq!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "INCREASE must be rejected when PIN1 is not verified"
             );
         }
@@ -4955,10 +5186,13 @@ mod tests {
             let mut app = app_with_pin1_enabled();
             verify_pin1(&mut app);
             select_ef_acc(&mut app);
-            let (buf, len) = send(&mut app,
-                &[0x00, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01]);
+            let (buf, len) = send(
+                &mut app,
+                &[0x00, 0x32, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01],
+            );
             assert_ne!(
-                sw_from_response(&buf, len), SECURITY_NOT_SATISFIED,
+                sw_from_response(&buf, len),
+                SECURITY_NOT_SATISFIED,
                 "INCREASE must succeed when PIN1 is verified"
             );
         }
@@ -4974,8 +5208,7 @@ mod tests {
         fn select_not_gated_by_pin1() {
             let mut app = app_with_pin1_enabled();
             // SELECT MF by FID.
-            let (buf, len) = send(&mut app,
-                &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+            let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
             let status = sw_from_response(&buf, len);
             assert_ne!(
                 status, SECURITY_NOT_SATISFIED,
@@ -4985,7 +5218,8 @@ mod tests {
             assert!(
                 status.0 == 0x61 || status.0 == 0x90,
                 "SELECT should return 61 xx or 90 00, got {:02X} {:02X}",
-                status.0, status.1
+                status.0,
+                status.1
             );
         }
 
@@ -5012,7 +5246,8 @@ mod tests {
             );
             // Expect 98 62 (MAC failure) since RAND/AUTN are zeroed.
             assert_eq!(
-                status, (0x98, 0x62),
+                status,
+                (0x98, 0x62),
                 "AUTHENTICATE with garbage AUTN should return MAC failure (98 62)"
             );
         }
@@ -5022,8 +5257,7 @@ mod tests {
         #[test]
         fn status_not_gated_by_pin1() {
             let mut app = app_with_pin1_enabled();
-            let (buf, len) = send(&mut app,
-                &[0x00, 0xF2, 0x00, 0x00, 0x00]);
+            let (buf, len) = send(&mut app, &[0x00, 0xF2, 0x00, 0x00, 0x00]);
             let status = sw_from_response(&buf, len);
             assert_ne!(
                 status, SECURITY_NOT_SATISFIED,
@@ -5033,7 +5267,8 @@ mod tests {
             assert!(
                 status.0 == 0x90 || status.0 == 0x61,
                 "STATUS should return 90 00 or 61 xx, got {:02X} {:02X}",
-                status.0, status.1
+                status.0,
+                status.1
             );
         }
 
@@ -5044,8 +5279,7 @@ mod tests {
             let mut app = app_with_pin1_enabled();
             // Issue a SELECT first to queue FCP data, then GET RESPONSE.
             send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
-            let (buf, len) = send(&mut app,
-                &[0x00, 0xC0, 0x00, 0x00, 0x20]);
+            let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, 0x20]);
             let status = sw_from_response(&buf, len);
             assert_ne!(
                 status, SECURITY_NOT_SATISFIED,
@@ -5059,8 +5293,7 @@ mod tests {
         fn verify_not_gated_by_pin1() {
             let mut app = app_with_pin1_enabled();
             // Query PIN1 retry count (empty data).
-            let (buf, len) = send(&mut app,
-                &[0x00, 0x20, 0x00, 0x01, 0x00]);
+            let (buf, len) = send(&mut app, &[0x00, 0x20, 0x00, 0x01, 0x00]);
             let status = sw_from_response(&buf, len);
             assert_ne!(
                 status, SECURITY_NOT_SATISFIED,
@@ -5073,8 +5306,10 @@ mod tests {
         #[test]
         fn terminal_profile_not_gated_by_pin1() {
             let mut app = app_with_pin1_enabled();
-            let (buf, len) = send(&mut app,
-                &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF]);
+            let (buf, len) = send(
+                &mut app,
+                &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF],
+            );
             let status = sw_from_response(&buf, len);
             assert_ne!(
                 status, SECURITY_NOT_SATISFIED,
@@ -5083,7 +5318,8 @@ mod tests {
             assert!(
                 status.0 == 0x90 || status.0 == 0x91,
                 "TERMINAL PROFILE should return 90 00 or 91 xx, got {:02X} {:02X}",
-                status.0, status.1
+                status.0,
+                status.1
             );
         }
 
@@ -5093,16 +5329,18 @@ mod tests {
         fn envelope_not_gated_by_pin1() {
             let mut app = app_with_pin1_enabled();
             // Satisfy TERMINAL PROFILE precondition (also must not require PIN1).
-            let (pbuf, plen) = send(&mut app,
-                &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF]);
+            let (pbuf, plen) = send(
+                &mut app,
+                &[0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF],
+            );
             assert_ne!(
-                sw_from_response(&pbuf, plen), SECURITY_NOT_SATISFIED,
+                sw_from_response(&pbuf, plen),
+                SECURITY_NOT_SATISFIED,
                 "TERMINAL PROFILE must not be gated by PIN1"
             );
             // ENVELOPE: any non-PIN1-gating error (e.g. 6A 80 for zero-length
             // TLV) is acceptable -- we only care that 69 82 is NOT returned.
-            let (buf, len) = send(&mut app,
-                &[0x80, 0xC2, 0x00, 0x00, 0x02, 0xD0, 0x00]);
+            let (buf, len) = send(&mut app, &[0x80, 0xC2, 0x00, 0x00, 0x02, 0xD0, 0x00]);
             let status = sw_from_response(&buf, len);
             assert_ne!(
                 status, SECURITY_NOT_SATISFIED,
@@ -5133,7 +5371,7 @@ mod tests {
         // 83 01 [result=00]
         let data = [
             0x81, 0x03, 0x01, 0x21, 0x00, // Command Details
-            0x83, 0x01, 0x00,              // Result: success
+            0x83, 0x01, 0x00, // Result: success
         ];
         let mut apdu = [0u8; 4 + 1 + 8];
         apdu[0] = 0x80; // CLA
@@ -5145,8 +5383,11 @@ mod tests {
 
         let (buf, len) = send(&mut app, &apdu);
         // Should be rejected: 69 85 (conditions of use not satisfied, no session).
-        assert_eq!(sw(&buf, len), (0x69, 0x85),
-            "TERMINAL RESPONSE with Command Details but no session should return 69 85");
+        assert_eq!(
+            sw(&buf, len),
+            (0x69, 0x85),
+            "TERMINAL RESPONSE with Command Details but no session should return 69 85"
+        );
     }
 
     #[test]
@@ -5155,16 +5396,21 @@ mod tests {
 
         let mut app = app();
         // Queue a DISPLAY TEXT proactive command.
-        app.proactive_state().queue_command(&ProactiveCommand::DisplayText {
-            text: b"Test",
-            coding: TextCoding::Gsm8Bit,
-            high_priority: false,
-        }).unwrap();
+        app.proactive_state()
+            .queue_command(&ProactiveCommand::DisplayText {
+                text: b"Test",
+                coding: TextCoding::Gsm8Bit,
+                high_priority: false,
+            })
+            .unwrap();
 
         // After any APDU returning 90 00, the SW should be overridden to 91 XX.
         let (buf, len) = send(&mut app, &[0x80, 0x10, 0x00, 0x00]); // TERMINAL PROFILE
         let (sw1, sw2_fetch_len) = sw(&buf, len);
-        assert_eq!(sw1, 0x91, "SW should be overridden to 91 XX when proactive pending");
+        assert_eq!(
+            sw1, 0x91,
+            "SW should be overridden to 91 XX when proactive pending"
+        );
         assert!(sw2_fetch_len > 0, "fetch length must be >0");
 
         // Now FETCH the command.
@@ -5175,13 +5421,15 @@ mod tests {
         let (sw1, sw2) = sw(&buf, len);
         assert_eq!((sw1, sw2), (0x90, 0x00), "FETCH should succeed");
         // Session should be active after FETCH.
-        assert!(app.is_proactive_session_active(),
-            "proactive session should be active after FETCH");
+        assert!(
+            app.is_proactive_session_active(),
+            "proactive session should be active after FETCH"
+        );
 
         // Send TERMINAL RESPONSE with valid Command Details.
         let tr_data = [
             0x81, 0x03, 0x01, 0x21, 0x00, // Command Details
-            0x83, 0x01, 0x00,              // Result: success
+            0x83, 0x01, 0x00, // Result: success
         ];
         let mut tr_apdu = [0u8; 4 + 1 + 8];
         tr_apdu[0] = 0x80;
@@ -5191,11 +5439,17 @@ mod tests {
         tr_apdu[4] = tr_data.len() as u8;
         tr_apdu[5..13].copy_from_slice(&tr_data);
         let (buf, len) = send(&mut app, &tr_apdu);
-        assert_eq!(sw(&buf, len), (0x90, 0x00), "TERMINAL RESPONSE should succeed");
+        assert_eq!(
+            sw(&buf, len),
+            (0x90, 0x00),
+            "TERMINAL RESPONSE should succeed"
+        );
 
         // Session should be inactive after TERMINAL RESPONSE.
-        assert!(!app.is_proactive_session_active(),
-            "proactive session should be inactive after TERMINAL RESPONSE");
+        assert!(
+            !app.is_proactive_session_active(),
+            "proactive session should be inactive after TERMINAL RESPONSE"
+        );
     }
 
     #[test]
@@ -5204,11 +5458,13 @@ mod tests {
 
         let mut app = app();
         // Queue and execute a full proactive session.
-        app.proactive_state().queue_command(&ProactiveCommand::DisplayText {
-            text: b"Test",
-            coding: TextCoding::Gsm8Bit,
-            high_priority: false,
-        }).unwrap();
+        app.proactive_state()
+            .queue_command(&ProactiveCommand::DisplayText {
+                text: b"Test",
+                coding: TextCoding::Gsm8Bit,
+                high_priority: false,
+            })
+            .unwrap();
 
         // Send a TERMINAL PROFILE to trigger 91 XX override.
         let (buf, len) = send(&mut app, &[0x80, 0x10, 0x00, 0x00]);
@@ -5220,10 +5476,7 @@ mod tests {
         send(&mut app, &fetch_apdu);
 
         // Send TERMINAL RESPONSE.
-        let tr_data = [
-            0x81, 0x03, 0x01, 0x21, 0x00,
-            0x83, 0x01, 0x00,
-        ];
+        let tr_data = [0x81, 0x03, 0x01, 0x21, 0x00, 0x83, 0x01, 0x00];
         let mut tr_apdu = [0u8; 4 + 1 + 8];
         tr_apdu[0] = 0x80;
         tr_apdu[1] = 0x14;
@@ -5236,7 +5489,10 @@ mod tests {
         // Now FETCH again -- should fail with 69 00 (no pending command).
         let (buf, len) = send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0x00]);
         let (sw1, _sw2) = sw(&buf, len);
-        assert_eq!(sw1, 0x69, "FETCH after TERMINAL RESPONSE with no pending should return 69 XX");
+        assert_eq!(
+            sw1, 0x69,
+            "FETCH after TERMINAL RESPONSE with no pending should return 69 XX"
+        );
     }
 
     // ===================================================================
@@ -5247,13 +5503,15 @@ mod tests {
     fn search_record_finds_match() {
         let mut app = app();
         // Select ADF.USIM, then EF.FDN (linear-fixed, 10-byte records).
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         // SEARCH RECORD with pattern "Ali" (matches record 1: "Alice...").
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xA2, 0x00, 0x04, 0x03, 0x41, 0x6C, 0x69]);
+        let (buf, len) = send(&mut app, &[0x00, 0xA2, 0x00, 0x04, 0x03, 0x41, 0x6C, 0x69]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Should return at least one record number.
         assert!(len > 2, "Expected data in response, got only SW");
@@ -5263,13 +5521,15 @@ mod tests {
     #[test]
     fn search_record_no_match() {
         let mut app = app();
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         // SEARCH RECORD with pattern "XYZ" (no match).
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xA2, 0x00, 0x04, 0x03, 0x58, 0x59, 0x5A]);
+        let (buf, len) = send(&mut app, &[0x00, 0xA2, 0x00, 0x04, 0x03, 0x58, 0x59, 0x5A]);
         // 6A 83 = record not found.
         assert_eq!(sw(&buf, len), (0x6A, 0x83));
     }
@@ -5277,9 +5537,12 @@ mod tests {
     #[test]
     fn search_record_empty_pattern() {
         let mut app = app();
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         // SEARCH RECORD with empty pattern (Lc=0 means all records match).
         let (buf, len) = send(&mut app, &[0x00, 0xA2, 0x00, 0x04, 0x00]);
@@ -5293,13 +5556,15 @@ mod tests {
     #[test]
     fn search_record_requires_pin1() {
         let mut app = app_with_pin1_enabled();
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         // SEARCH RECORD without PIN1 verification.
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xA2, 0x00, 0x04, 0x03, 0x41, 0x6C, 0x69]);
+        let (buf, len) = send(&mut app, &[0x00, 0xA2, 0x00, 0x04, 0x03, 0x41, 0x6C, 0x69]);
         assert_eq!(sw(&buf, len), (0x69, 0x82));
     }
 
@@ -5310,23 +5575,29 @@ mod tests {
     #[test]
     fn terminal_capability_stores_data() {
         let mut app = app();
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xAA, 0x00, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04]);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xAA, 0x00, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04],
+        );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
 
     #[test]
     fn terminal_capability_overwrite() {
         let mut app = app();
-        send(&mut app,
-            &[0x00, 0xAA, 0x00, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04]);
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xAA, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+        send(
+            &mut app,
+            &[0x00, 0xAA, 0x00, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04],
+        );
+        let (buf, len) = send(&mut app, &[0x00, 0xAA, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Verify snapshot roundtrip preserves the new data.
         let mut snap = [0u8; UsimApp::<MilenageParams>::SNAPSHOT_SIZE];
         let _ = app.save_state(&mut snap);
-        let mil = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
         let mut dst = UsimApp::new(&MF, &ADF_TABLE, mil);
         assert!(dst.restore_state(&snap));
     }
@@ -5334,8 +5605,7 @@ mod tests {
     #[test]
     fn terminal_capability_no_pin_required() {
         let mut app = app_with_pin1_enabled();
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xAA, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+        let (buf, len) = send(&mut app, &[0x00, 0xAA, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
     }
 
@@ -5469,8 +5739,7 @@ mod tests {
         // SELECT on open channel 1 (CLA=0x01) should be accepted (not rejected
         // for "channel not open"). The actual per-channel selection context is
         // tracked but commands still dispatch through the shared state.
-        let (buf, _) = send(&mut app,
-            &[0x01, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
+        let (buf, _) = send(&mut app, &[0x01, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]);
         // Should get 61 XX (data available) -- channel is open, command accepted.
         assert_eq!(buf[0], 0x61);
     }
@@ -5504,9 +5773,12 @@ mod tests {
     #[test]
     fn select_aid_p2_00_first_occurrence() {
         let mut app = app();
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x00, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        let (buf, len) = send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         assert_eq!(buf[0], 0x61);
         let _ = len;
     }
@@ -5514,21 +5786,30 @@ mod tests {
     #[test]
     fn select_aid_p2_02_next_not_found() {
         let mut app = app();
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x00, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x02, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
+        let (buf, len) = send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x02, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         assert_eq!(sw(&buf, len), (0x6A, 0x82));
     }
 
     #[test]
     fn select_aid_unknown_p2_rejected() {
         let mut app = app();
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x06, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        let (buf, len) = send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x06, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         assert_eq!(sw(&buf, len), (0x6A, 0x86));
     }
 
@@ -5539,9 +5820,12 @@ mod tests {
     #[test]
     fn refresh_sim_init_reselects_mf() {
         let mut app = app();
-        send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         let cmd = simrs_proactive::ProactiveCommand::Refresh {
             qualifier: 0x01,
             file_list: &[],
@@ -5550,9 +5834,7 @@ mod tests {
         let (buf, len) = send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0xFF]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let tr = [
-            0x80, 0x14, 0x00, 0x00, 0x0C,
-            0x81, 0x03, 0x01, 0x01, 0x01,
-            0x82, 0x02, 0x82, 0x81,
+            0x80, 0x14, 0x00, 0x00, 0x0C, 0x81, 0x03, 0x01, 0x01, 0x01, 0x82, 0x02, 0x82, 0x81,
             0x83, 0x01, 0x00,
         ];
         send(&mut app, &tr);
@@ -5561,7 +5843,11 @@ mod tests {
         let fcp_len = buf[1] as usize;
         let fcp = &buf[2..2 + fcp_len];
         let fid_val = find_tlv_tag(fcp, 0x83).unwrap();
-        assert_eq!(fid_val, &[0x3F, 0x00], "After REFRESH SIM Init, MF should be selected");
+        assert_eq!(
+            fid_val,
+            &[0x3F, 0x00],
+            "After REFRESH SIM Init, MF should be selected"
+        );
     }
 
     #[test]
@@ -5576,9 +5862,7 @@ mod tests {
         app.proactive_state().queue_command(&cmd).unwrap();
         send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0xFF]);
         let tr = [
-            0x80, 0x14, 0x00, 0x00, 0x0C,
-            0x81, 0x03, 0x01, 0x01, 0x04,
-            0x82, 0x02, 0x82, 0x81,
+            0x80, 0x14, 0x00, 0x00, 0x0C, 0x81, 0x03, 0x01, 0x01, 0x04, 0x82, 0x02, 0x82, 0x81,
             0x83, 0x01, 0x00,
         ];
         send(&mut app, &tr);
@@ -5593,9 +5877,7 @@ mod tests {
         // TERMINAL RESPONSE with Command Details but no active proactive
         // session is rejected by the session lifecycle enforcement (69 85).
         let tr = [
-            0x80, 0x14, 0x00, 0x00, 0x0C,
-            0x81, 0x03, 0x01, 0x01, 0x01,
-            0x82, 0x02, 0x82, 0x81,
+            0x80, 0x14, 0x00, 0x00, 0x0C, 0x81, 0x03, 0x01, 0x01, 0x01, 0x82, 0x02, 0x82, 0x81,
             0x83, 0x01, 0x00,
         ];
         let (buf, len) = send(&mut app, &tr);
@@ -5612,9 +5894,7 @@ mod tests {
         app.proactive_state().queue_command(&cmd).unwrap();
         send(&mut app, &[0x80, 0x12, 0x00, 0x00, 0xFF]);
         let tr = [
-            0x80, 0x14, 0x00, 0x00, 0x0C,
-            0x81, 0x03, 0x01, 0x01, 0x03,
-            0x82, 0x02, 0x82, 0x81,
+            0x80, 0x14, 0x00, 0x00, 0x0C, 0x81, 0x03, 0x01, 0x01, 0x03, 0x82, 0x02, 0x82, 0x81,
             0x83, 0x01, 0x00,
         ];
         let (buf, len) = send(&mut app, &tr);
@@ -5633,8 +5913,10 @@ mod tests {
         let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let inner = &buf[2..buf[1] as usize + 2];
-        assert!(find_tlv_tag(inner, 0x8C).is_some(),
-            "FCP must contain security attributes compact (tag 0x8C)");
+        assert!(
+            find_tlv_tag(inner, 0x8C).is_some(),
+            "FCP must contain security attributes compact (tag 0x8C)"
+        );
     }
 
     #[test]
@@ -5647,8 +5929,11 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let inner = &buf[2..buf[1] as usize + 2];
         let sec = find_tlv_tag(inner, 0x8C).expect("EF FCP must have tag 0x8C");
-        assert_eq!(sec, &[0x03, 0x01],
-            "EF security attributes should be [0x03, 0x01] (read+update require PIN1)");
+        assert_eq!(
+            sec,
+            &[0x03, 0x01],
+            "EF security attributes should be [0x03, 0x01] (read+update require PIN1)"
+        );
     }
 
     #[test]
@@ -5661,8 +5946,11 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let inner = &buf[2..buf[1] as usize + 2];
         let sec = find_tlv_tag(inner, 0x8C).expect("DF FCP must have tag 0x8C");
-        assert_eq!(sec, &[0xFF, 0x00],
-            "DF security attributes should be [0xFF, 0x00] (always allowed)");
+        assert_eq!(
+            sec,
+            &[0xFF, 0x00],
+            "DF security attributes should be [0xFF, 0x00] (always allowed)"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -5678,13 +5966,14 @@ mod tests {
         // Select ADF USIM.
         send(
             &mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
         );
 
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
 
         // Compute AUTN from known SQN and AMF.
@@ -5698,7 +5987,9 @@ mod tests {
         let auth_mac = params.compute_auth_mac(&ch, &sqn, &amf);
 
         let mut auth_token = [0u8; 16];
-        for i in 0..6 { auth_token[i] = sequence_number[i] ^ anonymity_key.as_bytes()[i]; }
+        for i in 0..6 {
+            auth_token[i] = sequence_number[i] ^ anonymity_key.as_bytes()[i];
+        }
         auth_token[6..8].copy_from_slice(&management_field);
         auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
 
@@ -5714,31 +6005,58 @@ mod tests {
         apdu[23..39].copy_from_slice(&auth_token);
 
         let (buf, len) = send(&mut app, &apdu);
-        assert_eq!(sw(&buf, len), (0x61, 0x2D), "expected 61 2D (45 bytes available)");
+        assert_eq!(
+            sw(&buf, len),
+            (0x61, 0x2D),
+            "expected 61 2D (45 bytes available)"
+        );
 
         // GET RESPONSE
         let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, 0x2D]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         // Independently compute expected values.
-        let expected = params.authenticate(&ch, &AuthToken::new(auth_token)).unwrap();
+        let expected = params
+            .authenticate(&ch, &AuthToken::new(auth_token))
+            .unwrap();
 
         // Verify RES (8 bytes at offset 3).
-        assert_eq!(&buf[3..11], expected.response.as_bytes(),
-            "RES must match Milenage f2 output");
+        assert_eq!(
+            &buf[3..11],
+            expected.response.as_bytes(),
+            "RES must match Milenage f2 output"
+        );
 
         // Verify CK (16 bytes at offset 12).
-        assert_eq!(&buf[12..28], expected.cipher_key.declassify().as_slice(),
-            "CK must match Milenage f3 output");
+        assert_eq!(
+            &buf[12..28],
+            expected.cipher_key.declassify().as_slice(),
+            "CK must match Milenage f3 output"
+        );
 
         // Verify IK (16 bytes at offset 29).
-        assert_eq!(&buf[29..45], expected.integrity_key.declassify().as_slice(),
-            "IK must match Milenage f4 output");
+        assert_eq!(
+            &buf[29..45],
+            expected.integrity_key.declassify().as_slice(),
+            "IK must match Milenage f4 output"
+        );
 
         // Sanity: none of RES/CK/IK should be all-zeros (non-trivial output).
-        assert_ne!(*expected.response.as_bytes(), [0u8; 8], "RES must not be all-zeros");
-        assert_ne!(*expected.cipher_key.declassify(), [0u8; 16], "CK must not be all-zeros");
-        assert_ne!(*expected.integrity_key.declassify(), [0u8; 16], "IK must not be all-zeros");
+        assert_ne!(
+            *expected.response.as_bytes(),
+            [0u8; 8],
+            "RES must not be all-zeros"
+        );
+        assert_ne!(
+            *expected.cipher_key.declassify(),
+            [0u8; 16],
+            "CK must not be all-zeros"
+        );
+        assert_ne!(
+            *expected.integrity_key.declassify(),
+            [0u8; 16],
+            "IK must not be all-zeros"
+        );
     }
 
     /// AUTHENTICATE with corrupted MAC in AUTN must return SW 98 62
@@ -5749,8 +6067,8 @@ mod tests {
         let mut app = app();
         // Use a non-zero RAND (not identity element).
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
 
         // Build AUTN with a deliberately corrupted MAC (all 0xAA).
@@ -5774,7 +6092,8 @@ mod tests {
 
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(
-            sw(&buf, len), (0x98, 0x62),
+            sw(&buf, len),
+            (0x98, 0x62),
             "wrong MAC must return 98 62 (authentication error)"
         );
     }
@@ -5795,14 +6114,17 @@ mod tests {
         umts_apdu[5] = 0x10;
         umts_apdu[22] = 0x10;
         let (buf, len) = send(&mut app, &umts_apdu);
-        assert_eq!(sw(&buf, len), (0x98, 0x62),
-            "P2=0x81 must route to UMTS AUTHENTICATE");
+        assert_eq!(
+            sw(&buf, len),
+            (0x98, 0x62),
+            "P2=0x81 must route to UMTS AUTHENTICATE"
+        );
 
         // P2=0x00 (GSM context) with valid-format data: should return 61 0E (success),
         // proving the GSM path was entered.
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let mut gsm_apdu = [0u8; 5 + 17];
         gsm_apdu[0] = 0x00;
@@ -5812,8 +6134,11 @@ mod tests {
         gsm_apdu[5] = 0x10;
         gsm_apdu[6..22].copy_from_slice(&rand_val);
         let (buf, len) = send(&mut app, &gsm_apdu);
-        assert_eq!(sw(&buf, len), (0x61, 0x0E),
-            "P2=0x00 must route to GSM AUTHENTICATE and return 14 bytes");
+        assert_eq!(
+            sw(&buf, len),
+            (0x61, 0x0E),
+            "P2=0x00 must route to GSM AUTHENTICATE and return 14 bytes"
+        );
 
         // P2=0x82 (GBA bootstrap): behaviour depends on `gba` feature.
         let mut gba_apdu = [0u8; 5 + 34];
@@ -5825,11 +6150,17 @@ mod tests {
         gba_apdu[22] = 0x10;
         let (buf, len) = send(&mut app, &gba_apdu);
         #[cfg(feature = "gba")]
-        assert_eq!(sw(&buf, len), (0x98, 0x62),
-            "P2=0x82 with gba feature must route to GBA bootstrap (MAC fail with garbage AUTN)");
+        assert_eq!(
+            sw(&buf, len),
+            (0x98, 0x62),
+            "P2=0x82 with gba feature must route to GBA bootstrap (MAC fail with garbage AUTN)"
+        );
         #[cfg(not(feature = "gba"))]
-        assert_eq!(sw(&buf, len), (0x6A, 0x86),
-            "P2=0x82 without gba feature must return 6A 86");
+        assert_eq!(
+            sw(&buf, len),
+            (0x6A, 0x86),
+            "P2=0x82 without gba feature must return 6A 86"
+        );
 
         // P2=0x84 (GBA NAF derivation): behaviour depends on `gba` feature.
         let mut naf_apdu = [0u8; 5 + 10];
@@ -5837,18 +6168,24 @@ mod tests {
         naf_apdu[1] = 0x88;
         naf_apdu[3] = 0x84;
         naf_apdu[4] = 0x0A; // Lc = 10
-        // NAF_ID_len=4, NAF_ID="test", IMPI_len=4, IMPI="user"
+                            // NAF_ID_len=4, NAF_ID="test", IMPI_len=4, IMPI="user"
         naf_apdu[5] = 0x04;
         naf_apdu[6..10].copy_from_slice(b"test");
         naf_apdu[10] = 0x04;
         naf_apdu[11..15].copy_from_slice(b"user");
         let (buf, len) = send(&mut app, &naf_apdu);
         #[cfg(feature = "gba")]
-        assert_eq!(sw(&buf, len), (0x69, 0x85),
-            "P2=0x84 with gba feature but no prior bootstrap must return 69 85");
+        assert_eq!(
+            sw(&buf, len),
+            (0x69, 0x85),
+            "P2=0x84 with gba feature but no prior bootstrap must return 69 85"
+        );
         #[cfg(not(feature = "gba"))]
-        assert_eq!(sw(&buf, len), (0x6A, 0x86),
-            "P2=0x84 without gba feature must return 6A 86");
+        assert_eq!(
+            sw(&buf, len),
+            (0x6A, 0x86),
+            "P2=0x84 without gba feature must return 6A 86"
+        );
 
         // P2=0xFF (invalid): should also return 6A 86.
         let mut inv_apdu = [0u8; 5 + 34];
@@ -5859,8 +6196,11 @@ mod tests {
         inv_apdu[5] = 0x10;
         inv_apdu[22] = 0x10;
         let (buf, len) = send(&mut app, &inv_apdu);
-        assert_eq!(sw(&buf, len), (0x6A, 0x86),
-            "P2=0xFF (invalid) must return 6A 86");
+        assert_eq!(
+            sw(&buf, len),
+            (0x6A, 0x86),
+            "P2=0xFF (invalid) must return 6A 86"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -5905,8 +6245,7 @@ mod tests {
 
     /// SELECT ADF USIM APDU (P1=0x04 select by AID, P2=0x04 FCP).
     const SELECT_ADF_USIM: [u8; 12] = [
-        0x00, 0xA4, 0x04, 0x04, 0x07,
-        0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+        0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
     ];
 
     /// Multi-step sequence: SELECT ADF USIM -> AUTHENTICATE -> verify
@@ -5921,19 +6260,24 @@ mod tests {
 
         // Step 1: SELECT ADF.USIM by AID.
         let (buf, _len) = send(&mut app, &SELECT_ADF_USIM);
-        assert_eq!(buf[0], 0x61,
-            "SELECT ADF.USIM must return 61 XX (FCP available)");
+        assert_eq!(
+            buf[0], 0x61,
+            "SELECT ADF.USIM must return 61 XX (FCP available)"
+        );
         // Consume the FCP via GET RESPONSE so the pending buffer is cleared.
         let fcp_len = buf[1];
         let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
-        assert_eq!(sw(&buf, len), (0x90, 0x00),
-            "GET RESPONSE for SELECT FCP must succeed");
+        assert_eq!(
+            sw(&buf, len),
+            (0x90, 0x00),
+            "GET RESPONSE for SELECT FCP must succeed"
+        );
 
         // Step 2: AUTHENTICATE with valid AUTN.
         let mut params = MilenageParams::with_defaults(K, OPC);
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
@@ -5941,20 +6285,28 @@ mod tests {
         let apdu = build_authenticate_apdu(&rand_val, &auth_token);
 
         let (buf, _len) = send(&mut app, &apdu);
-        assert_eq!(buf[0], 0x61,
-            "AUTHENTICATE must return 61 XX (response data available)");
+        assert_eq!(
+            buf[0], 0x61,
+            "AUTHENTICATE must return 61 XX (response data available)"
+        );
         let rsp_len = buf[1] as usize;
 
         // Step 3: GET RESPONSE to retrieve the authentication vector.
         let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, rsp_len as u8]);
-        assert_eq!(sw(&buf, len), (0x90, 0x00),
-            "GET RESPONSE for AUTHENTICATE must succeed");
+        assert_eq!(
+            sw(&buf, len),
+            (0x90, 0x00),
+            "GET RESPONSE for AUTHENTICATE must succeed"
+        );
 
         // Step 4: Verify TLV structure.
         // Response format: 0xDB || inner_len || 0x08 || RES(8) || 0x10 || CK(16) || 0x10 || IK(16)
         assert_eq!(buf[0], 0xDB, "success tag must be 0xDB");
-        assert_eq!(buf[1], 1 + 8 + 1 + 16 + 1 + 16,
-            "inner length must encode RES(1+8) + CK(1+16) + IK(1+16) = 43");
+        assert_eq!(
+            buf[1],
+            1 + 8 + 1 + 16 + 1 + 16,
+            "inner length must encode RES(1+8) + CK(1+16) + IK(1+16) = 43"
+        );
         assert_eq!(buf[2], 0x08, "RES length prefix must be 0x08");
 
         let res_actual = &buf[3..11];
@@ -5970,15 +6322,41 @@ mod tests {
 
         // Step 5: Cross-check against independent Milenage computation.
         let ch = AuthChallenge::new(rand_val);
-        let expected = params.authenticate(&ch, &AuthToken::new(auth_token)).unwrap();
-        assert_eq!(res_actual, expected.response.as_bytes(), "RES must match Milenage f2");
-        assert_eq!(ck_actual, expected.cipher_key.declassify().as_slice(), "CK must match Milenage f3");
-        assert_eq!(ik_actual, expected.integrity_key.declassify().as_slice(), "IK must match Milenage f4");
+        let expected = params
+            .authenticate(&ch, &AuthToken::new(auth_token))
+            .unwrap();
+        assert_eq!(
+            res_actual,
+            expected.response.as_bytes(),
+            "RES must match Milenage f2"
+        );
+        assert_eq!(
+            ck_actual,
+            expected.cipher_key.declassify().as_slice(),
+            "CK must match Milenage f3"
+        );
+        assert_eq!(
+            ik_actual,
+            expected.integrity_key.declassify().as_slice(),
+            "IK must match Milenage f4"
+        );
 
         // Non-triviality: none of the outputs should be all-zeros.
-        assert_ne!(*expected.response.as_bytes(), [0u8; 8], "RES must not be trivial");
-        assert_ne!(*expected.cipher_key.declassify(), [0u8; 16], "CK must not be trivial");
-        assert_ne!(*expected.integrity_key.declassify(), [0u8; 16], "IK must not be trivial");
+        assert_ne!(
+            *expected.response.as_bytes(),
+            [0u8; 8],
+            "RES must not be trivial"
+        );
+        assert_ne!(
+            *expected.cipher_key.declassify(),
+            [0u8; 16],
+            "CK must not be trivial"
+        );
+        assert_ne!(
+            *expected.integrity_key.declassify(),
+            [0u8; 16],
+            "IK must not be trivial"
+        );
     }
 
     /// Multi-step sequence: SELECT ADF USIM -> AUTHENTICATE with bad AUTN ->
@@ -5993,8 +6371,7 @@ mod tests {
 
         // Step 1: SELECT ADF.USIM by AID.
         let (buf, _len) = send(&mut app, &SELECT_ADF_USIM);
-        assert_eq!(buf[0], 0x61,
-            "SELECT ADF.USIM must return 61 XX");
+        assert_eq!(buf[0], 0x61, "SELECT ADF.USIM must return 61 XX");
         // Consume FCP.
         let fcp_len = buf[1];
         let (buf, len) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, fcp_len]);
@@ -6005,8 +6382,8 @@ mod tests {
         // MAC-A (bitwise NOT of the real MAC).
         let params = MilenageParams::with_defaults(K, OPC);
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
@@ -6021,12 +6398,17 @@ mod tests {
         let (buf, len) = send(&mut app, &apdu);
 
         // Must get SW 98 62 (authentication error / MAC failure).
-        assert_eq!(sw(&buf, len), (0x98, 0x62),
-            "corrupted AUTN MAC must produce SW 98 62");
+        assert_eq!(
+            sw(&buf, len),
+            (0x98, 0x62),
+            "corrupted AUTN MAC must produce SW 98 62"
+        );
 
         // Verify the response is just the 2-byte status word -- no data leaked.
-        assert_eq!(len, 2,
-            "MAC failure response must contain only the status word");
+        assert_eq!(
+            len, 2,
+            "MAC failure response must contain only the status word"
+        );
     }
 
     /// Multi-step sequence: two sequential AUTHENTICATEs with different RAND
@@ -6048,8 +6430,8 @@ mod tests {
 
         // First AUTHENTICATE with ETSI TS 135 208 Test Set 1 RAND.
         let rand1: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let auth_token_1 = build_autn(&params, &rand1, sequence_number_1, management_field);
         let apdu1 = build_authenticate_apdu(&rand1, &auth_token_1);
@@ -6058,16 +6440,19 @@ mod tests {
         assert_eq!(buf[0], 0x61, "first AUTHENTICATE must succeed (61 XX)");
         let rsp_len1 = buf[1];
         let (buf1, len1) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, rsp_len1]);
-        assert_eq!(sw(&buf1, len1), (0x90, 0x00),
-            "first GET RESPONSE must succeed");
+        assert_eq!(
+            sw(&buf1, len1),
+            (0x90, 0x00),
+            "first GET RESPONSE must succeed"
+        );
         let mut res1 = [0u8; 8];
         res1.copy_from_slice(&buf1[3..11]);
 
         // Second AUTHENTICATE with a different RAND (ETSI TS 135 208 Test Set 2)
         // and an incremented SQN (SQN tracking requires monotonic increase).
         let rand2: [u8; 16] = [
-            0xB9, 0xBE, 0xAD, 0x00, 0x47, 0x5E, 0x7B, 0x05,
-            0x7B, 0x54, 0x0E, 0xA4, 0x02, 0xD5, 0x55, 0xB4,
+            0xB9, 0xBE, 0xAD, 0x00, 0x47, 0x5E, 0x7B, 0x05, 0x7B, 0x54, 0x0E, 0xA4, 0x02, 0xD5,
+            0x55, 0xB4,
         ];
         let auth_token_2 = build_autn(&params, &rand2, sequence_number_2, management_field);
         let apdu2 = build_authenticate_apdu(&rand2, &auth_token_2);
@@ -6076,8 +6461,11 @@ mod tests {
         assert_eq!(buf[0], 0x61, "second AUTHENTICATE must succeed (61 XX)");
         let rsp_len2 = buf[1];
         let (buf2, len2) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, rsp_len2]);
-        assert_eq!(sw(&buf2, len2), (0x90, 0x00),
-            "second GET RESPONSE must succeed");
+        assert_eq!(
+            sw(&buf2, len2),
+            (0x90, 0x00),
+            "second GET RESPONSE must succeed"
+        );
         let mut res2 = [0u8; 8];
         res2.copy_from_slice(&buf2[3..11]);
 
@@ -6086,24 +6474,42 @@ mod tests {
         assert_ne!(res2, [0u8; 8], "second RES must not be all-zeros");
 
         // The two RES values must differ (different RAND => different output).
-        assert_ne!(res1, res2,
-            "different RAND values must produce different RES values");
+        assert_ne!(
+            res1, res2,
+            "different RAND values must produce different RES values"
+        );
 
         // Cross-check each RES against independent (fresh) Milenage computation.
         let mut check1 = MilenageParams::with_defaults(K, OPC);
-        let expected1 = check1.authenticate(&AuthChallenge::new(rand1), &AuthToken::new(auth_token_1)).unwrap();
+        let expected1 = check1
+            .authenticate(&AuthChallenge::new(rand1), &AuthToken::new(auth_token_1))
+            .unwrap();
         let mut check2 = MilenageParams::with_defaults(K, OPC);
-        let expected2 = check2.authenticate(&AuthChallenge::new(rand2), &AuthToken::new(auth_token_2)).unwrap();
-        assert_eq!(res1, *expected1.response.as_bytes(),
-            "first RES must match independent Milenage");
-        assert_eq!(res2, *expected2.response.as_bytes(),
-            "second RES must match independent Milenage");
+        let expected2 = check2
+            .authenticate(&AuthChallenge::new(rand2), &AuthToken::new(auth_token_2))
+            .unwrap();
+        assert_eq!(
+            res1,
+            *expected1.response.as_bytes(),
+            "first RES must match independent Milenage"
+        );
+        assert_eq!(
+            res2,
+            *expected2.response.as_bytes(),
+            "second RES must match independent Milenage"
+        );
 
         // CK and IK must also differ between the two runs.
-        assert_ne!(&buf1[12..28], &buf2[12..28],
-            "different RAND must produce different CK");
-        assert_ne!(&buf1[29..45], &buf2[29..45],
-            "different RAND must produce different IK");
+        assert_ne!(
+            &buf1[12..28],
+            &buf2[12..28],
+            "different RAND must produce different CK"
+        );
+        assert_ne!(
+            &buf1[29..45],
+            &buf2[29..45],
+            "different RAND must produce different IK"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -6118,8 +6524,8 @@ mod tests {
         let params = MilenageParams::with_defaults(K, OPC);
 
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
@@ -6141,7 +6547,10 @@ mod tests {
         assert_eq!(buf[0], 0x61, "GBA bootstrap must succeed (61 XX)");
         let rsp_len = buf[1];
         // Response: 0xDB || inner_len || 0x08 || RES(8) = 11 bytes
-        assert_eq!(rsp_len, 11, "GBA bootstrap response must be 11 bytes (tag+len+res_len+RES)");
+        assert_eq!(
+            rsp_len, 11,
+            "GBA bootstrap response must be 11 bytes (tag+len+res_len+RES)"
+        );
 
         // GET RESPONSE
         let (rsp, rsp_total) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, rsp_len]);
@@ -6152,15 +6561,20 @@ mod tests {
 
         // Verify RES matches independent Milenage computation
         let mut check = MilenageParams::with_defaults(K, OPC);
-        let expected = check.authenticate(
-            &AuthChallenge::new(rand_val),
-            &AuthToken::new(auth_token),
-        ).unwrap();
-        assert_eq!(&rsp[3..11], expected.response.as_bytes(),
-            "RES must match independent Milenage");
+        let expected = check
+            .authenticate(&AuthChallenge::new(rand_val), &AuthToken::new(auth_token))
+            .unwrap();
+        assert_eq!(
+            &rsp[3..11],
+            expected.response.as_bytes(),
+            "RES must match independent Milenage"
+        );
 
         // Verify NO CK/IK in the response (only 11 bytes total, not 45)
-        assert_eq!(rsp_len, 11, "GBA must NOT return CK/IK (UMTS returns 45 bytes)");
+        assert_eq!(
+            rsp_len, 11,
+            "GBA must NOT return CK/IK (UMTS returns 45 bytes)"
+        );
     }
 
     /// GBA NAF derivation (P2=0x84) after bootstrap returns Ks_ext_NAF.
@@ -6171,8 +6585,8 @@ mod tests {
         let params = MilenageParams::with_defaults(K, OPC);
 
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
@@ -6210,7 +6624,10 @@ mod tests {
         let (buf, _) = send(&mut app, &naf_apdu[..5 + lc as usize]);
         assert_eq!(buf[0], 0x61, "NAF derivation must succeed (61 XX)");
         let naf_rsp_len = buf[1];
-        assert_eq!(naf_rsp_len, 34, "NAF response: tag(1) + len(1) + Ks_ext_NAF(32) = 34");
+        assert_eq!(
+            naf_rsp_len, 34,
+            "NAF response: tag(1) + len(1) + Ks_ext_NAF(32) = 34"
+        );
 
         // GET RESPONSE
         let (rsp, rsp_total) = send(&mut app, &[0x00, 0xC0, 0x00, 0x00, naf_rsp_len]);
@@ -6220,17 +6637,17 @@ mod tests {
 
         // Verify Ks_ext_NAF against independent KDF computation
         let mut check_params = MilenageParams::with_defaults(K, OPC);
-        let check_auth = check_params.authenticate(
-            &AuthChallenge::new(rand_val),
-            &AuthToken::new(auth_token),
-        ).unwrap();
-        let ks = simrs_kdf::GbaSessionKey::from_ck_ik(
-            &check_auth.cipher_key,
-            &check_auth.integrity_key,
-        );
+        let check_auth = check_params
+            .authenticate(&AuthChallenge::new(rand_val), &AuthToken::new(auth_token))
+            .unwrap();
+        let ks =
+            simrs_kdf::GbaSessionKey::from_ck_ik(&check_auth.cipher_key, &check_auth.integrity_key);
         let expected_key = simrs_kdf::derive_gba_ext_naf_key(&ks, &rand_val, impi, naf_id);
-        assert_eq!(&rsp[2..34], expected_key.declassify(),
-            "Ks_ext_NAF must match independent KDF computation");
+        assert_eq!(
+            &rsp[2..34],
+            expected_key.declassify(),
+            "Ks_ext_NAF must match independent KDF computation"
+        );
     }
 
     /// GBA NAF derivation without prior bootstrap returns 69 85.
@@ -6253,8 +6670,11 @@ mod tests {
         apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
 
         let (buf, len) = send(&mut app, &apdu[..5 + lc as usize]);
-        assert_eq!(sw(&buf, len), (0x69, 0x85),
-            "NAF derivation without prior bootstrap must return 69 85");
+        assert_eq!(
+            sw(&buf, len),
+            (0x69, 0x85),
+            "NAF derivation without prior bootstrap must return 69 85"
+        );
     }
 
     /// GBA bootstrap with wrong AUTN returns MAC failure (98 62).
@@ -6270,11 +6690,14 @@ mod tests {
         apdu[4] = 0x22;
         apdu[5] = 0x10; // RAND prefix
         apdu[22] = 0x10; // AUTN prefix
-        // RAND and AUTN are zeros (invalid AUTN)
+                         // RAND and AUTN are zeros (invalid AUTN)
 
         let (buf, len) = send(&mut app, &apdu);
-        assert_eq!(sw(&buf, len), (0x98, 0x62),
-            "GBA bootstrap with bad AUTN must return 98 62");
+        assert_eq!(
+            sw(&buf, len),
+            (0x98, 0x62),
+            "GBA bootstrap with bad AUTN must return 98 62"
+        );
     }
 
     /// GBA NAF derivation with different NAF_IDs produces different keys.
@@ -6285,8 +6708,8 @@ mod tests {
         let params = MilenageParams::with_defaults(K, OPC);
 
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
@@ -6344,7 +6767,10 @@ mod tests {
         key2.copy_from_slice(&rsp2[2..34]);
 
         // Keys must differ
-        assert_ne!(key1, key2, "different NAF_IDs must produce different Ks_ext_NAF keys");
+        assert_ne!(
+            key1, key2,
+            "different NAF_IDs must produce different Ks_ext_NAF keys"
+        );
         assert_ne!(key1, [0u8; 32], "key must not be all-zeros");
         assert_ne!(key2, [0u8; 32], "key must not be all-zeros");
     }
@@ -6357,11 +6783,15 @@ mod tests {
         let params = MilenageParams::with_defaults(K, OPC);
 
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
-        let auth_token = build_autn(&params, &rand_val,
-            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+        let auth_token = build_autn(
+            &params,
+            &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07],
+            [0xB9, 0xB9],
+        );
 
         // Bootstrap
         let mut boot_apdu = [0u8; 5 + 34];
@@ -6401,7 +6831,10 @@ mod tests {
         naf_apdu[6 + naf_id.len()] = impi.len() as u8;
         naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
         let (buf, _) = send(&mut dst, &naf_apdu[..5 + lc as usize]);
-        assert_eq!(buf[0], 0x61, "NAF derivation must succeed after snapshot restore");
+        assert_eq!(
+            buf[0], 0x61,
+            "NAF derivation must succeed after snapshot restore"
+        );
         let (rsp, rsp_total) = send(&mut dst, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
         assert_eq!(sw(&rsp, rsp_total), (0x90, 0x00));
         assert_eq!(rsp[0], 0xDD);
@@ -6416,11 +6849,15 @@ mod tests {
         let params = MilenageParams::with_defaults(K, OPC);
 
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
-        let auth_token = build_autn(&params, &rand_val,
-            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+        let auth_token = build_autn(
+            &params,
+            &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07],
+            [0xB9, 0xB9],
+        );
 
         // Bootstrap
         let mut boot_apdu = [0u8; 5 + 34];
@@ -6454,8 +6891,11 @@ mod tests {
         naf_apdu[6 + naf_id.len()] = impi.len() as u8;
         naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
         let (buf, total) = send(&mut app, &naf_apdu[..5 + lc as usize]);
-        assert_eq!(sw(&buf, total), (0x69, 0x85),
-            "NAF derivation must be rejected after lifetime expiry");
+        assert_eq!(
+            sw(&buf, total),
+            (0x69, 0x85),
+            "NAF derivation must be rejected after lifetime expiry"
+        );
     }
 
     /// Re-bootstrap after Ks expiry resets lifetime and allows NAF derivation.
@@ -6466,11 +6906,15 @@ mod tests {
         let params = MilenageParams::with_defaults(K, OPC);
 
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
-        let auth_token = build_autn(&params, &rand_val,
-            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+        let auth_token = build_autn(
+            &params,
+            &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07],
+            [0xB9, 0xB9],
+        );
 
         // First bootstrap
         let mut boot_apdu = [0u8; 5 + 34];
@@ -6492,11 +6936,15 @@ mod tests {
 
         // Re-bootstrap with different SQN (must increment to avoid sync failure)
         let rand_val2: [u8; 16] = [
-            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22,
-            0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00,
+            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+            0x99, 0x00,
         ];
-        let auth_token2 = build_autn(&params, &rand_val2,
-            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x08], [0xB9, 0xB9]);
+        let auth_token2 = build_autn(
+            &params,
+            &rand_val2,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x08],
+            [0xB9, 0xB9],
+        );
         boot_apdu[6..22].copy_from_slice(&rand_val2);
         boot_apdu[23..39].copy_from_slice(&auth_token2);
         let (buf, _) = send(&mut app, &boot_apdu);
@@ -6517,7 +6965,10 @@ mod tests {
         naf_apdu[6 + naf_id.len()] = impi.len() as u8;
         naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
         let (buf, _) = send(&mut app, &naf_apdu[..5 + lc as usize]);
-        assert_eq!(buf[0], 0x61, "NAF derivation must succeed after re-bootstrap");
+        assert_eq!(
+            buf[0], 0x61,
+            "NAF derivation must succeed after re-bootstrap"
+        );
     }
 
     /// Infinite lifetime (u32::MAX) never expires even after large tick.
@@ -6528,11 +6979,15 @@ mod tests {
         let params = MilenageParams::with_defaults(K, OPC);
 
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
-        let auth_token = build_autn(&params, &rand_val,
-            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+        let auth_token = build_autn(
+            &params,
+            &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07],
+            [0xB9, 0xB9],
+        );
 
         // Bootstrap (default lifetime = u32::MAX = infinite)
         let mut boot_apdu = [0u8; 5 + 34];
@@ -6565,7 +7020,10 @@ mod tests {
         naf_apdu[6 + naf_id.len()] = impi.len() as u8;
         naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
         let (buf, _) = send(&mut app, &naf_apdu[..5 + lc as usize]);
-        assert_eq!(buf[0], 0x61, "NAF derivation must succeed with infinite lifetime");
+        assert_eq!(
+            buf[0], 0x61,
+            "NAF derivation must succeed with infinite lifetime"
+        );
     }
 
     /// Snapshot roundtrip preserves GBA Ks lifetime value.
@@ -6576,11 +7034,15 @@ mod tests {
         let params = MilenageParams::with_defaults(K, OPC);
 
         let rand_val: [u8; 16] = [
-            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D,
-            0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47, 0xBF, 0x35,
+            0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
+            0xBF, 0x35,
         ];
-        let auth_token = build_autn(&params, &rand_val,
-            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07], [0xB9, 0xB9]);
+        let auth_token = build_autn(
+            &params,
+            &rand_val,
+            [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07],
+            [0xB9, 0xB9],
+        );
 
         // Bootstrap
         let mut boot_apdu = [0u8; 5 + 34];
@@ -6628,8 +7090,11 @@ mod tests {
         naf_apdu[6 + naf_id.len()] = impi.len() as u8;
         naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
         let (buf, total) = send(&mut dst, &naf_apdu[..5 + lc as usize]);
-        assert_eq!(sw(&buf, total), (0x69, 0x85),
-            "NAF derivation must be rejected after lifetime expiry on restored app");
+        assert_eq!(
+            sw(&buf, total),
+            (0x69, 0x85),
+            "NAF derivation must be rejected after lifetime expiry on restored app"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -6657,8 +7122,12 @@ mod tests {
     fn ref_select_ef_imsi_by_fid() {
         let mut app = ref_app();
         // Select ADF.USIM by AID
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // Select EF.IMSI by FID
         let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]);
         assert_eq!(buf[0], 0x61, "SELECT EF.IMSI must return data-available SW");
@@ -6677,8 +7146,12 @@ mod tests {
     #[test]
     fn ref_read_binary_ef_imsi() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]);
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x09]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
@@ -6691,8 +7164,12 @@ mod tests {
     #[test]
     fn ref_read_binary_ef_dck() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x2C]);
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x10]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
@@ -6704,8 +7181,12 @@ mod tests {
     #[test]
     fn ref_read_record_ef_fdn() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         // EF.FDN in ref profile: 2 records x 30 bytes
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x1E]);
@@ -6718,8 +7199,12 @@ mod tests {
     #[test]
     fn ref_read_record_ef_acm_cyclic() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x39]);
         // EF.ACM in ref profile: 3 records x 3 bytes
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x03]);
@@ -6732,12 +7217,18 @@ mod tests {
     #[test]
     fn ref_update_binary_roundtrip_ef_ad() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0xAD]);
         // Write [0x81, 0x00, 0x00, 0x03] (mode=test, MNC len=3)
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xD6, 0x00, 0x00, 0x04, 0x81, 0x00, 0x00, 0x03]);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x04, 0x81, 0x00, 0x00, 0x03],
+        );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Read back
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x04]);
@@ -6750,8 +7241,12 @@ mod tests {
     #[test]
     fn ref_update_record_roundtrip_ef_sdn() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x49]);
         // EF.SDN: 2 records x 30 bytes. Write record 1.
         let mut apdu = [0xA5u8; 5 + 30];
@@ -6760,7 +7255,7 @@ mod tests {
         apdu[2] = 0x01; // P1: record 1
         apdu[3] = 0x04; // P2: absolute
         apdu[4] = 0x1E; // Lc: 30
-        // Payload is 0xA5 repeated
+                        // Payload is 0xA5 repeated
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Read back record 1
@@ -6776,11 +7271,18 @@ mod tests {
     fn ref_select_path_to_ef_kc_in_gsm_access() {
         let mut app = ref_app();
         // Select ADF.USIM by AID
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // Select DF.GSM-ACCESS (5F3B) by FID
         let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x5F, 0x3B]);
-        assert_eq!(buf[0], 0x61, "SELECT DF.GSM-ACCESS must return data-available");
+        assert_eq!(
+            buf[0], 0x61,
+            "SELECT DF.GSM-ACCESS must return data-available"
+        );
         // Select EF.Kc (4F20) under DF.GSM-ACCESS
         let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x4F, 0x20]);
         assert_eq!(buf[0], 0x61, "SELECT EF.Kc must return data-available");
@@ -6803,8 +7305,12 @@ mod tests {
     #[test]
     fn ref_select_ef_kcgprs_in_gsm_access() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x5F, 0x3B]);
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x4F, 0x52]);
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x09]);
@@ -6817,8 +7323,12 @@ mod tests {
     #[test]
     fn ref_select_ef_5gs3gpploci() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // Select DF.5GS (5FC0)
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x5F, 0xC0]);
         // Select EF.5GS3GPPLOCI (4F01)
@@ -6871,8 +7381,12 @@ mod tests {
     #[test]
     fn ref_fcp_ef_vgcs_file_size() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // EF.VGCS (6FB1) -- 40 bytes transparent
         let (buf, _) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0xB1]);
         let fcp_len = buf[1];
@@ -6880,7 +7394,11 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let inner = &buf[2..fcp_len as usize];
         let size_val = find_tlv_tag(inner, 0x80).unwrap();
-        assert_eq!(size_val, &[0x00, 0x28], "EF.VGCS file size must be 40 (0x28)");
+        assert_eq!(
+            size_val,
+            &[0x00, 0x28],
+            "EF.VGCS file size must be 40 (0x28)"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -6892,10 +7410,18 @@ mod tests {
     #[test]
     fn ref_select_nonexistent_fid() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         let (buf, len) = send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0xDE, 0xAD]);
-        assert_eq!(sw(&buf, len), (0x6A, 0x82), "non-existent FID must return 6A82");
+        assert_eq!(
+            sw(&buf, len),
+            (0x6A, 0x82),
+            "non-existent FID must return 6A82"
+        );
     }
 
     /// READ BINARY past end of file returns appropriate error SW.
@@ -6903,8 +7429,12 @@ mod tests {
     #[test]
     fn ref_read_binary_past_end() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // EF.HPPLMN (6F31) is 1 byte. Read 2 bytes at offset 0.
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x31]);
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x02]);
@@ -6917,8 +7447,12 @@ mod tests {
     #[test]
     fn ref_read_record_zero_rejected() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // EF.FDN (6F3B) linear-fixed
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x00, 0x04, 0x1E]);
@@ -6931,12 +7465,20 @@ mod tests {
     #[test]
     fn ref_read_record_beyond_last() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // EF.FDN: 2 records. Try record 3.
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]);
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x03, 0x04, 0x1E]);
-        assert_eq!(sw(&buf, len), (0x6A, 0x83), "record beyond last must return 6A83");
+        assert_eq!(
+            sw(&buf, len),
+            (0x6A, 0x83),
+            "record beyond last must return 6A83"
+        );
     }
 
     /// UPDATE BINARY with data exceeding file size is rejected.
@@ -6944,12 +7486,15 @@ mod tests {
     #[test]
     fn ref_update_binary_exceeds_file_size() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // EF.HPPLMN (6F31) is 1 byte. Try writing 2 bytes at offset 0.
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x31]);
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
         let (sw1, _) = sw(&buf, len);
         assert_ne!(sw1, 0x90, "UPDATE BINARY exceeding file size must fail");
     }
@@ -6959,14 +7504,25 @@ mod tests {
     #[test]
     fn ref_update_record_wrong_size() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // EF.ECC (6FB7) linear-fixed: 16-byte records. Try writing 8 bytes.
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0xB7]);
-        let (buf, len) = send(&mut app,
-            &[0x00, 0xDC, 0x01, 0x04, 0x08,
-              0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
-        assert_eq!(sw(&buf, len), (0x67, 0x00), "wrong record size must return 6700");
+        let (buf, len) = send(
+            &mut app,
+            &[
+                0x00, 0xDC, 0x01, 0x04, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            ],
+        );
+        assert_eq!(
+            sw(&buf, len),
+            (0x67, 0x00),
+            "wrong record size must return 6700"
+        );
     }
 
     /// READ BINARY on a linear-fixed EF is rejected (incompatible structure).
@@ -6974,12 +7530,19 @@ mod tests {
     #[test]
     fn ref_read_binary_on_linear_fixed() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x3B]); // EF.FDN
         let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, 0x01]);
-        assert_eq!(sw(&buf, len), (0x69, 0x81),
-            "READ BINARY on linear-fixed EF must return 6981");
+        assert_eq!(
+            sw(&buf, len),
+            (0x69, 0x81),
+            "READ BINARY on linear-fixed EF must return 6981"
+        );
     }
 
     /// READ RECORD on a transparent EF is rejected.
@@ -6987,12 +7550,19 @@ mod tests {
     #[test]
     fn ref_read_record_on_transparent() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]); // EF.IMSI
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x09]);
-        assert_eq!(sw(&buf, len), (0x69, 0x81),
-            "READ RECORD on transparent EF must return 6981");
+        assert_eq!(
+            sw(&buf, len),
+            (0x69, 0x81),
+            "READ RECORD on transparent EF must return 6981"
+        );
     }
 
     /// ISIM ADF can be selected and EFs accessed.
@@ -7001,9 +7571,12 @@ mod tests {
     fn ref_select_isim_adf_and_read_ef() {
         let mut app = ref_app();
         // Select ADF.ISIM by AID
-        let (buf, _) = send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x04]);
+        let (buf, _) = send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x04,
+            ],
+        );
         assert_eq!(buf[0], 0x61, "SELECT ADF.ISIM must return data-available");
         // Select EF.IMPI (6F02)
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x02]);
@@ -7019,9 +7592,12 @@ mod tests {
     fn ref_select_hpsim_adf_and_read_ef() {
         let mut app = ref_app();
         // Select ADF.HPSIM by AID
-        let (buf, _) = send(&mut app,
-            &[0x00, 0xA4, 0x04, 0x04, 0x07,
-              0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x0A]);
+        let (buf, _) = send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x0A,
+            ],
+        );
         assert_eq!(buf[0], 0x61, "SELECT ADF.HPSIM must return data-available");
         // Select EF.HPST (6F07)
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x6F, 0x07]);
@@ -7050,26 +7626,36 @@ mod tests {
     #[test]
     fn ref_sequential_select_multiple_efs() {
         let mut app = ref_app();
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
 
         // Table of (FID_hi, FID_lo, expected_size) for transparent EFs
         let efs: [(u8, u8, u8); 6] = [
-            (0x6F, 0x2C, 16),  // EF.DCK
-            (0x6F, 0x32, 24),  // EF.CNL
-            (0x6F, 0x37, 3),   // EF.ACMmax
-            (0x6F, 0x41, 5),   // EF.PUCT
-            (0x6F, 0x5B, 6),   // EF.START_HFN
-            (0x6F, 0x5C, 3),   // EF.THRESHOLD
+            (0x6F, 0x2C, 16), // EF.DCK
+            (0x6F, 0x32, 24), // EF.CNL
+            (0x6F, 0x37, 3),  // EF.ACMmax
+            (0x6F, 0x41, 5),  // EF.PUCT
+            (0x6F, 0x5B, 6),  // EF.START_HFN
+            (0x6F, 0x5C, 3),  // EF.THRESHOLD
         ];
 
         for (hi, lo, size) in &efs {
             send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, *hi, *lo]);
             let (buf, len) = send(&mut app, &[0x00, 0xB0, 0x00, 0x00, *size]);
-            assert_eq!(sw(&buf, len), (0x90, 0x00),
-                "READ BINARY on EF {hi:#04X}{lo:02X} must succeed");
-            assert_eq!(len, *size as usize + 2,
-                "EF {hi:#04X}{lo:02X} data length mismatch");
+            assert_eq!(
+                sw(&buf, len),
+                (0x90, 0x00),
+                "READ BINARY on EF {hi:#04X}{lo:02X} must succeed"
+            );
+            assert_eq!(
+                len,
+                *size as usize + 2,
+                "EF {hi:#04X}{lo:02X} data length mismatch"
+            );
         }
     }
 
@@ -7079,8 +7665,12 @@ mod tests {
     #[cfg(feature = "profile-full")]
     fn select_phonebook(app: &mut UsimApp) {
         // SELECT ADF.USIM
-        send(app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
         // SELECT DF_PHONEBOOK (5F3A)
         send(app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x5F, 0x3A]);
     }
@@ -7096,7 +7686,11 @@ mod tests {
     fn read_transparent(app: &mut UsimApp, fid_hi: u8, fid_lo: u8, size: u8) -> [u8; 8] {
         select_ef(app, fid_hi, fid_lo);
         let (buf, len) = send(app, &[0x00, 0xB0, 0x00, 0x00, size]);
-        assert_eq!(sw(&buf, len), (0x90, 0x00), "READ BINARY failed for {fid_hi:#04X}{fid_lo:02X}");
+        assert_eq!(
+            sw(&buf, len),
+            (0x90, 0x00),
+            "READ BINARY failed for {fid_hi:#04X}{fid_lo:02X}"
+        );
         let mut out = [0u8; 8];
         out[..size as usize].copy_from_slice(&buf[..size as usize]);
         out
@@ -7115,14 +7709,25 @@ mod tests {
         // UPDATE RECORD on EF_ADN (4F31), record 1, 28 bytes.
         select_ef(&mut app, 0x4F, 0x31);
         let mut apdu = [0xA5u8; 5 + 28];
-        apdu[0] = 0x00; apdu[1] = 0xDC; // UPDATE RECORD
-        apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 28; // rec 1, absolute
+        apdu[0] = 0x00;
+        apdu[1] = 0xDC; // UPDATE RECORD
+        apdu[2] = 0x01;
+        apdu[3] = 0x04;
+        apdu[4] = 28; // rec 1, absolute
         let (buf, len) = send(&mut app, &apdu);
-        assert_eq!(sw(&buf, len), (0x90, 0x00), "UPDATE RECORD ADN must succeed");
+        assert_eq!(
+            sw(&buf, len),
+            (0x90, 0x00),
+            "UPDATE RECORD ADN must succeed"
+        );
 
         // PSC must be 1.
         let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
-        assert_eq!(&psc[..4], [0, 0, 0, 1], "PSC must be 1 after one ADN update");
+        assert_eq!(
+            &psc[..4],
+            [0, 0, 0, 1],
+            "PSC must be 1 after one ADN update"
+        );
 
         // Second update.
         select_ef(&mut app, 0x4F, 0x31);
@@ -7130,7 +7735,11 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
-        assert_eq!(&psc[..4], [0, 0, 0, 2], "PSC must be 2 after two ADN updates");
+        assert_eq!(
+            &psc[..4],
+            [0, 0, 0, 2],
+            "PSC must be 2 after two ADN updates"
+        );
     }
 
     #[cfg(feature = "profile-full")]
@@ -7146,8 +7755,11 @@ mod tests {
         // UPDATE RECORD on EF_ADN (4F31) -> CC must increment.
         select_ef(&mut app, 0x4F, 0x31);
         let mut apdu = [0xA5u8; 5 + 28];
-        apdu[0] = 0x00; apdu[1] = 0xDC;
-        apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 28;
+        apdu[0] = 0x00;
+        apdu[1] = 0xDC;
+        apdu[2] = 0x01;
+        apdu[3] = 0x04;
+        apdu[4] = 28;
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
@@ -7157,17 +7769,28 @@ mod tests {
         // UPDATE RECORD on EF_SNE (4F36) -> CC must NOT increment.
         select_ef(&mut app, 0x4F, 0x36);
         let mut apdu2 = [0xA5u8; 5 + 18];
-        apdu2[0] = 0x00; apdu2[1] = 0xDC;
-        apdu2[2] = 0x01; apdu2[3] = 0x04; apdu2[4] = 18;
+        apdu2[0] = 0x00;
+        apdu2[1] = 0xDC;
+        apdu2[2] = 0x01;
+        apdu2[3] = 0x04;
+        apdu2[4] = 18;
         let (buf, len) = send(&mut app, &apdu2);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         let cc = read_transparent(&mut app, 0x4F, 0x23, 2);
-        assert_eq!(&cc[..2], [0, 1], "CC must still be 1 after SNE update (not ADN)");
+        assert_eq!(
+            &cc[..2],
+            [0, 1],
+            "CC must still be 1 after SNE update (not ADN)"
+        );
 
         // PSC must be 2 (both writes incremented it).
         let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
-        assert_eq!(&psc[..4], [0, 0, 0, 2], "PSC must be 2 after two phonebook writes");
+        assert_eq!(
+            &psc[..4],
+            [0, 0, 0, 2],
+            "PSC must be 2 after two phonebook writes"
+        );
     }
 
     #[cfg(feature = "profile-full")]
@@ -7190,7 +7813,11 @@ mod tests {
 
         // PUID must remain at 0 -- the UICC does not auto-increment it.
         let puid = read_transparent(&mut app, 0x4F, 0x24, 2);
-        assert_eq!(&puid[..2], [0, 0], "PUID must NOT be auto-incremented by UICC");
+        assert_eq!(
+            &puid[..2],
+            [0, 0],
+            "PUID must NOT be auto-incremented by UICC"
+        );
 
         // PSC must still increment (it tracks any phonebook child write).
         let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
@@ -7205,14 +7832,19 @@ mod tests {
 
         // Write directly to EF_PSC (4F22) with value 0x10.
         select_ef(&mut app, 0x4F, 0x22);
-        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x04,
-            0x00, 0x00, 0x00, 0x10]);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x10],
+        );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         // Read back -- must be exactly what we wrote, no auto-increment.
         let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
-        assert_eq!(&psc[..4], [0x00, 0x00, 0x00, 0x10],
-            "Writing to PSC directly must not trigger auto-increment");
+        assert_eq!(
+            &psc[..4],
+            [0x00, 0x00, 0x00, 0x10],
+            "Writing to PSC directly must not trigger auto-increment"
+        );
     }
 
     #[cfg(feature = "profile-full")]
@@ -7223,15 +7855,23 @@ mod tests {
 
         // Seed PSC to 0xFFFF_FFFE directly.
         select_ef(&mut app, 0x4F, 0x22);
-        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x04,
-            0xFF, 0xFF, 0xFF, 0xFE]);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFE],
+        );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         // One ADN write: PSC -> 0xFFFF_FFFF.
         select_ef(&mut app, 0x4F, 0x31);
         let mut apdu = [0xFFu8; 5 + 28];
-        apdu[0] = 0x00; apdu[1] = 0xDC; apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 28;
-        for b in &mut apdu[5..] { *b = 0xA5; }
+        apdu[0] = 0x00;
+        apdu[1] = 0xDC;
+        apdu[2] = 0x01;
+        apdu[3] = 0x04;
+        apdu[4] = 28;
+        for b in &mut apdu[5..] {
+            *b = 0xA5;
+        }
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
@@ -7242,8 +7882,11 @@ mod tests {
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
-        assert_eq!(&psc[..4], [0x00, 0x00, 0x00, 0x00],
-            "PSC must wrap to 0 on overflow");
+        assert_eq!(
+            &psc[..4],
+            [0x00, 0x00, 0x00, 0x00],
+            "PSC must wrap to 0 on overflow"
+        );
     }
 
     #[cfg(feature = "profile-full")]
@@ -7254,15 +7897,20 @@ mod tests {
 
         // Seed CC to 0xFFFE directly.
         select_ef(&mut app, 0x4F, 0x23);
-        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x02,
-            0xFF, 0xFE]);
+        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x02, 0xFF, 0xFE]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         // One ADN write: CC -> 0xFFFF.
         select_ef(&mut app, 0x4F, 0x31);
         let mut apdu = [0xFFu8; 5 + 28];
-        apdu[0] = 0x00; apdu[1] = 0xDC; apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 28;
-        for b in &mut apdu[5..] { *b = 0xA5; }
+        apdu[0] = 0x00;
+        apdu[1] = 0xDC;
+        apdu[2] = 0x01;
+        apdu[3] = 0x04;
+        apdu[4] = 28;
+        for b in &mut apdu[5..] {
+            *b = 0xA5;
+        }
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let cc = read_transparent(&mut app, 0x4F, 0x23, 2);
@@ -7273,8 +7921,7 @@ mod tests {
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         let cc = read_transparent(&mut app, 0x4F, 0x23, 2);
-        assert_eq!(&cc[..2], [0x00, 0x00],
-            "CC must wrap to 0 on overflow");
+        assert_eq!(&cc[..2], [0x00, 0x00], "CC must wrap to 0 on overflow");
     }
 
     #[cfg(feature = "profile-full")]
@@ -7282,20 +7929,29 @@ mod tests {
     fn ref_phonebook_update_outside_phonebook_no_counters() {
         let mut app = ref_app();
         // Select ADF.USIM
-        send(&mut app, &[0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
+        send(
+            &mut app,
+            &[
+                0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            ],
+        );
 
         // UPDATE BINARY on EF.AD (6FAD, 4 bytes) under ADF.USIM root.
         select_ef(&mut app, 0x6F, 0xAD);
-        let (buf, len) = send(&mut app, &[0x00, 0xD6, 0x00, 0x00, 0x04,
-            0x00, 0x00, 0x00, 0x02]);
+        let (buf, len) = send(
+            &mut app,
+            &[0x00, 0xD6, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02],
+        );
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
         // Now navigate to DF_PHONEBOOK and check PSC -- must be unchanged.
         select_ef(&mut app, 0x5F, 0x3A);
         let psc = read_transparent(&mut app, 0x4F, 0x22, 4);
-        assert_eq!(&psc[..4], [0, 0, 0, 0],
-            "Updates outside DF_PHONEBOOK must not affect PSC");
+        assert_eq!(
+            &psc[..4],
+            [0, 0, 0, 0],
+            "Updates outside DF_PHONEBOOK must not affect PSC"
+        );
     }
 
     #[cfg(feature = "profile-full")]
@@ -7328,18 +7984,26 @@ mod tests {
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(len, 13 + 2, "EXT1 record must be 13 bytes + SW");
         // Default is all 0xFF.
-        assert!(buf[..13].iter().all(|&b| b == 0xFF),
-            "Default EXT1 record must be all 0xFF");
+        assert!(
+            buf[..13].iter().all(|&b| b == 0xFF),
+            "Default EXT1 record must be all 0xFF"
+        );
 
         // Write a valid EXT1 extension record.
         // Type=0x02 (called party subaddress), 11 bytes data, next=0xFF (no chain).
         let mut ext1 = [0xFFu8; 13];
         ext1[0] = 0x02; // type: called party subaddress
-        ext1[1..12].copy_from_slice(&[0x91, 0x55, 0x55, 0x55, 0x55, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        ext1[1..12].copy_from_slice(&[
+            0x91, 0x55, 0x55, 0x55, 0x55, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        ]);
         ext1[12] = 0xFF; // no next record
 
         let mut apdu = [0u8; 5 + 13];
-        apdu[0] = 0x00; apdu[1] = 0xDC; apdu[2] = 0x01; apdu[3] = 0x04; apdu[4] = 13;
+        apdu[0] = 0x00;
+        apdu[1] = 0xDC;
+        apdu[2] = 0x01;
+        apdu[3] = 0x04;
+        apdu[4] = 13;
         apdu[5..18].copy_from_slice(&ext1);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
@@ -7359,9 +8023,9 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     use super::*;
+    use proptest::prelude::*;
     use simrs_fs::{EfDef, Fid, FileRef};
     use simrs_milenage::{OperatorVariant, SubscriberKey};
-    use proptest::prelude::*;
 
     static PT_EF: EfDef = EfDef::transparent(
         Fid::new(0x2FE2),
@@ -7376,17 +8040,11 @@ mod proptests {
 
     // Linear-fixed EF for record-based proptest.
     static PT_LF_DATA: [u8; 30] = [
-        0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA,
-        0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA,
-        0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA,
+        0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5,
+        0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA,
     ];
 
-    static PT_LF_EF: EfDef = EfDef::linear_fixed(
-        Fid::new(0x6F3B),
-        None,
-        10, 3,
-        &PT_LF_DATA,
-    );
+    static PT_LF_EF: EfDef = EfDef::linear_fixed(Fid::new(0x6F3B), None, 10, 3, &PT_LF_DATA);
 
     static PT_ADF: DfDef = DfDef {
         fid: Fid::new(0xFF01),
@@ -7534,7 +8192,10 @@ mod proptests {
     /// GET IDENTITY returns 69 85 when SUCI is not provisioned.
     #[test]
     fn get_identity_without_suci_returns_conditions_not_satisfied() {
-        let auth = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
+        let auth = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
         let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
         assert!(app.suci_mut().is_none());
         let cmd_bytes = [0x00, 0x78, 0x00, 0x01];
@@ -7556,24 +8217,31 @@ mod proptests {
         let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-        app.pin_manager().add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true).unwrap();
+        app.pin_manager()
+            .add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
+            .unwrap();
 
         let mut buf = [0u8; 256];
 
         // Select ADF.USIM by AID.
         let select_aid = [
-            0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
         ];
         let cmd = Command::parse(&select_aid).unwrap();
         let _ = app.handle(&cmd, &mut buf);
 
         // Verify PIN1.
-        let verify = [0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF];
+        let verify = [
+            0x00, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         let cmd = Command::parse(&verify).unwrap();
         let rsp = app.handle(&cmd, &mut buf);
         let len = rsp.len();
-        assert_eq!((buf[len - 2], buf[len - 1]), (0x90, 0x00), "PIN1 verify failed");
+        assert_eq!(
+            (buf[len - 2], buf[len - 1]),
+            (0x90, 0x00),
+            "PIN1 verify failed"
+        );
         app
     }
 
@@ -7589,7 +8257,10 @@ mod proptests {
         let rsp = app.handle(&cmd, &mut buf);
         let len = rsp.len();
         let (sw1, sw2) = (buf[len - 2], buf[len - 1]);
-        assert_eq!(sw1, 0x61, "Expected SW1=61 (response data available), got {sw1:02X}");
+        assert_eq!(
+            sw1, 0x61,
+            "Expected SW1=61 (response data available), got {sw1:02X}"
+        );
 
         // GET RESPONSE.
         let get_rsp = [0x00, 0xC0, 0x00, 0x00, sw2];
@@ -7603,10 +8274,22 @@ mod proptests {
         let impi_str = core::str::from_utf8(inner).expect("IMPI must be valid UTF-8");
         // Default IMSI: 001010000000000, MNC=01 (2 digits).
         // IMPI = "001010000000000@ims.mnc001.mcc001.3gppnetwork.org"
-        assert!(impi_str.starts_with("001010000000000@"), "IMPI must start with IMSI: {impi_str}");
-        assert!(impi_str.contains("@ims.mnc"), "IMPI must contain @ims.mnc: {impi_str}");
-        assert!(impi_str.ends_with("3gppnetwork.org"), "IMPI must end with 3gppnetwork.org: {impi_str}");
-        assert!(impi_str.contains("mnc001"), "MNC should be zero-padded to 001: {impi_str}");
+        assert!(
+            impi_str.starts_with("001010000000000@"),
+            "IMPI must start with IMSI: {impi_str}"
+        );
+        assert!(
+            impi_str.contains("@ims.mnc"),
+            "IMPI must contain @ims.mnc: {impi_str}"
+        );
+        assert!(
+            impi_str.ends_with("3gppnetwork.org"),
+            "IMPI must end with 3gppnetwork.org: {impi_str}"
+        );
+        assert!(
+            impi_str.contains("mnc001"),
+            "MNC should be zero-padded to 001: {impi_str}"
+        );
         assert!(impi_str.contains("mcc001"), "MCC should be 001: {impi_str}");
     }
 
@@ -7633,10 +8316,22 @@ mod proptests {
         let inner = &data[2..];
         let domain_str = core::str::from_utf8(inner).expect("Domain must be valid UTF-8");
         // Domain = "ims.mnc001.mcc001.3gppnetwork.org"
-        assert!(domain_str.starts_with("ims.mnc"), "Domain must start with ims.mnc: {domain_str}");
-        assert!(domain_str.ends_with("3gppnetwork.org"), "Domain must end with 3gppnetwork.org: {domain_str}");
-        assert!(domain_str.contains("mnc001"), "MNC should be zero-padded to 001: {domain_str}");
-        assert!(domain_str.contains("mcc001"), "MCC should be 001: {domain_str}");
+        assert!(
+            domain_str.starts_with("ims.mnc"),
+            "Domain must start with ims.mnc: {domain_str}"
+        );
+        assert!(
+            domain_str.ends_with("3gppnetwork.org"),
+            "Domain must end with 3gppnetwork.org: {domain_str}"
+        );
+        assert!(
+            domain_str.contains("mnc001"),
+            "MNC should be zero-padded to 001: {domain_str}"
+        );
+        assert!(
+            domain_str.contains("mcc001"),
+            "MCC should be 001: {domain_str}"
+        );
     }
 
     /// GET IDENTITY P2=0x02 without PIN1 verified returns 69 82.
@@ -7649,13 +8344,14 @@ mod proptests {
         let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-        app.pin_manager().add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true).unwrap();
+        app.pin_manager()
+            .add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
+            .unwrap();
 
         let mut buf = [0u8; 256];
         // Select ADF.USIM.
         let select_aid = [
-            0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
         ];
         let cmd = Command::parse(&select_aid).unwrap();
         let _ = app.handle(&cmd, &mut buf);
@@ -7665,7 +8361,11 @@ mod proptests {
         let cmd = Command::parse(&cmd_bytes).unwrap();
         let rsp = app.handle(&cmd, &mut buf);
         let len = rsp.len();
-        assert_eq!((buf[len - 2], buf[len - 1]), (0x69, 0x82), "Expected security not satisfied");
+        assert_eq!(
+            (buf[len - 2], buf[len - 1]),
+            (0x69, 0x82),
+            "Expected security not satisfied"
+        );
     }
 
     /// GET IDENTITY P2=0x03 without PIN1 verified returns 69 82.
@@ -7678,12 +8378,13 @@ mod proptests {
         let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
         let pin_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
         let puk_val = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
-        app.pin_manager().add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true).unwrap();
+        app.pin_manager()
+            .add_pin(PinKey::PIN1, &pin_val, 3, &puk_val, 10, true)
+            .unwrap();
 
         let mut buf = [0u8; 256];
         let select_aid = [
-            0x00, 0xA4, 0x04, 0x04, 0x07,
-            0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
+            0x00, 0xA4, 0x04, 0x04, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02,
         ];
         let cmd = Command::parse(&select_aid).unwrap();
         let _ = app.handle(&cmd, &mut buf);
@@ -7692,7 +8393,11 @@ mod proptests {
         let cmd = Command::parse(&cmd_bytes).unwrap();
         let rsp = app.handle(&cmd, &mut buf);
         let len = rsp.len();
-        assert_eq!((buf[len - 2], buf[len - 1]), (0x69, 0x82), "Expected security not satisfied");
+        assert_eq!(
+            (buf[len - 2], buf[len - 1]),
+            (0x69, 0x82),
+            "Expected security not satisfied"
+        );
     }
 
     /// GET IDENTITY with invalid P2=0x04 returns 6A 86.
@@ -7705,7 +8410,11 @@ mod proptests {
         let cmd = Command::parse(&cmd_bytes).unwrap();
         let rsp = app.handle(&cmd, &mut buf);
         let len = rsp.len();
-        assert_eq!((buf[len - 2], buf[len - 1]), (0x6A, 0x86), "Expected wrong P1-P2");
+        assert_eq!(
+            (buf[len - 2], buf[len - 1]),
+            (0x6A, 0x86),
+            "Expected wrong P1-P2"
+        );
     }
 
     /// decode_imsi_digits correctly decodes the reference IMSI.
@@ -7749,7 +8458,7 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{ct_test, assert_no_timing_leak};
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
 
     /// extract_msin timing must be independent of IMSI digit values.
     ///
@@ -7764,14 +8473,18 @@ mod ct_validation {
     /// scanning for 0xF terminators) would show timing differences.
     #[test]
     fn test_extract_msin_ct() {
-        let outcome = ct_test(0x0051_0001,
+        let outcome = ct_test(
+            0x0051_0001,
             |rng| {
                 // Class 0: random data AND 0x77 -> bytes in [0x00, 0x77].
                 let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
                 let mut rand_bytes = [0u8; 7];
                 rng.fill_bytes(&mut rand_bytes);
                 let mut i = 0;
-                while i < 7 { imsi[i + 2] = rand_bytes[i] & 0x77; i += 1; }
+                while i < 7 {
+                    imsi[i + 2] = rand_bytes[i] & 0x77;
+                    i += 1;
+                }
                 (imsi, 2u8)
             },
             |rng| {
@@ -7780,7 +8493,10 @@ mod ct_validation {
                 let mut rand_bytes = [0u8; 7];
                 rng.fill_bytes(&mut rand_bytes);
                 let mut i = 0;
-                while i < 7 { imsi[i + 2] = rand_bytes[i] | 0x88; i += 1; }
+                while i < 7 {
+                    imsi[i + 2] = rand_bytes[i] | 0x88;
+                    i += 1;
+                }
                 (imsi, 2u8)
             },
             |(imsi, mnc_len)| {
@@ -7790,7 +8506,10 @@ mod ct_validation {
                 while i < 100 {
                     let r = extract_msin(imsi, *mnc_len);
                     let mut j = 0;
-                    while j < MSIN_FIXED_LEN { acc[j] ^= r[j]; j += 1; }
+                    while j < MSIN_FIXED_LEN {
+                        acc[j] ^= r[j];
+                        j += 1;
+                    }
                     i += 1;
                 }
                 black_box(acc);
@@ -7809,7 +8528,8 @@ mod ct_validation {
     /// to amplify any real timing difference above measurement noise.
     #[test]
     fn test_extract_msin_mnc_length_ct() {
-        let outcome = ct_test(0x0051_0002,
+        let outcome = ct_test(
+            0x0051_0002,
             |rng| {
                 let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
                 let mut rand_bytes = [0u8; 7];
@@ -7830,7 +8550,10 @@ mod ct_validation {
                 while i < 100 {
                     let r = extract_msin(imsi, *mnc_len);
                     let mut j = 0;
-                    while j < MSIN_FIXED_LEN { acc[j] ^= r[j]; j += 1; }
+                    while j < MSIN_FIXED_LEN {
+                        acc[j] ^= r[j];
+                        j += 1;
+                    }
                     i += 1;
                 }
                 black_box(acc);
@@ -7850,14 +8573,18 @@ mod ct_validation {
     /// Class 1: random IMSI OR'd with 0x88 (high nibbles).
     #[test]
     fn test_extract_mcc_mnc_ct() {
-        let outcome = ct_test(0x0051_0003,
+        let outcome = ct_test(
+            0x0051_0003,
             |rng| {
                 // Class 0: random data AND 0x77 -> bytes in [0x00, 0x77].
                 let mut imsi = [0x08u8, 0x09, 0, 0, 0, 0, 0, 0, 0];
                 let mut rand_bytes = [0u8; 7];
                 rng.fill_bytes(&mut rand_bytes);
                 let mut i = 0;
-                while i < 7 { imsi[i + 2] = rand_bytes[i] & 0x77; i += 1; }
+                while i < 7 {
+                    imsi[i + 2] = rand_bytes[i] & 0x77;
+                    i += 1;
+                }
                 (imsi, 2u8)
             },
             |rng| {
@@ -7866,7 +8593,10 @@ mod ct_validation {
                 let mut rand_bytes = [0u8; 7];
                 rng.fill_bytes(&mut rand_bytes);
                 let mut i = 0;
-                while i < 7 { imsi[i + 2] = rand_bytes[i] | 0x88; i += 1; }
+                while i < 7 {
+                    imsi[i + 2] = rand_bytes[i] | 0x88;
+                    i += 1;
+                }
                 (imsi, 2u8)
             },
             |(imsi, mnc_len)| {
@@ -7875,7 +8605,9 @@ mod ct_validation {
                 let mut i = 0;
                 while i < 100 {
                     let r = extract_mcc_mnc(imsi, *mnc_len);
-                    acc[0] ^= r[0]; acc[1] ^= r[1]; acc[2] ^= r[2];
+                    acc[0] ^= r[0];
+                    acc[1] ^= r[1];
+                    acc[2] ^= r[2];
                     i += 1;
                 }
                 black_box(acc);
@@ -7898,30 +8630,51 @@ mod ct_validation {
     /// candidates and broke early would not exhibit this property.
     #[test]
     fn test_profile_b_scalar_selection_ct() {
-        let outcome = ct_test(0x0051_0004,
+        let outcome = ct_test(
+            0x0051_0004,
             |rng| {
                 // Class 0: all-valid candidates with low-byte c0.
-                let mut c0 = [0u8; 32]; rng.fill_bytes(&mut c0);
-                let mut c1 = [0u8; 32]; rng.fill_bytes(&mut c1);
-                let mut c2 = [0u8; 32]; rng.fill_bytes(&mut c2);
-                let mut c3 = [0u8; 32]; rng.fill_bytes(&mut c3);
+                let mut c0 = [0u8; 32];
+                rng.fill_bytes(&mut c0);
+                let mut c1 = [0u8; 32];
+                rng.fill_bytes(&mut c1);
+                let mut c2 = [0u8; 32];
+                rng.fill_bytes(&mut c2);
+                let mut c3 = [0u8; 32];
+                rng.fill_bytes(&mut c3);
                 // Clamp c0 to low range [0x01..0x20].
                 let mut i = 0;
-                while i < 32 { c0[i] = (c0[i] % 0x20) + 0x01; i += 1; }
+                while i < 32 {
+                    c0[i] = (c0[i] % 0x20) + 0x01;
+                    i += 1;
+                }
                 // Ensure all are valid (mid-range values always are).
-                c0[0] = 0x01; c1[0] = 0x10; c2[0] = 0x20; c3[0] = 0x30;
+                c0[0] = 0x01;
+                c1[0] = 0x10;
+                c2[0] = 0x20;
+                c3[0] = 0x30;
                 (c0, c1, c2, c3)
             },
             |rng| {
                 // Class 1: all-valid candidates with high-byte c0.
-                let mut c0 = [0u8; 32]; rng.fill_bytes(&mut c0);
-                let mut c1 = [0u8; 32]; rng.fill_bytes(&mut c1);
-                let mut c2 = [0u8; 32]; rng.fill_bytes(&mut c2);
-                let mut c3 = [0u8; 32]; rng.fill_bytes(&mut c3);
+                let mut c0 = [0u8; 32];
+                rng.fill_bytes(&mut c0);
+                let mut c1 = [0u8; 32];
+                rng.fill_bytes(&mut c1);
+                let mut c2 = [0u8; 32];
+                rng.fill_bytes(&mut c2);
+                let mut c3 = [0u8; 32];
+                rng.fill_bytes(&mut c3);
                 // Clamp c0 to high range [0xA0..0xBF].
                 let mut i = 0;
-                while i < 32 { c0[i] = (c0[i] % 0x20) + 0xA0; i += 1; }
-                c0[0] = 0xA0; c1[0] = 0x10; c2[0] = 0x20; c3[0] = 0x30;
+                while i < 32 {
+                    c0[i] = (c0[i] % 0x20) + 0xA0;
+                    i += 1;
+                }
+                c0[0] = 0xA0;
+                c1[0] = 0x10;
+                c2[0] = 0x20;
+                c3[0] = 0x30;
                 (c0, c1, c2, c3)
             },
             |(c0, c1, c2, c3)| {
@@ -7970,11 +8723,12 @@ mod ct_validation {
         // We mutate EF_IMSI content between calls to get different MSIN values
         // while keeping the same app structure.
 
-        let auth = MilenageParams::with_defaults(SubscriberKey::classify([0u8; 16]), OperatorVariant::operator_cipher([0u8; 16]));
-        let seed = SuciSeed::new([0x42u8; 32]);
-        let mut app = UsimApp::new(
-            &profile::REFERENCE_MF, &profile::ADF_TABLE, auth,
+        let auth = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
         );
+        let seed = SuciSeed::new([0x42u8; 32]);
+        let mut app = UsimApp::new(&profile::REFERENCE_MF, &profile::ADF_TABLE, auth);
         *app.suci_mut() = Some(SuciState::new(seed));
 
         // Prepare GET IDENTITY command (INS=0x78, P1=0x00, P2=0x01).
@@ -7984,7 +8738,8 @@ mod ct_validation {
         // Write fixed IMSI before test loop.
         let fixed_imsi: [u8; 9] = [0x08, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-        let outcome = ct_test(0x0051_0005,
+        let outcome = ct_test(
+            0x0051_0005,
             |rng| {
                 let mut _discard = [0u8; 7];
                 rng.fill_bytes(&mut _discard);
@@ -7999,7 +8754,9 @@ mod ct_validation {
             },
             |imsi_data| {
                 // Write IMSI to the filesystem, then invoke GET IDENTITY.
-                app.data.write_binary(&profile::EF_IMSI, 0, imsi_data).unwrap();
+                app.data
+                    .write_binary(&profile::EF_IMSI, 0, imsi_data)
+                    .unwrap();
                 let mut buf = [0u8; 256];
                 let rsp = app.handle(&cmd, &mut buf);
                 black_box(rsp);

@@ -71,7 +71,9 @@ impl CtEq for SubscriberKey {
 
 impl core::fmt::Debug for SubscriberKey {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("SubscriberKey").field(&Redact(self.0.declassify_ref())).finish()
+        f.debug_tuple("SubscriberKey")
+            .field(&Redact(self.0.declassify_ref()))
+            .finish()
     }
 }
 
@@ -121,7 +123,9 @@ impl CtEq for CipherKey {
 
 impl core::fmt::Debug for CipherKey {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("CipherKey").field(&Redact(self.0.declassify_ref())).finish()
+        f.debug_tuple("CipherKey")
+            .field(&Redact(self.0.declassify_ref()))
+            .finish()
     }
 }
 
@@ -171,7 +175,9 @@ impl CtEq for IntegrityKey {
 
 impl core::fmt::Debug for IntegrityKey {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("IntegrityKey").field(&Redact(self.0.declassify_ref())).finish()
+        f.debug_tuple("IntegrityKey")
+            .field(&Redact(self.0.declassify_ref()))
+            .finish()
     }
 }
 
@@ -214,7 +220,9 @@ impl CtEq for GsmCipherKey {
 
 impl core::fmt::Debug for GsmCipherKey {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("GsmCipherKey").field(&Redact(self.0.declassify_ref())).finish()
+        f.debug_tuple("GsmCipherKey")
+            .field(&Redact(self.0.declassify_ref()))
+            .finish()
     }
 }
 

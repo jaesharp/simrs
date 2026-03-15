@@ -51,9 +51,7 @@ pub fn decode_length(data: &[u8]) -> Result<(usize, usize), ProfileError> {
         if data.len() < 4 {
             return Err(ProfileError::Truncated);
         }
-        let len = ((data[1] as usize) << 16)
-            | ((data[2] as usize) << 8)
-            | (data[3] as usize);
+        let len = ((data[1] as usize) << 16) | ((data[2] as usize) << 8) | (data[3] as usize);
         Ok((len, 4))
     } else {
         // Indefinite length (0x80) or longer forms not used in DER profiles.

@@ -41,12 +41,21 @@ pub enum AlgoConfig {
 impl core::fmt::Debug for AlgoConfig {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Algo { algorithm_id, key, opc } => f.debug_struct("AlgoConfig::Algo")
+            Self::Algo {
+                algorithm_id,
+                key,
+                opc,
+            } => f
+                .debug_struct("AlgoConfig::Algo")
                 .field("algorithm_id", algorithm_id)
                 .field("key", &Redact(key.as_slice()))
                 .field("opc", &Redact(opc.as_slice()))
                 .finish(),
-            Self::Mapping { options, source_aid } => f.debug_struct("AlgoConfig::Mapping")
+            Self::Mapping {
+                options,
+                source_aid,
+            } => f
+                .debug_struct("AlgoConfig::Mapping")
                 .field("options", options)
                 .field("source_aid", source_aid)
                 .finish(),
@@ -72,43 +81,46 @@ impl PeAkaParameter {
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProfileError> {
         let inner = der_util::peel_optional_sequence(data)?;
 
-        let tlvs: Vec<_> = der_util::iter_tlvs(inner)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(inner).collect::<Result<_, _>>()?;
 
         // Tag [1] is the algoConfiguration CHOICE.
         // With AUTOMATIC TAGS on the outer SEQUENCE, algoConfiguration
         // gets tag [1]. The CHOICE inside uses its own tagging.
-        let algo_tlv = tlvs.iter()
+        let algo_tlv = tlvs
+            .iter()
             .find(|t| t.number == 1 && t.class == 2)
             .ok_or(ProfileError::MissingAkaParameter)?;
 
         let algo = Self::parse_algo_config(algo_tlv.value)?;
 
         // sqnOptions: tag [2], default 0x02
-        let sqn_options = tlvs.iter()
+        let sqn_options = tlvs
+            .iter()
             .find(|t| t.number == 2 && t.class == 2)
             .and_then(|t| t.value.first().copied())
             .unwrap_or(0x02);
 
         // sqnDelta: tag [3], default 0x000010000000
-        let sqn_delta = tlvs.iter()
-            .find(|t| t.number == 3 && t.class == 2)
-            .map_or([0x00, 0x00, 0x10, 0x00, 0x00, 0x00], |t| {
+        let sqn_delta = tlvs.iter().find(|t| t.number == 3 && t.class == 2).map_or(
+            [0x00, 0x00, 0x10, 0x00, 0x00, 0x00],
+            |t| {
                 let mut arr = [0u8; 6];
                 let len = t.value.len().min(6);
                 arr[6 - len..].copy_from_slice(&t.value[..len]);
                 arr
-            });
+            },
+        );
 
         // sqnAgeLimit: tag [4]
-        let sqn_age_limit = tlvs.iter()
-            .find(|t| t.number == 4 && t.class == 2)
-            .map_or([0x00, 0x00, 0x10, 0x00, 0x00, 0x00], |t| {
+        let sqn_age_limit = tlvs.iter().find(|t| t.number == 4 && t.class == 2).map_or(
+            [0x00, 0x00, 0x10, 0x00, 0x00, 0x00],
+            |t| {
                 let mut arr = [0u8; 6];
                 let len = t.value.len().min(6);
                 arr[6 - len..].copy_from_slice(&t.value[..len]);
                 arr
-            });
+            },
+        );
 
         Ok(Self {
             algo,
@@ -153,8 +165,7 @@ impl PeAkaParameter {
 
     /// Parse `AlgoParameter` SEQUENCE.
     fn parse_algo_parameter(data: &[u8]) -> Result<AlgoConfig, ProfileError> {
-        let tlvs: Vec<_> = der_util::iter_tlvs(data)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(data).collect::<Result<_, _>>()?;
 
         // AlgoParameter fields (AUTOMATIC TAGS):
         // [0] INTEGER algorithmID
@@ -166,17 +177,20 @@ impl PeAkaParameter {
         // [6] OCTET STRING authCounterMax (optional)
         // [7] INTEGER numberOfKeccak (optional, default 1)
 
-        let algorithm_id = tlvs.iter()
+        let algorithm_id = tlvs
+            .iter()
             .find(|t| t.number == 0 && t.class == 2)
             .and_then(|t| t.value.last().copied())
             .unwrap_or(1);
 
-        let key = tlvs.iter()
+        let key = tlvs
+            .iter()
             .find(|t| t.number == 2 && t.class == 2)
             .map(|t| t.value.to_vec())
             .unwrap_or_default();
 
-        let opc = tlvs.iter()
+        let opc = tlvs
+            .iter()
             .find(|t| t.number == 3 && t.class == 2)
             .map(|t| t.value.to_vec())
             .unwrap_or_default();
@@ -190,16 +204,14 @@ impl PeAkaParameter {
 
     /// Parse `MappingParameter` SEQUENCE.
     fn parse_mapping_parameter(data: &[u8]) -> Result<AlgoConfig, ProfileError> {
-        let tlvs: Vec<_> = der_util::iter_tlvs(data)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(data).collect::<Result<_, _>>()?;
 
-        let options = tlvs.first()
+        let options = tlvs
+            .first()
             .and_then(|t| t.value.first().copied())
             .unwrap_or(0);
 
-        let source_aid = tlvs.get(1)
-            .map(|t| t.value.to_vec())
-            .unwrap_or_default();
+        let source_aid = tlvs.get(1).map(|t| t.value.to_vec()).unwrap_or_default();
 
         Ok(AlgoConfig::Mapping {
             options,

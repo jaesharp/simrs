@@ -6,9 +6,7 @@
 //! wrong version, mismatched feature flags, truncation).
 
 use cucumber::{given, then, when};
-use simrs_security_tests::{
-    apdu, create_sim_powered_on, send_apdu_sw,
-};
+use simrs_security_tests::{apdu, create_sim_powered_on, send_apdu_sw};
 
 use super::world::{capture_snapshot, SimWorld};
 

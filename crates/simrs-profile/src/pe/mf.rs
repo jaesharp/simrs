@@ -44,8 +44,7 @@ impl PeMf {
     pub fn from_bytes(data: &[u8]) -> Result<Self, ProfileError> {
         let inner = der_util::peel_optional_sequence(data)?;
 
-        let tlvs: Vec<_> = der_util::iter_tlvs(inner)
-            .collect::<Result<_, _>>()?;
+        let tlvs: Vec<_> = der_util::iter_tlvs(inner).collect::<Result<_, _>>()?;
 
         // Context-specific constructed: tag_num -> 0xA0 | tag_num for num < 31.
         let parse_file = |tag_num: u8| -> Option<Result<File, ProfileError>> {
@@ -55,15 +54,11 @@ impl PeMf {
                 .map(|t| File::from_bytes(t.value))
         };
 
-        let mf = parse_file(2)
-            .ok_or(ProfileError::MissingMf)??;
+        let mf = parse_file(2).ok_or(ProfileError::MissingMf)??;
         let ef_pl = parse_file(3).transpose()?;
-        let ef_iccid = parse_file(4)
-            .ok_or(ProfileError::MissingRequiredFile(4))??;
-        let ef_dir = parse_file(5)
-            .ok_or(ProfileError::MissingRequiredFile(5))??;
-        let ef_arr = parse_file(6)
-            .ok_or(ProfileError::MissingRequiredFile(6))??;
+        let ef_iccid = parse_file(4).ok_or(ProfileError::MissingRequiredFile(4))??;
+        let ef_dir = parse_file(5).ok_or(ProfileError::MissingRequiredFile(5))??;
+        let ef_arr = parse_file(6).ok_or(ProfileError::MissingRequiredFile(6))??;
         let ef_umpc = parse_file(7).transpose()?;
 
         Ok(Self {

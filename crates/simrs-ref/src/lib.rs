@@ -49,5 +49,5 @@ impl ReferenceSource {
 
 pub mod comp128;
 pub mod milenage;
-pub mod tuak;
 pub mod protocol;
+pub mod tuak;

@@ -12,8 +12,8 @@ use cucumber::{given, then};
 
 use super::snapshot::{format_diff_report, is_reserved};
 use super::world::{
-    capture_snapshot, ensure_state_before, ins_from_name, CommandMatcher, InterposerRule,
-    Mutation, SimWorld,
+    capture_snapshot, ensure_state_before, ins_from_name, CommandMatcher, InterposerRule, Mutation,
+    SimWorld,
 };
 
 // =========================================================================
@@ -99,18 +99,20 @@ fn then_no_state_changed(world: &mut SimWorld) {
         world.state_after = Some(capture_snapshot(world.sim_ref()));
     }
 
-    let before = world.state_before.as_ref()
+    let before = world
+        .state_before
+        .as_ref()
         .expect("No state snapshot -- was the SIM initialised?");
     let after = world.state_after.as_ref().unwrap();
-    let registry = world.registry.as_ref()
+    let registry = world
+        .registry
+        .as_ref()
         .expect("No snapshot registry -- was the SIM initialised?");
 
     let diffs = registry.diff(before, after);
     if !diffs.is_empty() {
         let report = format_diff_report(&diffs, &world.reservations);
-        panic!(
-            "SIM state changed unexpectedly after rejected command:\n{report}",
-        );
+        panic!("SIM state changed unexpectedly after rejected command:\n{report}",);
     }
 }
 
@@ -121,10 +123,14 @@ fn then_no_other_state_changed(world: &mut SimWorld) {
         world.state_after = Some(capture_snapshot(world.sim_ref()));
     }
 
-    let before = world.state_before.as_ref()
+    let before = world
+        .state_before
+        .as_ref()
         .expect("No state snapshot -- was the SIM initialised?");
     let after = world.state_after.as_ref().unwrap();
-    let registry = world.registry.as_ref()
+    let registry = world
+        .registry
+        .as_ref()
         .expect("No snapshot registry -- was the SIM initialised?");
 
     let diffs = registry.diff(before, after);
@@ -134,8 +140,6 @@ fn then_no_other_state_changed(world: &mut SimWorld) {
 
     if has_unreserved {
         let report = format_diff_report(&diffs, &world.reservations);
-        panic!(
-            "SIM state changed in unreserved fields:\n{report}",
-        );
+        panic!("SIM state changed in unreserved fields:\n{report}",);
     }
 }

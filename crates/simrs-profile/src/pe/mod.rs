@@ -172,9 +172,7 @@ pub enum ProfileElement {
 ///
 /// Returns [`ProfileError`] if the DER structure is malformed or if a
 /// known PE type contains invalid data.
-pub fn parse_profile_package(
-    der_bytes: &[u8],
-) -> Result<Vec<ProfileElement>, ProfileError> {
+pub fn parse_profile_package(der_bytes: &[u8]) -> Result<Vec<ProfileElement>, ProfileError> {
     // Detect whether input is wrapped in SEQUENCE or is raw PE concatenation.
     let inner = if der_bytes.first() == Some(&0x30) {
         // SEQUENCE-wrapped: unwrap to get inner content.
@@ -206,9 +204,7 @@ pub fn parse_profile_package(
             1 => ProfileElement::Gfm(PeGfm::from_bytes(tlv.value)?),
             2 => ProfileElement::PinCodes(PePinCodes::from_bytes(tlv.value)?),
             3 => ProfileElement::PukCodes(PePukCodes::from_bytes(tlv.value)?),
-            4 => {
-                ProfileElement::AkaParameter(PeAkaParameter::from_bytes(tlv.value)?)
-            }
+            4 => ProfileElement::AkaParameter(PeAkaParameter::from_bytes(tlv.value)?),
             5 => ProfileElement::CdmaParameter(PeCdmaParameter::from_bytes(tlv.value)?),
             6 => ProfileElement::SecurityDomain(PeSecurityDomain::from_bytes(tlv.value)?),
             7 => ProfileElement::Rfm(PeRfm::from_bytes(tlv.value)?),

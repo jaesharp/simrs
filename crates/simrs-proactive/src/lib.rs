@@ -108,7 +108,7 @@
 
 pub mod gsm7;
 
-use simrs_bertlv::{BER_LONG_FORM_1, BER_LONG_FORM_2, BER_SHORT_FORM_MAX, Decoder, Encoder};
+use simrs_bertlv::{Decoder, Encoder, BER_LONG_FORM_1, BER_LONG_FORM_2, BER_SHORT_FORM_MAX};
 
 // ---------------------------------------------------------------------------
 // Constants per ETSI TS 102 223
@@ -117,7 +117,9 @@ use simrs_bertlv::{BER_LONG_FORM_1, BER_LONG_FORM_2, BER_SHORT_FORM_MAX, Decoder
 /// BER-TLV outer envelope tag for proactive command (0xD0).
 const ENVELOPE_TAG_PROACTIVE_CMD: u8 = 0xD0;
 
-#[deprecated(note = "use ENVELOPE_TAG_PROACTIVE_CMD -- 0xD0 is an outer envelope tag, not a comprehension-TLV")]
+#[deprecated(
+    note = "use ENVELOPE_TAG_PROACTIVE_CMD -- 0xD0 is an outer envelope tag, not a comprehension-TLV"
+)]
 #[allow(dead_code)]
 const TAG_PROACTIVE_CMD: u8 = ENVELOPE_TAG_PROACTIVE_CMD;
 /// Command Details ([ETSI TS 102 223 V18.2.0 clause 8.6](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A388%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C322%5D)).
@@ -154,13 +156,19 @@ const ENVELOPE_TAG_EVENT_DOWNLOAD: u8 = 0xD6;
 /// Same byte value as comprehension-TLV [`TAG_REJECTED_SLICES_W_MAPPING`].
 const ENVELOPE_TAG_TIMER_EXPIRATION: u8 = 0xD7;
 
-#[deprecated(note = "use ENVELOPE_TAG_MENU_SELECTION -- 0xD3 is an outer envelope tag, not a comprehension-TLV")]
+#[deprecated(
+    note = "use ENVELOPE_TAG_MENU_SELECTION -- 0xD3 is an outer envelope tag, not a comprehension-TLV"
+)]
 #[allow(dead_code)]
 const TAG_MENU_SELECTION: u8 = ENVELOPE_TAG_MENU_SELECTION;
-#[deprecated(note = "use ENVELOPE_TAG_EVENT_DOWNLOAD -- 0xD6 is shared with comprehension-TLV TAG_SLICES_INFORMATION")]
+#[deprecated(
+    note = "use ENVELOPE_TAG_EVENT_DOWNLOAD -- 0xD6 is shared with comprehension-TLV TAG_SLICES_INFORMATION"
+)]
 #[allow(dead_code)]
 const TAG_EVENT_DOWNLOAD: u8 = ENVELOPE_TAG_EVENT_DOWNLOAD;
-#[deprecated(note = "use ENVELOPE_TAG_TIMER_EXPIRATION -- 0xD7 is shared with comprehension-TLV TAG_REJECTED_SLICES_W_MAPPING")]
+#[deprecated(
+    note = "use ENVELOPE_TAG_TIMER_EXPIRATION -- 0xD7 is shared with comprehension-TLV TAG_REJECTED_SLICES_W_MAPPING"
+)]
 #[allow(dead_code)]
 const TAG_TIMER_EXPIRATION: u8 = ENVELOPE_TAG_TIMER_EXPIRATION;
 /// Item Identifier tag ([ETSI TS 102 223 V18.2.0 clause 8.10](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A407%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D)).
@@ -1148,10 +1156,7 @@ fn encode_text_string(
 }
 
 /// Encode a sequence of Item TLVs: tag `0x8F`, value = [id] [text bytes].
-fn encode_items(
-    enc: &mut Encoder<'_>,
-    items: &[MenuItem<'_>],
-) -> Result<(), ProactiveError> {
+fn encode_items(enc: &mut Encoder<'_>, items: &[MenuItem<'_>]) -> Result<(), ProactiveError> {
     for item in items {
         encode_prefixed_tlv(enc, TAG_ITEM, item.id, item.text)?;
     }
@@ -1160,10 +1165,7 @@ fn encode_items(
 
 /// Encode command-specific payload TLVs.
 #[allow(clippy::too_many_lines)]
-fn encode_payload(
-    enc: &mut Encoder<'_>,
-    cmd: &ProactiveCommand<'_>,
-) -> Result<(), ProactiveError> {
+fn encode_payload(enc: &mut Encoder<'_>, cmd: &ProactiveCommand<'_>) -> Result<(), ProactiveError> {
     match cmd {
         ProactiveCommand::DisplayText { text, coding, .. }
         | ProactiveCommand::GetInkey { text, coding, .. }
@@ -1201,7 +1203,13 @@ fn encode_payload(
                 .map_err(|_| ProactiveError::BufferTooSmall)?;
         }
 
-        ProactiveCommand::GetInput { text, coding, min_len, max_len, .. } => {
+        ProactiveCommand::GetInput {
+            text,
+            coding,
+            min_len,
+            max_len,
+            ..
+        } => {
             encode_text_string(enc, text, *coding)?;
             enc.tag_length_value(TAG_RESPONSE_LENGTH, &[*min_len, *max_len])
                 .map_err(|_| ProactiveError::BufferTooSmall)?;
@@ -1237,7 +1245,10 @@ fn encode_payload(
             // Header-only commands: no payload TLVs.
         }
 
-        ProactiveCommand::LsiCommand { qualifier, lsi_numbers } => {
+        ProactiveCommand::LsiCommand {
+            qualifier,
+            lsi_numbers,
+        } => {
             // For session request (qualifier bit 8 = 0), emit LSI numbers TLV
             // if non-empty.  Platform reset (0x80) has no payload.
             if *qualifier & 0x80 == 0 && !lsi_numbers.is_empty() {
@@ -1264,7 +1275,9 @@ fn encode_payload(
                 .map_err(|_| ProactiveError::BufferTooSmall)?;
         }
 
-        ProactiveCommand::SetUpCall { alpha_id, address, .. } => {
+        ProactiveCommand::SetUpCall {
+            alpha_id, address, ..
+        } => {
             if !alpha_id.is_empty() {
                 enc.tag_length_value(TAG_ALPHA_ID, alpha_id)
                     .map_err(|_| ProactiveError::BufferTooSmall)?;
@@ -1283,7 +1296,11 @@ fn encode_payload(
                 .map_err(|_| ProactiveError::BufferTooSmall)?;
         }
 
-        ProactiveCommand::TimerManagement { timer_id, timer_value, .. } => {
+        ProactiveCommand::TimerManagement {
+            timer_id,
+            timer_value,
+            ..
+        } => {
             enc.tag_length_value(TAG_TIMER_ID, &[*timer_id])
                 .map_err(|_| ProactiveError::BufferTooSmall)?;
             if let Some(tv) = timer_value {
@@ -1373,21 +1390,36 @@ impl ProactiveCommand<'_> {
             Self::SetUpCall { qualifier, .. } => (CMD_TYPE_SET_UP_CALL, *qualifier, DEV_NETWORK),
             Self::SendUssd { .. } => (CMD_TYPE_SEND_USSD, 0x00, DEV_NETWORK),
             Self::SendDtmf { .. } => (CMD_TYPE_SEND_DTMF, 0x00, DEV_NETWORK),
-            Self::ProvideLocalInformation { qualifier } => (CMD_TYPE_PROVIDE_LOCAL_INFO, *qualifier, DEV_TERMINAL),
-            Self::TimerManagement { qualifier, .. } => (CMD_TYPE_TIMER_MANAGEMENT, *qualifier, DEV_TERMINAL),
+            Self::ProvideLocalInformation { qualifier } => {
+                (CMD_TYPE_PROVIDE_LOCAL_INFO, *qualifier, DEV_TERMINAL)
+            }
+            Self::TimerManagement { qualifier, .. } => {
+                (CMD_TYPE_TIMER_MANAGEMENT, *qualifier, DEV_TERMINAL)
+            }
             Self::LanguageNotification { specific, .. } => {
                 let qual = if *specific { 0x01 } else { 0x00 };
                 (CMD_TYPE_LANGUAGE_NOTIFICATION, qual, DEV_TERMINAL)
             }
             Self::SendSs { qualifier } => (CMD_TYPE_SEND_SS, *qualifier, DEV_NETWORK),
-            Self::GeographicalLocationRequest => (CMD_TYPE_GEO_LOCATION_REQUEST, 0x00, DEV_TERMINAL),
-            Self::PerformCardApdu { qualifier } => (CMD_TYPE_PERFORM_CARD_APDU, *qualifier, DEV_TERMINAL),
+            Self::GeographicalLocationRequest => {
+                (CMD_TYPE_GEO_LOCATION_REQUEST, 0x00, DEV_TERMINAL)
+            }
+            Self::PerformCardApdu { qualifier } => {
+                (CMD_TYPE_PERFORM_CARD_APDU, *qualifier, DEV_TERMINAL)
+            }
             Self::PowerOnCard { qualifier } => (CMD_TYPE_POWER_ON_CARD, *qualifier, DEV_TERMINAL),
             Self::PowerOffCard { qualifier } => (CMD_TYPE_POWER_OFF_CARD, *qualifier, DEV_TERMINAL),
-            Self::GetReaderStatus { qualifier } => (CMD_TYPE_GET_READER_STATUS, *qualifier, DEV_TERMINAL),
+            Self::GetReaderStatus { qualifier } => {
+                (CMD_TYPE_GET_READER_STATUS, *qualifier, DEV_TERMINAL)
+            }
             Self::RunAtCommand => (CMD_TYPE_RUN_AT_COMMAND, 0x00, DEV_TERMINAL),
-            Self::OpenChannel { qualifier, .. } => (CMD_TYPE_OPEN_CHANNEL, *qualifier, DEV_TERMINAL),
-            Self::CloseChannel { channel_id, qualifier } => {
+            Self::OpenChannel { qualifier, .. } => {
+                (CMD_TYPE_OPEN_CHANNEL, *qualifier, DEV_TERMINAL)
+            }
+            Self::CloseChannel {
+                channel_id,
+                qualifier,
+            } => {
                 // Per TS 102 223 clause 8.7, BIP channel device identities
                 // are 0x21-0x27 for channels 1-7.
                 let dest = if *channel_id >= 1 && *channel_id <= 7 {
@@ -1396,20 +1428,24 @@ impl ProactiveCommand<'_> {
                     DEV_TERMINAL
                 };
                 (CMD_TYPE_CLOSE_CHANNEL, *qualifier, dest)
-            },
+            }
             Self::ReceiveData { qualifier } => (CMD_TYPE_RECEIVE_DATA, *qualifier, DEV_TERMINAL),
             Self::SendDataCmd { qualifier } => (CMD_TYPE_SEND_DATA, *qualifier, DEV_TERMINAL),
             Self::GetChannelStatus => (CMD_TYPE_GET_CHANNEL_STATUS, 0x00, DEV_TERMINAL),
             Self::ServiceSearch => (CMD_TYPE_SERVICE_SEARCH, 0x00, DEV_TERMINAL),
             Self::GetServiceInformation => (CMD_TYPE_GET_SERVICE_INFO, 0x00, DEV_TERMINAL),
-            Self::DeclareService { qualifier } => (CMD_TYPE_DECLARE_SERVICE, *qualifier, DEV_TERMINAL),
+            Self::DeclareService { qualifier } => {
+                (CMD_TYPE_DECLARE_SERVICE, *qualifier, DEV_TERMINAL)
+            }
             Self::SetFrames => (CMD_TYPE_SET_FRAMES, 0x00, DEV_TERMINAL),
             Self::GetFramesStatus => (CMD_TYPE_GET_FRAMES_STATUS, 0x00, DEV_TERMINAL),
             Self::RetrieveMultimediaMessage => (CMD_TYPE_RETRIEVE_MMS, 0x00, DEV_TERMINAL),
             Self::SubmitMultimediaMessage => (CMD_TYPE_SUBMIT_MMS, 0x00, DEV_TERMINAL),
             Self::DisplayMultimediaMessage => (CMD_TYPE_DISPLAY_MMS, 0x00, DEV_TERMINAL),
             Self::Activate { qualifier } => (CMD_TYPE_ACTIVATE, *qualifier, DEV_TERMINAL),
-            Self::ContactlessStateChanged => (CMD_TYPE_CONTACTLESS_STATE_CHANGED, 0x00, DEV_TERMINAL),
+            Self::ContactlessStateChanged => {
+                (CMD_TYPE_CONTACTLESS_STATE_CHANGED, 0x00, DEV_TERMINAL)
+            }
             Self::CommandContainer => (CMD_TYPE_COMMAND_CONTAINER, 0x00, DEV_TERMINAL),
             Self::EncapsulatedSessionControl => (CMD_TYPE_ENCAP_SESSION_CTRL, 0x00, DEV_TERMINAL),
             Self::LsiCommand { qualifier, .. } => (CMD_TYPE_LSI_COMMAND, *qualifier, DEV_TERMINAL),
@@ -1662,7 +1698,11 @@ const fn seconds_to_bcd(total: u32) -> [u8; 3] {
     let hours = (clamped / 3600) as u8;
     let minutes = ((clamped % 3600) / 60) as u8;
     let seconds = (clamped % 60) as u8;
-    [dec_to_bcd_byte(hours), dec_to_bcd_byte(minutes), dec_to_bcd_byte(seconds)]
+    [
+        dec_to_bcd_byte(hours),
+        dec_to_bcd_byte(minutes),
+        dec_to_bcd_byte(seconds),
+    ]
 }
 
 impl Default for ProactiveState {
@@ -1827,8 +1867,7 @@ impl ProactiveState {
                 match cmd_type {
                     CMD_TYPE_OPEN_CHANNEL => {
                         // Channel ID from Channel Status TLV (bits 0-2).
-                        let ch_id = channel_status
-                            .map_or(0, |cs| cs[0] & 0x07);
+                        let ch_id = channel_status.map_or(0, |cs| cs[0] & 0x07);
                         self.apply_bip_result(&tr, ch_id, bearer_type, buffer_size);
                     }
                     CMD_TYPE_CLOSE_CHANNEL => {
@@ -2028,7 +2067,10 @@ impl ProactiveState {
             self.event_tag = 0;
             self.event_timer_id = 0;
             self.event_timer_value = [0; 3];
-            Some(EnvelopeEvent::TimerExpiration { timer_id, timer_value })
+            Some(EnvelopeEvent::TimerExpiration {
+                timer_id,
+                timer_value,
+            })
         } else {
             None
         }
@@ -2147,7 +2189,9 @@ impl ProactiveState {
         let bit = self.expired_timers.trailing_zeros();
         self.expired_timers &= !(1 << bit);
         #[allow(clippy::cast_possible_truncation)]
-        { (bit as u8) + 1 }
+        {
+            (bit as u8) + 1
+        }
     }
 
     // -- Terminal profile --
@@ -2304,7 +2348,9 @@ impl ProactiveState {
     ) -> bool {
         let success = tr.general_result <= 0x0F;
         match tr.cmd_type {
-            CMD_TYPE_OPEN_CHANNEL if success => self.open_channel(channel_id, bearer_type, buffer_size),
+            CMD_TYPE_OPEN_CHANNEL if success => {
+                self.open_channel(channel_id, bearer_type, buffer_size)
+            }
             CMD_TYPE_CLOSE_CHANNEL if success => self.close_channel(channel_id),
             _ => false,
         }
@@ -2321,7 +2367,8 @@ impl ProactiveState {
     /// + `timers`(8 x 5 = 40) + `expired_timers`(1)
     /// + `channels`(7 x 4 = 28) + `last_result`(1)
     /// + `last_bip_channel_id`(1) = 386.
-    pub const SNAPSHOT_SIZE: usize = 256 + 2 + 1 + 1 + 1 + 32 + 1 + 1 + 1 + 3 + 8 + 8 + 40 + 1 + 28 + 1 + 1;
+    pub const SNAPSHOT_SIZE: usize =
+        256 + 2 + 1 + 1 + 1 + 32 + 1 + 1 + 1 + 3 + 8 + 8 + 40 + 1 + 28 + 1 + 1;
 
     /// Serialize the proactive state into `buf` as flat bytes.
     ///
@@ -3041,8 +3088,14 @@ mod tests {
     #[test]
     fn select_item_encoding() {
         let items = [
-            MenuItem { id: 1, text: b"First" },
-            MenuItem { id: 2, text: b"Second" },
+            MenuItem {
+                id: 1,
+                text: b"First",
+            },
+            MenuItem {
+                id: 2,
+                text: b"Second",
+            },
         ];
         let cmd = ProactiveCommand::SelectItem {
             title: b"Choose",
@@ -3496,10 +3549,7 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn all_command_types_encode_successfully() {
-        let items = [MenuItem {
-            id: 1,
-            text: b"A",
-        }];
+        let items = [MenuItem { id: 1, text: b"A" }];
         let commands: &[ProactiveCommand<'_>] = &[
             ProactiveCommand::DisplayText {
                 text: b"X",
@@ -3552,9 +3602,7 @@ mod tests {
                 interval: 10,
             },
             ProactiveCommand::PollingOff,
-            ProactiveCommand::SetUpEventList {
-                events: &[0x05],
-            },
+            ProactiveCommand::SetUpEventList { events: &[0x05] },
             ProactiveCommand::SetUpCall {
                 address: &[0x91, 0x11],
                 qualifier: 0x00,
@@ -3563,12 +3611,8 @@ mod tests {
             ProactiveCommand::SendUssd {
                 ussd_string: &[0x0F, 0x2A],
             },
-            ProactiveCommand::SendDtmf {
-                dtmf: &[0x12],
-            },
-            ProactiveCommand::ProvideLocalInformation {
-                qualifier: 0x00,
-            },
+            ProactiveCommand::SendDtmf { dtmf: &[0x12] },
+            ProactiveCommand::ProvideLocalInformation { qualifier: 0x00 },
             ProactiveCommand::TimerManagement {
                 timer_id: 1,
                 qualifier: 0x00,
@@ -3593,7 +3637,10 @@ mod tests {
                 destination_address: &[],
                 qualifier: 0x00,
             },
-            ProactiveCommand::CloseChannel { channel_id: 1, qualifier: 0x00 },
+            ProactiveCommand::CloseChannel {
+                channel_id: 1,
+                qualifier: 0x00,
+            },
             ProactiveCommand::ReceiveData { qualifier: 0x00 },
             ProactiveCommand::SendDataCmd { qualifier: 0x00 },
             ProactiveCommand::GetChannelStatus,
@@ -3609,7 +3656,10 @@ mod tests {
             ProactiveCommand::ContactlessStateChanged,
             ProactiveCommand::CommandContainer,
             ProactiveCommand::EncapsulatedSessionControl,
-            ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &[] },
+            ProactiveCommand::LsiCommand {
+                qualifier: 0x00,
+                lsi_numbers: &[],
+            },
             ProactiveCommand::EndOfProactiveUiccSession,
         ];
         for cmd in commands {
@@ -3691,7 +3741,8 @@ mod tests {
 
         let mut buf = [0u8; 32];
         let mut enc = Encoder::new(&mut buf);
-        enc.tag_length_value(ENVELOPE_TAG_MENU_SELECTION, &inner[..ilen]).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_MENU_SELECTION, &inner[..ilen])
+            .unwrap();
         let len = enc.len();
         (buf, len)
     }
@@ -3702,10 +3753,7 @@ mod tests {
         let (buf, len) = build_menu_selection_envelope(0x03);
         assert!(state.process_envelope(&buf[..len]));
         let event = state.take_event();
-        assert_eq!(
-            event,
-            Some(EnvelopeEvent::MenuSelection { item_id: 0x03 })
-        );
+        assert_eq!(event, Some(EnvelopeEvent::MenuSelection { item_id: 0x03 }));
     }
 
     #[test]
@@ -3746,31 +3794,32 @@ mod tests {
         let mut inner = [0u8; 16];
         let mut ie = Encoder::new(&mut inner);
         ie.tag_length_value(TAG_EVENT_LIST, &[event_type]).unwrap();
-        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC]).unwrap();
+        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC])
+            .unwrap();
         let ilen = ie.len();
 
         let mut buf = [0u8; 32];
         let mut enc = Encoder::new(&mut buf);
-        enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner[..ilen]).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner[..ilen])
+            .unwrap();
         let len = enc.len();
         (buf, len)
     }
 
     /// Build a Timer Expiration envelope (outer tag D7).
-    fn build_timer_expiration_envelope(
-        timer_id: u8,
-        timer_value: [u8; 3],
-    ) -> ([u8; 32], usize) {
+    fn build_timer_expiration_envelope(timer_id: u8, timer_value: [u8; 3]) -> ([u8; 32], usize) {
         let mut inner = [0u8; 16];
         let mut ie = Encoder::new(&mut inner);
-        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC]).unwrap();
+        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC])
+            .unwrap();
         ie.tag_length_value(TAG_TIMER_ID, &[timer_id]).unwrap();
         ie.tag_length_value(TAG_TIMER_VALUE, &timer_value).unwrap();
         let ilen = ie.len();
 
         let mut buf = [0u8; 32];
         let mut enc = Encoder::new(&mut buf);
-        enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner[..ilen]).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner[..ilen])
+            .unwrap();
         let len = enc.len();
         (buf, len)
     }
@@ -3826,11 +3875,13 @@ mod tests {
         // D6 envelope with only Device Identities, no Event List TLV.
         let mut inner = [0u8; 8];
         let mut ie = Encoder::new(&mut inner);
-        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC]).unwrap();
+        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC])
+            .unwrap();
         let ilen = ie.len();
         let mut buf = [0u8; 16];
         let mut enc = Encoder::new(&mut buf);
-        enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner[..ilen]).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner[..ilen])
+            .unwrap();
         let len = enc.len();
         assert!(!state.process_envelope(&buf[..len]));
     }
@@ -3841,11 +3892,13 @@ mod tests {
         // D7 envelope with only Device Identities, no Timer Identifier TLV.
         let mut inner = [0u8; 8];
         let mut ie = Encoder::new(&mut inner);
-        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC]).unwrap();
+        ie.tag_length_value(TAG_DEVICE_ID, &[DEV_TERMINAL, DEV_UICC])
+            .unwrap();
         let ilen = ie.len();
         let mut buf = [0u8; 16];
         let mut enc = Encoder::new(&mut buf);
-        enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner[..ilen]).unwrap();
+        enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner[..ilen])
+            .unwrap();
         let len = enc.len();
         assert!(!state.process_envelope(&buf[..len]));
         assert_eq!(state.take_event(), None);
@@ -4224,7 +4277,7 @@ mod tests {
         state.start_timer(4, [0x00, 0x00, 0x05]); // 5 seconds
         state.tick(10); // expire it
         let _id = state.take_expired_timer(); // consume from expired queue
-        // Attempting to deactivate an already-expired timer must return None.
+                                              // Attempting to deactivate an already-expired timer must return None.
         assert!(state.deactivate_timer(4).is_none());
     }
 
@@ -4246,10 +4299,10 @@ mod tests {
         let profile = [0x05, 0x80];
         state.set_terminal_profile(&profile);
 
-        assert!(state.terminal_supports(0, 0));  // bit 0 of byte 0
+        assert!(state.terminal_supports(0, 0)); // bit 0 of byte 0
         assert!(!state.terminal_supports(0, 1)); // bit 1 of byte 0
-        assert!(state.terminal_supports(0, 2));  // bit 2 of byte 0
-        assert!(state.terminal_supports(1, 7));  // bit 7 of byte 1
+        assert!(state.terminal_supports(0, 2)); // bit 2 of byte 0
+        assert!(state.terminal_supports(1, 7)); // bit 7 of byte 1
         assert!(!state.terminal_supports(1, 0)); // bit 0 of byte 1
         assert!(!state.terminal_supports(2, 0)); // beyond stored profile
     }
@@ -4394,7 +4447,7 @@ mod tests {
         let mut state = ProactiveState::new();
         let tr = TerminalResult {
             cmd_number: 1,
-            cmd_type: 0x40, // OPEN CHANNEL
+            cmd_type: 0x40,       // OPEN CHANNEL
             general_result: 0x00, // success
         };
         assert!(state.apply_bip_result(&tr, 3, 0x02, 512));
@@ -4474,11 +4527,11 @@ mod tests {
         // Craft TERMINAL RESPONSE with BIP TLVs.
         let tr_data = [
             0x81, 0x03, 0x01, 0x40, 0x00, // Command Details: OPEN CHANNEL
-            0x82, 0x02, 0x82, 0x81,       // Device Identities: ME -> UICC
-            0x83, 0x01, 0x00,             // Result: success
-            0xB8, 0x02, 0x03, 0x00,       // Channel Status: channel 3
-            0xB5, 0x01, 0x02,             // Bearer Description: type 0x02
-            0xB9, 0x02, 0x02, 0x00,       // Buffer Size: 512
+            0x82, 0x02, 0x82, 0x81, // Device Identities: ME -> UICC
+            0x83, 0x01, 0x00, // Result: success
+            0xB8, 0x02, 0x03, 0x00, // Channel Status: channel 3
+            0xB5, 0x01, 0x02, // Bearer Description: type 0x02
+            0xB9, 0x02, 0x02, 0x00, // Buffer Size: 512
         ];
         let result = state.terminal_response(&tr_data);
         assert!(result.is_some());
@@ -4507,8 +4560,8 @@ mod tests {
         // TERMINAL RESPONSE with success result.
         let tr_data = [
             0x81, 0x03, 0x02, 0x41, 0x00, // Command Details: CLOSE CHANNEL
-            0x82, 0x02, 0x82, 0x81,       // Device Identities
-            0x83, 0x01, 0x00,             // Result: success
+            0x82, 0x02, 0x82, 0x81, // Device Identities
+            0x83, 0x01, 0x00, // Result: success
         ];
         let result = state.terminal_response(&tr_data);
         assert!(result.is_some());
@@ -4534,12 +4587,10 @@ mod tests {
 
         // TERMINAL RESPONSE with failure result (0x20 = ME unable to process).
         let tr_data = [
-            0x81, 0x03, 0x01, 0x40, 0x00,
-            0x82, 0x02, 0x82, 0x81,
-            0x83, 0x01, 0x20,             // Result: failure
-            0xB8, 0x02, 0x03, 0x00,       // Channel Status present but result failed
-            0xB5, 0x01, 0x02,
-            0xB9, 0x02, 0x04, 0x00,
+            0x81, 0x03, 0x01, 0x40, 0x00, 0x82, 0x02, 0x82, 0x81, 0x83, 0x01,
+            0x20, // Result: failure
+            0xB8, 0x02, 0x03, 0x00, // Channel Status present but result failed
+            0xB5, 0x01, 0x02, 0xB9, 0x02, 0x04, 0x00,
         ];
         let result = state.terminal_response(&tr_data);
         assert!(result.is_some());
@@ -4557,9 +4608,7 @@ mod tests {
         // DEVICE_ID:   tag=0x82, len=2, terminal, UICC
         // RESULT:      tag=0x83, len=1, general_result=0x00 (success)
         let data = [
-            0x81, 0x03, 0x01, 0x21, 0x00,
-            0x82, 0x02, 0x82, 0x81,
-            0x83, 0x01, 0x00,
+            0x81, 0x03, 0x01, 0x21, 0x00, 0x82, 0x02, 0x82, 0x81, 0x83, 0x01, 0x00,
         ];
         let result = state.terminal_response(&data);
         assert_eq!(
@@ -4578,9 +4627,7 @@ mod tests {
         let mut state = ProactiveState::new();
         // RESULT: 0x10 = proactive session terminated by user
         let data = [
-            0x81, 0x03, 0x02, 0x21, 0x80,
-            0x82, 0x02, 0x82, 0x81,
-            0x83, 0x01, 0x10,
+            0x81, 0x03, 0x02, 0x21, 0x80, 0x82, 0x02, 0x82, 0x81, 0x83, 0x01, 0x10,
         ];
         let result = state.terminal_response(&data);
         assert_eq!(
@@ -4598,10 +4645,7 @@ mod tests {
     fn terminal_response_parse_unable() {
         let mut state = ProactiveState::new();
         // RESULT: 0x20 = terminal currently unable to process
-        let data = [
-            0x81, 0x03, 0x05, 0x25, 0x00,
-            0x83, 0x01, 0x20,
-        ];
+        let data = [0x81, 0x03, 0x05, 0x25, 0x00, 0x83, 0x01, 0x20];
         let result = state.terminal_response(&data);
         assert_eq!(
             result,
@@ -4647,10 +4691,7 @@ mod tests {
     fn terminal_response_cmd_number_preserved() {
         let mut state = ProactiveState::new();
         // cmd_number = 0xFE
-        let data = [
-            0x81, 0x03, 0xFE, 0x13, 0x01,
-            0x83, 0x01, 0x00,
-        ];
+        let data = [0x81, 0x03, 0xFE, 0x13, 0x01, 0x83, 0x01, 0x00];
         let result = state.terminal_response(&data).unwrap();
         assert_eq!(result.cmd_number, 0xFE);
         assert_eq!(result.cmd_type, 0x13);
@@ -4675,28 +4716,21 @@ mod tests {
 
         // Terminal responds with success
         let tr_data = [
-            0x81, 0x03, 0x01, 0x21, 0x00,
-            0x82, 0x02, 0x82, 0x81,
-            0x83, 0x01, 0x00,
+            0x81, 0x03, 0x01, 0x21, 0x00, 0x82, 0x02, 0x82, 0x81, 0x83, 0x01, 0x00,
         ];
         let result = state.terminal_response(&tr_data).unwrap();
         assert_eq!(result.general_result, 0x00);
         assert_eq!(state.last_terminal_result(), 0x00);
 
         // Can queue next command
-        state
-            .queue_command(&ProactiveCommand::MoreTime)
-            .unwrap();
+        state.queue_command(&ProactiveCommand::MoreTime).unwrap();
         assert!(state.has_pending());
     }
 
     #[test]
     fn snapshot_roundtrip_with_last_result() {
         let mut state = ProactiveState::new();
-        let data = [
-            0x81, 0x03, 0x01, 0x21, 0x00,
-            0x83, 0x01, 0x30,
-        ];
+        let data = [0x81, 0x03, 0x01, 0x21, 0x00, 0x83, 0x01, 0x30];
         state.terminal_response(&data);
         assert_eq!(state.last_terminal_result(), 0x30);
 
@@ -4724,10 +4758,7 @@ mod tests {
         let mut restored = ProactiveState::new();
         assert!(restored.restore_state(&snap));
         let event = restored.take_event();
-        assert_eq!(
-            event,
-            Some(EnvelopeEvent::MenuSelection { item_id: 0x07 })
-        );
+        assert_eq!(event, Some(EnvelopeEvent::MenuSelection { item_id: 0x07 }));
     }
 
     #[test]
@@ -4992,7 +5023,10 @@ mod tests {
 
     #[test]
     fn close_channel_encoding() {
-        let cmd = ProactiveCommand::CloseChannel { channel_id: 3, qualifier: 0x00 };
+        let cmd = ProactiveCommand::CloseChannel {
+            channel_id: 3,
+            qualifier: 0x00,
+        };
         let mut buf = [0u8; 256];
         let n = encode(&cmd, 1, &mut buf).unwrap();
         assert_eq!(buf[0], 0xD0);
@@ -5233,7 +5267,10 @@ mod tests {
 
     #[test]
     fn lsi_command_encoding() {
-        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &[] };
+        let cmd = ProactiveCommand::LsiCommand {
+            qualifier: 0x00,
+            lsi_numbers: &[],
+        };
         let mut buf = [0u8; 256];
         let n = encode(&cmd, 1, &mut buf).unwrap();
         assert_eq!(buf[0], 0xD0);
@@ -5415,7 +5452,10 @@ mod tests {
                 destination_address: &[0x21, 0x01, 0x02, 0x03, 0x04],
                 qualifier: 0x00,
             },
-            ProactiveCommand::CloseChannel { channel_id: 1, qualifier: 0x00 },
+            ProactiveCommand::CloseChannel {
+                channel_id: 1,
+                qualifier: 0x00,
+            },
             ProactiveCommand::ReceiveData { qualifier: 0x00 },
             ProactiveCommand::SendDataCmd { qualifier: 0x00 },
             ProactiveCommand::GetChannelStatus,
@@ -5431,7 +5471,10 @@ mod tests {
             ProactiveCommand::ContactlessStateChanged,
             ProactiveCommand::CommandContainer,
             ProactiveCommand::EncapsulatedSessionControl,
-            ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &[] },
+            ProactiveCommand::LsiCommand {
+                qualifier: 0x00,
+                lsi_numbers: &[],
+            },
             ProactiveCommand::EndOfProactiveUiccSession,
         ];
         for cmd in commands {
@@ -5442,12 +5485,14 @@ mod tests {
         }
     }
 
-
     #[test]
     fn proactive_error_display_non_empty() {
         let e = ProactiveError::BufferTooSmall;
         let s = alloc::format!("{e}");
-        assert!(!s.is_empty(), "Display for ProactiveError must produce non-empty string");
+        assert!(
+            !s.is_empty(),
+            "Display for ProactiveError must produce non-empty string"
+        );
     }
 
     // -- LSI COMMAND + Network Slicing tests --
@@ -5455,7 +5500,10 @@ mod tests {
     #[test]
     fn lsi_session_request_with_lsi_numbers() {
         let lsi = [0x01, 0x02, 0x03];
-        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &lsi };
+        let cmd = ProactiveCommand::LsiCommand {
+            qualifier: 0x00,
+            lsi_numbers: &lsi,
+        };
         let mut buf = [0u8; 256];
         let n = encode(&cmd, 1, &mut buf).unwrap();
         let mut dec = Decoder::new(&buf[2..n]);
@@ -5472,7 +5520,10 @@ mod tests {
     #[test]
     fn lsi_platform_reset_ignores_lsi_numbers() {
         let lsi = [0x01];
-        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x80, lsi_numbers: &lsi };
+        let cmd = ProactiveCommand::LsiCommand {
+            qualifier: 0x80,
+            lsi_numbers: &lsi,
+        };
         let mut buf = [0u8; 256];
         let n = encode(&cmd, 1, &mut buf).unwrap();
         let mut dec = Decoder::new(&buf[2..n]);
@@ -5486,7 +5537,10 @@ mod tests {
 
     #[test]
     fn lsi_session_request_no_lsi_no_tlv() {
-        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &[] };
+        let cmd = ProactiveCommand::LsiCommand {
+            qualifier: 0x00,
+            lsi_numbers: &[],
+        };
         let mut buf = [0u8; 256];
         let n = encode(&cmd, 1, &mut buf).unwrap();
         let mut dec = Decoder::new(&buf[2..n]);
@@ -5499,25 +5553,31 @@ mod tests {
     #[test]
     fn lsi_dryrun_matches_encode() {
         let lsi = [0xAA, 0xBB];
-        let cmd = ProactiveCommand::LsiCommand { qualifier: 0x00, lsi_numbers: &lsi };
+        let cmd = ProactiveCommand::LsiCommand {
+            qualifier: 0x00,
+            lsi_numbers: &lsi,
+        };
         let dry = encoded_len(&cmd, 1);
         let mut buf = [0u8; 256];
         let real = encode(&cmd, 1, &mut buf).unwrap();
-        assert_eq!(dry, real, "dry-run must match real encoding for LSI with payload");
+        assert_eq!(
+            dry, real,
+            "dry-run must match real encoding for LSI with payload"
+        );
     }
 
     #[test]
     fn network_slicing_tag_constants() {
         // Verify tag constants match TS 31.111 V19.3.0 section 9.3 CR tag values.
-        assert_eq!(TAG_LSI_NUMBERS, 0x92);          // group '12'
-        assert_eq!(TAG_SLICES_INFORMATION, 0xD6);    // group '56'
-        assert_eq!(TAG_SLICES_STATUS, 0xD5);         // group '55'
+        assert_eq!(TAG_LSI_NUMBERS, 0x92); // group '12'
+        assert_eq!(TAG_SLICES_INFORMATION, 0xD6); // group '56'
+        assert_eq!(TAG_SLICES_STATUS, 0xD5); // group '55'
         assert_eq!(TAG_REJECTED_SLICES_W_MAPPING, 0xD7); // group '57'
-        assert_eq!(TAG_ALLOWED_SLICES_W_MAPPING, 0xF7);  // group '77'
-        assert_eq!(TAG_REJECTED_SLICES_INFO, 0xB1);      // group '31'
-        assert_eq!(TAG_PARTIAL_NSSAI, 0xF9);              // group '79'
-        assert_eq!(TAG_ALLOWED_SLICES_INFO, 0xF8);        // group '78'
-        assert_eq!(TAG_DNN_LIST, 0xFC);                   // group '7C'
+        assert_eq!(TAG_ALLOWED_SLICES_W_MAPPING, 0xF7); // group '77'
+        assert_eq!(TAG_REJECTED_SLICES_INFO, 0xB1); // group '31'
+        assert_eq!(TAG_PARTIAL_NSSAI, 0xF9); // group '79'
+        assert_eq!(TAG_ALLOWED_SLICES_INFO, 0xF8); // group '78'
+        assert_eq!(TAG_DNN_LIST, 0xFC); // group '7C'
     }
 
     #[test]
@@ -5529,13 +5589,19 @@ mod tests {
         let mut enc = Encoder::new(&mut buf);
 
         enc.tag_length_value(TAG_SLICES_STATUS, &[0x03]).unwrap();
-        enc.tag_length_value(TAG_SLICES_INFORMATION, &[0x01, 0x02, 0x03, 0x04]).unwrap();
-        enc.tag_length_value(TAG_REJECTED_SLICES_W_MAPPING, &[0x05, 0x06]).unwrap();
-        enc.tag_length_value(TAG_ALLOWED_SLICES_W_MAPPING, &[0x0A]).unwrap();
-        enc.tag_length_value(TAG_REJECTED_SLICES_INFO, &[0x0B, 0x0C]).unwrap();
+        enc.tag_length_value(TAG_SLICES_INFORMATION, &[0x01, 0x02, 0x03, 0x04])
+            .unwrap();
+        enc.tag_length_value(TAG_REJECTED_SLICES_W_MAPPING, &[0x05, 0x06])
+            .unwrap();
+        enc.tag_length_value(TAG_ALLOWED_SLICES_W_MAPPING, &[0x0A])
+            .unwrap();
+        enc.tag_length_value(TAG_REJECTED_SLICES_INFO, &[0x0B, 0x0C])
+            .unwrap();
         enc.tag_length_value(TAG_PARTIAL_NSSAI, &[0x0D]).unwrap();
-        enc.tag_length_value(TAG_ALLOWED_SLICES_INFO, &[0x0E, 0x0F]).unwrap();
-        enc.tag_length_value(TAG_DNN_LIST, &[0x10, 0x11, 0x12]).unwrap();
+        enc.tag_length_value(TAG_ALLOWED_SLICES_INFO, &[0x0E, 0x0F])
+            .unwrap();
+        enc.tag_length_value(TAG_DNN_LIST, &[0x10, 0x11, 0x12])
+            .unwrap();
 
         let len = enc.len();
         let mut dec = Decoder::new(&buf[..len]);

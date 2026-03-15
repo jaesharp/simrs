@@ -9,10 +9,14 @@
 
 use cucumber::{given, then, when};
 use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, SequenceNumber};
-use simrs_security_tests::{apdu, build_authenticate_apdu, build_valid_autn, parse_hex, TEST_K, TEST_KI, TEST_OPC};
+use simrs_security_tests::{
+    apdu, build_authenticate_apdu, build_valid_autn, parse_hex, TEST_K, TEST_KI, TEST_OPC,
+};
 
 use super::snapshot::{reserve_auth, reserve_rsp_queue};
-use super::world::{do_send_apdu, parse_db_response, reset_state_snapshots, select_adf_usim, Response, SimWorld};
+use super::world::{
+    do_send_apdu, parse_db_response, reset_state_snapshots, select_adf_usim, Response, SimWorld,
+};
 
 // =========================================================================
 // GIVEN steps
@@ -58,9 +62,7 @@ fn when_authenticate_zero_rand(world: &mut SimWorld) {
     do_send_apdu(world, &cmd);
 }
 
-#[when(
-    regex = r"^I send AUTHENTICATE with a RAND and AUTN that pass Milenage MAC verification$"
-)]
+#[when(regex = r"^I send AUTHENTICATE with a RAND and AUTN that pass Milenage MAC verification$")]
 fn when_authenticate_valid(world: &mut SimWorld) {
     let challenge = [0xAA; 16];
     let sequence_number = [0x00; 6]; // SQN = 0: within the initial window
@@ -74,9 +76,7 @@ fn when_authenticate_valid(world: &mut SimWorld) {
     reserve_rsp_queue(&mut world.reservations);
 }
 
-#[when(
-    regex = r"^I send AUTHENTICATE with a valid RAND but with AUTN MAC field fully inverted.*$"
-)]
+#[when(regex = r"^I send AUTHENTICATE with a valid RAND but with AUTN MAC field fully inverted.*$")]
 fn when_authenticate_bad_mac(world: &mut SimWorld) {
     let challenge = [0xAA; 16];
     let sequence_number = [0x00; 6];
@@ -111,9 +111,7 @@ fn given_auth_done(world: &mut SimWorld) {
 }
 
 // AUTHENTICATE with a replayed SQN (valid MAC but already consumed).
-#[when(
-    regex = r"^I send AUTHENTICATE with a replayed SQN.*$"
-)]
+#[when(regex = r"^I send AUTHENTICATE with a replayed SQN.*$")]
 fn when_authenticate_replayed_sqn(world: &mut SimWorld) {
     let challenge = [0xBB; 16]; // Different RAND for freshness
     let sequence_number = [0x00; 6]; // SQN = 0: already consumed by prior auth
@@ -137,7 +135,9 @@ fn when_authenticate_unsupported_p2(world: &mut SimWorld, p2_hex: String) {
     let p2 = u8::from_str_radix(&p2_hex, 16).unwrap();
     let challenge = [0xAA; 16];
     let auth_token = [0xBB; 16];
-    let cmd = apdu::authenticate_umts(&challenge, &auth_token).with_p2(p2).build();
+    let cmd = apdu::authenticate_umts(&challenge, &auth_token)
+        .with_p2(p2)
+        .build();
     do_send_apdu(world, &cmd);
 }
 
@@ -176,8 +176,8 @@ fn then_response_db(world: &mut SimWorld) {
 
 #[then(regex = r"^the DB response contains a RES sub-field.*$")]
 fn then_db_has_res(world: &mut SimWorld) {
-    let parsed = parse_db_response(world.last_data())
-        .expect("Failed to parse DB response structure");
+    let parsed =
+        parse_db_response(world.last_data()).expect("Failed to parse DB response structure");
     assert!(
         (4..=16).contains(&parsed.res.len()),
         "RES length {} outside valid range 4..=16",
@@ -191,26 +191,16 @@ fn then_db_has_res(world: &mut SimWorld) {
 
 #[then(regex = r"^the DB response contains a CK sub-field.*$")]
 fn then_db_has_ck(world: &mut SimWorld) {
-    let parsed = parse_db_response(world.last_data())
-        .expect("Failed to parse DB response structure");
-    assert_eq!(
-        parsed.ck.len(),
-        16,
-        "CK length {} != 16",
-        parsed.ck.len(),
-    );
+    let parsed =
+        parse_db_response(world.last_data()).expect("Failed to parse DB response structure");
+    assert_eq!(parsed.ck.len(), 16, "CK length {} != 16", parsed.ck.len(),);
 }
 
 #[then(regex = r"^the DB response contains an IK sub-field.*$")]
 fn then_db_has_ik(world: &mut SimWorld) {
-    let parsed = parse_db_response(world.last_data())
-        .expect("Failed to parse DB response structure");
-    assert_eq!(
-        parsed.ik.len(),
-        16,
-        "IK length {} != 16",
-        parsed.ik.len(),
-    );
+    let parsed =
+        parse_db_response(world.last_data()).expect("Failed to parse DB response structure");
+    assert_eq!(parsed.ik.len(), 16, "IK length {} != 16", parsed.ik.len(),);
 }
 
 #[then(regex = r"^the response starts with tag DC.*$")]
@@ -292,24 +282,35 @@ fn then_no_db_dc(world: &mut SimWorld) {
     }
 }
 
-#[then(
-    regex = r"^the response of the second call is not a copy of the first call's response$"
-)]
+#[then(regex = r"^the response of the second call is not a copy of the first call's response$")]
 fn then_second_not_copy(world: &mut SimWorld) {
-    let first = world.first_auth_response.as_ref().expect("No first auth response stashed");
+    let first = world
+        .first_auth_response
+        .as_ref()
+        .expect("No first auth response stashed");
     let current = world.response();
     // If both are MAC failures (98 62), that's independent processing.
     if let (
-        Response::Received { sw: (0x98, 0x62), .. },
-        Response::Received { sw: (0x98, 0x62), .. },
-    ) = (first, current) {
+        Response::Received {
+            sw: (0x98, 0x62), ..
+        },
+        Response::Received {
+            sw: (0x98, 0x62), ..
+        },
+    ) = (first, current)
+    {
         return;
     }
     // If both have data, they must differ.
     if let (
-        Response::Received { data: first_data, .. },
-        Response::Received { data: current_data, .. },
-    ) = (first, current) {
+        Response::Received {
+            data: first_data, ..
+        },
+        Response::Received {
+            data: current_data, ..
+        },
+    ) = (first, current)
+    {
         assert!(
             first_data.is_empty() || current_data.is_empty() || first_data != current_data,
             "Second AUTHENTICATE response is a copy of the first",

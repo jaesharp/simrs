@@ -344,10 +344,7 @@ mod tests {
             let hdr = VirtSmartcardHeader::new(mt, 0);
             let mut buf = [0u8; HEADER_SIZE];
             hdr.encode(&mut buf).unwrap();
-            assert_eq!(
-                u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]),
-                raw
-            );
+            assert_eq!(u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]), raw);
             let decoded = VirtSmartcardHeader::decode(&buf).unwrap();
             assert_eq!(decoded.msg_type, mt);
         }

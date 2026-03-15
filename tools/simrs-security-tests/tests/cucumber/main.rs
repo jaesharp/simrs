@@ -30,15 +30,15 @@ mod common;
 mod interposer;
 mod snapshot;
 
-mod pin_state_machine;
 mod apdu_boundary;
-mod fs_access_control;
-mod ota_envelope;
 mod auth_protocol;
-mod data_leakage;
-mod ecies_suci;
 mod bip_channel;
 mod channel_isolation;
+mod data_leakage;
+mod ecies_suci;
+mod fs_access_control;
+mod ota_envelope;
+mod pin_state_machine;
 mod snapshot_integrity;
 
 fn main() {

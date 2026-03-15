@@ -116,10 +116,7 @@ fn ts48v1_has_pin1_and_puk1() {
     );
 
     // Find PIN1 (key reference 0x01).
-    let pin1 = config
-        .pins
-        .iter()
-        .find(|p| p.key_reference == 0x01);
+    let pin1 = config.pins.iter().find(|p| p.key_reference == 0x01);
     assert!(pin1.is_some(), "PIN1 (key_ref 0x01) must be present");
 
     // Should have at least one PUK.
@@ -152,16 +149,14 @@ fn ts48v1_has_adf_usim() {
     let config = load_profile(&der).unwrap();
 
     // Should have at least one ADF (USIM).
-    assert!(
-        !config.adf_table.is_empty(),
-        "ADF table must not be empty"
-    );
+    assert!(!config.adf_table.is_empty(), "ADF table must not be empty");
 
     // First ADF should have the USIM AID prefix.
     let usim_aid_prefix = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
-    let has_usim = config.adf_table.iter().any(|slot| {
-        slot.aid.len() >= 7 && slot.aid[..7] == usim_aid_prefix
-    });
+    let has_usim = config
+        .adf_table
+        .iter()
+        .any(|slot| slot.aid.len() >= 7 && slot.aid[..7] == usim_aid_prefix);
     assert!(has_usim, "ADF table must contain USIM AID");
 }
 
@@ -229,18 +224,11 @@ fn missing_header_is_error() {
 
 #[test]
 fn all_fixtures_parse_successfully() {
-    let fixture_dir = format!(
-        "{}/tests/fixtures/profiles",
-        env!("CARGO_MANIFEST_DIR")
-    );
+    let fixture_dir = format!("{}/tests/fixtures/profiles", env!("CARGO_MANIFEST_DIR"));
     let entries: Vec<_> = std::fs::read_dir(&fixture_dir)
         .unwrap_or_else(|e| panic!("cannot read {fixture_dir}: {e}"))
         .filter_map(std::result::Result::ok)
-        .filter(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext == "der")
-        })
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "der"))
         .collect();
 
     assert!(

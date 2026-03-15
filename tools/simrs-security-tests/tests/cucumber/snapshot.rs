@@ -145,9 +145,15 @@ impl std::hash::Hash for UsimField {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            Self::SelectionCtx | Self::FsData | Self::Auth | Self::Proactive
-            | Self::RspQueue | Self::TerminalCapability | Self::Deactivation
-            | Self::LastAidMatch | Self::Suci => {}
+            Self::SelectionCtx
+            | Self::FsData
+            | Self::Auth
+            | Self::Proactive
+            | Self::RspQueue
+            | Self::TerminalCapability
+            | Self::Deactivation
+            | Self::LastAidMatch
+            | Self::Suci => {}
             Self::Pin(id, f) => {
                 id.hash(state);
                 f.hash(state);
@@ -247,14 +253,14 @@ const PIN_MANAGER_SIZE: usize = 1 + PIN_SLOT_COUNT * PIN_SLOT_SIZE;
 
 /// Fields within a single PIN slot, with byte offsets relative to slot start.
 const PIN_SLOT_FIELDS: [(usize, usize, PinField); 8] = [
-    (0, 1, PinField::Key),         // key: 1 byte
-    (1, 9, PinField::Pin),         // pin: 8 bytes
-    (9, 10, PinField::PinRetries), // pin_retries: 1 byte
-    (10, 11, PinField::PinMax),    // pin_max: 1 byte
-    (11, 19, PinField::Puk),       // puk: 8 bytes
-    (19, 20, PinField::PukRetries),// puk_retries: 1 byte
-    (20, 21, PinField::Enabled),   // enabled: 1 byte
-    (21, 22, PinField::Verified),  // verified: 1 byte
+    (0, 1, PinField::Key),          // key: 1 byte
+    (1, 9, PinField::Pin),          // pin: 8 bytes
+    (9, 10, PinField::PinRetries),  // pin_retries: 1 byte
+    (10, 11, PinField::PinMax),     // pin_max: 1 byte
+    (11, 19, PinField::Puk),        // puk: 8 bytes
+    (19, 20, PinField::PukRetries), // puk_retries: 1 byte
+    (20, 21, PinField::Enabled),    // enabled: 1 byte
+    (21, 22, PinField::Verified),   // verified: 1 byte
 ];
 
 // =========================================================================
@@ -300,7 +306,8 @@ impl SnapshotRegistry {
         let hdr = simrs_sim::SNAPSHOT_HEADER_SIZE;
         let total = hdr + 1 + GsmApp::SNAPSHOT_SIZE + TestUsim::SNAPSHOT_SIZE;
         assert_eq!(
-            bytes.len(), total,
+            bytes.len(),
+            total,
             "Snapshot size mismatch: expected {total}, got {}",
             bytes.len()
         );
@@ -329,7 +336,9 @@ impl SnapshotRegistry {
 
         // Sort by range start, then by range length descending (broadest first).
         entries.sort_by(|a, b| {
-            a.range.start.cmp(&b.range.start)
+            a.range
+                .start
+                .cmp(&b.range.start)
                 .then_with(|| b.range.len().cmp(&a.range.len()))
         });
 
@@ -366,12 +375,9 @@ impl SnapshotRegistry {
 
         // PinManager<5>
         let pin_base = off;
-        Self::register_pin_slots(
-            entries,
-            bytes,
-            pin_base,
-            |id, field| StatePath::Gsm(GsmField::Pin(id, field)),
-        );
+        Self::register_pin_slots(entries, bytes, pin_base, |id, field| {
+            StatePath::Gsm(GsmField::Pin(id, field))
+        });
         off = pin_base + PIN_MANAGER_SIZE;
 
         // Ki (16 bytes)
@@ -434,12 +440,9 @@ impl SnapshotRegistry {
 
         // PinManager<5>
         let pin_base = off;
-        Self::register_pin_slots(
-            entries,
-            bytes,
-            pin_base,
-            |id, field| StatePath::Usim(UsimField::Pin(id, field)),
-        );
+        Self::register_pin_slots(entries, bytes, pin_base, |id, field| {
+            StatePath::Usim(UsimField::Pin(id, field))
+        });
         off = pin_base + PIN_MANAGER_SIZE;
 
         // Auth (MilenageParams)
@@ -598,11 +601,7 @@ impl SnapshotRegistry {
 
     /// Compare two snapshot buffers and return all differing byte positions
     /// grouped by semantic path.
-    pub fn diff<'a>(
-        &'a self,
-        before: &[u8],
-        after: &[u8],
-    ) -> Vec<DiffGroup<'a>> {
+    pub fn diff<'a>(&'a self, before: &[u8], after: &[u8]) -> Vec<DiffGroup<'a>> {
         assert_eq!(before.len(), self.snapshot_size);
         assert_eq!(after.len(), self.snapshot_size);
 
@@ -636,14 +635,15 @@ pub fn is_reserved(path: &StatePath, reservations: &HashSet<StatePath>) -> bool 
 }
 
 /// Format a diff report suitable for assertion failure messages.
-pub fn format_diff_report(
-    diffs: &[DiffGroup<'_>],
-    reservations: &HashSet<StatePath>,
-) -> String {
+pub fn format_diff_report(diffs: &[DiffGroup<'_>], reservations: &HashSet<StatePath>) -> String {
     let mut out = String::new();
     for (path, changes) in diffs {
         let reserved = is_reserved(path, reservations);
-        let marker = if reserved { " [reserved]" } else { " [UNEXPECTED]" };
+        let marker = if reserved {
+            " [reserved]"
+        } else {
+            " [UNEXPECTED]"
+        };
         for &(offset, old, new) in changes {
             let _ = writeln!(
                 out,

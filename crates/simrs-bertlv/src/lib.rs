@@ -124,7 +124,10 @@ pub struct Encoder<'buf> {
 impl<'buf> Encoder<'buf> {
     /// Create an encoder that writes into `buf`.
     pub const fn new(buf: &'buf mut [u8]) -> Self {
-        Self { buf: Some(buf), pos: 0 }
+        Self {
+            buf: Some(buf),
+            pos: 0,
+        }
     }
 
     /// Create a dry-run encoder that counts bytes without writing.
@@ -336,8 +339,7 @@ impl<'a> Iterator for Decoder<'a> {
             if self.pos + 1 >= self.data.len() {
                 return Some(Err(BerError::Truncated));
             }
-            let l = ((self.data[self.pos] as usize) << 8)
-                | (self.data[self.pos + 1] as usize);
+            let l = ((self.data[self.pos] as usize) << 8) | (self.data[self.pos + 1] as usize);
             self.pos += 2;
             l
         } else {
@@ -371,7 +373,13 @@ impl<'a> Iterator for Decoder<'a> {
 /// assert_eq!(length_of_length(256), 3);   // 0x82 + 2 bytes
 /// ```
 pub const fn length_of_length(len: usize) -> usize {
-    if len <= BER_SHORT_FORM_MAX { 1 } else if len <= 0xFF { 2 } else { 3 }
+    if len <= BER_SHORT_FORM_MAX {
+        1
+    } else if len <= 0xFF {
+        2
+    } else {
+        3
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -615,7 +623,10 @@ mod tests {
         ];
         for v in variants {
             let s = alloc::format!("{v}");
-            assert!(!s.is_empty(), "Display for {v:?} must produce non-empty string");
+            assert!(
+                !s.is_empty(),
+                "Display for {v:?} must produce non-empty string"
+            );
         }
     }
 }
