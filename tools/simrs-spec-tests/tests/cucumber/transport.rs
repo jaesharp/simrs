@@ -160,10 +160,7 @@ fn then_returns_ok_response_length(world: &mut SpecWorld) {
         "expected Ok, got Err({:?})",
         world.transport_error
     );
-    assert!(
-        !world.last_data.is_empty(),
-        "response_length should be > 0"
-    );
+    assert!(!world.last_data.is_empty(), "response_length should be > 0");
 }
 
 // =========================================================================
@@ -206,10 +203,7 @@ fn then_exchange_returns_ok_2(world: &mut SpecWorld) {
 
 #[then(regex = r"^rsp\[0\.\.2\] contains SW1, SW2$")]
 fn then_rsp_contains_sw(world: &mut SpecWorld) {
-    assert!(
-        world.last_data.len() >= 2,
-        "response too short for SW1/SW2"
-    );
+    assert!(world.last_data.len() >= 2, "response too short for SW1/SW2");
     // Verify the SW bytes are present (0x90 0x00 from our mock).
     assert_eq!(world.last_data[0], 0x90, "SW1 mismatch");
     assert_eq!(world.last_data[1], 0x00, "SW2 mismatch");
@@ -353,9 +347,7 @@ fn when_cold_reset(world: &mut SpecWorld) {
 
 #[then("the transport yields CardEvent::PowerOn")]
 fn then_yields_power_on(world: &mut SpecWorld) {
-    let event = world
-        .transport_event
-        .expect("no transport event recorded");
+    let event = world.transport_event.expect("no transport event recorded");
     assert_eq!(
         event,
         CardEvent::PowerOn,
@@ -379,9 +371,7 @@ fn when_warm_reset(world: &mut SpecWorld) {
 
 #[then("the transport yields CardEvent::WarmReset")]
 fn then_yields_warm_reset(world: &mut SpecWorld) {
-    let event = world
-        .transport_event
-        .expect("no transport event recorded");
+    let event = world.transport_event.expect("no transport event recorded");
     assert_eq!(
         event,
         CardEvent::WarmReset,
@@ -419,9 +409,7 @@ fn when_apdu_command(world: &mut SpecWorld) {
 
 #[then("the transport yields CardEvent::Apdu with the command length")]
 fn then_yields_apdu_with_length(world: &mut SpecWorld) {
-    let event = world
-        .transport_event
-        .expect("no transport event recorded");
+    let event = world.transport_event.expect("no transport event recorded");
     match event {
         CardEvent::Apdu(len) => {
             assert!(len > 0, "Apdu command length should be > 0, got {len}");
@@ -458,9 +446,7 @@ fn when_shutdown(world: &mut SpecWorld) {
 
 #[then("the transport yields CardEvent::Shutdown")]
 fn then_yields_shutdown(world: &mut SpecWorld) {
-    let event = world
-        .transport_event
-        .expect("no transport event recorded");
+    let event = world.transport_event.expect("no transport event recorded");
     assert_eq!(
         event,
         CardEvent::Shutdown,

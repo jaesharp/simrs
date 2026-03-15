@@ -408,7 +408,7 @@ impl ProxyLoop {
                 self.stats.record(&cmp);
 
                 if cmp != CompareResult::Match {
-                    eprintln!("[simrs-interposer] Diff: card 0 vs card {idx}: {cmp:?}",);
+                    eprintln!("[simrs-interposer] Diff: card 0 vs card {idx}: {cmp:?}");
                 }
             }
         }

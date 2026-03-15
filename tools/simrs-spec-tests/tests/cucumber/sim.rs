@@ -11,7 +11,10 @@
 //! structure checks.
 
 use cucumber::{given, then, when};
-use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
+use simrs_milenage::{
+    AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber,
+    SubscriberKey,
+};
 use simrs_proactive::{ProactiveCommand, TextCoding};
 use simrs_sim::{SimEvent, SimResponse};
 use simrs_spec_tests::{create_sim, parse_hex, verify_pin1, TEST_K, TEST_OPC};

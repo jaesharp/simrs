@@ -73,8 +73,7 @@ fn given_message_fields(
     buf_hex: String,
 ) {
     let ctrl_val = u8::from_str_radix(&ctrl_hex, 16).unwrap();
-    let ctrl = Ctrl::from_u8(ctrl_val)
-        .unwrap_or_else(|| panic!("unknown ctrl value 0x{ctrl_hex}"));
+    let ctrl = Ctrl::from_u8(ctrl_val).unwrap_or_else(|| panic!("unknown ctrl value 0x{ctrl_hex}"));
     let buf = parse_hex(&buf_hex);
     let msg = SwIccMessage::new_response(ctrl, &buf, cont_state);
     world.tcp_msg = Some(msg);
@@ -93,11 +92,7 @@ fn when_encode(world: &mut SpecWorld) {
 fn then_first_4_bytes_size(world: &mut SpecWorld, expected_size: u32) {
     // The implementation writes size in LE.  Verify the LE u32 equals expected.
     let wire = &world.tcp_wire;
-    assert!(
-        wire.len() >= 4,
-        "wire too short: {} bytes",
-        wire.len(),
-    );
+    assert!(wire.len() >= 4, "wire too short: {} bytes", wire.len(),);
     let actual = u32::from_le_bytes([wire[0], wire[1], wire[2], wire[3]]);
     assert_eq!(
         actual, expected_size,
@@ -141,7 +136,8 @@ fn then_buf_bytes(world: &mut SpecWorld, hex: String) {
     let wire = &world.tcp_wire;
     let actual = &wire[13..13 + expected.len()];
     assert_eq!(
-        actual, &expected[..],
+        actual,
+        &expected[..],
         "buf mismatch: expected {expected:02X?}, got {actual:02X?}",
     );
 }
@@ -173,9 +169,7 @@ fn when_decode(world: &mut SpecWorld) {
     }
 }
 
-#[then(
-    regex = r"^hdr\.size = (\d+), cont_state = (\d+), buf_len_exp = (\d+), ctrl = (\w+)$"
-)]
+#[then(regex = r"^hdr\.size = (\d+), cont_state = (\d+), buf_len_exp = (\d+), ctrl = (\w+)$")]
 fn then_decoded_fields(
     world: &mut SpecWorld,
     _hdr_size: u32,
@@ -214,7 +208,10 @@ fn then_decoded_fields(
 #[then(regex = r"^buf contains \[([^\]]+)\]$")]
 fn then_buf_contains(world: &mut SpecWorld, hex: String) {
     let expected = parse_hex(&hex);
-    let msg = world.tcp_msg.as_ref().expect("decode should have succeeded");
+    let msg = world
+        .tcp_msg
+        .as_ref()
+        .expect("decode should have succeeded");
     assert_eq!(
         msg.buf(),
         &expected[..],
@@ -225,7 +222,10 @@ fn then_buf_contains(world: &mut SpecWorld, hex: String) {
 
 #[then(regex = r"^ctrl = KEEPALIVE \(1\), buf is empty$")]
 fn then_ctrl_keepalive_buf_empty(world: &mut SpecWorld) {
-    let msg = world.tcp_msg.as_ref().expect("decode should have succeeded");
+    let msg = world
+        .tcp_msg
+        .as_ref()
+        .expect("decode should have succeeded");
     assert_eq!(msg.ctrl, Ctrl::Keepalive, "expected KEEPALIVE ctrl");
     assert_eq!(
         msg.buf_len(),
@@ -290,8 +290,7 @@ fn given_oversize_payload(world: &mut SpecWorld) {
 
 #[given(regex = r"^ctrl = (\d+)$")]
 fn given_ctrl_value(world: &mut SpecWorld, value: u8) {
-    let ctrl = Ctrl::from_u8(value)
-        .unwrap_or_else(|| panic!("unknown ctrl value {value}"));
+    let ctrl = Ctrl::from_u8(value).unwrap_or_else(|| panic!("unknown ctrl value {value}"));
     let msg = SwIccMessage::new(ctrl);
     world.tcp_msg = Some(msg);
 }
@@ -332,8 +331,7 @@ fn then_reset_return_atr(world: &mut SpecWorld) {
 #[given(regex = r"^ctrl = 0x([0-9A-Fa-f]+) in a response message$")]
 fn given_ctrl_hex_response(world: &mut SpecWorld, hex: String) {
     let val = u8::from_str_radix(&hex, 16).unwrap();
-    let ctrl = Ctrl::from_u8(val)
-        .unwrap_or_else(|| panic!("unknown ctrl value 0x{hex}"));
+    let ctrl = Ctrl::from_u8(val).unwrap_or_else(|| panic!("unknown ctrl value 0x{hex}"));
     let msg = SwIccMessage::new(ctrl);
     world.tcp_msg = Some(msg);
 }
@@ -356,9 +354,7 @@ fn then_failure_status(world: &mut SpecWorld) {
 // CardTransport mapping
 // =========================================================================
 
-#[given(
-    regex = r"^a received message with ctrl = NONE and buf = \[([^\]]+)\]$"
-)]
+#[given(regex = r"^a received message with ctrl = NONE and buf = \[([^\]]+)\]$")]
 fn given_data_message_with_buf(world: &mut SpecWorld, hex: String) {
     let buf = parse_hex(&hex);
     let msg = SwIccMessage::new_response(Ctrl::None, &buf, 0);
@@ -489,9 +485,7 @@ fn given_connected_client(_world: &mut SpecWorld) {
     // This step validates message construction instead.
 }
 
-#[when(
-    regex = r"^the server sends a data message with \[([^\]]+)\]$"
-)]
+#[when(regex = r"^the server sends a data message with \[([^\]]+)\]$")]
 fn when_server_sends_data(world: &mut SpecWorld, hex: String) {
     let apdu = parse_hex(&hex);
     // Construct the message the server would send.
@@ -511,9 +505,7 @@ fn when_card_processes(_world: &mut SpecWorld) {
     // transport-level message framing.
 }
 
-#[then(
-    regex = r"^the card sends back a response with ctrl=SUCCESS and buf=\[data \+ SW\]$"
-)]
+#[then(regex = r"^the card sends back a response with ctrl=SUCCESS and buf=\[data \+ SW\]$")]
 fn then_card_sends_response(_world: &mut SpecWorld) {
     // Verify that a response message with SUCCESS ctrl and data can be
     // constructed and round-tripped.

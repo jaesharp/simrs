@@ -53,7 +53,7 @@ pub static ATR: [u8; 2] = [0x3B, 0x00];
 pub const TEST_KI: GsmSubscriberKey = GsmSubscriberKey::classify([0x11; 16]);
 /// Test K (all 0x22).
 pub const TEST_K: [u8; 16] = [0x22; 16];
-/// Test OPc (all 0x33).
+/// Test `OPc` (all 0x33).
 pub const TEST_OPC: [u8; 16] = [0x33; 16];
 
 /// Correct PIN1 value: ASCII "1234" + 0xFF padding.
@@ -89,8 +89,7 @@ pub fn parse_hex(s: &str) -> Vec<u8> {
         s.split_whitespace()
             .filter(|tok| !tok.is_empty())
             .map(|tok| {
-                u8::from_str_radix(tok, 16)
-                    .unwrap_or_else(|e| panic!("bad hex '{tok}': {e}"))
+                u8::from_str_radix(tok, 16).unwrap_or_else(|e| panic!("bad hex '{tok}': {e}"))
             })
             .collect()
     } else {
@@ -117,7 +116,10 @@ pub fn parse_hex(s: &str) -> Vec<u8> {
 ///
 /// Panics if `add_pin` fails (should not happen with valid test data).
 pub fn create_sim() -> Sim<MilenageParams, 256> {
-    let mil = MilenageParams::with_defaults(SubscriberKey::classify(TEST_K), OperatorVariant::operator_cipher(TEST_OPC));
+    let mil = MilenageParams::with_defaults(
+        SubscriberKey::classify(TEST_K),
+        OperatorVariant::operator_cipher(TEST_OPC),
+    );
     let gsm = simrs_gsm::GsmApp::new(&MF, TEST_KI);
     let mut usim = simrs_usim::UsimApp::new(&MF, &[], mil);
 
@@ -165,12 +167,8 @@ pub fn send_apdu(sim: &mut Sim<MilenageParams, 256>, cmd: &[u8]) -> Option<(Vec<
 /// # Panics
 ///
 /// Panics if the APDU is ignored by the SIM.
-pub fn send_apdu_expect(
-    sim: &mut Sim<MilenageParams, 256>,
-    cmd: &[u8],
-) -> (Vec<u8>, u8, u8) {
-    send_apdu(sim, cmd)
-        .unwrap_or_else(|| panic!("APDU was ignored: {cmd:02X?}"))
+pub fn send_apdu_expect(sim: &mut Sim<MilenageParams, 256>, cmd: &[u8]) -> (Vec<u8>, u8, u8) {
+    send_apdu(sim, cmd).unwrap_or_else(|| panic!("APDU was ignored: {cmd:02X?}"))
 }
 
 /// Send an APDU and return just `(sw1, sw2)`, panicking if ignored.

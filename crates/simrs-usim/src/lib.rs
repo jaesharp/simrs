@@ -925,6 +925,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     /// Returns `true` on success. The `adfs` field is not restored from the
     /// snapshot; it remains as set during construction.
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return false;

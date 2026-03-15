@@ -8,9 +8,7 @@
 //! mirrors the Background section of the feature file.
 
 use cucumber::{given, then, when};
-use simrs_fs::{
-    AdfSlot, DfDef, EfDef, Fid, FileRef, SelectedFile, SelectionCtx,
-};
+use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef, SelectedFile, SelectionCtx};
 use simrs_spec_tests::parse_hex;
 
 use crate::world::SpecWorld;
@@ -30,8 +28,8 @@ static EF_ICCID: EfDef = EfDef::transparent(
 static EF_DIR: EfDef = EfDef::linear_fixed(
     Fid::new(0x2F00),
     None,
-    8,  // record_size
-    2,  // num_records
+    8,           // record_size
+    2,           // num_records
     &[0xFF; 16], // 8 * 2 = 16 bytes
 );
 
@@ -45,9 +43,9 @@ static EF_ADN: EfDef = EfDef::linear_fixed(
     // 14 * 3 = 42 bytes -- distinct per-record content so tests are meaningful.
     // Record 1: 0x01-repeated, Record 2: 0x02-repeated, Record 3: 0x03-repeated.
     &[
-        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-        0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-        0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02,
+        0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x03, 0x03,
+        0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
     ],
 );
 
@@ -148,7 +146,8 @@ fn given_adf_table(_world: &mut SpecWorld) {
 fn given_in_df_gsm_with_ef(world: &mut SpecWorld) {
     let ctx = fs_ctx(world);
     ctx.select_by_fid(Fid::new(0x7F20)).expect("select DF.GSM");
-    ctx.select_by_fid(Fid::new(0x6F07)).expect("select EF.IMSI under DF.GSM");
+    ctx.select_by_fid(Fid::new(0x6F07))
+        .expect("select EF.IMSI under DF.GSM");
 }
 
 // "Given I have selected DF.GSM (0x7F20)" -- moved to gsm.rs (context-aware).
@@ -162,11 +161,8 @@ fn given_in_mf(world: &mut SpecWorld) {
 #[given(regex = r"^ADF\.USIM is the current ADF$")]
 fn given_adf_usim_active(world: &mut SpecWorld) {
     let ctx = fs_ctx(world);
-    ctx.select_by_aid(
-        &[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02],
-        &ADF_TABLE,
-    )
-    .expect("select ADF.USIM by AID");
+    ctx.select_by_aid(&[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02], &ADF_TABLE)
+        .expect("select ADF.USIM by AID");
 }
 
 #[given(regex = r"^no ADF is active$")]
@@ -204,14 +200,16 @@ fn given_ef_dir_selected(world: &mut SpecWorld) {
 fn given_ef_iccid_10_bytes_selected(world: &mut SpecWorld) {
     let ctx = fs_ctx(world);
     ctx.select_by_fid(Fid::MF).expect("select MF");
-    ctx.select_by_fid(Fid::new(0x2FE2)).expect("select EF.ICCID");
+    ctx.select_by_fid(Fid::new(0x2FE2))
+        .expect("select EF.ICCID");
 }
 
 #[given(regex = r"^EF\.ADN \(record_size=14, 3 records\) is selected$")]
 fn given_ef_adn_full_selected(world: &mut SpecWorld) {
     let ctx = fs_ctx(world);
     ctx.select_by_fid(Fid::MF).expect("select MF");
-    ctx.select_by_fid(Fid::new(0x7F10)).expect("select DF.TELECOM");
+    ctx.select_by_fid(Fid::new(0x7F10))
+        .expect("select DF.TELECOM");
     ctx.select_by_fid(Fid::new(0x6F3A)).expect("select EF.ADN");
 }
 
@@ -219,7 +217,8 @@ fn given_ef_adn_full_selected(world: &mut SpecWorld) {
 fn given_ef_adn_selected(world: &mut SpecWorld) {
     let ctx = fs_ctx(world);
     ctx.select_by_fid(Fid::MF).expect("select MF");
-    ctx.select_by_fid(Fid::new(0x7F10)).expect("select DF.TELECOM");
+    ctx.select_by_fid(Fid::new(0x7F10))
+        .expect("select DF.TELECOM");
     ctx.select_by_fid(Fid::new(0x6F3A)).expect("select EF.ADN");
 }
 
@@ -404,10 +403,7 @@ fn then_current_adf_is_usim(world: &mut SpecWorld) {
 #[then(regex = r"^the result is Ef with FID 0x([0-9A-Fa-f]{4})$")]
 fn then_result_is_ef_with_fid(world: &mut SpecWorld, fid_hex: String) {
     let expected_fid = Fid::new(u16::from_str_radix(&fid_hex, 16).unwrap());
-    let result = world
-        .fs_result
-        .as_ref()
-        .expect("No fs_result stored");
+    let result = world.fs_result.as_ref().expect("No fs_result stored");
     match result {
         Ok(SelectedFile::Ef(ef)) => {
             assert_eq!(
@@ -432,15 +428,11 @@ fn then_result_is_ef_with_fid(world: &mut SpecWorld, fid_hex: String) {
 #[then(regex = r"^the result is Df with FID 0x([0-9A-Fa-f]{4})$")]
 fn then_result_is_df_with_fid(world: &mut SpecWorld, fid_hex: String) {
     let expected_fid = Fid::new(u16::from_str_radix(&fid_hex, 16).unwrap());
-    let result = world
-        .fs_result
-        .as_ref()
-        .expect("No fs_result stored");
+    let result = world.fs_result.as_ref().expect("No fs_result stored");
     match result {
         Ok(SelectedFile::Df(df)) => {
             assert_eq!(
-                df.fid,
-                expected_fid,
+                df.fid, expected_fid,
                 "Expected Df with FID {expected_fid:04X}, got {:04X}",
                 df.fid,
             );
@@ -459,10 +451,7 @@ fn then_result_is_df_with_fid(world: &mut SpecWorld, fid_hex: String) {
 
 #[then(regex = r"^the result is Df for the ADF root$")]
 fn then_result_is_df_for_adf_root(world: &mut SpecWorld) {
-    let result = world
-        .fs_result
-        .as_ref()
-        .expect("No fs_result stored");
+    let result = world.fs_result.as_ref().expect("No fs_result stored");
     match result {
         Ok(SelectedFile::Df(df)) => {
             assert!(
@@ -520,10 +509,7 @@ fn assert_fs_error(world: &SpecWorld, expected: &str) {
         .last_error
         .as_deref()
         .unwrap_or_else(|| panic!("Expected {expected} error, but operation succeeded"));
-    assert_eq!(
-        err, expected,
-        "Expected {expected} error, got {err}",
-    );
+    assert_eq!(err, expected, "Expected {expected} error, got {err}",);
 }
 
 // =========================================================================
@@ -577,9 +563,7 @@ fn then_current_ef_is_usim_imsi(world: &mut SpecWorld) {
 #[then(regex = r"^it has different data from the GSM EF\.IMSI$")]
 fn then_different_data_from_gsm(world: &mut SpecWorld) {
     let ctx = fs_ctx(world);
-    let usim_ef = ctx
-        .current_ef()
-        .expect("Expected an EF selected");
+    let usim_ef = ctx.current_ef().expect("Expected an EF selected");
     assert_ne!(
         usim_ef.data(),
         GSM_EF_IMSI.data(),

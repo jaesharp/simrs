@@ -28,7 +28,9 @@ jobs:
       - name: Clippy (main workspace)
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Test (main workspace)
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace --all-features --exclude simrs-security-tests
+      - name: Security Tests
+        run: cargo test -p simrs-security-tests --all-features
       - name: Clippy (spec-tests)
         run: cargo clippy --manifest-path tools/simrs-spec-tests/Cargo.toml --all-targets -- -D warnings
       - name: Spec Tests

@@ -23,8 +23,7 @@ use simrs_pin::{PinKey, PinValue};
 use simrs_secret::Secret;
 use simrs_sim::{Sim, SimEvent};
 use simrs_spec_tests::{
-    parse_hex, TEST_K, TEST_OPC, CORRECT_PIN, CORRECT_PUK,
-    PIN_MAX_RETRIES, PUK_MAX_RETRIES, ATR,
+    parse_hex, ATR, CORRECT_PIN, CORRECT_PUK, PIN_MAX_RETRIES, PUK_MAX_RETRIES, TEST_K, TEST_OPC,
 };
 
 use super::world::{do_send_apdu, SpecWorld};
@@ -42,8 +41,8 @@ static GSM_EF_ICCID: EfDef = EfDef::transparent(
 static GSM_EF_DIR: EfDef = EfDef::linear_fixed(
     Fid::new(0x2F00),
     None,
-    8,  // record_size
-    2,  // num_records
+    8,           // record_size
+    2,           // num_records
     &[0xFF; 16], // 8 * 2 = 16 bytes
 );
 
@@ -54,9 +53,9 @@ static GSM_EF_ADN: EfDef = EfDef::linear_fixed(
     3,  // num_records
     // 14 * 3 = 42 bytes -- distinct per-record content.
     &[
-        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-        0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-        0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02,
+        0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x03, 0x03,
+        0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
     ],
 );
 
@@ -94,8 +93,7 @@ pub(crate) static GSM_TEST_MF: DfDef = DfDef {
 
 /// The Ki specified in the feature's Background.
 const FEATURE_KI: [u8; 16] = [
-    0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-    0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+    0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
 ];
 
 // =========================================================================
@@ -172,7 +170,15 @@ pub(crate) fn response_data(world: &SpecWorld) -> &[u8] {
 
 /// Send a GSM SELECT command for a file ID.
 pub(crate) fn gsm_select(world: &mut SpecWorld, fid: u16) {
-    let cmd = [0xA0, 0xA4, 0x00, 0x00, 0x02, (fid >> 8) as u8, (fid & 0xFF) as u8];
+    let cmd = [
+        0xA0,
+        0xA4,
+        0x00,
+        0x00,
+        0x02,
+        (fid >> 8) as u8,
+        (fid & 0xFF) as u8,
+    ];
     gsm_send(world, &cmd);
 }
 
@@ -188,8 +194,7 @@ pub(crate) fn gsm_select_and_consume(world: &mut SpecWorld, fid: u16) {
 /// Verify PIN1 via a GSM VERIFY APDU (CLA=0xA0).
 fn gsm_verify_pin1(world: &mut SpecWorld) {
     let cmd = [
-        0xA0, 0x20, 0x00, 0x01, 0x08,
-        0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xA0, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
     gsm_send(world, &cmd);
     let (sw1, sw2) = world.last_sw.expect("VERIFY PIN1 must produce SW");
@@ -295,11 +300,12 @@ fn given_ef_adn_3_records_selected(world: &mut SpecWorld) {
         gsm_select_and_consume(world, 0x7F10);
         gsm_select_and_consume(world, 0x6F3A);
     } else {
-        let ctx = world.fs_ctx.get_or_insert_with(|| {
-            simrs_fs::SelectionCtx::new(&GSM_TEST_MF)
-        });
+        let ctx = world
+            .fs_ctx
+            .get_or_insert_with(|| simrs_fs::SelectionCtx::new(&GSM_TEST_MF));
         ctx.select_by_fid(Fid::MF).expect("select MF");
-        ctx.select_by_fid(Fid::new(0x7F10)).expect("select DF.TELECOM");
+        ctx.select_by_fid(Fid::new(0x7F10))
+            .expect("select DF.TELECOM");
         ctx.select_by_fid(Fid::new(0x6F3A)).expect("select EF.ADN");
     }
 }
@@ -311,11 +317,12 @@ fn given_ef_iccid_transparent_selected(world: &mut SpecWorld) {
         gsm_select_and_consume(world, 0x3F00);
         gsm_select_and_consume(world, 0x2FE2);
     } else {
-        let ctx = world.fs_ctx.get_or_insert_with(|| {
-            simrs_fs::SelectionCtx::new(&GSM_TEST_MF)
-        });
+        let ctx = world
+            .fs_ctx
+            .get_or_insert_with(|| simrs_fs::SelectionCtx::new(&GSM_TEST_MF));
         ctx.select_by_fid(Fid::MF).expect("select MF");
-        ctx.select_by_fid(Fid::new(0x2FE2)).expect("select EF.ICCID");
+        ctx.select_by_fid(Fid::new(0x2FE2))
+            .expect("select EF.ICCID");
     }
 }
 
@@ -330,7 +337,10 @@ fn given_ef_iccid_transparent_selected(world: &mut SpecWorld) {
 #[when(regex = r"^I send GET RESPONSE to (?:clear the queue|consume it)$")]
 fn when_send_get_response_consume(world: &mut SpecWorld) {
     let (sw1, sw2) = world.last_sw.expect("No SW from previous command");
-    assert_eq!(sw1, 0x9F, "Expected SW1=9F before consuming GET RESPONSE, got {sw1:02X}");
+    assert_eq!(
+        sw1, 0x9F,
+        "Expected SW1=9F before consuming GET RESPONSE, got {sw1:02X}"
+    );
     let cmd = [0xA0, 0xC0, 0x00, 0x00, sw2];
     gsm_send(world, &cmd);
 }
@@ -339,7 +349,10 @@ fn when_send_get_response_consume(world: &mut SpecWorld) {
 #[when(regex = r"^I send GET RESPONSE$")]
 fn when_send_get_response_bare(world: &mut SpecWorld) {
     let (sw1, sw2) = world.last_sw.expect("No SW from previous command");
-    assert_eq!(sw1, 0x9F, "Expected SW1=9F before GET RESPONSE, got {sw1:02X}");
+    assert_eq!(
+        sw1, 0x9F,
+        "Expected SW1=9F before GET RESPONSE, got {sw1:02X}"
+    );
     let cmd = [0xA0, 0xC0, 0x00, 0x00, sw2];
     gsm_send(world, &cmd);
 }
@@ -349,8 +362,8 @@ fn when_send_get_response_bare(world: &mut SpecWorld) {
 fn when_send_run_gsm_algo(world: &mut SpecWorld, hex: String) {
     let mut cmd = parse_hex(&hex);
     let rand: [u8; 16] = [
-        0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44,
-        0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0xEE, 0xFF,
+        0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0xEE,
+        0xFF,
     ];
     cmd.extend_from_slice(&rand);
     world.rand_val = Some(rand);
@@ -361,8 +374,7 @@ fn when_send_run_gsm_algo(world: &mut SpecWorld, hex: String) {
 #[when(regex = r"^I send RUN GSM ALGO with 8-byte data \(not 16\)$")]
 fn when_send_run_gsm_algo_wrong_len(world: &mut SpecWorld) {
     let cmd = [
-        0xA0, 0x88, 0x00, 0x00, 0x08,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0xA0, 0x88, 0x00, 0x00, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
     ];
     gsm_send(world, &cmd);
 }
@@ -416,7 +428,10 @@ fn then_the_status_word_is(world: &mut SpecWorld, sw1_hex: String, sw2_hex: Stri
 fn then_sw1_is_hex(world: &mut SpecWorld, sw1_hex: String) {
     let expected = u8::from_str_radix(&sw1_hex, 16).unwrap();
     let (sw1, _) = world.last_sw.expect("No SW available");
-    assert_eq!(sw1, expected, "Expected SW1 0x{expected:02X}, got 0x{sw1:02X}");
+    assert_eq!(
+        sw1, expected,
+        "Expected SW1 0x{expected:02X}, got 0x{sw1:02X}"
+    );
 }
 
 /// "And SW2 is the response length (23 for DF/MF)"
@@ -564,7 +579,8 @@ fn then_14_byte_first_record(world: &mut SpecWorld) {
         world.last_data,
         &expected[..],
         "First record mismatch: expected {:02X?}, got {:02X?}",
-        expected, world.last_data,
+        expected,
+        world.last_data,
     );
 }
 
@@ -578,7 +594,10 @@ fn then_23_byte_mf_status(world: &mut SpecWorld) {
         world.last_data.len(),
     );
     let fid = u16::from_be_bytes([world.last_data[4], world.last_data[5]]);
-    assert_eq!(fid, 0x3F00, "STATUS file ID: expected 0x3F00, got 0x{fid:04X}");
+    assert_eq!(
+        fid, 0x3F00,
+        "STATUS file ID: expected 0x3F00, got 0x{fid:04X}"
+    );
 }
 
 /// "Then I get the 9-byte IMSI data"
@@ -637,13 +656,15 @@ fn then_values_match_comp128(world: &mut SpecWorld) {
         sres,
         result.signed_response.as_bytes().as_slice(),
         "SRES mismatch: expected {:02X?}, got {:02X?}",
-        result.signed_response, sres,
+        result.signed_response,
+        sres,
     );
     assert_eq!(
         kc,
         result.cipher_key.declassify_ref().as_slice(),
         "Kc mismatch: expected {:02X?}, got {:02X?}",
-        result.cipher_key.declassify_ref(), kc,
+        result.cipher_key.declassify_ref(),
+        kc,
     );
 }
 
@@ -702,7 +723,10 @@ fn then_status_returns_mf(world: &mut SpecWorld) {
         world.last_data.len(),
     );
     let fid = u16::from_be_bytes([world.last_data[4], world.last_data[5]]);
-    assert_eq!(fid, 0x3F00, "STATUS file ID: expected MF (0x3F00), got 0x{fid:04X}");
+    assert_eq!(
+        fid, 0x3F00,
+        "STATUS file ID: expected MF (0x3F00), got 0x{fid:04X}"
+    );
 }
 
 // =========================================================================
@@ -756,6 +780,7 @@ fn then_second_14_byte_record(world: &mut SpecWorld) {
         actual,
         &expected[..],
         "Second record mismatch: expected {:02X?}, got {:02X?}",
-        expected, actual,
+        expected,
+        actual,
     );
 }

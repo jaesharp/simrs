@@ -23,7 +23,10 @@ fn pin_to_value(pin_str: &str) -> PinValue {
 
 /// Borrow the PinManager from world state, panicking if absent.
 fn mgr(world: &mut SpecWorld) -> &mut PinManager<5> {
-    world.pin_manager.as_mut().expect("PinManager not initialised")
+    world
+        .pin_manager
+        .as_mut()
+        .expect("PinManager not initialised")
 }
 
 // =========================================================================
@@ -74,7 +77,11 @@ fn given_pin1_is_enabled(world: &mut SpecWorld) {
     // so enable() will work.
     let pin = pin_to_value("1234");
     let result = mgr(world).enable(PinKey::PIN1, &pin);
-    assert_eq!(result, PinResult::Success, "Background: enable PIN1 failed: {result:?}");
+    assert_eq!(
+        result,
+        PinResult::Success,
+        "Background: enable PIN1 failed: {result:?}"
+    );
 }
 
 // =========================================================================
@@ -122,7 +129,11 @@ fn given_pin1_blocked(world: &mut SpecWorld) {
 fn given_pin1_disabled(world: &mut SpecWorld) {
     let pin = pin_to_value("1234");
     let result = mgr(world).disable(PinKey::PIN1, &pin);
-    assert_eq!(result, PinResult::Success, "Given disable failed: {result:?}");
+    assert_eq!(
+        result,
+        PinResult::Success,
+        "Given disable failed: {result:?}"
+    );
     assert!(!mgr(world).is_enabled(PinKey::PIN1));
 }
 
@@ -163,7 +174,12 @@ fn given_puk1_used_once(world: &mut SpecWorld) {
     let dummy_pin = pin_to_value("0000");
     let r = mgr(world).unblock(PinKey::PIN1, &wrong_puk, &dummy_pin);
     assert!(
-        matches!(r, PinResult::WrongPin { retries_remaining: 9 }),
+        matches!(
+            r,
+            PinResult::WrongPin {
+                retries_remaining: 9
+            }
+        ),
         "Expected WrongPin(9), got {r:?}"
     );
     assert_eq!(mgr(world).puk_retries(PinKey::PIN1), Some(9));
@@ -298,7 +314,11 @@ fn when_session_reset(world: &mut SpecWorld) {
 #[then(regex = r"^the result is Success$")]
 fn then_result_success(world: &mut SpecWorld) {
     let result = world.pin_result.expect("No PinResult available");
-    assert_eq!(result, PinResult::Success, "Expected Success, got {result:?}");
+    assert_eq!(
+        result,
+        PinResult::Success,
+        "Expected Success, got {result:?}"
+    );
 }
 
 #[then(regex = r"^the result is WrongPin with (\d+) retries remaining$")]
@@ -306,7 +326,9 @@ fn then_result_wrong_pin(world: &mut SpecWorld, expected_retries: u8) {
     let result = world.pin_result.expect("No PinResult available");
     assert_eq!(
         result,
-        PinResult::WrongPin { retries_remaining: expected_retries },
+        PinResult::WrongPin {
+            retries_remaining: expected_retries
+        },
         "Expected WrongPin({expected_retries}), got {result:?}"
     );
 }
@@ -314,30 +336,50 @@ fn then_result_wrong_pin(world: &mut SpecWorld, expected_retries: u8) {
 #[then(regex = r"^the result is Blocked$")]
 fn then_result_blocked(world: &mut SpecWorld) {
     let result = world.pin_result.expect("No PinResult available");
-    assert_eq!(result, PinResult::Blocked, "Expected Blocked, got {result:?}");
+    assert_eq!(
+        result,
+        PinResult::Blocked,
+        "Expected Blocked, got {result:?}"
+    );
 }
 
 #[then(regex = r"^the result is Disabled$")]
 fn then_result_disabled(world: &mut SpecWorld) {
     let result = world.pin_result.expect("No PinResult available");
-    assert_eq!(result, PinResult::Disabled, "Expected Disabled, got {result:?}");
+    assert_eq!(
+        result,
+        PinResult::Disabled,
+        "Expected Disabled, got {result:?}"
+    );
 }
 
 #[then(regex = r"^the result is NotFound$")]
 fn then_result_not_found(world: &mut SpecWorld) {
     let result = world.pin_result.expect("No PinResult available");
-    assert_eq!(result, PinResult::NotFound, "Expected NotFound, got {result:?}");
+    assert_eq!(
+        result,
+        PinResult::NotFound,
+        "Expected NotFound, got {result:?}"
+    );
 }
 
 #[then(regex = r"^the result is DuplicateKey error$")]
 fn then_result_duplicate_key(world: &mut SpecWorld) {
-    let err = world.pin_error.expect("Expected PinError, but none occurred");
-    assert_eq!(err, PinError::DuplicateKey, "Expected DuplicateKey, got {err:?}");
+    let err = world
+        .pin_error
+        .expect("Expected PinError, but none occurred");
+    assert_eq!(
+        err,
+        PinError::DuplicateKey,
+        "Expected DuplicateKey, got {err:?}"
+    );
 }
 
 #[then(regex = r"^the result is SlotsFull error$")]
 fn then_result_slots_full(world: &mut SpecWorld) {
-    let err = world.pin_error.expect("Expected PinError, but none occurred");
+    let err = world
+        .pin_error
+        .expect("Expected PinError, but none occurred");
     assert_eq!(err, PinError::SlotsFull, "Expected SlotsFull, got {err:?}");
 }
 
@@ -347,61 +389,94 @@ fn then_result_slots_full(world: &mut SpecWorld) {
 
 #[then(regex = r"^PIN1 is marked as verified$")]
 fn then_pin1_verified(world: &mut SpecWorld) {
-    assert!(mgr(world).is_verified(PinKey::PIN1), "Expected PIN1 to be verified");
+    assert!(
+        mgr(world).is_verified(PinKey::PIN1),
+        "Expected PIN1 to be verified"
+    );
 }
 
 #[then(regex = r"^PIN1 is not verified$")]
 fn then_pin1_not_verified(world: &mut SpecWorld) {
-    assert!(!mgr(world).is_verified(PinKey::PIN1), "Expected PIN1 to NOT be verified");
+    assert!(
+        !mgr(world).is_verified(PinKey::PIN1),
+        "Expected PIN1 to NOT be verified"
+    );
 }
 
 #[then(regex = r"^PIN1 is not marked as verified$")]
 fn then_pin1_not_marked_verified(world: &mut SpecWorld) {
-    assert!(!mgr(world).is_verified(PinKey::PIN1), "Expected PIN1 to NOT be marked verified");
+    assert!(
+        !mgr(world).is_verified(PinKey::PIN1),
+        "Expected PIN1 to NOT be marked verified"
+    );
 }
 
 #[then(regex = r"^PIN1 retry counter is (\d+)$")]
 fn then_pin1_retries(world: &mut SpecWorld, expected: u8) {
     let actual = mgr(world).retries(PinKey::PIN1).expect("PIN1 not found");
-    assert_eq!(actual, expected, "Expected PIN1 retries={expected}, got {actual}");
+    assert_eq!(
+        actual, expected,
+        "Expected PIN1 retries={expected}, got {actual}"
+    );
 }
 
 #[then(regex = r"^PIN1 retry counter is reset to (\d+)$")]
 fn then_pin1_retries_reset(world: &mut SpecWorld, expected: u8) {
     let actual = mgr(world).retries(PinKey::PIN1).expect("PIN1 not found");
-    assert_eq!(actual, expected, "Expected PIN1 retries reset to {expected}, got {actual}");
+    assert_eq!(
+        actual, expected,
+        "Expected PIN1 retries reset to {expected}, got {actual}"
+    );
 }
 
 #[then(regex = r"^the retry counter remains 0$")]
 fn then_retry_counter_remains_zero(world: &mut SpecWorld) {
     let actual = mgr(world).retries(PinKey::PIN1).expect("PIN1 not found");
-    assert_eq!(actual, 0, "Expected retry counter to remain 0, got {actual}");
+    assert_eq!(
+        actual, 0,
+        "Expected retry counter to remain 0, got {actual}"
+    );
 }
 
 #[then(regex = r"^the retry counter is not decremented$")]
 fn then_retry_counter_not_decremented(world: &mut SpecWorld) {
     let actual = mgr(world).retries(PinKey::PIN1).expect("PIN1 not found");
-    assert_eq!(actual, 3, "Expected retries=3 (not decremented), got {actual}");
+    assert_eq!(
+        actual, 3,
+        "Expected retries=3 (not decremented), got {actual}"
+    );
 }
 
 #[then(regex = r"^PIN1 is disabled$")]
 fn then_pin1_disabled(world: &mut SpecWorld) {
-    assert!(!mgr(world).is_enabled(PinKey::PIN1), "Expected PIN1 to be disabled");
+    assert!(
+        !mgr(world).is_enabled(PinKey::PIN1),
+        "Expected PIN1 to be disabled"
+    );
 }
 
 #[then(regex = r"^PIN1 is enabled$")]
 fn then_pin1_enabled(world: &mut SpecWorld) {
-    assert!(mgr(world).is_enabled(PinKey::PIN1), "Expected PIN1 to be enabled");
+    assert!(
+        mgr(world).is_enabled(PinKey::PIN1),
+        "Expected PIN1 to be enabled"
+    );
 }
 
 #[then(regex = r"^PIN1 is still enabled$")]
 fn then_pin1_still_enabled(world: &mut SpecWorld) {
-    assert!(mgr(world).is_enabled(PinKey::PIN1), "Expected PIN1 to still be enabled");
+    assert!(
+        mgr(world).is_enabled(PinKey::PIN1),
+        "Expected PIN1 to still be enabled"
+    );
 }
 
 #[then(regex = r"^PIN1 is still disabled$")]
 fn then_pin1_still_disabled(world: &mut SpecWorld) {
-    assert!(!mgr(world).is_enabled(PinKey::PIN1), "Expected PIN1 to still be disabled");
+    assert!(
+        !mgr(world).is_enabled(PinKey::PIN1),
+        "Expected PIN1 to still be disabled"
+    );
 }
 
 #[then(regex = r"^is_verified for PIN1 returns true$")]
@@ -425,13 +500,17 @@ fn then_first_two_wrong(world: &mut SpecWorld) {
     );
     assert_eq!(
         world.pin_results[0],
-        PinResult::WrongPin { retries_remaining: 2 },
+        PinResult::WrongPin {
+            retries_remaining: 2
+        },
         "First result: expected WrongPin(2), got {:?}",
         world.pin_results[0]
     );
     assert_eq!(
         world.pin_results[1],
-        PinResult::WrongPin { retries_remaining: 1 },
+        PinResult::WrongPin {
+            retries_remaining: 1
+        },
         "Second result: expected WrongPin(1), got {:?}",
         world.pin_results[1]
     );
@@ -446,7 +525,9 @@ fn then_third_wrong_zero(world: &mut SpecWorld) {
     );
     assert_eq!(
         world.pin_results[2],
-        PinResult::WrongPin { retries_remaining: 0 },
+        PinResult::WrongPin {
+            retries_remaining: 0
+        },
         "Third result: expected WrongPin(0), got {:?}",
         world.pin_results[2]
     );
@@ -460,7 +541,11 @@ fn then_third_wrong_zero(world: &mut SpecWorld) {
 fn then_verify_succeeds(world: &mut SpecWorld, pin_str: String) {
     let val = pin_to_value(&pin_str);
     let result = mgr(world).verify(PinKey::PIN1, &val);
-    assert_eq!(result, PinResult::Success, "Expected verify({pin_str}) = Success, got {result:?}");
+    assert_eq!(
+        result,
+        PinResult::Success,
+        "Expected verify({pin_str}) = Success, got {result:?}"
+    );
 }
 
 #[then(regex = r#"^verifying PIN1 with "([^"]*)" fails$"#)]
@@ -501,20 +586,33 @@ fn then_verify_still_succeeds(world: &mut SpecWorld, pin_str: String) {
 
 #[then(regex = r"^PUK1 retry counter is (\d+)$")]
 fn then_puk1_retries(world: &mut SpecWorld, expected: u8) {
-    let actual = mgr(world).puk_retries(PinKey::PIN1).expect("PIN1 not found");
-    assert_eq!(actual, expected, "Expected PUK1 retries={expected}, got {actual}");
+    let actual = mgr(world)
+        .puk_retries(PinKey::PIN1)
+        .expect("PIN1 not found");
+    assert_eq!(
+        actual, expected,
+        "Expected PUK1 retries={expected}, got {actual}"
+    );
 }
 
 #[then(regex = r"^PUK1 retry counter is still (\d+)$")]
 fn then_puk1_retries_still(world: &mut SpecWorld, expected: u8) {
-    let actual = mgr(world).puk_retries(PinKey::PIN1).expect("PIN1 not found");
-    assert_eq!(actual, expected, "Expected PUK1 retries still={expected}, got {actual}");
+    let actual = mgr(world)
+        .puk_retries(PinKey::PIN1)
+        .expect("PIN1 not found");
+    assert_eq!(
+        actual, expected,
+        "Expected PUK1 retries still={expected}, got {actual}"
+    );
 }
 
 #[then(regex = r"^PIN1 is permanently unrecoverable$")]
 fn then_pin1_permanently_unrecoverable(world: &mut SpecWorld) {
     // Both PIN and PUK are exhausted.
-    assert!(mgr(world).is_blocked(PinKey::PIN1), "Expected PIN1 to be blocked");
+    assert!(
+        mgr(world).is_blocked(PinKey::PIN1),
+        "Expected PIN1 to be blocked"
+    );
     assert_eq!(
         mgr(world).puk_retries(PinKey::PIN1),
         Some(0),
@@ -556,12 +654,18 @@ fn then_pin1_not_verified_before_verify(world: &mut SpecWorld) {
 #[then(regex = r"^PIN2 retry counter is unaffected$")]
 fn then_pin2_retries_unaffected(world: &mut SpecWorld) {
     let actual = mgr(world).retries(PinKey::PIN2).expect("PIN2 not found");
-    assert_eq!(actual, 3, "Expected PIN2 retries=3 (unaffected), got {actual}");
+    assert_eq!(
+        actual, 3,
+        "Expected PIN2 retries=3 (unaffected), got {actual}"
+    );
 }
 
 #[then(regex = r"^PIN2 is not blocked$")]
 fn then_pin2_not_blocked(world: &mut SpecWorld) {
-    assert!(!mgr(world).is_blocked(PinKey::PIN2), "Expected PIN2 to NOT be blocked");
+    assert!(
+        !mgr(world).is_blocked(PinKey::PIN2),
+        "Expected PIN2 to NOT be blocked"
+    );
 }
 
 // =========================================================================
@@ -571,5 +675,8 @@ fn then_pin2_not_blocked(world: &mut SpecWorld) {
 #[then(regex = r"^PIN1 retry counter is unchanged$")]
 fn then_pin1_retries_unchanged(world: &mut SpecWorld) {
     let actual = mgr(world).retries(PinKey::PIN1).expect("PIN1 not found");
-    assert_eq!(actual, 3, "Expected PIN1 retries=3 (unchanged after reset), got {actual}");
+    assert_eq!(
+        actual, 3,
+        "Expected PIN1 retries=3 (unchanged after reset), got {actual}"
+    );
 }

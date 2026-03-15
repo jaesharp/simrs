@@ -52,7 +52,9 @@ fn parse_inner_tlvs(encoded: &[u8]) -> Vec<(u8, Vec<u8>)> {
 
 /// Get the state, creating one if needed.
 fn state_mut(world: &mut SpecWorld) -> &mut ProactiveState {
-    world.proactive_state.get_or_insert_with(ProactiveState::new)
+    world
+        .proactive_state
+        .get_or_insert_with(ProactiveState::new)
 }
 
 /// Build a minimal TERMINAL RESPONSE TLV sequence.
@@ -163,10 +165,7 @@ fn when_encode_any_command(world: &mut SpecWorld) {
 #[then("the first inner TLV has tag 0x81 (command details)")]
 fn then_first_inner_tlv_is_cmd_details(world: &mut SpecWorld) {
     let tlvs = parse_inner_tlvs(&world.proactive_encoded);
-    assert!(
-        !tlvs.is_empty(),
-        "no inner TLVs found in encoded command"
-    );
+    assert!(!tlvs.is_empty(), "no inner TLVs found in encoded command");
     assert_eq!(
         tlvs[0].0, 0x81,
         "first inner TLV tag must be 0x81, got {:02X}",
@@ -296,15 +295,14 @@ fn then_third_tlv_tag_text_string(world: &mut SpecWorld, hex: String) {
     );
 }
 
-#[then(regex = r#"^text string starts with DCS byte 0x([0-9A-Fa-f]{2}) \(GSM 8-bit\) followed by "([^"]*)"$"#)]
+#[then(
+    regex = r#"^text string starts with DCS byte 0x([0-9A-Fa-f]{2}) \(GSM 8-bit\) followed by "([^"]*)"$"#
+)]
 fn then_text_string_gsm8bit(world: &mut SpecWorld, dcs_hex: String, expected_text: String) {
     let expected_dcs = u8::from_str_radix(&dcs_hex, 16).unwrap();
     let tlvs = parse_inner_tlvs(&world.proactive_encoded);
     let text_tlv = &tlvs[2];
-    assert!(
-        !text_tlv.1.is_empty(),
-        "text string TLV value is empty"
-    );
+    assert!(!text_tlv.1.is_empty(), "text string TLV value is empty");
     assert_eq!(
         text_tlv.1[0], expected_dcs,
         "DCS byte: expected {expected_dcs:#04X}, got {:#04X}",
@@ -463,10 +461,7 @@ fn then_item_n_starts_with(
         items.len()
     );
     let item = &items[item_idx - 1];
-    assert!(
-        !item.1.is_empty(),
-        "item {item_idx} value is empty"
-    );
+    assert!(!item.1.is_empty(), "item {item_idx} value is empty");
     assert_eq!(
         item.1[0], expected_id,
         "item {item_idx}: expected id byte {expected_id:#04X}, got {:#04X}",
@@ -523,7 +518,9 @@ fn when_encode_launch_browser(world: &mut SpecWorld, url: String, bid_hex: Strin
     do_encode(world, &cmd, 1);
 }
 
-#[then(regex = r"^there is a TLV with tag 0x([0-9A-Fa-f]{2}) \(browser identity\) containing \[0x([0-9A-Fa-f]{2})\]$")]
+#[then(
+    regex = r"^there is a TLV with tag 0x([0-9A-Fa-f]{2}) \(browser identity\) containing \[0x([0-9A-Fa-f]{2})\]$"
+)]
 fn then_tlv_browser_id(world: &mut SpecWorld, tag_hex: String, val_hex: String) {
     let expected_tag = u8::from_str_radix(&tag_hex, 16).unwrap();
     let expected_val = u8::from_str_radix(&val_hex, 16).unwrap();
@@ -548,11 +545,7 @@ fn then_tlv_url(world: &mut SpecWorld, tag_hex: String, expected_url: String) {
         .iter()
         .find(|(tag, _)| *tag == expected_tag)
         .unwrap_or_else(|| panic!("no TLV with tag {expected_tag:#04X} found"));
-    assert_eq!(
-        found.1,
-        expected_url.as_bytes(),
-        "URL content mismatch"
-    );
+    assert_eq!(found.1, expected_url.as_bytes(), "URL content mismatch");
 }
 
 // =========================================================================
@@ -569,7 +562,9 @@ fn when_encode_play_tone(world: &mut SpecWorld) {
     do_encode(world, &cmd, 1);
 }
 
-#[then(regex = r"^there is a TLV with tag 0x([0-9A-Fa-f]{2}) \(tone\) containing \[0x([0-9A-Fa-f]{2})\]$")]
+#[then(
+    regex = r"^there is a TLV with tag 0x([0-9A-Fa-f]{2}) \(tone\) containing \[0x([0-9A-Fa-f]{2})\]$"
+)]
 fn then_tlv_tone(world: &mut SpecWorld, tag_hex: String, val_hex: String) {
     let expected_tag = u8::from_str_radix(&tag_hex, 16).unwrap();
     let expected_val = u8::from_str_radix(&val_hex, 16).unwrap();
@@ -586,7 +581,9 @@ fn then_tlv_tone(world: &mut SpecWorld, tag_hex: String, val_hex: String) {
     );
 }
 
-#[then(regex = r"^there is a TLV with tag 0x([0-9A-Fa-f]{2}) \(duration\) containing \[0x([0-9A-Fa-f]{2}), 0x([0-9A-Fa-f]{2})\]$")]
+#[then(
+    regex = r"^there is a TLV with tag 0x([0-9A-Fa-f]{2}) \(duration\) containing \[0x([0-9A-Fa-f]{2}), 0x([0-9A-Fa-f]{2})\]$"
+)]
 fn then_tlv_duration(
     world: &mut SpecWorld,
     tag_hex: String,
@@ -683,9 +680,7 @@ fn when_call_override_status(world: &mut SpecWorld, sw1_hex: String, sw2_hex: St
 
 #[then(regex = r"^the result is \(0x91, pending_len as u8\)$")]
 fn then_result_is_91_pending_len(world: &mut SpecWorld) {
-    let (sw1, sw2) = world
-        .proactive_override_result
-        .expect("no override result");
+    let (sw1, sw2) = world.proactive_override_result.expect("no override result");
     let st = state_mut(world);
     // After override_status, pending_len is still set (override_status is const, doesn't mutate).
     // But the command is still pending, so we can compare.
@@ -705,9 +700,7 @@ fn then_result_is_91_pending_len(world: &mut SpecWorld) {
 fn then_result_unchanged(world: &mut SpecWorld, sw1_hex: String, sw2_hex: String) {
     let expected_sw1 = u8::from_str_radix(&sw1_hex, 16).unwrap();
     let expected_sw2 = u8::from_str_radix(&sw2_hex, 16).unwrap();
-    let (sw1, sw2) = world
-        .proactive_override_result
-        .expect("no override result");
+    let (sw1, sw2) = world.proactive_override_result.expect("no override result");
     assert_eq!(
         (sw1, sw2),
         (expected_sw1, expected_sw2),
@@ -810,7 +803,10 @@ fn then_state_ready_for_next(world: &mut SpecWorld) {
     let st = state_mut(world);
     // After terminal response, the state should have no pending command
     // and should accept a new queue_command.
-    assert!(!st.has_pending(), "should have no pending command after terminal response");
+    assert!(
+        !st.has_pending(),
+        "should have no pending command after terminal response"
+    );
     // Verify we can queue a new command.
     let cmd = ProactiveCommand::DisplayText {
         text: b"Next",

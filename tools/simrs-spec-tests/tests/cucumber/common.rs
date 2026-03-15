@@ -5,9 +5,7 @@
 //! and generic SW/data Then steps used by two or more spec domains.
 
 use cucumber::{given, then, when};
-use simrs_spec_tests::{
-    create_sim, create_sim_powered_on, parse_hex, power_cycle,
-};
+use simrs_spec_tests::{create_sim, create_sim_powered_on, parse_hex, power_cycle};
 
 use super::world::{do_send_apdu, ensure_pin1_verified, sim_mut, SpecWorld};
 
@@ -76,7 +74,9 @@ fn when_send_apdu_quoted(world: &mut SpecWorld, hex: String) {
     do_send_apdu(world, &cmd);
 }
 
-#[when(regex = r"^I send (?:APDU|SELECT|READ BINARY|UPDATE BINARY|READ RECORD|TERMINAL PROFILE|GET RESPONSE|STATUS|FETCH|TERMINAL RESPONSE|ENVELOPE)\b.* \[([^\]]*)\]$")]
+#[when(
+    regex = r"^I send (?:APDU|SELECT|READ BINARY|UPDATE BINARY|READ RECORD|TERMINAL PROFILE|GET RESPONSE|STATUS|FETCH|TERMINAL RESPONSE|ENVELOPE)\b.* \[([^\]]*)\]$"
+)]
 fn when_send_apdu_bracketed(world: &mut SpecWorld, hex: String) {
     let cmd = parse_hex(&hex);
     do_send_apdu(world, &cmd);
@@ -133,7 +133,10 @@ fn then_sw_error(world: &mut SpecWorld) {
         return;
     }
     let (sw1, _sw2) = world.last_sw.expect("No SW available");
-    assert!(sw1 >= 0x60 && sw1 != 0x90 && sw1 != 0x91, "Expected error SW");
+    assert!(
+        sw1 >= 0x60 && sw1 != 0x90 && sw1 != 0x91,
+        "Expected error SW"
+    );
 }
 
 #[then(regex = r"^the response data is empty.*$")]
@@ -147,7 +150,10 @@ fn then_data_empty(world: &mut SpecWorld) {
 
 #[then(regex = r"^the response data is non-empty$")]
 fn then_data_non_empty(world: &mut SpecWorld) {
-    assert!(!world.last_data.is_empty(), "Expected non-empty response data");
+    assert!(
+        !world.last_data.is_empty(),
+        "Expected non-empty response data"
+    );
 }
 
 #[then(regex = r"^SW is 90 00 or 61 XX.*$")]

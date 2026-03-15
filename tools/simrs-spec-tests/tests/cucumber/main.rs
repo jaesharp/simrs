@@ -4,7 +4,24 @@
     clippy::needless_pass_by_value,
     clippy::needless_pass_by_ref_mut,
     clippy::trivial_regex,
-    clippy::missing_const_for_fn
+    clippy::missing_const_for_fn,
+    clippy::doc_markdown,
+    clippy::struct_excessive_bools,
+    clippy::option_option,
+    clippy::missing_fields_in_debug,
+    clippy::items_after_statements,
+    clippy::similar_names,
+    clippy::redundant_pub_crate,
+    clippy::used_underscore_items,
+    clippy::used_underscore_binding,
+    clippy::cast_possible_truncation,
+    clippy::borrow_as_ptr,
+    clippy::uninlined_format_args,
+    clippy::branches_sharing_code,
+    clippy::option_if_let_else,
+    clippy::format_collect,
+    clippy::tuple_array_conversions,
+    clippy::no_effect_underscore_binding
 )]
 //! Cucumber-rs test runner for the simrs specification suite.
 //!

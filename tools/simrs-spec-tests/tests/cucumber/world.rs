@@ -2,12 +2,12 @@
 //! `SpecWorld` state and helper functions shared across all step definition modules.
 
 use cucumber::World;
-use simrs_fs::{FsError, SelectionCtx, SelectedFile};
+use simrs_fs::{FsError, SelectedFile, SelectionCtx};
 use simrs_milenage::{AuthenticationError, AuthenticationOutput, MilenageParams};
 use simrs_pin::{PinError, PinManager, PinResult};
 use simrs_proactive::ProactiveState;
-use simrs_spec_tests::{send_apdu, verify_pin1};
 use simrs_sim::Sim;
+use simrs_spec_tests::{send_apdu, verify_pin1};
 
 // ---------------------------------------------------------------------------
 // World
@@ -29,7 +29,6 @@ pub struct SpecWorld {
     pub gsm_mode: bool,
 
     // ---- Library-level state slots (unit-style BDD) ----
-
     /// Raw hex input bytes for library-level tests.
     pub hex_input: Vec<u8>,
     /// Computed output bytes (generic slot).

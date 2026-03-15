@@ -11,14 +11,16 @@
 
 use cucumber::{given, then, when};
 use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
-use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
+use simrs_milenage::{
+    AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant, SequenceNumber,
+    SubscriberKey,
+};
 use simrs_pin::{PinKey, PinValue};
 use simrs_proactive::{ProactiveCommand, TextCoding};
 use simrs_sim::{Sim, SimEvent};
 use simrs_spec_tests::{
-    parse_hex, verify_pin1,
-    TEST_K, TEST_OPC, CORRECT_PIN, WRONG_PIN, CORRECT_PUK, NEW_PIN,
-    PIN_MAX_RETRIES, PUK_MAX_RETRIES, ATR,
+    parse_hex, verify_pin1, ATR, CORRECT_PIN, CORRECT_PUK, NEW_PIN, PIN_MAX_RETRIES,
+    PUK_MAX_RETRIES, TEST_K, TEST_OPC, WRONG_PIN,
 };
 
 use super::world::{do_send_apdu, sim_mut, SpecWorld};
@@ -42,8 +44,7 @@ static EF_DIR: EfDef = EfDef::linear_fixed(
     2,
     &[
         // Record 1: AID tag + partial USIM AID
-        0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00,
-        // Record 2: empty/unused
+        0x61, 0x06, 0x4F, 0x04, 0xA0, 0x00, 0x00, 0x00, // Record 2: empty/unused
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ],
 );
@@ -56,11 +57,7 @@ static EF_IMSI: EfDef = EfDef::transparent(
 );
 
 /// EF.UST (transparent, 4 bytes) under ADF.USIM.
-static EF_UST: EfDef = EfDef::transparent(
-    Fid::new(0x6F38),
-    None,
-    &[0xFF, 0xFF, 0x00, 0x00],
-);
+static EF_UST: EfDef = EfDef::transparent(Fid::new(0x6F38), None, &[0xFF, 0xFF, 0x00, 0x00]);
 
 /// ADF.USIM root DF.
 static ADF_USIM_ROOT: DfDef = DfDef {
@@ -93,16 +90,20 @@ fn create_usim_sim() -> Sim<MilenageParams, 256> {
         SubscriberKey::classify(TEST_K),
         OperatorVariant::operator_cipher(TEST_OPC),
     );
-    let gsm = simrs_gsm::GsmApp::new(
-        &USIM_MF,
-        simrs_gsm::SubscriberKey::classify([0x11; 16]),
-    );
+    let gsm = simrs_gsm::GsmApp::new(&USIM_MF, simrs_gsm::SubscriberKey::classify([0x11; 16]));
     let mut usim = simrs_usim::UsimApp::new(&USIM_MF, &ADF_TABLE, mil);
 
     let pin_val = PinValue::new(CORRECT_PIN);
     let puk_val = PinValue::new(CORRECT_PUK);
     usim.pin_manager()
-        .add_pin(PinKey::PIN1, &pin_val, PIN_MAX_RETRIES, &puk_val, PUK_MAX_RETRIES, true)
+        .add_pin(
+            PinKey::PIN1,
+            &pin_val,
+            PIN_MAX_RETRIES,
+            &puk_val,
+            PUK_MAX_RETRIES,
+            true,
+        )
         .expect("add_pin must succeed");
 
     let mut sim = Sim::<MilenageParams, 256>::new(&ATR, gsm, usim);
@@ -137,7 +138,10 @@ fn do_get_response(world: &mut SpecWorld, le: u8) {
 fn select_and_get_fcp(world: &mut SpecWorld, fid: u16) {
     select_by_fid(world, fid);
     let (sw1, sw2) = world.last_sw.expect("SELECT produced no SW");
-    assert_eq!(sw1, 0x61, "SELECT must return 61 XX, got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        sw1, 0x61,
+        "SELECT must return 61 XX, got {sw1:02X} {sw2:02X}"
+    );
     do_get_response(world, sw2);
     let (sw1_2, sw2_2) = world.last_sw.expect("GET RESPONSE produced no SW");
     assert_eq!(
@@ -151,7 +155,10 @@ fn select_and_get_fcp(world: &mut SpecWorld, fid: u16) {
 fn select_aid_and_get_fcp(world: &mut SpecWorld) {
     select_adf_usim(world);
     let (sw1, sw2) = world.last_sw.expect("SELECT AID produced no SW");
-    assert_eq!(sw1, 0x61, "SELECT AID must return 61 XX, got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        sw1, 0x61,
+        "SELECT AID must return 61 XX, got {sw1:02X} {sw2:02X}"
+    );
     do_get_response(world, sw2);
 }
 
@@ -328,7 +335,9 @@ fn then_response_starts_with_62(world: &mut SpecWorld) {
     );
 }
 
-#[then(regex = r"^the FCP contains tag 0x([0-9A-Fa-f]{2}) with value ([0-9A-Fa-f ]+?)(?:\s*\(.*\))?$")]
+#[then(
+    regex = r"^the FCP contains tag 0x([0-9A-Fa-f]{2}) with value ([0-9A-Fa-f ]+?)(?:\s*\(.*\))?$"
+)]
 fn then_fcp_tag_with_value(world: &mut SpecWorld, tag_hex: String, val_hex: String) {
     let tag = u8::from_str_radix(&tag_hex, 16).unwrap();
     let expected = parse_hex(&val_hex);
@@ -354,10 +363,7 @@ fn then_fcp_tag_present(world: &mut SpecWorld, tag_hex: String) {
 fn then_fcp_fd_transparent(world: &mut SpecWorld) {
     let fd = find_fcp_tag(&world.last_data, 0x82)
         .expect("FCP does not contain tag 0x82 (file descriptor)");
-    assert!(
-        !fd.is_empty(),
-        "File descriptor TLV is empty"
-    );
+    assert!(!fd.is_empty(), "File descriptor TLV is empty");
     // Transparent EF: file descriptor byte bits 2..0 = 001 (transparent), bits 5..3 = 000 (no structure).
     // The standard value for transparent EF is 0x41 (shareable, transparent).
     // Bit 0 of the file descriptor byte = 1 means transparent.
@@ -412,8 +418,8 @@ fn given_selected_iccid_transparent_with_fcp(world: &mut SpecWorld) {
 
 #[then(regex = r"^the FCP contains tag 0x80 with a 2-byte file size$")]
 fn then_fcp_file_size_2_bytes(world: &mut SpecWorld) {
-    let val = find_fcp_tag(&world.last_data, 0x80)
-        .expect("FCP does not contain tag 0x80 (file size)");
+    let val =
+        find_fcp_tag(&world.last_data, 0x80).expect("FCP does not contain tag 0x80 (file size)");
     assert_eq!(
         val.len(),
         2,
@@ -426,10 +432,7 @@ fn then_fcp_file_size_2_bytes(world: &mut SpecWorld) {
 fn then_fd_byte_transparent(world: &mut SpecWorld) {
     let fd = find_fcp_tag(&world.last_data, 0x82)
         .expect("FCP does not contain tag 0x82 (file descriptor)");
-    assert!(
-        !fd.is_empty(),
-        "File descriptor TLV value is empty"
-    );
+    assert!(!fd.is_empty(), "File descriptor TLV value is empty");
     assert_eq!(
         fd[0] & 0x07,
         0x01,
@@ -481,7 +484,10 @@ fn then_get_response_queue_cleared(world: &mut SpecWorld) {
 fn given_selected_mf(world: &mut SpecWorld) {
     select_by_fid(world, 0x3F00);
     let (sw1, sw2) = world.last_sw.expect("No SW");
-    assert_eq!(sw1, 0x61, "SELECT MF must return 61 XX, got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        sw1, 0x61,
+        "SELECT MF must return 61 XX, got {sw1:02X} {sw2:02X}"
+    );
     // Consume the FCP via GET RESPONSE to clear the queue.
     do_get_response(world, sw2);
 }
@@ -504,8 +510,7 @@ fn given_ef_iccid_selected(world: &mut SpecWorld) {
         use crate::gsm::gsm_select_and_consume;
         // Verify PIN1 via GSM VERIFY APDU.
         let pin_cmd = [
-            0xA0, 0x20, 0x00, 0x01, 0x08,
-            0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xA0, 0x20, 0x00, 0x01, 0x08, 0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF,
         ];
         do_send_apdu(world, &pin_cmd);
         gsm_select_and_consume(world, 0x3F00);
@@ -515,7 +520,10 @@ fn given_ef_iccid_selected(world: &mut SpecWorld) {
         verify_pin1(sim_mut(world));
         select_by_fid(world, 0x2FE2);
         let (sw1, sw2) = world.last_sw.expect("No SW from SELECT EF.ICCID");
-        assert_eq!(sw1, 0x61, "SELECT EF.ICCID must return 61 XX, got {sw1:02X} {sw2:02X}");
+        assert_eq!(
+            sw1, 0x61,
+            "SELECT EF.ICCID must return 61 XX, got {sw1:02X} {sw2:02X}"
+        );
         // Consume FCP.
         do_get_response(world, sw2);
     } else {
@@ -526,7 +534,8 @@ fn given_ef_iccid_selected(world: &mut SpecWorld) {
         }
         let ctx = world.fs_ctx.as_mut().unwrap();
         ctx.select_by_fid(Fid::MF).expect("select MF");
-        ctx.select_by_fid(Fid::new(0x2FE2)).expect("select EF.ICCID");
+        ctx.select_by_fid(Fid::new(0x2FE2))
+            .expect("select EF.ICCID");
     }
 }
 
@@ -542,10 +551,7 @@ fn then_get_3_bytes_offset_2(world: &mut SpecWorld) {
     );
     // Bytes 2..5 of the ICCID: [0x14, 0x80, 0x00]
     let expected: &[u8] = &[0x14, 0x80, 0x00];
-    assert_eq!(
-        world.last_data, expected,
-        "Data at offset 2 mismatch"
-    );
+    assert_eq!(world.last_data, expected, "Data at offset 2 mismatch");
 }
 
 #[then(regex = r"^SW indicates offset/length error$")]
@@ -554,7 +560,8 @@ fn then_sw_offset_length_error(world: &mut SpecWorld) {
     // 6A 86 (incorrect parameters P1-P2 / offset out of range) or
     // 6B 00 (wrong parameters) -- implementation dependent.
     assert!(
-        (sw1 == 0x6A && (sw2 == 0x86 || sw2 == 0x82)) || sw1 == 0x6B
+        (sw1 == 0x6A && (sw2 == 0x86 || sw2 == 0x82))
+            || sw1 == 0x6B
             || (sw1 >= 0x60 && sw1 != 0x90 && sw1 != 0x91),
         "Expected offset/length error SW, got {sw1:02X} {sw2:02X}"
     );
@@ -579,7 +586,10 @@ fn given_ef_dir_selected(world: &mut SpecWorld) {
     verify_pin1(sim_mut(world));
     select_by_fid(world, 0x2F00);
     let (sw1, sw2) = world.last_sw.expect("No SW from SELECT EF.DIR");
-    assert_eq!(sw1, 0x61, "SELECT EF.DIR must return 61 XX, got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        sw1, 0x61,
+        "SELECT EF.DIR must return 61 XX, got {sw1:02X} {sw2:02X}"
+    );
     do_get_response(world, sw2);
 }
 
@@ -589,7 +599,10 @@ fn given_ef_dir_2_records_selected(world: &mut SpecWorld) {
     verify_pin1(sim_mut(world));
     select_by_fid(world, 0x2F00);
     let (sw1, sw2) = world.last_sw.expect("No SW from SELECT EF.DIR");
-    assert_eq!(sw1, 0x61, "SELECT EF.DIR must return 61 XX, got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        sw1, 0x61,
+        "SELECT EF.DIR must return 61 XX, got {sw1:02X} {sw2:02X}"
+    );
     do_get_response(world, sw2);
 }
 
@@ -619,10 +632,7 @@ fn then_sw_record_out_of_range(world: &mut SpecWorld) {
 
 #[then(regex = r"^I get the MF FCP$")]
 fn then_get_mf_fcp(world: &mut SpecWorld) {
-    assert!(
-        !world.last_data.is_empty(),
-        "STATUS returned empty data"
-    );
+    assert!(!world.last_data.is_empty(), "STATUS returned empty data");
     // Must contain file ID 3F 00.
     let file_id = find_fcp_tag(&world.last_data, 0x83);
     assert!(
@@ -663,7 +673,10 @@ fn then_fcp_file_id_matches_adf(world: &mut SpecWorld) {
 fn given_adf_usim_selected(world: &mut SpecWorld) {
     select_adf_usim(world);
     let (sw1, sw2) = world.last_sw.expect("No SW from SELECT AID");
-    assert_eq!(sw1, 0x61, "SELECT ADF.USIM must return 61 XX, got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        sw1, 0x61,
+        "SELECT ADF.USIM must return 61 XX, got {sw1:02X} {sw2:02X}"
+    );
     // Consume FCP.
     do_get_response(world, sw2);
 }
@@ -683,7 +696,10 @@ fn when_send_authenticate_with_docstring(world: &mut SpecWorld, _hex: String) {
 #[then(regex = r"^GET RESPONSE returns tag 0xDB with RES \+ CK \+ IK$")]
 fn then_get_response_db_with_keys(world: &mut SpecWorld) {
     let (sw1, sw2) = world.last_sw.expect("No SW");
-    assert_eq!(sw1, 0x61, "AUTHENTICATE must return 61 XX, got {sw1:02X} {sw2:02X}");
+    assert_eq!(
+        sw1, 0x61,
+        "AUTHENTICATE must return 61 XX, got {sw1:02X} {sw2:02X}"
+    );
     do_get_response(world, sw2);
     let (sw1_2, sw2_2) = world.last_sw.expect("No SW from GET RESPONSE");
     assert_eq!(
@@ -698,10 +714,7 @@ fn then_get_response_db_with_keys(world: &mut SpecWorld) {
     );
     // Verify structure: 0xDB <len> <0x08 RES[8] 0x10 CK[16] 0x10 IK[16]>
     // Total inner: 1 + 8 + 1 + 16 + 1 + 16 = 43 bytes.
-    assert!(
-        world.last_data.len() >= 2,
-        "DB response too short"
-    );
+    assert!(world.last_data.len() >= 2, "DB response too short");
     let inner_len = world.last_data[1] as usize;
     assert!(
         inner_len >= 43,
@@ -855,7 +868,10 @@ fn given_proactive_display_text_queued(world: &mut SpecWorld) {
 #[when(regex = r"^I send FETCH \[([^\]]*)\] with Le=pending_len$")]
 fn when_send_fetch_with_pending_len(world: &mut SpecWorld, hex: String) {
     let base = parse_hex(&hex);
-    let pending = sim_mut(world).usim_app_mut().proactive_state().pending_len();
+    let pending = sim_mut(world)
+        .usim_app_mut()
+        .proactive_state()
+        .pending_len();
     assert!(pending > 0, "No proactive command pending for FETCH");
     let mut cmd = base;
     cmd.push(pending as u8);
@@ -864,10 +880,7 @@ fn when_send_fetch_with_pending_len(world: &mut SpecWorld, hex: String) {
 
 #[then(regex = r"^I get the BER-TLV encoded proactive command$")]
 fn then_get_ber_tlv_proactive(world: &mut SpecWorld) {
-    assert!(
-        !world.last_data.is_empty(),
-        "FETCH returned empty data"
-    );
+    assert!(!world.last_data.is_empty(), "FETCH returned empty data");
 }
 
 #[then(regex = r"^the command starts with tag 0xD0$")]
@@ -911,7 +924,10 @@ fn given_proactive_command_fetched(world: &mut SpecWorld) {
     let tp_cmd = [0x80, 0x10, 0x00, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF];
     do_send_apdu(world, &tp_cmd);
     // Fetch it.
-    let pending = sim_mut(world).usim_app_mut().proactive_state().pending_len();
+    let pending = sim_mut(world)
+        .usim_app_mut()
+        .proactive_state()
+        .pending_len();
     let mut fetch_cmd = vec![0x80, 0x12, 0x00, 0x00];
     fetch_cmd.push(pending as u8);
     do_send_apdu(world, &fetch_cmd);
@@ -925,8 +941,7 @@ fn when_send_terminal_response(world: &mut SpecWorld, hex: String) {
         // Command Details: tag 0x81, len 3, cmd_number=1, cmd_type=0x21 (DISPLAY TEXT), qualifier=0x00
         0x81, 0x03, 0x01, 0x21, 0x00,
         // Device Identities: tag 0x82, len 2, terminal=0x82, UICC=0x81
-        0x82, 0x02, 0x82, 0x81,
-        // Result: tag 0x83, len 1, success=0x00
+        0x82, 0x02, 0x82, 0x81, // Result: tag 0x83, len 1, success=0x00
         0x83, 0x01, 0x00,
     ];
     let mut cmd = base;
@@ -1002,7 +1017,9 @@ fn given_proactive_queued(world: &mut SpecWorld) {
 #[when(regex = r"^I send a command that returns an error \(e\.g\. SELECT nonexistent\)$")]
 fn when_send_error_command(world: &mut SpecWorld) {
     // SELECT a nonexistent AID -> 6A 82 (file not found).
-    let cmd = [0x00, 0xA4, 0x04, 0x04, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+    let cmd = [
+        0x00, 0xA4, 0x04, 0x04, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    ];
     do_send_apdu(world, &cmd);
 }
 
@@ -1085,10 +1102,7 @@ fn when_select_mf(world: &mut SpecWorld) {
 fn then_status_returns_mf_fcp(world: &mut SpecWorld) {
     let cmd = [0x00, 0xF2, 0x00, 0x00, 0x00];
     do_send_apdu(world, &cmd);
-    assert!(
-        !world.last_data.is_empty(),
-        "STATUS returned empty data"
-    );
+    assert!(!world.last_data.is_empty(), "STATUS returned empty data");
     let file_id = find_fcp_tag(&world.last_data, 0x83);
     assert!(
         file_id.is_some(),

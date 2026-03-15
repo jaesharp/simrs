@@ -40,7 +40,10 @@ fn when_bytes_parsed_as_command(world: &mut SpecWorld, hex: String) {
 fn then_ins_is(world: &mut SpecWorld, hex: String) {
     let expected = u8::from_str_radix(&hex, 16).unwrap();
     let actual = world.parsed_ins.expect("No parsed INS available");
-    assert_eq!(actual, expected, "Expected INS {expected:02X}, got {actual:02X}");
+    assert_eq!(
+        actual, expected,
+        "Expected INS {expected:02X}, got {actual:02X}"
+    );
 }
 
 #[then(regex = r"^data is empty$")]
@@ -82,13 +85,19 @@ fn then_data_is(world: &mut SpecWorld, hex: String) {
 
 #[then(regex = r"^parsing fails with TooShort$")]
 fn then_parsing_fails_too_short(world: &mut SpecWorld) {
-    let err = world.parse_error.as_deref().expect("Expected parse error, but parsing succeeded");
+    let err = world
+        .parse_error
+        .as_deref()
+        .expect("Expected parse error, but parsing succeeded");
     assert_eq!(err, "TooShort", "Expected TooShort, got {err}");
 }
 
 #[then(regex = r"^parsing fails with DataTruncated$")]
 fn then_parsing_fails_data_truncated(world: &mut SpecWorld) {
-    let err = world.parse_error.as_deref().expect("Expected parse error, but parsing succeeded");
+    let err = world
+        .parse_error
+        .as_deref()
+        .expect("Expected parse error, but parsing succeeded");
     assert_eq!(err, "DataTruncated", "Expected DataTruncated, got {err}");
 }
 

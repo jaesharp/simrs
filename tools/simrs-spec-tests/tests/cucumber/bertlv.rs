@@ -4,7 +4,7 @@
 //! Crate under test: `simrs-bertlv`.
 
 use cucumber::{given, then, when};
-use simrs_bertlv::{Decoder, Encoder, length_of_length};
+use simrs_bertlv::{length_of_length, Decoder, Encoder};
 use simrs_spec_tests::parse_hex;
 
 use crate::world::SpecWorld;
@@ -50,7 +50,9 @@ fn given_input_bytes(world: &mut SpecWorld, hex: String) {
 // GIVEN steps -- roundtrip input
 // =========================================================================
 
-#[given(regex = r#"^TLVs: tag=0x([0-9A-Fa-f]+) value="([^"]*)", tag=0x([0-9A-Fa-f]+) value="([^"]*)"$"#)]
+#[given(
+    regex = r#"^TLVs: tag=0x([0-9A-Fa-f]+) value="([^"]*)", tag=0x([0-9A-Fa-f]+) value="([^"]*)"$"#
+)]
 fn given_tlv_pairs(
     world: &mut SpecWorld,
     tag1_hex: String,
@@ -193,9 +195,11 @@ fn then_output_is(world: &mut SpecWorld, hex: String) {
     let expected = parse_hex(&hex);
     let actual = &world.tlv_encoder_output[..world.tlv_encoder_pos];
     assert_eq!(
-        actual, &expected[..],
+        actual,
+        &expected[..],
         "Expected output {:02X?}, got {:02X?}",
-        expected, actual,
+        expected,
+        actual,
     );
 }
 
@@ -270,7 +274,10 @@ fn then_one_tlv_object_returned(world: &mut SpecWorld, tag_hex: String, val_hex:
         world.tlv_decoded.len(),
     );
     let (tag, ref value) = world.tlv_decoded[0];
-    assert_eq!(tag, expected_tag, "Expected tag {expected_tag:02X}, got {tag:02X}");
+    assert_eq!(
+        tag, expected_tag,
+        "Expected tag {expected_tag:02X}, got {tag:02X}"
+    );
     assert_eq!(
         value, &expected_value,
         "Expected value {:02X?}, got {:02X?}",
@@ -288,7 +295,10 @@ fn then_one_tlv_returned_with_tag(world: &mut SpecWorld, tag_hex: String) {
         world.tlv_decoded.len(),
     );
     let (tag, _) = world.tlv_decoded[0];
-    assert_eq!(tag, expected_tag, "Expected tag {expected_tag:02X}, got {tag:02X}");
+    assert_eq!(
+        tag, expected_tag,
+        "Expected tag {expected_tag:02X}, got {tag:02X}"
+    );
 }
 
 #[then(regex = r#"^decoding the value yields tag=0x([0-9A-Fa-f]+) value="([^"]*)"$"#)]
@@ -346,7 +356,10 @@ fn then_one_tlv_empty_value(world: &mut SpecWorld, tag_hex: String) {
         world.tlv_decoded.len(),
     );
     let (tag, ref value) = world.tlv_decoded[0];
-    assert_eq!(tag, expected_tag, "Expected tag {expected_tag:02X}, got {tag:02X}");
+    assert_eq!(
+        tag, expected_tag,
+        "Expected tag {expected_tag:02X}, got {tag:02X}"
+    );
     assert!(
         value.is_empty(),
         "Expected empty value, got {} bytes: {:02X?}",

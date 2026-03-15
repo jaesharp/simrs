@@ -4,7 +4,10 @@
 //! Crate under test: `simrs-milenage`.
 
 use cucumber::{given, then, when};
-use simrs_milenage::{AuthChallenge, AuthManagementField, AuthToken, AuthenticationAlgorithm, AuthenticationError, MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey};
+use simrs_milenage::{
+    AuthChallenge, AuthManagementField, AuthToken, AuthenticationAlgorithm, AuthenticationError,
+    MilenageParams, OperatorVariant, SequenceNumber, SubscriberKey,
+};
 use simrs_spec_tests::parse_hex;
 
 use crate::world::SpecWorld;
@@ -140,7 +143,12 @@ fn given_custom_constants(world: &mut SpecWorld, c_hex: String, r_val: String) {
     let ci = [c_val, c_val, [0u8; 16], [0u8; 16], [0u8; 16]];
     let ri = [r, r, 32, 64, 96];
 
-    let result = MilenageParams::new(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc), ci, ri);
+    let result = MilenageParams::new(
+        SubscriberKey::classify(k),
+        OperatorVariant::operator_cipher(opc),
+        ci,
+        ri,
+    );
     world.milenage_param_result = Some(result);
 }
 
@@ -198,7 +206,8 @@ fn when_f5(world: &mut SpecWorld) {
 fn when_f5_star(world: &mut SpecWorld) {
     let params = build_params(world);
     let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
-    world.milenage_resync_anonymity_key = Some(*params.compute_resync_anonymity_key(&ch).as_bytes());
+    world.milenage_resync_anonymity_key =
+        Some(*params.compute_resync_anonymity_key(&ch).as_bytes());
 }
 
 #[when(regex = r#"^f2 is computed with OPc "([0-9A-Fa-f]+)"$"#)]
@@ -206,7 +215,10 @@ fn when_f2_with_opc(world: &mut SpecWorld, opc_hex: String) {
     let k = world.milenage_k.expect("K not set");
     let opc = hex_to_array::<16>(&opc_hex);
     let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
-    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc));
+    let params = MilenageParams::with_defaults(
+        SubscriberKey::classify(k),
+        OperatorVariant::operator_cipher(opc),
+    );
     world.milenage_response = Some(*params.compute_response(&ch).as_bytes());
 }
 
@@ -215,7 +227,10 @@ fn when_f2_with_op(world: &mut SpecWorld, op_hex: String) {
     let k = world.milenage_k.expect("K not set");
     let op = hex_to_array::<16>(&op_hex);
     let ch = AuthChallenge::new(world.milenage_challenge.expect("RAND not set"));
-    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_parameter(op));
+    let params = MilenageParams::with_defaults(
+        SubscriberKey::classify(k),
+        OperatorVariant::operator_parameter(op),
+    );
     world.milenage_f2_alt = Some(*params.compute_response(&ch).as_bytes());
 }
 
@@ -245,7 +260,12 @@ fn when_params_constructed(world: &mut SpecWorld) {
         // Use default constants via `new` -- this should succeed.
         let ci = [[0u8; 16]; 5];
         let ri = [0u8; 5];
-        let result = MilenageParams::new(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc), ci, ri);
+        let result = MilenageParams::new(
+            SubscriberKey::classify(k),
+            OperatorVariant::operator_cipher(opc),
+            ci,
+            ri,
+        );
         world.milenage_param_result = Some(result);
     }
 }
@@ -255,7 +275,10 @@ fn when_params_defaults(world: &mut SpecWorld) {
     let k = world.milenage_k.expect("K not set");
     let opc = world.milenage_opc.expect("OPc not set");
     // with_defaults never fails -- wrap in Ok for the Then step.
-    let params = MilenageParams::with_defaults(SubscriberKey::classify(k), OperatorVariant::operator_cipher(opc));
+    let params = MilenageParams::with_defaults(
+        SubscriberKey::classify(k),
+        OperatorVariant::operator_cipher(opc),
+    );
     world.milenage_param_result = Some(Ok(params));
 }
 
@@ -276,7 +299,8 @@ fn then_mac_a(world: &mut SpecWorld, expected_hex: String) {
     let expected = hex_to_array::<8>(&expected_hex);
     let actual = world.milenage_auth_mac.expect("MAC-A not computed");
     assert_eq!(
-        actual, expected,
+        actual,
+        expected,
         "MAC-A mismatch: got {}, expected {}",
         hex_string(&actual),
         expected_hex
@@ -288,7 +312,8 @@ fn then_mac_s(world: &mut SpecWorld, expected_hex: String) {
     let expected = hex_to_array::<8>(&expected_hex);
     let actual = world.milenage_resync_mac.expect("MAC-S not computed");
     assert_eq!(
-        actual, expected,
+        actual,
+        expected,
         "MAC-S mismatch: got {}, expected {}",
         hex_string(&actual),
         expected_hex
@@ -300,7 +325,8 @@ fn then_res(world: &mut SpecWorld, expected_hex: String) {
     let expected = hex_to_array::<8>(&expected_hex);
     let actual = world.milenage_response.expect("RES not computed");
     assert_eq!(
-        actual, expected,
+        actual,
+        expected,
         "RES mismatch: got {}, expected {}",
         hex_string(&actual),
         expected_hex
@@ -312,7 +338,8 @@ fn then_ck(world: &mut SpecWorld, expected_hex: String) {
     let expected = hex_to_array::<16>(&expected_hex);
     let actual = world.milenage_cipher_key.expect("CK not computed");
     assert_eq!(
-        actual, expected,
+        actual,
+        expected,
         "CK mismatch: got {}, expected {}",
         hex_string(&actual),
         expected_hex
@@ -324,7 +351,8 @@ fn then_ik(world: &mut SpecWorld, expected_hex: String) {
     let expected = hex_to_array::<16>(&expected_hex);
     let actual = world.milenage_integrity_key.expect("IK not computed");
     assert_eq!(
-        actual, expected,
+        actual,
+        expected,
         "IK mismatch: got {}, expected {}",
         hex_string(&actual),
         expected_hex
@@ -336,7 +364,8 @@ fn then_ak(world: &mut SpecWorld, expected_hex: String) {
     let expected = hex_to_array::<6>(&expected_hex);
     let actual = world.milenage_anonymity_key.expect("AK not computed");
     assert_eq!(
-        actual, expected,
+        actual,
+        expected,
         "AK mismatch: got {}, expected {}",
         hex_string(&actual),
         expected_hex
@@ -346,9 +375,12 @@ fn then_ak(world: &mut SpecWorld, expected_hex: String) {
 #[then(regex = r#"^AK\* equals "([0-9A-Fa-f]+)"$"#)]
 fn then_ak_star(world: &mut SpecWorld, expected_hex: String) {
     let expected = hex_to_array::<6>(&expected_hex);
-    let actual = world.milenage_resync_anonymity_key.expect("AK* not computed");
+    let actual = world
+        .milenage_resync_anonymity_key
+        .expect("AK* not computed");
     assert_eq!(
-        actual, expected,
+        actual,
+        expected,
         "AK* mismatch: got {}, expected {}",
         hex_string(&actual),
         expected_hex
@@ -359,17 +391,33 @@ fn then_ak_star(world: &mut SpecWorld, expected_hex: String) {
 fn then_f2_identical(world: &mut SpecWorld) {
     let a = world.milenage_response.expect("first f2 result not set");
     let b = world.milenage_f2_alt.expect("second f2 result not set");
-    assert_eq!(a, b, "f2 results differ: {} vs {}", hex_string(&a), hex_string(&b));
+    assert_eq!(
+        a,
+        b,
+        "f2 results differ: {} vs {}",
+        hex_string(&a),
+        hex_string(&b)
+    );
 }
 
 #[then(regex = r"^both results are identical$")]
 fn then_results_identical(world: &mut SpecWorld) {
     // Shared step: check Milenage fields if set, COMP128 fields if set.
     if let (Some(a), Some(b)) = (world.milenage_response, world.milenage_f2_alt) {
-        assert_eq!(a, b, "Milenage results differ: {} vs {}", hex_string(&a), hex_string(&b));
+        assert_eq!(
+            a,
+            b,
+            "Milenage results differ: {} vs {}",
+            hex_string(&a),
+            hex_string(&b)
+        );
     }
     if let (Some(sres1), Some(sres2)) = (world.sres, world.sres_alt) {
-        assert_eq!(sres1, sres2, "SRES mismatch: {:02X?} != {:02X?}", sres1, sres2);
+        assert_eq!(
+            sres1, sres2,
+            "SRES mismatch: {:02X?} != {:02X?}",
+            sres1, sres2
+        );
     }
     if let (Some(kc1), Some(kc2)) = (world.kc, world.kc_alt) {
         assert_eq!(kc1, kc2, "Kc mismatch: {:02X?} != {:02X?}", kc1, kc2);
@@ -378,13 +426,22 @@ fn then_results_identical(world: &mut SpecWorld) {
 
 #[then(regex = r"^authentication succeeds$")]
 fn then_auth_succeeds(world: &mut SpecWorld) {
-    let result = world.milenage_auth_result.as_ref().expect("authenticate not called");
-    assert!(result.is_ok(), "expected authentication success, got: {result:?}");
+    let result = world
+        .milenage_auth_result
+        .as_ref()
+        .expect("authenticate not called");
+    assert!(
+        result.is_ok(),
+        "expected authentication success, got: {result:?}"
+    );
 }
 
 #[then(regex = r"^authentication fails with MAC failure$")]
 fn then_auth_mac_failure(world: &mut SpecWorld) {
-    let result = world.milenage_auth_result.as_ref().expect("authenticate not called");
+    let result = world
+        .milenage_auth_result
+        .as_ref()
+        .expect("authenticate not called");
     assert!(
         matches!(result, Err(AuthenticationError::MacFailure)),
         "expected MacFailure, got: {result:?}"
@@ -408,7 +465,8 @@ fn then_kc_c3_conversion(world: &mut SpecWorld) {
         expected[i] = ck[i] ^ ck[i + 8] ^ ik[i] ^ ik[i + 8];
     }
     assert_eq!(
-        auth.gsm_cipher_key.declassify(), &expected,
+        auth.gsm_cipher_key.declassify(),
+        &expected,
         "Kc mismatch: got {}, expected {}",
         hex_string(auth.gsm_cipher_key.declassify()),
         hex_string(&expected)
@@ -417,17 +475,29 @@ fn then_kc_c3_conversion(world: &mut SpecWorld) {
 
 #[then(regex = r"^construction fails with DuplicateCiRi error$")]
 fn then_duplicate_ci_ri(world: &mut SpecWorld) {
-    let result = world.milenage_param_result.as_ref().expect("params not constructed");
+    let result = world
+        .milenage_param_result
+        .as_ref()
+        .expect("params not constructed");
     assert!(
-        matches!(result, Err(simrs_milenage::ParamError::DuplicateCiRi { .. })),
+        matches!(
+            result,
+            Err(simrs_milenage::ParamError::DuplicateCiRi { .. })
+        ),
         "expected DuplicateCiRi error, got: {result:?}"
     );
 }
 
 #[then(regex = r"^construction succeeds$")]
 fn then_construction_succeeds(world: &mut SpecWorld) {
-    let result = world.milenage_param_result.as_ref().expect("params not constructed");
-    assert!(result.is_ok(), "expected construction success, got: {result:?}");
+    let result = world
+        .milenage_param_result
+        .as_ref()
+        .expect("params not constructed");
+    assert!(
+        result.is_ok(),
+        "expected construction success, got: {result:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

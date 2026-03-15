@@ -143,12 +143,7 @@ fn then_sres_has_length(world: &mut SpecWorld, len: usize) {
 #[then(regex = r"^Kc has length (\d+)$")]
 fn then_kc_has_length(world: &mut SpecWorld, len: usize) {
     let kc = world.kc.expect("Kc not computed");
-    assert_eq!(
-        kc.len(),
-        len,
-        "Expected Kc length {len}, got {}",
-        kc.len(),
-    );
+    assert_eq!(kc.len(), len, "Expected Kc length {len}, got {}", kc.len(),);
 }
 
 #[then(regex = r#"^Kc byte 7 equals "([0-9A-Fa-f]{2})"$"#)]
