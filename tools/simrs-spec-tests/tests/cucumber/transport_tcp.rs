@@ -92,7 +92,7 @@ fn when_encode(world: &mut SpecWorld) {
 fn then_first_4_bytes_size(world: &mut SpecWorld, expected_size: u32) {
     // The implementation writes size in LE.  Verify the LE u32 equals expected.
     let wire = &world.tcp_wire;
-    assert!(wire.len() >= 4, "wire too short: {} bytes", wire.len(),);
+    assert!(wire.len() >= 4, "wire too short: {} bytes", wire.len());
     let actual = u32::from_le_bytes([wire[0], wire[1], wire[2], wire[3]]);
     assert_eq!(
         actual, expected_size,

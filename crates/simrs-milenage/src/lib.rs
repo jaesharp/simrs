@@ -1670,8 +1670,11 @@ mod tests {
         // Construct valid AUTN: (SQN XOR AK) || AMF || MAC-A
         let anonymity_key = p.compute_anonymity_key(&TS1_RAND);
         let mut autn = [0u8; 16];
-        for i in 0..6 {
-            autn[i] = TS1_SQN.as_bytes()[i] ^ anonymity_key.as_bytes()[i];
+        for (dst, (s, a)) in autn[..6]
+            .iter_mut()
+            .zip(TS1_SQN.as_bytes().iter().zip(anonymity_key.as_bytes()))
+        {
+            *dst = s ^ a;
         }
         autn[6] = TS1_AMF.as_bytes()[0];
         autn[7] = TS1_AMF.as_bytes()[1];
@@ -1703,8 +1706,11 @@ mod tests {
         let build_autn = |p: &MilenageParams, sqn: SequenceNumber| -> AuthToken {
             let ak = p.compute_anonymity_key(&TS1_RAND);
             let mut autn = [0u8; 16];
-            for i in 0..6 {
-                autn[i] = sqn.as_bytes()[i] ^ ak.as_bytes()[i];
+            for (dst, (s, a)) in autn[..6]
+                .iter_mut()
+                .zip(sqn.as_bytes().iter().zip(ak.as_bytes()))
+            {
+                *dst = s ^ a;
             }
             autn[6..8].copy_from_slice(amf.as_bytes());
             autn[8..16].copy_from_slice(p.compute_auth_mac(&TS1_RAND, &sqn, &amf).as_bytes());
@@ -1745,8 +1751,11 @@ mod tests {
         // Construct valid AUTN
         let ak = p.compute_anonymity_key(&TS1_RAND);
         let mut autn = [0u8; 16];
-        for i in 0..6 {
-            autn[i] = TS1_SQN.as_bytes()[i] ^ ak.as_bytes()[i];
+        for (dst, (s, a)) in autn[..6]
+            .iter_mut()
+            .zip(TS1_SQN.as_bytes().iter().zip(ak.as_bytes()))
+        {
+            *dst = s ^ a;
         }
         autn[6..8].copy_from_slice(TS1_AMF.as_bytes());
         autn[8..16].copy_from_slice(p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF).as_bytes());
@@ -2096,8 +2105,11 @@ mod tests {
         // Advance expected_sequence_number by performing a successful authenticate.
         let ak = p.compute_anonymity_key(&TS1_RAND);
         let mut autn = [0u8; 16];
-        for i in 0..6 {
-            autn[i] = TS1_SQN.as_bytes()[i] ^ ak.as_bytes()[i];
+        for (dst, (s, a)) in autn[..6]
+            .iter_mut()
+            .zip(TS1_SQN.as_bytes().iter().zip(ak.as_bytes()))
+        {
+            *dst = s ^ a;
         }
         autn[6..8].copy_from_slice(TS1_AMF.as_bytes());
         autn[8..16].copy_from_slice(p.compute_auth_mac(&TS1_RAND, &TS1_SQN, &TS1_AMF).as_bytes());
@@ -2214,7 +2226,12 @@ mod proptests {
             let amf = AuthManagementField::new([0u8; 2]);
             let ak = p.compute_anonymity_key(&challenge);
             let mut autn = [0u8; 16];
-            for i in 0..6 { autn[i] = sqn.as_bytes()[i] ^ ak.as_bytes()[i]; }
+            for (dst, (s, a)) in autn[..6]
+                .iter_mut()
+                .zip(sqn.as_bytes().iter().zip(ak.as_bytes()))
+            {
+                *dst = s ^ a;
+            }
             autn[6..8].copy_from_slice(amf.as_bytes());
             autn[8..16].copy_from_slice(p.compute_auth_mac(&challenge, &sqn, &amf).as_bytes());
 

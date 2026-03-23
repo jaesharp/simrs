@@ -1157,8 +1157,8 @@ mod ct_validation {
             0xC128_0002,
             |rng| {
                 // Class 0: fixed boundary RAND, burn RNG for symmetry.
-                let mut _discard = [0u8; 16];
-                rng.fill_bytes(&mut _discard);
+                let mut discard = [0u8; 16];
+                rng.fill_bytes(&mut discard);
                 (fixed_ki, boundary_rand)
             },
             |rng| {
@@ -1214,8 +1214,8 @@ mod ct_validation {
         let outcome = ct_test(
             0xC128_0004,
             |rng| {
-                let mut _discard = [0u8; 16];
-                rng.fill_bytes(&mut _discard);
+                let mut discard = [0u8; 16];
+                rng.fill_bytes(&mut discard);
                 (fixed_ki, boundary_rand)
             },
             |rng| {

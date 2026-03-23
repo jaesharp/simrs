@@ -1327,7 +1327,7 @@ mod tests {
         assert_eq!(a.square().to_bytes(), a.mul(a).to_bytes());
     }
 
-    /// Verify sqr_wide produces identical output to mul_wide(a, a) at the
+    /// Verify `sqr_wide` produces identical output to `mul_wide(a, a)` at the
     /// 512-bit level, using adversarial inputs that maximize carry pressure.
     #[test]
     fn sqr_wide_vs_mul_wide() {
@@ -1615,7 +1615,7 @@ mod tests {
         while i < 4 {
             let (s, c) = val[i].overflowing_add(carry);
             val[i] = s;
-            carry = c as u64;
+            carry = u64::from(c);
             i += 1;
         }
         let fe = fe_reduce(val);
@@ -1767,7 +1767,7 @@ mod proptests {
     // Strategy that generates a valid P-256 scalar in [1, n-1].
     // We use 32 random bytes and skip if they fall outside the valid range.
     fn valid_scalar() -> impl Strategy<Value = [u8; 32]> {
-        any::<[u8; 32]>().prop_filter("scalar must be in [1, n-1]", |k| validate_scalar(k))
+        any::<[u8; 32]>().prop_filter("scalar must be in [1, n-1]", validate_scalar)
     }
 
     proptest! {

@@ -573,7 +573,7 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test, Rng};
 
     #[test]
     fn ct_select_timing() {
@@ -581,7 +581,7 @@ mod ct_validation {
         let outcome = ct_test(
             1,
             |_rng| 0u8,
-            |rng| rng.next_u8(),
+            Rng::next_u8,
             |&index| {
                 black_box(ct_select(&table, index));
             },

@@ -51,7 +51,7 @@ fn proactive_open_channel_cycle(
     // FETCH the proactive command.
     let fetch_cmd = apdu::fetch(0x00).build();
     let (sw1, _sw2) = send_apdu_sw(world.sim_mut(), &fetch_cmd);
-    assert!(sw1 == 0x90 || sw1 == 0x91, "FETCH failed: SW1={sw1:02X}",);
+    assert!(sw1 == 0x90 || sw1 == 0x91, "FETCH failed: SW1={sw1:02X}");
 
     // Build TERMINAL RESPONSE TLV payload.
     let tr_data = [
@@ -132,7 +132,7 @@ fn given_bip_channel_opened(world: &mut SimWorld, channel: u8) {
 fn when_fetch(world: &mut SimWorld) {
     let fetch_cmd = apdu::fetch(0x00).build();
     let (sw1, _sw2) = send_apdu_sw(world.sim_mut(), &fetch_cmd);
-    assert!(sw1 == 0x90 || sw1 == 0x91, "FETCH failed: SW1={sw1:02X}",);
+    assert!(sw1 == 0x90 || sw1 == 0x91, "FETCH failed: SW1={sw1:02X}");
 }
 
 #[when(regex = r"^I send TERMINAL RESPONSE with success for OPEN CHANNEL on channel (\d+)$")]

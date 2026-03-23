@@ -610,11 +610,7 @@ mod proptests {
 
     proptest! {
         #[test]
-        fn ct_eq_u64_array_reflexive(
-            a in any::<u64>(), b in any::<u64>(),
-            c in any::<u64>(), d in any::<u64>(),
-        ) {
-            let arr = [a, b, c, d];
+        fn ct_eq_u64_array_reflexive(arr in any::<[u64; 4]>()) {
             prop_assert!(arr.ct_eq(&arr).into_bool());
         }
     }

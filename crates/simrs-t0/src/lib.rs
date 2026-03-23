@@ -1629,6 +1629,7 @@ mod tests {
 
             #[test]
             fn atr_build_minimal_roundtrip(hist_len in 0usize..=15) {
+                #[allow(clippy::cast_possible_truncation)]
                 let hist: Vec<u8> = (0..hist_len).map(|i| i as u8).collect();
                 let atr = Atr::build_minimal(&hist).unwrap();
                 let parsed = Atr::parse(atr.as_bytes()).unwrap();

@@ -1268,9 +1268,7 @@ mod tests {
         bytes[4] = 0x00; // extended marker
         bytes[5] = 0x01; // Lc high
         bytes[6] = 0x2C; // Lc low = 0x012C = 300
-        for i in 7..307 {
-            bytes[i] = 0xAA;
-        }
+        bytes[7..307].fill(0xAA);
         let cmd = Command::parse(&bytes).unwrap();
         assert!(cmd.is_extended());
         assert_eq!(cmd.data().len(), 300);

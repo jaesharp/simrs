@@ -3743,8 +3743,8 @@ mod tests {
         let mut enc = Encoder::new(&mut buf);
         enc.tag_length_value(ENVELOPE_TAG_MENU_SELECTION, &inner[..ilen])
             .unwrap();
-        let len = enc.len();
-        (buf, len)
+        let enc_len = enc.len();
+        (buf, enc_len)
     }
 
     #[test]
@@ -3802,8 +3802,8 @@ mod tests {
         let mut enc = Encoder::new(&mut buf);
         enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner[..ilen])
             .unwrap();
-        let len = enc.len();
-        (buf, len)
+        let enc_len = enc.len();
+        (buf, enc_len)
     }
 
     /// Build a Timer Expiration envelope (outer tag D7).
@@ -3820,8 +3820,8 @@ mod tests {
         let mut enc = Encoder::new(&mut buf);
         enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner[..ilen])
             .unwrap();
-        let len = enc.len();
-        (buf, len)
+        let enc_len = enc.len();
+        (buf, enc_len)
     }
 
     #[test]
@@ -3882,8 +3882,8 @@ mod tests {
         let mut enc = Encoder::new(&mut buf);
         enc.tag_length_value(ENVELOPE_TAG_EVENT_DOWNLOAD, &inner[..ilen])
             .unwrap();
-        let len = enc.len();
-        assert!(!state.process_envelope(&buf[..len]));
+        let enc_len = enc.len();
+        assert!(!state.process_envelope(&buf[..enc_len]));
     }
 
     #[test]
@@ -3899,8 +3899,8 @@ mod tests {
         let mut enc = Encoder::new(&mut buf);
         enc.tag_length_value(ENVELOPE_TAG_TIMER_EXPIRATION, &inner[..ilen])
             .unwrap();
-        let len = enc.len();
-        assert!(!state.process_envelope(&buf[..len]));
+        let enc_len = enc.len();
+        assert!(!state.process_envelope(&buf[..enc_len]));
         assert_eq!(state.take_event(), None);
     }
 
@@ -4064,9 +4064,9 @@ mod tests {
         assert!(state.is_event_subscribed(event_id::SLICES_STATUS_CHANGE));
         assert!(!state.is_event_subscribed(event_id::MT_CALL));
         // All three 5G events are < 64 so they fit in the u64 bitmask.
-        assert!(event_id::NETWORK_REJECTION < 64);
-        assert!(event_id::DATA_CONNECTION_STATUS_CHANGE < 64);
-        assert!(event_id::SLICES_STATUS_CHANGE < 64);
+        const { assert!(event_id::NETWORK_REJECTION < 64) };
+        const { assert!(event_id::DATA_CONNECTION_STATUS_CHANGE < 64) };
+        const { assert!(event_id::SLICES_STATUS_CHANGE < 64) };
     }
 
     // -- Event subscription tests --

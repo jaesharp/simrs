@@ -834,6 +834,7 @@ fn fnv1a(data: &[u8]) -> u64 {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::large_stack_arrays)]
 mod tests {
     use super::*;
     use simrs_fs::{DfDef, EfDef, Fid, FileRef};
@@ -1098,7 +1099,7 @@ mod tests {
         match rsp {
             SimResponse::Apdu { data, sw } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00));
+                assert_eq!([sw1, sw2], [0x90, 0x00]);
                 assert!(
                     data.len() >= 15,
                     "GSM SELECT response too short: {}",
@@ -1139,7 +1140,7 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00));
+                assert_eq!([sw1, sw2], [0x90, 0x00]);
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1199,7 +1200,7 @@ mod tests {
         match rsp {
             SimResponse::Apdu { data, sw } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00));
+                assert_eq!([sw1, sw2], [0x90, 0x00]);
                 assert!(!data.is_empty(), "FCP should not be empty");
                 assert_eq!(data[0], 0x62, "FCP should start with 0x62");
             }
@@ -1219,7 +1220,7 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x6E, 0x00));
+                assert_eq!([sw1, sw2], [0x6E, 0x00]);
                 assert!(data.is_empty());
             }
             _ => panic!("expected Apdu response"),
@@ -1243,9 +1244,9 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 #[cfg(any(feature = "gsm", feature = "usim"))]
-                assert_eq!((sw1, sw2), (0x6D, 0x00), "expected INS not supported");
+                assert_eq!([sw1, sw2], [0x6D, 0x00], "expected INS not supported");
                 #[cfg(not(any(feature = "gsm", feature = "usim")))]
-                assert_eq!((sw1, sw2), (0x6E, 0x00), "expected CLA not supported");
+                assert_eq!([sw1, sw2], [0x6E, 0x00], "expected CLA not supported");
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1268,7 +1269,7 @@ mod tests {
             SimResponse::Apdu { data, sw } => {
                 assert!(!data.is_empty(), "response should have data");
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00));
+                assert_eq!([sw1, sw2], [0x90, 0x00]);
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1283,7 +1284,7 @@ mod tests {
             SimResponse::Apdu { data, sw } => {
                 assert!(data.is_empty());
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x6E, 0x00));
+                assert_eq!([sw1, sw2], [0x6E, 0x00]);
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1326,8 +1327,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x69, 0x82),
+                    [sw1, sw2],
+                    [0x69, 0x82],
                     "READ BINARY must fail after reset: PIN cleared by standard policy"
                 );
             }
@@ -1393,7 +1394,7 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x6E, 0x00));
+                assert_eq!([sw1, sw2], [0x6E, 0x00]);
             }
             _ => panic!("expected Apdu, card should be Ready after restore"),
         }
@@ -1509,7 +1510,7 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 // Channel 1 not open -> 68 81 (logical channel not supported).
-                assert_eq!((sw1, sw2), (0x68, 0x81));
+                assert_eq!([sw1, sw2], [0x68, 0x81]);
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1545,7 +1546,7 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 // Routed to USIM which rejects non-0x00/0x80 CLA values.
-                assert_eq!((sw1, sw2), (0x6E, 0x00));
+                assert_eq!([sw1, sw2], [0x6E, 0x00]);
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1560,7 +1561,7 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x6E, 0x00));
+                assert_eq!([sw1, sw2], [0x6E, 0x00]);
                 assert!(data.is_empty());
             }
             _ => panic!("expected Apdu response"),
@@ -1598,7 +1599,7 @@ mod tests {
                     "4-byte APDU should be processed, got SW {sw1:02X} {sw2:02X}"
                 );
                 #[cfg(not(any(feature = "gsm", feature = "usim")))]
-                assert_eq!((sw1, sw2), (0x6E, 0x00), "no features: CLA not supported");
+                assert_eq!([sw1, sw2], [0x6E, 0x00], "no features: CLA not supported");
             }
             _ => panic!("expected Apdu response for 4-byte APDU"),
         }
@@ -1621,7 +1622,7 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!((sw1, sw2), (0x90, 0x00), "STATUS with Le=0 should succeed");
+                assert_eq!([sw1, sw2], [0x90, 0x00], "STATUS with Le=0 should succeed");
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1647,9 +1648,9 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 #[cfg(any(feature = "gsm", feature = "usim"))]
-                assert_eq!((sw1, sw2), (0x6D, 0x00), "unknown INS must return 6D 00");
+                assert_eq!([sw1, sw2], [0x6D, 0x00], "unknown INS must return 6D 00");
                 #[cfg(not(any(feature = "gsm", feature = "usim")))]
-                assert_eq!((sw1, sw2), (0x6E, 0x00), "no features: CLA not supported");
+                assert_eq!([sw1, sw2], [0x6E, 0x00], "no features: CLA not supported");
             }
             _ => panic!("expected Apdu response"),
         }
@@ -1670,8 +1671,8 @@ mod tests {
                 SimResponse::Apdu { sw, data } => {
                     let [sw1, sw2] = sw.to_bytes();
                     assert_eq!(
-                        (sw1, sw2),
-                        (0x6E, 0x00),
+                        [sw1, sw2],
+                        [0x6E, 0x00],
                         "CLA 0x{cla:02X} must return 6E 00, got {sw1:02X} {sw2:02X}"
                     );
                     assert!(
@@ -1787,8 +1788,8 @@ mod tests {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "file selection should survive noop reset"
                 );
                 assert_eq!(data, &ICCID_DATA);
@@ -1836,8 +1837,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "PIN should remain verified after warm reset"
                 );
             }
@@ -1859,8 +1860,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x69, 0x82),
+                    [sw1, sw2],
+                    [0x69, 0x82],
                     "PIN should be cleared after cold reset"
                 );
             }
@@ -1968,8 +1969,8 @@ mod tests {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "READ BINARY should succeed: PIN preserved across reset"
                 );
                 assert_eq!(data, &ICCID_DATA);
@@ -2000,8 +2001,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x69, 0x82),
+                    [sw1, sw2],
+                    [0x69, 0x82],
                     "READ BINARY must fail: PIN cleared by reset"
                 );
             }
@@ -2016,8 +2017,8 @@ mod tests {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "READ BINARY should succeed after re-verifying PIN"
                 );
                 assert_eq!(data, &ICCID_DATA);
@@ -2048,8 +2049,8 @@ mod tests {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "GSM READ BINARY should succeed: PIN preserved across reset"
                 );
                 assert_eq!(data, &ICCID_DATA);
@@ -2078,8 +2079,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x69, 0x82),
+                    [sw1, sw2],
+                    [0x69, 0x82],
                     "GSM READ BINARY must fail: PIN cleared by reset"
                 );
             }
@@ -2116,8 +2117,8 @@ mod tests {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "queued response should survive reset when clear_response_queue=false"
                 );
                 assert!(!data.is_empty(), "FCP data should be present");
@@ -2145,8 +2146,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x6F, 0x00),
+                    [sw1, sw2],
+                    [0x6F, 0x00],
                     "GET RESPONSE must return 6F 00 (no data) after queue cleared"
                 );
             }
@@ -2159,8 +2160,8 @@ mod tests {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "file selection should be preserved (isolation check)"
                 );
                 assert_eq!(data, &ICCID_DATA);
@@ -2197,8 +2198,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "GSM queue should survive reset when clear_response_queue=false"
                 );
             }
@@ -2224,8 +2225,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x6F, 0x00),
+                    [sw1, sw2],
+                    [0x6F, 0x00],
                     "GSM GET RESPONSE must return 6F 00 (no data) after queue cleared"
                 );
             }
@@ -2257,8 +2258,8 @@ mod tests {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "READ BINARY should succeed on preserved file selection"
                 );
                 assert_eq!(
@@ -2301,8 +2302,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "response queue should be preserved (isolation check)"
                 );
             }
@@ -2315,8 +2316,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x69, 0x86),
+                    [sw1, sw2],
+                    [0x69, 0x86],
                     "READ BINARY must return 69 86 (no current EF) after file selection reset"
                 );
             }
@@ -2350,8 +2351,8 @@ mod tests {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "GSM READ BINARY should succeed on preserved file selection"
                 );
                 assert_eq!(data, &ICCID_DATA);
@@ -2379,8 +2380,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x94, 0x00),
+                    [sw1, sw2],
+                    [0x94, 0x00],
                     "GSM READ BINARY must return 94 00 (no EF selected) after file selection reset"
                 );
             }
@@ -2460,8 +2461,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x68, 0x81),
+                    [sw1, sw2],
+                    [0x68, 0x81],
                     "channel {ch} should be closed after reset with clear_logical_channels=true"
                 );
             }
@@ -2474,8 +2475,8 @@ mod tests {
             SimResponse::Apdu { sw, data } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x90, 0x00),
+                    [sw1, sw2],
+                    [0x90, 0x00],
                     "basic channel file selection should be preserved (isolation check)"
                 );
                 assert_eq!(data, &ICCID_DATA);
@@ -2536,8 +2537,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x69, 0x85),
+                    [sw1, sw2],
+                    [0x69, 0x85],
                     "ENVELOPE should be rejected after proactive session cleared"
                 );
             }
@@ -2574,8 +2575,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x6A, 0x82),
+                    [sw1, sw2],
+                    [0x6A, 0x82],
                     "next-occurrence SELECT should fail when last_aid_match preserved"
                 );
             }
@@ -2716,8 +2717,8 @@ mod tests {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
                 assert_eq!(
-                    (sw1, sw2),
-                    (0x6E, 0x00),
+                    [sw1, sw2],
+                    [0x6E, 0x00],
                     "card should be Ready after Reset from Off"
                 );
             }

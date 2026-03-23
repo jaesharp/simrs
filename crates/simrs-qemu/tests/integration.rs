@@ -303,8 +303,13 @@ fn usim_select_aid_and_authenticate() {
     let auth_mac = params.compute_auth_mac(&challenge, &sequence_number, &management_field);
 
     let mut auth_token = [0u8; 16];
-    for i in 0..6 {
-        auth_token[i] = sequence_number.as_bytes()[i] ^ anonymity_key.as_bytes()[i];
+    for (dst, (s, a)) in auth_token[..6].iter_mut().zip(
+        sequence_number
+            .as_bytes()
+            .iter()
+            .zip(anonymity_key.as_bytes()),
+    ) {
+        *dst = s ^ a;
     }
     auth_token[6..8].copy_from_slice(management_field.as_bytes());
     auth_token[8..16].copy_from_slice(auth_mac.as_bytes());

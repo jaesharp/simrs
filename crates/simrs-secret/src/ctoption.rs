@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn clone_preserves_value_and_discriminant() {
         let a = CtOption::some([1u8, 2, 3, 4]);
-        let b = a.clone();
+        let b = a;
         assert!(a.ct_eq(&b).into_bool());
         assert!(b.is_some().into_bool());
     }

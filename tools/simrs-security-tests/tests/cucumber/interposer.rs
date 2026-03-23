@@ -112,7 +112,7 @@ fn then_no_state_changed(world: &mut SimWorld) {
     let diffs = registry.diff(before, after);
     if !diffs.is_empty() {
         let report = format_diff_report(&diffs, &world.reservations);
-        panic!("SIM state changed unexpectedly after rejected command:\n{report}",);
+        panic!("SIM state changed unexpectedly after rejected command:\n{report}");
     }
 }
 
@@ -140,6 +140,6 @@ fn then_no_other_state_changed(world: &mut SimWorld) {
 
     if has_unreserved {
         let report = format_diff_report(&diffs, &world.reservations);
-        panic!("SIM state changed in unreserved fields:\n{report}",);
+        panic!("SIM state changed in unreserved fields:\n{report}");
     }
 }

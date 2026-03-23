@@ -490,6 +490,7 @@ fn ladder(k: &[u8; 32], u: &Fe) -> Fe {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::similar_names)]
 mod tests {
     use super::*;
 

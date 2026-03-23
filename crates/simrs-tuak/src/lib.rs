@@ -1240,8 +1240,11 @@ mod tests {
         // Construct valid AUTN: (SQN XOR AK) || AMF || MAC-A
         let ak = p.compute_anonymity_key(&challenge);
         let mut auth_token = [0u8; 16];
-        for i in 0..6 {
-            auth_token[i] = sqn.as_bytes()[i] ^ ak.as_bytes()[i];
+        for (dst, (s, a)) in auth_token[..6]
+            .iter_mut()
+            .zip(sqn.as_bytes().iter().zip(ak.as_bytes()))
+        {
+            *dst = s ^ a;
         }
         auth_token[6] = amf.as_bytes()[0];
         auth_token[7] = amf.as_bytes()[1];
@@ -1286,8 +1289,11 @@ mod tests {
         // Build valid AUTN
         let ak = p.compute_anonymity_key(&challenge);
         let mut auth_token = [0u8; 16];
-        for i in 0..6 {
-            auth_token[i] = sqn.as_bytes()[i] ^ ak.as_bytes()[i];
+        for (dst, (s, a)) in auth_token[..6]
+            .iter_mut()
+            .zip(sqn.as_bytes().iter().zip(ak.as_bytes()))
+        {
+            *dst = s ^ a;
         }
         auth_token[6..8].copy_from_slice(amf.as_bytes());
         auth_token[8..16].copy_from_slice(p.compute_auth_mac(&challenge, &sqn, &amf).as_bytes());
@@ -1372,8 +1378,11 @@ mod tests {
         // Advance expected_sequence_number by performing a successful authenticate.
         let ak = p.compute_anonymity_key(&challenge);
         let mut autn_bytes = [0u8; 16];
-        for i in 0..6 {
-            autn_bytes[i] = sqn.as_bytes()[i] ^ ak.as_bytes()[i];
+        for (dst, (s, a)) in autn_bytes[..6]
+            .iter_mut()
+            .zip(sqn.as_bytes().iter().zip(ak.as_bytes()))
+        {
+            *dst = s ^ a;
         }
         autn_bytes[6..8].copy_from_slice(amf.as_bytes());
         autn_bytes[8..16].copy_from_slice(p.compute_auth_mac(&challenge, &sqn, &amf).as_bytes());
@@ -1408,8 +1417,11 @@ mod tests {
         let build_auth_token = |p: &TuakParams, sqn: SequenceNumber| -> AuthToken {
             let ak = p.compute_anonymity_key(&challenge);
             let mut autn = [0u8; 16];
-            for i in 0..6 {
-                autn[i] = sqn.as_bytes()[i] ^ ak.as_bytes()[i];
+            for (dst, (s, a)) in autn[..6]
+                .iter_mut()
+                .zip(sqn.as_bytes().iter().zip(ak.as_bytes()))
+            {
+                *dst = s ^ a;
             }
             autn[6..8].copy_from_slice(amf.as_bytes());
             autn[8..16].copy_from_slice(p.compute_auth_mac(&challenge, &sqn, &amf).as_bytes());

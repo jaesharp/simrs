@@ -532,10 +532,11 @@ mod tests {
     #[test]
     fn ip_fp_are_inverses() {
         // FP must be the inverse permutation of IP.
-        for i in 0..64 {
-            let bit_pos = IP[i]; // IP maps position i+1 to bit_pos
-                                 // FP must map bit_pos back to i+1
-            let recovered = FP.iter().position(|&b| b == (i as u8 + 1)).unwrap();
+        for (i, &bit_pos) in IP.iter().enumerate() {
+            // IP maps position i+1 to bit_pos; FP must map bit_pos back to i+1.
+            #[allow(clippy::cast_possible_truncation)]
+            let idx = i as u8 + 1;
+            let recovered = FP.iter().position(|&b| b == idx).unwrap();
             assert_eq!(
                 recovered,
                 (bit_pos - 1) as usize,

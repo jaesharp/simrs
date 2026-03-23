@@ -193,14 +193,14 @@ fn then_db_has_res(world: &mut SimWorld) {
 fn then_db_has_ck(world: &mut SimWorld) {
     let parsed =
         parse_db_response(world.last_data()).expect("Failed to parse DB response structure");
-    assert_eq!(parsed.ck.len(), 16, "CK length {} != 16", parsed.ck.len(),);
+    assert_eq!(parsed.ck.len(), 16, "CK length {} != 16", parsed.ck.len());
 }
 
 #[then(regex = r"^the DB response contains an IK sub-field.*$")]
 fn then_db_has_ik(world: &mut SimWorld) {
     let parsed =
         parse_db_response(world.last_data()).expect("Failed to parse DB response structure");
-    assert_eq!(parsed.ik.len(), 16, "IK length {} != 16", parsed.ik.len(),);
+    assert_eq!(parsed.ik.len(), 16, "IK length {} != 16", parsed.ik.len());
 }
 
 #[then(regex = r"^the response starts with tag DC.*$")]

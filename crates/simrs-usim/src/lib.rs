@@ -2891,7 +2891,7 @@ fn write_ber_len(enc: &mut Encoder<'_>, len: usize) -> Result<(), simrs_bertlv::
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::large_stack_arrays)]
 mod tests {
     use super::*;
     use simrs_fs::{AdfSlot, EfDef, Fid, FileRef, Sfi};
@@ -8686,13 +8686,13 @@ mod ct_validation {
                 let v2 = simrs_ecies::p256::validate_scalar(c2);
                 let v3 = simrs_ecies::p256::validate_scalar(c3);
 
-                let m0 = (v0 as u8).wrapping_neg();
+                let m0 = u8::from(v0).wrapping_neg();
                 let found0 = m0;
-                let m1 = (v1 as u8).wrapping_neg() & !found0;
-                let found1 = found0 | (v1 as u8).wrapping_neg();
-                let m2 = (v2 as u8).wrapping_neg() & !found1;
-                let found2 = found1 | (v2 as u8).wrapping_neg();
-                let m3 = (v3 as u8).wrapping_neg() & !found2;
+                let m1 = u8::from(v1).wrapping_neg() & !found0;
+                let found1 = found0 | u8::from(v1).wrapping_neg();
+                let m2 = u8::from(v2).wrapping_neg() & !found1;
+                let found2 = found1 | u8::from(v2).wrapping_neg();
+                let m3 = u8::from(v3).wrapping_neg() & !found2;
                 let _ = found2;
 
                 let mut eph_sk = [0u8; 32];
@@ -8742,8 +8742,8 @@ mod ct_validation {
         let outcome = ct_test(
             0x0051_0005,
             |rng| {
-                let mut _discard = [0u8; 7];
-                rng.fill_bytes(&mut _discard);
+                let mut discard = [0u8; 7];
+                rng.fill_bytes(&mut discard);
                 fixed_imsi
             },
             |rng| {

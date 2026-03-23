@@ -420,6 +420,7 @@ pub fn ecies_profile_b_encrypt(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::similar_names)]
 mod tests {
     use super::*;
 
@@ -981,7 +982,7 @@ mod proptests {
 
     // Strategy that generates a valid P-256 scalar in [1, n-1].
     fn valid_p256_scalar() -> impl Strategy<Value = [u8; 32]> {
-        any::<[u8; 32]>().prop_filter("scalar must be in [1, n-1]", |k| p256::validate_scalar(k))
+        any::<[u8; 32]>().prop_filter("scalar must be in [1, n-1]", p256::validate_scalar)
     }
 
     proptest! {
@@ -1032,10 +1033,23 @@ mod proptests {
 // ---------------------------------------------------------------------------
 
 #[cfg(all(test, feature = "ct-validation"))]
+#[allow(clippy::similar_names)]
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
     use simrs_consttime_validation::{assert_no_timing_leak, ct_test, Rng};
+
+    /// Generate a valid P-256 scalar from RNG (both `DudeCT` classes use
+    /// this so setup cost stays symmetric).
+    fn gen_valid_scalar(rng: &mut Rng) -> [u8; 32] {
+        let mut s = [0u8; 32];
+        loop {
+            rng.fill_bytes(&mut s);
+            if p256::validate_scalar(&s) {
+                return s;
+            }
+        }
+    }
 
     /// X25519 scalar multiplication timing must be independent of scalar value.
     /// Class 0: fixed scalar, random base point.
@@ -1043,7 +1057,7 @@ mod ct_validation {
     #[test]
     fn test_x25519_scalar_mul_ct() {
         let outcome = ct_test(
-            0xC25519_01,
+            0xC255_1901,
             |rng| {
                 let scalar = [0x42u8; 32];
                 let mut base = [0u8; 32];
@@ -1074,7 +1088,7 @@ mod ct_validation {
     fn test_ecies_profile_a_ct() {
         let hn_pk = x25519::x25519_base(&Secret::new([0x77u8; 32]));
         let outcome = ct_test(
-            0xEC1E5_A01,
+            0xEC1E_5A01,
             |rng| {
                 let pt = [0x12, 0x34, 0x56, 0x78, 0x9A];
                 let mut eph = [0u8; 32];
@@ -1115,18 +1129,6 @@ mod ct_validation {
             0xd7, 0x60, 0x25, 0x29,
         ];
 
-        // Helper: generate a valid scalar from RNG (both classes use this
-        // so setup cost is symmetric).
-        fn gen_valid_scalar(rng: &mut Rng) -> [u8; 32] {
-            let mut s = [0u8; 32];
-            loop {
-                rng.fill_bytes(&mut s);
-                if p256::validate_scalar(&s) {
-                    return s;
-                }
-            }
-        }
-
         let outcome = ct_test(
             0x9256_0001,
             |rng| {
@@ -1157,7 +1159,7 @@ mod ct_validation {
         ];
         let hn_pk = p256::p256_pubkey(&Secret::new(hn_sk));
         let outcome = ct_test(
-            0xEC1E5_B01,
+            0xEC1E_5B01,
             |rng| {
                 let pt = [0x12, 0x34, 0x56, 0x78, 0x9A];
                 let mut eph = [0u8; 32];
@@ -1190,7 +1192,7 @@ mod ct_validation {
 
     /// P-256 scalar multiplication with scalar = n-1 (maximum valid) vs
     /// mid-range scalars. This exercises the edge of the scalar domain where
-    /// the ladder repeatedly hits the doubling case in Point::add.
+    /// the ladder repeatedly hits the doubling case in `Point::add`.
     ///
     /// Class 0: scalar = n-1 (fixed, near group order).
     /// Class 1: random valid scalar.
@@ -1214,8 +1216,8 @@ mod ct_validation {
         let outcome = ct_test(
             0x9256_0003,
             |rng| {
-                let mut _discard = [0u8; 32];
-                rng.fill_bytes(&mut _discard);
+                let mut discard = [0u8; 32];
+                rng.fill_bytes(&mut discard);
                 n_minus_1
             },
             |rng| {
@@ -1262,8 +1264,8 @@ mod ct_validation {
             0x9256_0004,
             |rng| {
                 // Class 0: burn RNG to keep symmetric, use sparse scalar.
-                let mut _discard = [0u8; 32];
-                rng.fill_bytes(&mut _discard);
+                let mut discard = [0u8; 32];
+                rng.fill_bytes(&mut discard);
                 sparse_scalar
             },
             |rng| {
@@ -1294,7 +1296,7 @@ mod ct_validation {
     #[test]
     fn test_increment_counter_ct() {
         let outcome = ct_test(
-            0x1AAEC_0001,
+            0x1_AAEC_0001,
             |_rng| {
                 // Class 0: all-FF counter (every byte carries).
                 [0xFFu8; 16]
@@ -1307,7 +1309,7 @@ mod ct_validation {
             },
             |ctr| {
                 let mut c = *ctr;
-                black_box(increment_counter(&mut c));
+                increment_counter(&mut c);
                 black_box(c);
             },
         );
@@ -1321,7 +1323,7 @@ mod ct_validation {
     #[test]
     fn test_increment_counter_variable_carry_ct() {
         let outcome = ct_test(
-            0x1AAEC_0002,
+            0x1_AAEC_0002,
             |rng| {
                 // Class 0: high bytes random, low 8 bytes = 0xFF.
                 let mut c = [0xFFu8; 16];
@@ -1329,8 +1331,8 @@ mod ct_validation {
                 rng.fill_bytes(&mut hi);
                 c[..8].copy_from_slice(&hi);
                 // Burn 8 more bytes to keep RNG symmetric.
-                let mut _discard = [0u8; 8];
-                rng.fill_bytes(&mut _discard);
+                let mut discard = [0u8; 8];
+                rng.fill_bytes(&mut discard);
                 c
             },
             |rng| {
@@ -1341,7 +1343,7 @@ mod ct_validation {
             },
             |ctr| {
                 let mut c = *ctr;
-                black_box(increment_counter(&mut c));
+                increment_counter(&mut c);
                 black_box(c);
             },
         );

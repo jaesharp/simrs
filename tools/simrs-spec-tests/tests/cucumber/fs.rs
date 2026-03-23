@@ -509,7 +509,7 @@ fn assert_fs_error(world: &SpecWorld, expected: &str) {
         .last_error
         .as_deref()
         .unwrap_or_else(|| panic!("Expected {expected} error, but operation succeeded"));
-    assert_eq!(err, expected, "Expected {expected} error, got {err}",);
+    assert_eq!(err, expected, "Expected {expected} error, got {err}");
 }
 
 // =========================================================================

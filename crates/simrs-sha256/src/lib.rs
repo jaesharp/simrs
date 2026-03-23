@@ -379,6 +379,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::large_stack_arrays)]
     fn one_million_a() {
         // 1,000,000 repetitions of 'a' (0x61).
         let digest = sha256(&[0x61; 1_000_000]);
@@ -404,7 +405,7 @@ mod tests {
     fn streaming_byte_at_a_time() {
         let msg = b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
         let mut h = Sha256::new();
-        for &byte in msg.iter() {
+        for &byte in msg {
             h.update(&[byte]);
         }
         let digest = h.finalize();

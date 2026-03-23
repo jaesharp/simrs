@@ -2021,8 +2021,8 @@ mod ct_validation {
     }
 
     /// X9.63 KDF timing must be independent of shared secret Z content.
-    /// Class 0: fixed Z, random SharedInfo.
-    /// Class 1: random Z, random SharedInfo.
+    /// Class 0: fixed Z, random `SharedInfo`.
+    /// Class 1: random Z, random `SharedInfo`.
     #[test]
     fn test_kdf_x963_ct() {
         let outcome = ct_test(
@@ -2042,7 +2042,8 @@ mod ct_validation {
             },
             |(z, si)| {
                 let mut out = [0u8; 64];
-                black_box(kdf_x963(z, si, 64, &mut out));
+                kdf_x963(z, si, 64, &mut out);
+                black_box(out);
             },
         );
         assert_no_timing_leak!(outcome);

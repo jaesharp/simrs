@@ -59,6 +59,7 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Snapshot for Sim<A, RSP_C
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::large_stack_arrays)]
 mod tests {
     use super::*;
     use simrs_fs::{DfDef, Fid};

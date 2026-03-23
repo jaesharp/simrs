@@ -263,7 +263,7 @@ fn when_cc_with_device_ids(world: &mut SimWorld) {
 
 #[then("decoding succeeds with the original data")]
 fn then_decode_succeeds(world: &mut SimWorld) {
-    assert_eq!(world.last_sw(), (0x90, 0x00), "Expected successful decode",);
+    assert_eq!(world.last_sw(), (0x90, 0x00), "Expected successful decode");
     assert_eq!(
         world.last_data(),
         b"Hello SIM",

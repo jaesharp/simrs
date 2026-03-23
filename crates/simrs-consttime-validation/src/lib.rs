@@ -182,14 +182,9 @@ mod tests {
 
     #[test]
     fn ct_test_constant_operation_passes() {
-        let outcome = ct_test(
-            99,
-            |rng| rng.next_u8(),
-            |rng| rng.next_u8(),
-            |&x| {
-                core::hint::black_box(x.wrapping_add(1));
-            },
-        );
+        let outcome = ct_test(99, super::Rng::next_u8, super::Rng::next_u8, |&x| {
+            core::hint::black_box(x.wrapping_add(1));
+        });
         assert_no_timing_leak!(outcome);
     }
 }
