@@ -35,8 +35,11 @@
 
 use core::cell::RefCell;
 use simrs_fs::{AdfSlot, DfDef};
+use simrs_gp_card::GpCard;
+use simrs_gp_keys::KeySet;
 use simrs_milenage::{MilenageParams, OperatorVariant as MilOp, SubscriberKey};
 use simrs_profile::{AuthConfig, ProfileConfig};
+use simrs_sim::gp_adapter::SimApplet;
 use simrs_sim::{Sim, SimEvent, SimResponse};
 use simrs_tuak::{OperatorVariant as TuakOp, TuakParams};
 
@@ -49,11 +52,18 @@ pub use simrs_gsm::SubscriberKey as GsmSubscriberKey;
 // ---------------------------------------------------------------------------
 
 /// Runtime-selected authentication algorithm.
+///
+/// All variants are large stack-allocated types (8--10 kB) to support
+/// `no_std` / no-heap environments.  The size difference between
+/// variants is intentional and does not warrant `Box` indirection.
+#[allow(clippy::large_enum_variant)]
 enum SimInstance {
     /// Milenage ([3GPP TS 35.206 V19.0.0](../../../docs/specs/3gpp/ts-35.206/ts_135206v190000p.pdf)).
     Milenage(Sim<MilenageParams, 256>),
     /// TUAK ([3GPP TS 35.231 V19.0.0](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf)).
     Tuak(Sim<TuakParams, 256>),
+    /// `GlobalPlatform` card with SIM applet (Milenage).
+    GpMilenage(GpCard<261>),
 }
 
 thread_local! {
@@ -64,7 +74,10 @@ thread_local! {
 // Dispatch macro
 // ---------------------------------------------------------------------------
 
-/// Dispatch to the inner `Sim` regardless of auth algorithm.
+/// Dispatch to the inner `Sim` or `GpCard` regardless of auth algorithm.
+///
+/// Both `Sim` and `GpCard` expose `process(SimEvent) -> SimResponse` and
+/// `state_hash() -> u64`, so the same body compiles for all variants.
 macro_rules! with_sim {
     ($default:expr, |$sim:ident| $body:expr) => {
         SIM.with(|cell| {
@@ -72,6 +85,7 @@ macro_rules! with_sim {
             match borrow.as_mut() {
                 Some(SimInstance::Milenage($sim)) => $body,
                 Some(SimInstance::Tuak($sim)) => $body,
+                Some(SimInstance::GpMilenage($sim)) => $body,
                 None => $default,
             }
         })
@@ -82,15 +96,19 @@ macro_rules! with_sim {
 // Maximum snapshot size
 // ---------------------------------------------------------------------------
 
-/// Maximum snapshot size across all auth algorithms (includes 1-byte discriminant).
+/// Maximum snapshot size across all card types (includes 1-byte discriminant).
 pub const MAX_SNAPSHOT_SIZE: usize = 1 + {
     let mil = Sim::<MilenageParams, 256>::SNAPSHOT_SIZE;
     let tuak = Sim::<TuakParams, 256>::SNAPSHOT_SIZE;
-    if mil > tuak {
-        mil
-    } else {
-        tuak
+    let gp = GpCard::<261>::SNAPSHOT_SIZE;
+    let mut max = mil;
+    if tuak > max {
+        max = tuak;
     }
+    if gp > max {
+        max = gp;
+    }
+    max
 };
 
 // ---------------------------------------------------------------------------
@@ -186,6 +204,37 @@ pub fn hle_init_tuak_with_adf(
     });
 }
 
+/// Initialize the thread-local SIM as a `GlobalPlatform` card with a SIM applet.
+///
+/// Creates a `GpCard<261>` with an ISD key set and a Milenage-based SIM
+/// applet registered at the USIM AID. The card supports both GP card
+/// management (SELECT ISD, INITIALIZE UPDATE, etc.) and SIM/USIM
+/// operations (SELECT USIM AID, then standard 3GPP APDUs).
+///
+/// Calling this (or any other `hle_init*` function) replaces the previous instance.
+#[allow(clippy::too_many_arguments)]
+pub fn hle_init_gp(
+    atr: &'static [u8],
+    isd_enc: [u8; 16],
+    isd_mac: [u8; 16],
+    isd_dek: [u8; 16],
+    mf: &'static DfDef,
+    adfs: &'static [AdfSlot],
+    ki: [u8; 16],
+    k: [u8; 16],
+    opc: [u8; 16],
+) {
+    let isd_keys = KeySet::des3_2key(isd_enc, isd_mac, isd_dek);
+    let mil =
+        MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
+    let gsm = simrs_gsm::GsmApp::new(mf, GsmSubscriberKey::classify(ki));
+    let sim_applet = SimApplet::with_gsm(mf, adfs, mil, gsm);
+    let card = GpCard::with_sim(atr, &isd_keys, sim_applet);
+    SIM.with(|cell| {
+        *cell.borrow_mut() = Some(SimInstance::GpMilenage(card));
+    });
+}
+
 /// Initialize the thread-local SIM from a parsed [`ProfileConfig`].
 ///
 /// Dispatches to [`hle_init_with_adf`] or [`hle_init_tuak_with_adf`]
@@ -265,8 +314,8 @@ pub fn hle_apdu(cmd: &[u8], rsp: &mut [u8]) -> Option<(usize, u8, u8)> {
 
 /// Save the SIM state into `buf`.
 ///
-/// The first byte is a discriminant (0x00 = Milenage, 0x01 = TUAK),
-/// followed by the `Sim` snapshot data.
+/// The first byte is a discriminant (0x00 = Milenage, 0x01 = TUAK,
+/// 0x02 = GP+Milenage), followed by the card snapshot data.
 ///
 /// Returns the number of bytes written (including discriminant), or 0 if
 /// not initialized or `buf` is too small.
@@ -298,6 +347,18 @@ pub fn hle_snapshot_save(buf: &mut [u8]) -> usize {
                     1 + n
                 }
             }
+            Some(SimInstance::GpMilenage(card)) => {
+                if buf.len() < 1 + GpCard::<261>::SNAPSHOT_SIZE {
+                    return 0;
+                }
+                buf[0] = 0x02; // GP+Milenage discriminant
+                let n = card.save_state(&mut buf[1..]);
+                if n == 0 {
+                    0
+                } else {
+                    1 + n
+                }
+            }
             None => 0,
         }
     })
@@ -306,9 +367,9 @@ pub fn hle_snapshot_save(buf: &mut [u8]) -> usize {
 /// Restore the SIM state from `buf`.
 ///
 /// The first byte must match the discriminant of the current instance
-/// (0x00 = Milenage, 0x01 = TUAK). Returns `true` on success, `false`
-/// if the buffer is empty, discriminant mismatches, or the SIM is not
-/// initialized.
+/// (0x00 = Milenage, 0x01 = TUAK, 0x02 = GP+Milenage). Returns `true`
+/// on success, `false` if the buffer is empty, discriminant mismatches,
+/// or the SIM is not initialized.
 pub fn hle_snapshot_restore(buf: &[u8]) -> bool {
     if buf.is_empty() {
         return false;
@@ -318,6 +379,7 @@ pub fn hle_snapshot_restore(buf: &[u8]) -> bool {
         match (buf[0], borrow.as_mut()) {
             (0x00, Some(SimInstance::Milenage(sim))) => sim.restore_state(&buf[1..]),
             (0x01, Some(SimInstance::Tuak(sim))) => sim.restore_state(&buf[1..]),
+            (0x02, Some(SimInstance::GpMilenage(card))) => card.restore_state(&buf[1..]),
             _ => false, // discriminant mismatch or not initialized
         }
     })
@@ -339,6 +401,7 @@ pub fn hle_snapshot_size_current() -> usize {
         match borrow.as_ref() {
             Some(SimInstance::Milenage(_)) => 1 + Sim::<MilenageParams, 256>::SNAPSHOT_SIZE,
             Some(SimInstance::Tuak(_)) => 1 + Sim::<TuakParams, 256>::SNAPSHOT_SIZE,
+            Some(SimInstance::GpMilenage(_)) => 1 + GpCard::<261>::SNAPSHOT_SIZE,
             None => 0,
         }
     })
@@ -348,22 +411,43 @@ pub fn hle_snapshot_size_current() -> usize {
 ///
 /// Returns a bitmask of expired timer IDs (bit 0 = timer 1, ..., bit 7 = timer 8),
 /// or 0 if not initialized or no timers expired.
+///
+/// GP cards do not support proactive timers; `Tick` is forwarded but
+/// always returns 0 for the `GpMilenage` variant.
 pub fn hle_tick(elapsed_secs: u32) -> u8 {
-    with_sim!(0, |sim| {
-        let _ = sim.process(SimEvent::Tick(elapsed_secs));
-        let mut mask: u8 = 0;
-        loop {
-            let id = sim.usim_app_mut().proactive_state().take_expired_timer();
-            if id == 0 {
-                break;
+    SIM.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        match borrow.as_mut() {
+            Some(SimInstance::Milenage(sim)) => tick_sim(sim, elapsed_secs),
+            Some(SimInstance::Tuak(sim)) => tick_sim(sim, elapsed_secs),
+            Some(SimInstance::GpMilenage(card)) => {
+                // GP card has no proactive timers; just forward Tick.
+                let _ = card.process(SimEvent::Tick(elapsed_secs));
+                0
             }
-            // Timer IDs are 1..=8, map to bits 0..=7.
-            if id <= 8 {
-                mask |= 1 << (id - 1);
-            }
+            None => 0,
         }
-        mask
     })
+}
+
+/// Shared tick logic for `Sim<A, N>` variants.
+fn tick_sim<A: simrs_milenage::AuthenticationAlgorithm, const N: usize>(
+    sim: &mut Sim<A, N>,
+    elapsed_secs: u32,
+) -> u8 {
+    let _ = sim.process(SimEvent::Tick(elapsed_secs));
+    let mut mask: u8 = 0;
+    loop {
+        let id = sim.usim_app_mut().proactive_state().take_expired_timer();
+        if id == 0 {
+            break;
+        }
+        // Timer IDs are 1..=8, map to bits 0..=7.
+        if id <= 8 {
+            mask |= 1 << (id - 1);
+        }
+    }
+    mask
 }
 
 /// Compute an FNV-1a deduplication hash of the current SIM state.
@@ -529,11 +613,16 @@ mod tests {
         init();
         hle_reset();
         // Start timer 1 with BCD [0x00, 0x00, 0x10] = 10 seconds.
-        with_sim!((), |sim| {
-            assert!(sim
-                .usim_app_mut()
-                .proactive_state()
-                .start_timer(1, [0x00, 0x00, 0x10]));
+        SIM.with(|cell| {
+            let mut borrow = cell.borrow_mut();
+            if let Some(SimInstance::Milenage(sim)) = borrow.as_mut() {
+                assert!(sim
+                    .usim_app_mut()
+                    .proactive_state()
+                    .start_timer(1, [0x00, 0x00, 0x10]));
+            } else {
+                panic!("expected Milenage instance");
+            }
         });
         // Tick 11 seconds -- timer 1 should expire.
         let mask = hle_tick(11);
@@ -545,10 +634,15 @@ mod tests {
         init();
         hle_reset();
         // Start timers 1 and 3 with BCD [0x00, 0x00, 0x05] = 5 seconds.
-        with_sim!((), |sim| {
-            let ps = sim.usim_app_mut().proactive_state();
-            assert!(ps.start_timer(1, [0x00, 0x00, 0x05]));
-            assert!(ps.start_timer(3, [0x00, 0x00, 0x05]));
+        SIM.with(|cell| {
+            let mut borrow = cell.borrow_mut();
+            if let Some(SimInstance::Milenage(sim)) = borrow.as_mut() {
+                let ps = sim.usim_app_mut().proactive_state();
+                assert!(ps.start_timer(1, [0x00, 0x00, 0x05]));
+                assert!(ps.start_timer(3, [0x00, 0x00, 0x05]));
+            } else {
+                panic!("expected Milenage instance");
+            }
         });
         // Tick 6 seconds -- both timers should expire.
         let mask = hle_tick(6);
@@ -736,5 +830,148 @@ mod tests {
             (0x6A, 0x82),
             "SELECT by AID with no ADF table should return file not found"
         );
+    }
+
+    // -------------------------------------------------------------------
+    // GP card (GpMilenage) tests
+    // -------------------------------------------------------------------
+
+    static GP_ATR: [u8; 3] = [0x3B, 0x90, 0x00];
+
+    fn init_gp() {
+        hle_init_gp(
+            &GP_ATR, [0x40; 16], // ISD ENC
+            [0x40; 16], // ISD MAC
+            [0x40; 16], // ISD DEK
+            &MF, &ADF_TABLE, [0x11; 16], // Ki
+            [0x22; 16], // K
+            [0x33; 16], // OPc
+        );
+    }
+
+    #[test]
+    fn hle_init_gp_creates_instance() {
+        init_gp();
+        // Verify the instance is present by checking snapshot size is nonzero.
+        assert!(hle_snapshot_size_current() > 0);
+    }
+
+    #[test]
+    fn hle_reset_gp_returns_atr() {
+        init_gp();
+        let atr_len = hle_reset();
+        assert_eq!(atr_len, GP_ATR.len());
+    }
+
+    #[test]
+    fn hle_apdu_gp_select_isd() {
+        init_gp();
+        hle_reset();
+        let mut rsp = [0u8; 261];
+        // SELECT ISD by AID: 00 A4 04 00 07 A0 00 00 01 51 00 00
+        let isd_aid: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+        let mut cmd = [0u8; 12];
+        cmd[0] = 0x00; // CLA
+        cmd[1] = 0xA4; // INS SELECT
+        cmd[2] = 0x04; // P1 select by name
+        cmd[3] = 0x00; // P2
+        cmd[4] = 0x07; // Lc
+        cmd[5..12].copy_from_slice(&isd_aid);
+        let result = hle_apdu(&cmd, &mut rsp);
+        let (_, sw1, sw2) = result.expect("SELECT ISD should succeed on GP card");
+        assert_eq!((sw1, sw2), (0x90, 0x00), "SELECT ISD should return 90 00");
+    }
+
+    #[test]
+    fn hle_snapshot_gp_roundtrip() {
+        init_gp();
+        hle_reset();
+        // Issue an APDU to change state.
+        let mut rsp = [0u8; 261];
+        let isd_aid: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+        let mut cmd = [0u8; 12];
+        cmd[0] = 0x00;
+        cmd[1] = 0xA4;
+        cmd[2] = 0x04;
+        cmd[3] = 0x00;
+        cmd[4] = 0x07;
+        cmd[5..12].copy_from_slice(&isd_aid);
+        hle_apdu(&cmd, &mut rsp);
+
+        let mut snap = vec![0u8; hle_snapshot_size()];
+        let n = hle_snapshot_save(&mut snap);
+        assert!(n > 0, "GP snapshot save must succeed");
+        assert_eq!(n, hle_snapshot_size_current());
+
+        // Re-init (wipes state).
+        init_gp();
+        assert!(hle_snapshot_restore(&snap[..n]));
+
+        // Card should be ready after restore.
+        let result = hle_apdu(&cmd, &mut rsp);
+        let (_, sw1, sw2) = result.expect("should get APDU response after GP restore");
+        assert_eq!(
+            (sw1, sw2),
+            (0x90, 0x00),
+            "SELECT ISD should still work after restore"
+        );
+    }
+
+    #[test]
+    fn hle_snapshot_discriminant_gp() {
+        init_gp();
+        hle_reset();
+        let mut snap = vec![0u8; hle_snapshot_size()];
+        let n = hle_snapshot_save(&mut snap);
+        assert!(n > 0);
+        assert_eq!(snap[0], 0x02, "GP discriminant must be 0x02");
+    }
+
+    #[test]
+    fn hle_snapshot_cross_gp_restore_fails() {
+        // Init with GP, save snapshot.
+        init_gp();
+        hle_reset();
+        let mut snap = vec![0u8; hle_snapshot_size()];
+        let n = hle_snapshot_save(&mut snap);
+        assert!(n > 0);
+
+        // Switch to Milenage, try to restore GP snapshot -> must fail.
+        init();
+        assert!(
+            !hle_snapshot_restore(&snap[..n]),
+            "restoring GP snapshot into Milenage instance must fail"
+        );
+    }
+
+    #[test]
+    fn hle_state_hash_gp() {
+        init_gp();
+        hle_reset();
+        let h = hle_state_hash();
+        assert_ne!(h, 0, "GP hash should be nonzero after init+reset");
+    }
+
+    #[test]
+    fn hle_state_hash_gp_differs_before_and_after_power_on() {
+        init_gp();
+        // Before power-on: card state is Off.
+        let h_off = hle_state_hash();
+        assert_ne!(h_off, 0, "GP hash should be nonzero even when off");
+        // After power-on: card state is Ready.
+        hle_reset();
+        let h_on = hle_state_hash();
+        assert_ne!(
+            h_off, h_on,
+            "GP hash should differ between Off and Ready states"
+        );
+    }
+
+    #[test]
+    fn hle_tick_gp_returns_zero() {
+        init_gp();
+        hle_reset();
+        // GP card has no proactive timers; tick should always return 0.
+        assert_eq!(hle_tick(10), 0);
     }
 }

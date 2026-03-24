@@ -64,6 +64,18 @@ const DEFAULT_ATR: &[u8] = &[0x3B, 0x90, 0x95, 0x80, 0x1F, 0xC3, 0x83, 0x80, 0x7
 const USIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
 
 // ---------------------------------------------------------------------------
+// State hash buffer
+// ---------------------------------------------------------------------------
+
+/// Fixed upper bound for the state hash buffer.
+///
+/// `SNAPSHOT_SIZE` is `1 + GpOpen::<16, 4>::SNAPSHOT_SIZE` and does not
+/// depend on the `RSP_CAP` const generic, but Rust cannot prove that in
+/// array-length position on a generic impl. This module-level constant
+/// avoids the `const-evaluatable-unchecked` lint.
+const STATE_HASH_BUF: usize = 1 + GpOpen::<16, 4>::SNAPSHOT_SIZE;
+
+// ---------------------------------------------------------------------------
 // GpCard
 // ---------------------------------------------------------------------------
 
@@ -281,6 +293,24 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
         self.sim_applet.as_mut()
     }
 
+    // -- State hash --
+
+    /// Compute an FNV-1a hash of the serialized state for deduplication.
+    ///
+    /// Mirrors `Sim::state_hash()` so both card types expose the same
+    /// interface for HLE deduplication.
+    #[allow(clippy::large_stack_arrays)]
+    pub fn state_hash(&self) -> u64 {
+        // Use a module-level constant to avoid the
+        // `const-evaluatable-unchecked` error when referencing
+        // `Self::SNAPSHOT_SIZE` in array-length position on a generic impl.
+        const HASH_BUF: usize = STATE_HASH_BUF;
+        let mut buf = [0u8; HASH_BUF];
+        let n = self.save_state(&mut buf);
+        debug_assert_eq!(n, Self::SNAPSHOT_SIZE, "save_state wrote unexpected size");
+        fnv1a(&buf[..n])
+    }
+
     // -- Snapshot --
 
     /// Snapshot buffer size: 1 (card state) + GpOpen snapshot size.
@@ -340,6 +370,24 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
 /// This is the most common configuration for a combined GP+USIM card.
 #[cfg(feature = "sim")]
 pub type GpSimCard = GpCard<261>;
+
+// ---------------------------------------------------------------------------
+// FNV-1a hash
+// ---------------------------------------------------------------------------
+
+/// Compute FNV-1a 64-bit hash of a byte slice.
+fn fnv1a(data: &[u8]) -> u64 {
+    const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0100_0000_01b3;
+    let mut hash = BASIS;
+    let mut i = 0;
+    while i < data.len() {
+        hash ^= u64::from(data[i]);
+        hash = hash.wrapping_mul(PRIME);
+        i += 1;
+    }
+    hash
+}
 
 // ---------------------------------------------------------------------------
 // Tests

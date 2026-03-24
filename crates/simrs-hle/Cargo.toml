@@ -13,7 +13,7 @@ crate-type = ["rlib"]
 default = []
 
 [dependencies]
-simrs-sim      = { workspace = true, features = ["usim", "gsm"] }
+simrs-sim      = { workspace = true, features = ["usim", "gsm", "gp-applet"] }
 simrs-fs       = { workspace = true }
 simrs-milenage = { workspace = true }
 simrs-tuak     = { workspace = true }
@@ -21,6 +21,8 @@ simrs-gsm      = { workspace = true }
 simrs-usim     = { workspace = true }
 simrs-profile  = { workspace = true }
 simrs-secret   = { workspace = true }
+simrs-gp-card  = { workspace = true, features = ["sim"] }
+simrs-gp-keys  = { workspace = true }
 
 [dev-dependencies]
 

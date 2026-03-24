@@ -1612,6 +1612,8 @@ name = "simrs-hle"
 version = "0.1.0"
 dependencies = [
  "simrs-fs",
+ "simrs-gp-card",
+ "simrs-gp-keys",
  "simrs-gsm",
  "simrs-milenage",
  "simrs-profile",
