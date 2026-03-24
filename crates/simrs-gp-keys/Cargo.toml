@@ -1,0 +1,17 @@
+[package]
+name        = "simrs-gp-keys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GlobalPlatform Security Domain key store -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true

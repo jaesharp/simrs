@@ -14,6 +14,7 @@ members = [
     "crates/simrs-bignum",
     "crates/simrs-rsa",
     "crates/simrs-iso9797",
+    "crates/simrs-gp-keys",
     "crates/simrs-kdf",
     "crates/simrs-ecies",
     "crates/simrs-milenage",
@@ -72,6 +73,7 @@ simrs-md5                 = { path = "crates/simrs-md5",                 default
 simrs-bignum              = { path = "crates/simrs-bignum",              default-features = false }
 simrs-rsa                 = { path = "crates/simrs-rsa",                default-features = false }
 simrs-iso9797             = { path = "crates/simrs-iso9797",             default-features = false }
+simrs-gp-keys             = { path = "crates/simrs-gp-keys",             default-features = false }
 simrs-kdf                 = { path = "crates/simrs-kdf",                 default-features = false }
 simrs-ecies               = { path = "crates/simrs-ecies",               default-features = false }
 simrs-milenage            = { path = "crates/simrs-milenage",            default-features = false }
