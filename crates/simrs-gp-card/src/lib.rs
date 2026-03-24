@@ -36,6 +36,17 @@ use simrs_gp_keys::KeySet;
 use simrs_gp_open::GpOpen;
 use simrs_iso7816::StatusWord;
 
+#[cfg(feature = "sim")]
+use simrs_gp_open::registry::{self, AppletEntry};
+#[cfg(feature = "sim")]
+use simrs_gp_open::AppletLifecycle;
+#[cfg(feature = "sim")]
+use simrs_jcre::{Applet, AppletResult};
+#[cfg(feature = "sim")]
+use simrs_milenage::MilenageParams;
+#[cfg(feature = "sim")]
+use simrs_sim::gp_adapter::SimApplet;
+
 // ---------------------------------------------------------------------------
 // Default ATR
 // ---------------------------------------------------------------------------
@@ -47,6 +58,10 @@ use simrs_iso7816::StatusWord;
 /// T1=1F, historical bytes C3 83 80, TCK=73 21.
 /// This is representative of a typical Java Card with GP 2.1.1 support.
 const DEFAULT_ATR: &[u8] = &[0x3B, 0x90, 0x95, 0x80, 0x1F, 0xC3, 0x83, 0x80, 0x73, 0x21];
+
+/// USIM AID: A0 00 00 00 87 10 02 (3GPP USIM RID + PIX).
+#[cfg(feature = "sim")]
+const USIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
 
 // ---------------------------------------------------------------------------
 // GpCard
@@ -73,6 +88,11 @@ pub struct GpCard<const RSP_CAP: usize = 261> {
     state: CardState,
     open: GpOpen<16, 4>,
     rsp_buf: [u8; RSP_CAP],
+    #[cfg(feature = "sim")]
+    sim_applet: Option<SimApplet<MilenageParams>>,
+    /// Registry index of the SIM applet in `GpOpen`'s applet registry.
+    #[cfg(feature = "sim")]
+    sim_registry_idx: u8,
 }
 
 impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
@@ -86,12 +106,55 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
             state: CardState::Off,
             open: GpOpen::new(isd_keys),
             rsp_buf: [0u8; RSP_CAP],
+            #[cfg(feature = "sim")]
+            sim_applet: None,
+            #[cfg(feature = "sim")]
+            sim_registry_idx: 0,
         }
     }
 
     /// Create a new GP card with the default ATR and the given ISD key set.
     pub fn with_default_atr(isd_keys: &KeySet) -> Self {
         Self::new(DEFAULT_ATR, isd_keys)
+    }
+
+    /// Create a GP card with a SIM/USIM applet deployed.
+    ///
+    /// The SIM applet is registered at AID `A0 00 00 00 87 10 02` (USIM).
+    /// SELECT this AID to route APDUs to the SIM logic. SELECT the ISD
+    /// AID to access GP card management.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the applet registry is full (all 16 slots occupied).
+    #[cfg(feature = "sim")]
+    pub fn with_sim(
+        atr: &'static [u8],
+        isd_keys: &KeySet,
+        sim_applet: SimApplet<MilenageParams>,
+    ) -> Self {
+        let mut open = GpOpen::new(isd_keys);
+
+        // Register the USIM AID in the GP registry.
+        let slot = registry::find_empty_slot(open.registry())
+            .expect("applet registry full -- cannot register SIM applet");
+        open.registry_mut()[slot] = Some(AppletEntry::new(
+            &USIM_AID,
+            AppletLifecycle::Selectable,
+            0x00,
+        ));
+
+        #[allow(clippy::cast_possible_truncation)]
+        let sim_registry_idx = slot as u8;
+
+        Self {
+            atr,
+            state: CardState::Off,
+            open,
+            rsp_buf: [0u8; RSP_CAP],
+            sim_applet: Some(sim_applet),
+            sim_registry_idx,
+        }
     }
 
     /// Process an event and return the card's response.
@@ -131,7 +194,46 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
             return SimResponse::Ignored;
         }
 
-        let rsp_slice = self.open.handle(bytes, &mut self.rsp_buf);
+        let rsp_slice;
+
+        #[cfg(feature = "sim")]
+        {
+            if let Some(ref mut sim) = self.sim_applet {
+                let sim_idx = self.sim_registry_idx;
+                rsp_slice = self.open.handle_with_dispatch(
+                    bytes,
+                    &mut self.rsp_buf,
+                    Some(&mut |idx, cmd, out| {
+                        if idx != sim_idx {
+                            // Unknown applet index -- return 6D 00.
+                            out[0] = 0x6D;
+                            out[1] = 0x00;
+                            return 2;
+                        }
+                        match sim.process(cmd, out) {
+                            AppletResult::Ok(n) => {
+                                out[n] = 0x90;
+                                out[n + 1] = 0x00;
+                                n + 2
+                            }
+                            AppletResult::Sw(sw) => {
+                                let [s1, s2] = sw.to_bytes();
+                                out[0] = s1;
+                                out[1] = s2;
+                                2
+                            }
+                        }
+                    }),
+                );
+            } else {
+                rsp_slice = self.open.handle(bytes, &mut self.rsp_buf);
+            }
+        }
+
+        #[cfg(not(feature = "sim"))]
+        {
+            rsp_slice = self.open.handle(bytes, &mut self.rsp_buf);
+        }
 
         // GpOpen always returns [data..., SW1, SW2].
         if rsp_slice.len() < 2 {
@@ -165,6 +267,18 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
     /// Whether the card is currently powered and ready.
     pub const fn is_ready(&self) -> bool {
         matches!(self.state, CardState::Ready)
+    }
+
+    /// Reference to the SIM applet, if one is deployed.
+    #[cfg(feature = "sim")]
+    pub const fn sim_applet(&self) -> Option<&SimApplet<MilenageParams>> {
+        self.sim_applet.as_ref()
+    }
+
+    /// Mutable reference to the SIM applet, if one is deployed.
+    #[cfg(feature = "sim")]
+    pub const fn sim_applet_mut(&mut self) -> Option<&mut SimApplet<MilenageParams>> {
+        self.sim_applet.as_mut()
     }
 
     // -- Snapshot --
@@ -219,6 +333,13 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
         self.open.restore_state(&buf[off..])
     }
 }
+
+/// A GP card with the standard response buffer capacity (261 bytes)
+/// and SIM applet support.
+///
+/// This is the most common configuration for a combined GP+USIM card.
+#[cfg(feature = "sim")]
+pub type GpSimCard = GpCard<261>;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -527,5 +648,339 @@ mod tests {
             let _ = card.process(SimEvent::PowerOn);
             let _ = card.process(SimEvent::Apdu(&bytes));
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SIM integration tests (feature = "sim")
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[cfg(feature = "sim")]
+mod sim_tests {
+    use super::*;
+    use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
+    use simrs_gp_keys::KeySet;
+    use simrs_gp_open::{INS_GET_STATUS, INS_INITIALIZE_UPDATE};
+    use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
+    use simrs_sim::gp_adapter::SimApplet;
+
+    // -- Test filesystem ---------------------------------------------------
+
+    static ICCID_DATA: [u8; 10] = [0x98, 0x10, 0x14, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0];
+    static EF_ICCID: EfDef = EfDef::transparent(Fid::new(0x2FE2), None, &ICCID_DATA);
+
+    static MF: DfDef = DfDef {
+        fid: Fid::new(0x3F00),
+        children: &[FileRef::Ef(&EF_ICCID)],
+    };
+
+    static IMSI_DATA: [u8; 9] = [0x08, 0x09, 0x10, 0x10, 0x00, 0x00, 0x00, 0x00, 0x01];
+    static EF_IMSI: EfDef = EfDef::transparent(Fid::new(0x6F07), None, &IMSI_DATA);
+
+    static ADF_USIM_DF: DfDef = DfDef {
+        fid: Fid::new(0x7FFF),
+        children: &[FileRef::Ef(&EF_IMSI)],
+    };
+
+    static USIM_AID_BYTES: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
+    static ISD_AID_BYTES: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+
+    static ADF_TABLE: [AdfSlot; 1] = [AdfSlot {
+        aid: &USIM_AID_BYTES,
+        root: &ADF_USIM_DF,
+    }];
+
+    fn test_keys() -> KeySet {
+        let k = [
+            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D,
+            0x4E, 0x4F,
+        ];
+        KeySet::des3_2key(k, k, k)
+    }
+
+    fn make_sim_applet() -> SimApplet<MilenageParams> {
+        let mil = MilenageParams::with_defaults(
+            SubscriberKey::classify([0u8; 16]),
+            OperatorVariant::operator_cipher([0u8; 16]),
+        );
+        SimApplet::new(&MF, &ADF_TABLE, mil)
+    }
+
+    fn make_gp_sim_card() -> GpCard<261> {
+        GpCard::with_sim(DEFAULT_ATR, &test_keys(), make_sim_applet())
+    }
+
+    /// Build a SELECT-by-AID APDU for the given AID.
+    fn select_aid_apdu(aid: &[u8]) -> [u8; 12] {
+        let mut apdu = [0u8; 12];
+        apdu[0] = 0x00; // CLA interindustry
+        apdu[1] = 0xA4; // INS SELECT
+        apdu[2] = 0x04; // P1 = select by name
+        apdu[3] = 0x00; // P2
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            apdu[4] = aid.len() as u8;
+        }
+        apdu[5..5 + aid.len()].copy_from_slice(aid);
+        apdu
+    }
+
+    // -- Test 1: SELECT USIM AID routes to SIM applet ----------------------
+
+    #[test]
+    fn select_usim_aid_succeeds() {
+        let mut card = make_gp_sim_card();
+        let _ = card.process(SimEvent::PowerOn);
+
+        let apdu = select_aid_apdu(&USIM_AID_BYTES);
+        let rsp = card.process(SimEvent::Apdu(&apdu));
+        match rsp {
+            SimResponse::Apdu { sw, .. } => {
+                assert_eq!(
+                    sw.to_bytes(),
+                    [0x90, 0x00],
+                    "SELECT USIM AID should succeed with 9000"
+                );
+            }
+            _ => panic!("expected Apdu response for SELECT USIM"),
+        }
+    }
+
+    // -- Test 2: SELECT ISD AID routes to GP card manager ------------------
+
+    #[test]
+    fn select_isd_aid_succeeds() {
+        let mut card = make_gp_sim_card();
+        let _ = card.process(SimEvent::PowerOn);
+
+        let apdu = select_aid_apdu(&ISD_AID_BYTES);
+        let rsp = card.process(SimEvent::Apdu(&apdu));
+        match rsp {
+            SimResponse::Apdu { sw, .. } => {
+                assert_eq!(
+                    sw.to_bytes(),
+                    [0x90, 0x00],
+                    "SELECT ISD AID should succeed with 9000"
+                );
+            }
+            _ => panic!("expected Apdu response for SELECT ISD"),
+        }
+    }
+
+    // -- Test 3: SIM APDU (STATUS) after selecting USIM works ---------------
+
+    #[test]
+    fn sim_status_after_usim_select() {
+        let mut card = make_gp_sim_card();
+        let _ = card.process(SimEvent::PowerOn);
+
+        // SELECT USIM AID.
+        let select = select_aid_apdu(&USIM_AID_BYTES);
+        let _ = card.process(SimEvent::Apdu(&select));
+
+        // STATUS command (INS=0xF2, P1=0x00, P2=0x0C = no FCI).
+        let status_cmd = [0x00, 0xF2, 0x00, 0x0C];
+        let rsp = card.process(SimEvent::Apdu(&status_cmd));
+        match rsp {
+            SimResponse::Apdu { sw, .. } => {
+                let [sw1, _sw2] = sw.to_bytes();
+                // STATUS should return a success-family SW (90 XX or 61 XX).
+                assert!(
+                    sw1 == 0x90 || sw1 == 0x61,
+                    "STATUS should succeed after USIM select, got SW {sw1:02X}"
+                );
+            }
+            _ => panic!("expected Apdu response for STATUS"),
+        }
+    }
+
+    // -- Test 4: GP APDU (GET STATUS) after selecting ISD works ------------
+
+    #[test]
+    fn gp_get_status_after_isd_select() {
+        let mut card = make_gp_sim_card();
+        let _ = card.process(SimEvent::PowerOn);
+
+        // SELECT ISD.
+        let select = select_aid_apdu(&ISD_AID_BYTES);
+        let _ = card.process(SimEvent::Apdu(&select));
+
+        // GET STATUS P1=0x80 (ISD): 80 F2 80 00
+        let apdu = [0x80, INS_GET_STATUS, 0x80, 0x00];
+        let rsp = card.process(SimEvent::Apdu(&apdu));
+        match rsp {
+            SimResponse::Apdu { data, sw } => {
+                assert_eq!(sw.to_bytes(), [0x90, 0x00], "GET STATUS should succeed");
+                // Response: AID_len(1) + AID(7) + lifecycle(1) + privileges(1) = 10 bytes.
+                assert!(data.len() >= 10, "GET STATUS should return ISD data");
+                assert_eq!(data[0], 7, "ISD AID length should be 7");
+                assert_eq!(&data[1..8], &ISD_AID_BYTES, "ISD AID should match");
+            }
+            _ => panic!("expected Apdu response for GET STATUS"),
+        }
+    }
+
+    // -- Test 5: Both on same card without interference --------------------
+
+    #[test]
+    fn switch_between_usim_and_isd() {
+        let mut card = make_gp_sim_card();
+        let _ = card.process(SimEvent::PowerOn);
+
+        // 1. SELECT USIM and issue a SIM command.
+        let select_usim = select_aid_apdu(&USIM_AID_BYTES);
+        let _ = card.process(SimEvent::Apdu(&select_usim));
+        let status_cmd = [0x00, 0xF2, 0x00, 0x0C];
+        let rsp = card.process(SimEvent::Apdu(&status_cmd));
+        match rsp {
+            SimResponse::Apdu { sw, .. } => {
+                let [sw1, _] = sw.to_bytes();
+                assert!(sw1 == 0x90 || sw1 == 0x61, "SIM STATUS should succeed");
+            }
+            _ => panic!("expected Apdu response for SIM STATUS"),
+        }
+
+        // 2. SELECT ISD and issue a GP command.
+        let select_isd = select_aid_apdu(&ISD_AID_BYTES);
+        let _ = card.process(SimEvent::Apdu(&select_isd));
+        let get_status = [0x80, INS_GET_STATUS, 0x80, 0x00];
+        let rsp = card.process(SimEvent::Apdu(&get_status));
+        match rsp {
+            SimResponse::Apdu { sw, .. } => {
+                assert_eq!(sw.to_bytes(), [0x90, 0x00], "GP GET STATUS should succeed");
+            }
+            _ => panic!("expected Apdu response for GP GET STATUS"),
+        }
+
+        // 3. Switch back to USIM -- should still work.
+        let _ = card.process(SimEvent::Apdu(&select_usim));
+        let rsp = card.process(SimEvent::Apdu(&status_cmd));
+        match rsp {
+            SimResponse::Apdu { sw, .. } => {
+                let [sw1, _] = sw.to_bytes();
+                assert!(
+                    sw1 == 0x90 || sw1 == 0x61,
+                    "SIM STATUS should still succeed after switching back"
+                );
+            }
+            _ => panic!("expected Apdu response for SIM STATUS after switch"),
+        }
+    }
+
+    // -- Test 6: USIM applet visible in GET STATUS apps listing -------------
+
+    #[test]
+    fn usim_applet_in_get_status_apps() {
+        let mut card = make_gp_sim_card();
+        let _ = card.process(SimEvent::PowerOn);
+
+        // GET STATUS P1=0x40 (applications): 80 F2 40 00
+        let apdu = [0x80, INS_GET_STATUS, 0x40, 0x00];
+        let rsp = card.process(SimEvent::Apdu(&apdu));
+        match rsp {
+            SimResponse::Apdu { data, sw } => {
+                assert_eq!(
+                    sw.to_bytes(),
+                    [0x90, 0x00],
+                    "GET STATUS apps should succeed"
+                );
+                // Data should contain the USIM AID entry.
+                // Format: [aid_len(1), aid(7), lifecycle(1), privileges(1)] = 10 bytes.
+                assert!(data.len() >= 10, "should have at least one applet entry");
+                assert_eq!(data[0], 7, "USIM AID length should be 7");
+                assert_eq!(
+                    &data[1..8],
+                    &USIM_AID_BYTES,
+                    "USIM AID should be in the registry"
+                );
+            }
+            _ => panic!("expected Apdu response for GET STATUS apps"),
+        }
+    }
+
+    // -- Test 7: SIM SELECT MF works through dispatch ----------------------
+
+    #[test]
+    fn sim_select_mf_via_dispatch() {
+        let mut card = make_gp_sim_card();
+        let _ = card.process(SimEvent::PowerOn);
+
+        // SELECT USIM AID first.
+        let select_usim = select_aid_apdu(&USIM_AID_BYTES);
+        let _ = card.process(SimEvent::Apdu(&select_usim));
+
+        // SELECT MF (FID 3F00): 00 A4 00 04 02 3F 00
+        let select_mf = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+        let rsp = card.process(SimEvent::Apdu(&select_mf));
+        match rsp {
+            SimResponse::Apdu { sw, .. } => {
+                let [sw1, _] = sw.to_bytes();
+                // SELECT MF returns either 90 00 or 61 XX (more data available).
+                assert!(
+                    sw1 == 0x90 || sw1 == 0x61,
+                    "SELECT MF through SIM dispatch should succeed, got SW1={sw1:02X}"
+                );
+            }
+            _ => panic!("expected Apdu response for SELECT MF"),
+        }
+    }
+
+    // -- Test 8: INITIALIZE UPDATE still works on combined card ------------
+
+    #[test]
+    fn scp_initialize_update_on_combined_card() {
+        let mut card = make_gp_sim_card();
+        let _ = card.process(SimEvent::PowerOn);
+
+        // INITIALIZE UPDATE: 80 50 00 00 08 <host_challenge[8]>
+        let mut apdu = [0u8; 13];
+        apdu[0] = 0x80;
+        apdu[1] = INS_INITIALIZE_UPDATE;
+        apdu[2] = 0x00;
+        apdu[3] = 0x00;
+        apdu[4] = 0x08;
+        apdu[5..13].copy_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+
+        let rsp = card.process(SimEvent::Apdu(&apdu));
+        match rsp {
+            SimResponse::Apdu { data, sw } => {
+                assert_eq!(
+                    sw.to_bytes(),
+                    [0x90, 0x00],
+                    "INITIALIZE UPDATE should succeed on combined card"
+                );
+                assert_eq!(
+                    data.len(),
+                    28,
+                    "INITIALIZE UPDATE response should be 28 bytes"
+                );
+            }
+            _ => panic!("expected Apdu response for INITIALIZE UPDATE"),
+        }
+    }
+
+    // -- Test 9: GpSimCard alias works -------------------------------------
+
+    #[test]
+    fn gp_sim_card_alias_compiles() {
+        let _card: GpSimCard = GpCard::with_sim(DEFAULT_ATR, &test_keys(), make_sim_applet());
+    }
+
+    // -- Test 10: sim_applet accessor works ---------------------------------
+
+    #[test]
+    fn sim_applet_accessor() {
+        let card = make_gp_sim_card();
+        assert!(
+            card.sim_applet().is_some(),
+            "with_sim card should have SIM applet"
+        );
+
+        let card_no_sim: GpCard<261> = GpCard::new(DEFAULT_ATR, &test_keys());
+        assert!(
+            card_no_sim.sim_applet().is_none(),
+            "regular card should not have SIM applet"
+        );
     }
 }

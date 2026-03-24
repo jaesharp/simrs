@@ -8,6 +8,7 @@ description = "GlobalPlatform card: top-level event-driven card type parallel to
 [features]
 default = []
 std     = []
+sim     = ["dep:simrs-sim", "dep:simrs-milenage"]
 
 [dependencies]
 simrs-card-api = { workspace = true }
@@ -15,9 +16,13 @@ simrs-gp-open  = { workspace = true }
 simrs-gp-keys  = { workspace = true }
 simrs-iso7816  = { workspace = true }
 simrs-jcre     = { workspace = true }
+simrs-sim      = { workspace = true, features = ["usim", "gp-applet"], optional = true }
+simrs-milenage = { workspace = true, optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest       = { workspace = true }
+simrs-milenage = { workspace = true }
+simrs-fs       = { workspace = true }
 
 [lints]
 workspace = true

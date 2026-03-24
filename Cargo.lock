@@ -1541,10 +1541,13 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-card-api",
+ "simrs-fs",
  "simrs-gp-keys",
  "simrs-gp-open",
  "simrs-iso7816",
  "simrs-jcre",
+ "simrs-milenage",
+ "simrs-sim",
 ]
 
 [[package]]
