@@ -1,4 +1,8 @@
-#![allow(missing_docs, clippy::missing_const_for_fn, clippy::cast_possible_truncation)]
+#![allow(
+    missing_docs,
+    clippy::missing_const_for_fn,
+    clippy::cast_possible_truncation
+)]
 //! Shared test helpers for the simrs `GlobalPlatform` BDD test suite.
 //!
 //! Provides GP APDU constructors, card factory functions, and response
