@@ -1,0 +1,15 @@
+[package]
+name        = "simrs-jcsl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Oracle Java Card Simulator (jcsl) client, configurator, and process manager"
+publish     = false
+
+[dependencies]
+simrs-transport = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

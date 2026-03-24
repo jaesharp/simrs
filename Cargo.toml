@@ -55,6 +55,7 @@ members = [
     "crates/simrs-ref",
     "tools/simrs-security-tests",
     "tools/simrs-gp-tests",
+    "tools/simrs-jcsl",
 ]
 resolver = "2"
 
