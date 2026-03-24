@@ -66,6 +66,12 @@ const DEFAULT_ISD_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
 /// For now, static zeroes. Real implementations derive this from card data.
 const KEY_DIVERSIFICATION: [u8; 10] = [0x00; 10];
 
+/// Applet dispatch callback type.
+///
+/// Receives `(registry_index, cmd_apdu_bytes, response_buffer)` and returns
+/// the number of response bytes written (including SW1 SW2).
+pub type AppletDispatchFn<'a> = dyn FnMut(u8, &[u8], &mut [u8]) -> usize + 'a;
+
 // ---------------------------------------------------------------------------
 // GpOpen
 // ---------------------------------------------------------------------------
@@ -175,12 +181,31 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
     /// 3. Routes SELECT by AID to the applet registry
     /// 4. Returns the appropriate status word
     ///
-    /// For applet dispatch: since we don't hold trait objects in `no_std`,
-    /// the caller is responsible for forwarding commands to the selected
-    /// applet. Use [`selected_applet_index`](Self::selected_applet_index)
-    /// to determine which applet should receive the command.
+    /// Non-GP, non-SELECT commands return 6D 00 (INS not supported) because
+    /// no applet dispatch callback is provided. Use
+    /// [`handle_with_dispatch`](Self::handle_with_dispatch) to forward
+    /// commands to applet implementations.
     #[allow(clippy::cast_possible_truncation)]
     pub fn handle<'buf>(&mut self, cmd_bytes: &[u8], buf: &'buf mut [u8]) -> &'buf [u8] {
+        self.handle_with_dispatch(cmd_bytes, buf, None)
+    }
+
+    /// Handle an incoming APDU with optional applet dispatch.
+    ///
+    /// When a non-GP, non-SELECT command arrives and an applet is selected
+    /// on the current logical channel, the `dispatch` callback is invoked
+    /// with `(registry_index, cmd_bytes, buf)` and must return the number
+    /// of response bytes written to `buf` (including SW1 SW2).
+    ///
+    /// If no applet is selected or no dispatch callback is provided,
+    /// returns 6D 00 (INS not supported).
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn handle_with_dispatch<'buf>(
+        &mut self,
+        cmd_bytes: &[u8],
+        buf: &'buf mut [u8],
+        mut dispatch: Option<&mut AppletDispatchFn<'_>>,
+    ) -> &'buf [u8] {
         // Parse APDU.
         let Ok(cmd) = Command::parse(cmd_bytes) else {
             return write_sw(buf, StatusWord::WrongLength);
@@ -203,11 +228,18 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             return write_sw(buf, StatusWord::command_not_allowed(0x85));
         }
 
-        // For any other command, we indicate which applet is selected but
-        // cannot dispatch (no trait objects). Return 6D 00 (INS not supported)
-        // to indicate the OPEN doesn't handle this directly.
-        // The integrating layer (e.g. simrs-sim) is responsible for
-        // forwarding to the applet.
+        // Attempt applet dispatch: if an applet is selected on this channel
+        // and a dispatch callback is provided, forward the command.
+        let channel = cmd.cla().channel();
+        if let Some(applet_idx) = self.selected_applet_index(channel) {
+            if let Some(ref mut cb) = dispatch {
+                let n = cb(applet_idx, cmd_bytes, buf);
+                return &buf[..n];
+            }
+        }
+
+        // No applet selected or no dispatch callback: the OPEN cannot
+        // handle this command directly.
         write_sw(buf, StatusWord::InsNotSupported)
     }
 
@@ -869,5 +901,254 @@ mod tests {
         let apdu = [0xA0, 0xA4, 0x00, 0x00];
         let rsp = gp.handle(&apdu, &mut buf);
         assert_eq!(rsp, &[0x6D, 0x00]); // INS not supported
+    }
+
+    // -- Applet dispatch via handle_with_dispatch --
+
+    /// Helper: install an applet and SELECT it on channel 0. Returns the
+    /// registry index.
+    fn install_and_select(gp: &mut GpOpen<8, 2>, aid: &[u8]) -> u8 {
+        let mut buf = [0u8; 256];
+
+        // INSTALL for install & make selectable.
+        let aid_len = aid.len();
+        let lc = 3 + aid_len; // load(0) + module(0) + aid_len(1) + aid
+        let mut install_apdu = [0u8; 32];
+        install_apdu[0] = CLA_GP;
+        install_apdu[1] = INS_INSTALL;
+        install_apdu[2] = 0x0C;
+        install_apdu[3] = 0x00;
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            install_apdu[4] = lc as u8;
+        }
+        install_apdu[5] = 0x00; // load AID len
+        install_apdu[6] = 0x00; // module AID len
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            install_apdu[7] = aid_len as u8;
+        }
+        install_apdu[8..8 + aid_len].copy_from_slice(aid);
+
+        let rsp = gp.handle(&install_apdu[..5 + lc], &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00], "INSTALL should succeed");
+
+        // SELECT by AID on channel 0.
+        let mut select_apdu = [0u8; 32];
+        select_apdu[0] = 0x00; // CLA interindustry, channel 0
+        select_apdu[1] = 0xA4; // INS SELECT
+        select_apdu[2] = 0x04; // P1 = by name
+        select_apdu[3] = 0x00;
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            select_apdu[4] = aid_len as u8;
+        }
+        select_apdu[5..5 + aid_len].copy_from_slice(aid);
+
+        let rsp = gp.handle(&select_apdu[..5 + aid_len], &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00], "SELECT should succeed");
+
+        gp.selected_applet_index(0)
+            .expect("applet should be selected after SELECT")
+    }
+
+    #[test]
+    fn dispatch_forwards_unknown_command_to_applet() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        let expected_idx = install_and_select(&mut gp, &aid);
+
+        // Send a non-GP, non-SELECT interindustry command (READ BINARY).
+        let apdu = [0x00, 0xB0, 0x00, 0x00];
+        let mut called = false;
+        let mut seen_idx = 0u8;
+
+        let rsp = gp.handle_with_dispatch(
+            &apdu,
+            &mut buf,
+            Some(&mut |idx, _cmd, out| {
+                called = true;
+                seen_idx = idx;
+                // Write a fake response: 01 02 90 00
+                out[0] = 0x01;
+                out[1] = 0x02;
+                out[2] = 0x90;
+                out[3] = 0x00;
+                4
+            }),
+        );
+
+        assert!(called, "dispatch callback must be invoked");
+        assert_eq!(seen_idx, expected_idx);
+        assert_eq!(rsp, &[0x01, 0x02, 0x90, 0x00]);
+    }
+
+    #[test]
+    fn dispatch_not_called_when_no_applet_selected() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // No applet selected on channel 0 -- should return INS not supported
+        // even when a dispatch callback is provided.
+        let apdu = [0x00, 0xB0, 0x00, 0x00]; // READ BINARY
+        let mut called = false;
+
+        let rsp = gp.handle_with_dispatch(
+            &apdu,
+            &mut buf,
+            Some(&mut |_idx, _cmd, _out| {
+                called = true;
+                0
+            }),
+        );
+
+        assert!(
+            !called,
+            "dispatch must NOT be called when no applet is selected"
+        );
+        assert_eq!(rsp, &[0x6D, 0x00]); // INS not supported
+    }
+
+    #[test]
+    fn dispatch_none_returns_ins_not_supported_when_applet_selected() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        install_and_select(&mut gp, &aid);
+
+        // Applet is selected but no dispatch callback provided (None).
+        let apdu = [0x00, 0xB0, 0x00, 0x00]; // READ BINARY
+        let rsp = gp.handle_with_dispatch(&apdu, &mut buf, None);
+        assert_eq!(rsp, &[0x6D, 0x00]); // INS not supported
+    }
+
+    #[test]
+    fn gp_commands_handled_by_open_even_with_dispatch() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        install_and_select(&mut gp, &aid);
+
+        let mut called = false;
+
+        // GET STATUS (GP management command) should be handled by GpOpen
+        // and NOT forwarded to the dispatch callback.
+        let apdu = [CLA_GP, INS_GET_STATUS, 0x40, 0x00];
+        let rsp = gp.handle_with_dispatch(
+            &apdu,
+            &mut buf,
+            Some(&mut |_idx, _cmd, _out| {
+                called = true;
+                0
+            }),
+        );
+
+        assert!(
+            !called,
+            "GP management commands must NOT be dispatched to applet"
+        );
+        // GET STATUS P1=0x40 should return the registered applet + SW.
+        let sw = &rsp[rsp.len() - 2..];
+        assert_eq!(sw, &[0x90, 0x00]);
+    }
+
+    #[test]
+    fn select_by_aid_handled_by_open_even_with_dispatch() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        install_and_select(&mut gp, &aid);
+
+        let mut called = false;
+
+        // Interindustry SELECT by AID should be handled by GpOpen registry,
+        // not dispatched to the applet callback.
+        let mut select_apdu = [0u8; 12];
+        select_apdu[0] = 0x00;
+        select_apdu[1] = 0xA4;
+        select_apdu[2] = 0x04;
+        select_apdu[3] = 0x00;
+        select_apdu[4] = 0x07;
+        select_apdu[5..12].copy_from_slice(&DEFAULT_ISD_AID);
+
+        let rsp = gp.handle_with_dispatch(
+            &select_apdu,
+            &mut buf,
+            Some(&mut |_idx, _cmd, _out| {
+                called = true;
+                0
+            }),
+        );
+
+        assert!(!called, "SELECT by AID must NOT be dispatched to applet");
+        assert_eq!(rsp, &[0x90, 0x00]);
+    }
+
+    #[test]
+    fn dispatch_receives_full_apdu_bytes() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        install_and_select(&mut gp, &aid);
+
+        // Send a command with data: 00 B2 01 04 05 <5 bytes data>
+        let apdu = [0x00, 0xB2, 0x01, 0x04, 0x05, 0x11, 0x22, 0x33, 0x44, 0x55];
+        let mut received_cmd: [u8; 32] = [0; 32];
+        let mut received_len = 0usize;
+
+        let _rsp = gp.handle_with_dispatch(
+            &apdu,
+            &mut buf,
+            Some(&mut |_idx, cmd, out| {
+                received_len = cmd.len();
+                received_cmd[..cmd.len()].copy_from_slice(cmd);
+                out[0] = 0x90;
+                out[1] = 0x00;
+                2
+            }),
+        );
+
+        assert_eq!(received_len, apdu.len());
+        assert_eq!(&received_cmd[..received_len], &apdu);
+    }
+
+    #[test]
+    fn terminated_card_rejects_even_with_dispatch() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        install_and_select(&mut gp, &aid);
+
+        // Terminate the card.
+        gp.card_lifecycle = CardLifecycle::Terminated;
+
+        let mut called = false;
+        let apdu = [0x00, 0xB0, 0x00, 0x00];
+        let rsp = gp.handle_with_dispatch(
+            &apdu,
+            &mut buf,
+            Some(&mut |_idx, _cmd, _out| {
+                called = true;
+                0
+            }),
+        );
+
+        assert!(!called, "terminated card must NOT dispatch to applet");
+        assert_eq!(rsp[0], 0x69); // command not allowed
+    }
+
+    #[test]
+    fn handle_delegates_to_handle_with_dispatch_none() {
+        // Verify that handle() still returns INS not supported for unknown
+        // interindustry commands when an applet is selected (backwards compat).
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        install_and_select(&mut gp, &aid);
+
+        let apdu = [0x00, 0xB0, 0x00, 0x00]; // READ BINARY
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp, &[0x6D, 0x00]); // INS not supported (no dispatch)
     }
 }
