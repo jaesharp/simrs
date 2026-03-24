@@ -1,0 +1,333 @@
+//! Applet registry: AID-based lookup and management per GP 2.1.1 Chapter 9.
+//!
+//! The registry stores applet entries, each identified by an AID (Application
+//! Identifier, 5-16 bytes per ISO 7816-4). The ISD (Issuer Security Domain)
+//! is always present at index 0 and is never removed.
+//!
+//! AID matching supports both exact match and partial (prefix) match per
+//! GP 2.1.1 clause 9.3.2: if no exact match is found, the first entry
+//! whose AID is a prefix of the requested AID is returned.
+
+use crate::lifecycle::AppletLifecycle;
+
+/// Maximum AID length per ISO/IEC 7816-4 (16 bytes).
+pub const MAX_AID_LEN: usize = 16;
+
+/// A registered applet entry in the GP registry.
+#[derive(Clone)]
+pub struct AppletEntry {
+    /// Application Identifier (5-16 bytes).
+    aid: [u8; MAX_AID_LEN],
+    /// Effective AID length.
+    aid_len: u8,
+    /// Applet lifecycle state.
+    lifecycle: AppletLifecycle,
+    /// Privilege byte (GP 2.1.1 Table 9-3). Bit 7 = security domain.
+    privileges: u8,
+}
+
+impl AppletEntry {
+    /// Create a new applet entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `aid` is empty or longer than 16 bytes.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn new(aid: &[u8], lifecycle: AppletLifecycle, privileges: u8) -> Self {
+        assert!(
+            !aid.is_empty() && aid.len() <= MAX_AID_LEN,
+            "AID must be 1-16 bytes"
+        );
+        let mut buf = [0u8; MAX_AID_LEN];
+        buf[..aid.len()].copy_from_slice(aid);
+        Self {
+            aid: buf,
+            aid_len: aid.len() as u8,
+            lifecycle,
+            privileges,
+        }
+    }
+
+    /// AID bytes.
+    pub fn aid(&self) -> &[u8] {
+        &self.aid[..self.aid_len as usize]
+    }
+
+    /// Current lifecycle state.
+    pub const fn lifecycle(&self) -> AppletLifecycle {
+        self.lifecycle
+    }
+
+    /// Set the lifecycle state.
+    pub const fn set_lifecycle(&mut self, lc: AppletLifecycle) {
+        self.lifecycle = lc;
+    }
+
+    /// Privilege byte.
+    pub const fn privileges(&self) -> u8 {
+        self.privileges
+    }
+
+    /// Whether this entry is a Security Domain (privilege bit 7).
+    pub const fn is_security_domain(&self) -> bool {
+        self.privileges & 0x80 != 0
+    }
+}
+
+/// Security Domain entry (ISD or supplementary SD).
+#[derive(Clone)]
+pub struct SecurityDomain {
+    /// The SD's own AID.
+    aid: [u8; MAX_AID_LEN],
+    /// Effective AID length.
+    aid_len: u8,
+    /// SD lifecycle (uses `AppletLifecycle` encoding).
+    lifecycle: AppletLifecycle,
+    /// SD privileges.
+    privileges: u8,
+}
+
+impl SecurityDomain {
+    /// Create a new Security Domain entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `aid` is empty or longer than 16 bytes.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn new(aid: &[u8], lifecycle: AppletLifecycle, privileges: u8) -> Self {
+        assert!(
+            !aid.is_empty() && aid.len() <= MAX_AID_LEN,
+            "AID must be 1-16 bytes"
+        );
+        let mut buf = [0u8; MAX_AID_LEN];
+        buf[..aid.len()].copy_from_slice(aid);
+        Self {
+            aid: buf,
+            aid_len: aid.len() as u8,
+            lifecycle,
+            privileges: privileges | 0x80, // bit 7 always set for SDs
+        }
+    }
+
+    /// AID bytes.
+    pub fn aid(&self) -> &[u8] {
+        &self.aid[..self.aid_len as usize]
+    }
+
+    /// Current lifecycle state.
+    pub const fn lifecycle(&self) -> AppletLifecycle {
+        self.lifecycle
+    }
+
+    /// Set the lifecycle state.
+    pub const fn set_lifecycle(&mut self, lc: AppletLifecycle) {
+        self.lifecycle = lc;
+    }
+
+    /// Privilege byte.
+    pub const fn privileges(&self) -> u8 {
+        self.privileges
+    }
+}
+
+/// Check if `candidate` AID matches `requested` AID.
+///
+/// Returns `true` for exact match or if `candidate` is a prefix of `requested`
+/// (partial AID selection per GP 2.1.1 clause 9.3.2).
+pub fn aid_matches(candidate: &[u8], requested: &[u8]) -> bool {
+    if candidate.len() > requested.len() {
+        return false;
+    }
+    candidate == &requested[..candidate.len()]
+}
+
+/// Check if `candidate` AID exactly matches `requested` AID.
+pub fn aid_exact_match(candidate: &[u8], requested: &[u8]) -> bool {
+    candidate == requested
+}
+
+/// Search the registry for a matching AID. Returns the index.
+///
+/// Strategy per GP 2.1.1 clause 9.3.2:
+/// 1. Exact match first.
+/// 2. If no exact match, first prefix match (candidate is prefix of requested).
+///
+/// Only selectable applets are considered.
+pub fn find_by_aid<const N: usize>(
+    registry: &[Option<AppletEntry>; N],
+    requested_aid: &[u8],
+) -> Option<usize> {
+    // First pass: exact match among selectable entries.
+    for (i, entry) in registry.iter().enumerate() {
+        if let Some(e) = entry {
+            if e.lifecycle().is_selectable() && aid_exact_match(e.aid(), requested_aid) {
+                return Some(i);
+            }
+        }
+    }
+    // Second pass: prefix match.
+    for (i, entry) in registry.iter().enumerate() {
+        if let Some(e) = entry {
+            if e.lifecycle().is_selectable() && aid_matches(e.aid(), requested_aid) {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
+/// Find an empty slot in the registry. Returns the index.
+pub fn find_empty_slot<const N: usize>(registry: &[Option<AppletEntry>; N]) -> Option<usize> {
+    registry.iter().position(core::option::Option::is_none)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_entry(aid: &[u8], lifecycle: AppletLifecycle) -> AppletEntry {
+        AppletEntry::new(aid, lifecycle, 0x00)
+    }
+
+    #[test]
+    fn aid_exact_match_found() {
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x03];
+        assert!(aid_exact_match(&aid, &aid));
+    }
+
+    #[test]
+    fn aid_exact_match_not_found() {
+        let a = [0xA0, 0x00, 0x00, 0x00, 0x03];
+        let b = [0xA0, 0x00, 0x00, 0x00, 0x04];
+        assert!(!aid_exact_match(&a, &b));
+    }
+
+    #[test]
+    fn aid_prefix_match() {
+        let prefix = [0xA0, 0x00, 0x00];
+        let full = [0xA0, 0x00, 0x00, 0x01, 0x02];
+        assert!(aid_matches(&prefix, &full));
+    }
+
+    #[test]
+    fn aid_prefix_no_match_when_longer() {
+        let long = [0xA0, 0x00, 0x00, 0x01, 0x02];
+        let short = [0xA0, 0x00, 0x00];
+        assert!(!aid_matches(&long, &short));
+    }
+
+    #[test]
+    fn registry_find_exact_match() {
+        let mut reg: [Option<AppletEntry>; 4] = [const { None }; 4];
+        reg[0] = Some(make_entry(
+            &[0xA0, 0x00, 0x00, 0x00, 0x01],
+            AppletLifecycle::Selectable,
+        ));
+        reg[1] = Some(make_entry(
+            &[0xA0, 0x00, 0x00, 0x00, 0x02],
+            AppletLifecycle::Selectable,
+        ));
+
+        assert_eq!(find_by_aid(&reg, &[0xA0, 0x00, 0x00, 0x00, 0x02]), Some(1));
+    }
+
+    #[test]
+    fn registry_find_prefix_match() {
+        let mut reg: [Option<AppletEntry>; 4] = [const { None }; 4];
+        reg[0] = Some(make_entry(&[0xA0, 0x00, 0x00], AppletLifecycle::Selectable));
+
+        // Requested AID is longer but has the same prefix.
+        assert_eq!(find_by_aid(&reg, &[0xA0, 0x00, 0x00, 0x01, 0x02]), Some(0));
+    }
+
+    #[test]
+    fn registry_exact_preferred_over_prefix() {
+        let mut reg: [Option<AppletEntry>; 4] = [const { None }; 4];
+        // Index 0: prefix match only.
+        reg[0] = Some(make_entry(&[0xA0, 0x00, 0x00], AppletLifecycle::Selectable));
+        // Index 1: exact match.
+        reg[1] = Some(make_entry(
+            &[0xA0, 0x00, 0x00, 0x01, 0x02],
+            AppletLifecycle::Selectable,
+        ));
+
+        assert_eq!(find_by_aid(&reg, &[0xA0, 0x00, 0x00, 0x01, 0x02]), Some(1));
+    }
+
+    #[test]
+    fn registry_ignores_non_selectable() {
+        let mut reg: [Option<AppletEntry>; 4] = [const { None }; 4];
+        reg[0] = Some(make_entry(
+            &[0xA0, 0x00, 0x00, 0x00, 0x01],
+            AppletLifecycle::Installed, // not selectable
+        ));
+        reg[1] = Some(make_entry(
+            &[0xA0, 0x00, 0x00, 0x00, 0x01],
+            AppletLifecycle::Selectable,
+        ));
+
+        assert_eq!(find_by_aid(&reg, &[0xA0, 0x00, 0x00, 0x00, 0x01]), Some(1));
+    }
+
+    #[test]
+    fn registry_find_not_found() {
+        let reg: [Option<AppletEntry>; 4] = [const { None }; 4];
+        assert_eq!(find_by_aid(&reg, &[0xA0, 0x00, 0x00, 0x00, 0x01]), None);
+    }
+
+    #[test]
+    fn find_empty_slot_works() {
+        let mut reg: [Option<AppletEntry>; 4] = [const { None }; 4];
+        reg[0] = Some(make_entry(
+            &[0xA0, 0x00, 0x00, 0x00, 0x01],
+            AppletLifecycle::Selectable,
+        ));
+        assert_eq!(find_empty_slot(&reg), Some(1));
+    }
+
+    #[test]
+    fn find_empty_slot_full() {
+        let mut reg: [Option<AppletEntry>; 2] = [const { None }; 2];
+        reg[0] = Some(make_entry(&[0x01], AppletLifecycle::Selectable));
+        reg[1] = Some(make_entry(&[0x02], AppletLifecycle::Selectable));
+        assert_eq!(find_empty_slot(&reg), None);
+    }
+
+    #[test]
+    fn security_domain_always_has_sd_bit() {
+        let sd = SecurityDomain::new(&[0xA0, 0x00, 0x00], AppletLifecycle::Selectable, 0x00);
+        assert_eq!(sd.privileges() & 0x80, 0x80);
+    }
+
+    #[test]
+    fn applet_entry_is_security_domain() {
+        let app = AppletEntry::new(&[0x01], AppletLifecycle::Selectable, 0x00);
+        assert!(!app.is_security_domain());
+        let sd = AppletEntry::new(&[0x01], AppletLifecycle::Selectable, 0x80);
+        assert!(sd.is_security_domain());
+    }
+
+    #[test]
+    fn personalized_applet_is_selectable() {
+        let mut reg: [Option<AppletEntry>; 4] = [const { None }; 4];
+        reg[0] = Some(make_entry(
+            &[0xA0, 0x00, 0x00, 0x00, 0x01],
+            AppletLifecycle::Personalized,
+        ));
+        assert_eq!(find_by_aid(&reg, &[0xA0, 0x00, 0x00, 0x00, 0x01]), Some(0));
+    }
+
+    #[test]
+    fn locked_applet_not_found() {
+        let mut reg: [Option<AppletEntry>; 4] = [const { None }; 4];
+        reg[0] = Some(make_entry(
+            &[0xA0, 0x00, 0x00, 0x00, 0x01],
+            AppletLifecycle::Locked,
+        ));
+        assert_eq!(find_by_aid(&reg, &[0xA0, 0x00, 0x00, 0x00, 0x01]), None);
+    }
+}

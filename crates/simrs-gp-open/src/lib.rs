@@ -1,0 +1,866 @@
+//! `GlobalPlatform` OPEN runtime and Issuer Security Domain (ISD) per
+//! [GP Card Specification v2.1.1](../../../../telecom-standards/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
+//! Chapters 5-9.
+//!
+//! The GP OPEN is the card manager that dispatches APDUs to on-card applets.
+//! It maintains the applet registry, manages logical channels, enforces
+//! lifecycle state transitions, and handles the GP secure channel protocol.
+//!
+//! # Architecture
+//!
+//! ```text
+//! Terminal --> T=0 --> GpOpen::handle()
+//!                       |
+//!                       +-- GP management commands (CLA 0x80/0x84)
+//!                       |     SELECT, GET STATUS, SET STATUS, MANAGE CHANNEL,
+//!                       |     INITIALIZE UPDATE, EXTERNAL AUTHENTICATE, ...
+//!                       |
+//!                       +-- Applet dispatch (CLA per applet)
+//!                             AID-based SELECT -> Applet::select()
+//!                             All other -> Applet::process()
+//! ```
+//!
+//! # `no_std`
+//! This crate is fully `no_std`. No heap allocation.
+#![no_std]
+#![deny(unsafe_code)]
+#![warn(missing_docs)]
+#![allow(clippy::doc_markdown)]
+
+#[cfg(feature = "std")]
+extern crate std;
+
+pub mod channel;
+pub mod commands;
+pub mod lifecycle;
+pub mod registry;
+pub mod snapshot;
+
+// Re-exports for convenience.
+pub use channel::ChannelState;
+pub use commands::{
+    INS_DELETE, INS_EXTERNAL_AUTHENTICATE, INS_GET_DATA, INS_GET_STATUS, INS_INITIALIZE_UPDATE,
+    INS_INSTALL, INS_LOAD, INS_MANAGE_CHANNEL, INS_PUT_KEY, INS_SET_STATUS, INS_STORE_DATA,
+};
+pub use lifecycle::{AppletLifecycle, CardLifecycle};
+pub use registry::{AppletEntry, SecurityDomain};
+
+use simrs_gp_keys::KeyStore;
+use simrs_gp_scp::{
+    process_external_authenticate, process_initialize_update, ScpState, ScpVersion,
+};
+use simrs_iso7816::{ins, write_data_sw, write_sw, Command, StatusWord};
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/// CLA for GP proprietary commands (no secure messaging).
+const CLA_GP: u8 = 0x80;
+/// CLA for GP proprietary commands (secure messaging / C-MAC).
+const CLA_GP_SM: u8 = 0x84;
+
+/// Default ISD AID per GP 2.1.1: A0 00 00 01 51 00 00.
+const DEFAULT_ISD_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+
+/// Key diversification data (10 bytes) returned during INITIALIZE UPDATE.
+/// For now, static zeroes. Real implementations derive this from card data.
+const KEY_DIVERSIFICATION: [u8; 10] = [0x00; 10];
+
+// ---------------------------------------------------------------------------
+// GpOpen
+// ---------------------------------------------------------------------------
+
+/// The `GlobalPlatform` OPEN runtime and Issuer Security Domain (ISD).
+///
+/// Generic parameters:
+/// - `MAX_APPLETS`: maximum number of registered applets.
+/// - `MAX_SDS`: maximum number of supplementary Security Domains.
+pub struct GpOpen<const MAX_APPLETS: usize, const MAX_SDS: usize> {
+    card_lifecycle: CardLifecycle,
+    isd: SecurityDomain,
+    sds: [Option<SecurityDomain>; MAX_SDS],
+    registry: [Option<AppletEntry>; MAX_APPLETS],
+    channels: [ChannelState; 4],
+    scp_state: ScpState,
+    key_store: KeyStore<4>,
+    sequence_counter: u16,
+    default_selected: Option<u8>,
+}
+
+impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS> {
+    /// Create a new GP OPEN runtime with the default ISD AID.
+    ///
+    /// The card starts in `OpReady` lifecycle. The ISD is always present
+    /// and is the default selected applet on channel 0. The key store
+    /// is initialized with the provided key set at version 0x01.
+    pub fn new(keys: &simrs_gp_keys::KeySet) -> Self {
+        let mut key_store = KeyStore::new();
+        // Ignore store-full error: capacity is 4, we're adding 1.
+        let _ = key_store.put(0x01, keys);
+
+        Self {
+            card_lifecycle: CardLifecycle::OpReady,
+            isd: SecurityDomain::new(&DEFAULT_ISD_AID, AppletLifecycle::Selectable, 0x00),
+            sds: [const { None }; MAX_SDS],
+            registry: [const { None }; MAX_APPLETS],
+            channels: [
+                ChannelState::open_default(), // basic channel always open
+                ChannelState::Closed,
+                ChannelState::Closed,
+                ChannelState::Closed,
+            ],
+            scp_state: ScpState::NoSession,
+            key_store,
+            sequence_counter: 0,
+            default_selected: None,
+        }
+    }
+
+    /// Create with a custom ISD AID.
+    pub fn with_isd_aid(isd_aid: &[u8], keys: &simrs_gp_keys::KeySet) -> Self {
+        let mut gp = Self::new(keys);
+        gp.isd = SecurityDomain::new(isd_aid, AppletLifecycle::Selectable, 0x00);
+        gp
+    }
+
+    /// Current card lifecycle state.
+    pub const fn card_lifecycle(&self) -> CardLifecycle {
+        self.card_lifecycle
+    }
+
+    /// Reference to the ISD.
+    pub const fn isd(&self) -> &SecurityDomain {
+        &self.isd
+    }
+
+    /// Reference to the applet registry.
+    pub const fn registry(&self) -> &[Option<AppletEntry>; MAX_APPLETS] {
+        &self.registry
+    }
+
+    /// Mutable reference to the applet registry.
+    pub const fn registry_mut(&mut self) -> &mut [Option<AppletEntry>; MAX_APPLETS] {
+        &mut self.registry
+    }
+
+    /// Reference to the channel states.
+    pub const fn channels(&self) -> &[ChannelState; 4] {
+        &self.channels
+    }
+
+    /// The SCP session state.
+    pub const fn scp_state(&self) -> &ScpState {
+        &self.scp_state
+    }
+
+    /// SCP02 sequence counter.
+    pub const fn sequence_counter(&self) -> u16 {
+        self.sequence_counter
+    }
+
+    /// Handle an incoming APDU. Returns a slice of `buf` containing the
+    /// response (data + SW1 SW2).
+    ///
+    /// This is the main entry point for APDU processing. It:
+    /// 1. Parses the APDU header
+    /// 2. Routes GP management commands (CLA 0x80/0x84)
+    /// 3. Routes SELECT by AID to the applet registry
+    /// 4. Returns the appropriate status word
+    ///
+    /// For applet dispatch: since we don't hold trait objects in `no_std`,
+    /// the caller is responsible for forwarding commands to the selected
+    /// applet. Use [`selected_applet_index`](Self::selected_applet_index)
+    /// to determine which applet should receive the command.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn handle<'buf>(&mut self, cmd_bytes: &[u8], buf: &'buf mut [u8]) -> &'buf [u8] {
+        // Parse APDU.
+        let Ok(cmd) = Command::parse(cmd_bytes) else {
+            return write_sw(buf, StatusWord::WrongLength);
+        };
+
+        let cla_raw = cmd.cla().raw();
+
+        // GP management commands: CLA = 0x80 or 0x84.
+        if cla_raw == CLA_GP || cla_raw == CLA_GP_SM {
+            return self.handle_gp_command(&cmd, buf);
+        }
+
+        // Interindustry SELECT by name (P1=0x04): dispatch to registry.
+        if cmd.cla().is_interindustry() && cmd.ins() == ins::SELECT && cmd.p1() == 0x04 {
+            return self.handle_select_by_aid(&cmd, buf);
+        }
+
+        // If the card is terminated, reject everything.
+        if self.card_lifecycle == CardLifecycle::Terminated {
+            return write_sw(buf, StatusWord::command_not_allowed(0x85));
+        }
+
+        // For any other command, we indicate which applet is selected but
+        // cannot dispatch (no trait objects). Return 6D 00 (INS not supported)
+        // to indicate the OPEN doesn't handle this directly.
+        // The integrating layer (e.g. simrs-sim) is responsible for
+        // forwarding to the applet.
+        write_sw(buf, StatusWord::InsNotSupported)
+    }
+
+    /// Get the registry index of the applet selected on the given channel.
+    pub const fn selected_applet_index(&self, channel: u8) -> Option<u8> {
+        if (channel as usize) < self.channels.len() {
+            self.channels[channel as usize].selected_applet()
+        } else {
+            None
+        }
+    }
+
+    // -- GP command routing --
+
+    fn handle_gp_command<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
+        match cmd.ins() {
+            ins::SELECT => {
+                if cmd.p1() == 0x04 {
+                    self.handle_select_by_aid(cmd, buf)
+                } else {
+                    write_sw(buf, StatusWord::wrong_params(0x86))
+                }
+            }
+            INS_INITIALIZE_UPDATE => self.handle_initialize_update(cmd, buf),
+            INS_EXTERNAL_AUTHENTICATE => self.handle_external_authenticate(cmd, buf),
+            INS_GET_STATUS => commands::get_status(&self.isd, &self.registry, &self.sds, cmd, buf),
+            INS_SET_STATUS => {
+                let n = commands::set_status(
+                    &mut self.card_lifecycle,
+                    &mut self.isd,
+                    &mut self.registry,
+                    &mut self.sds,
+                    cmd,
+                    buf,
+                );
+                &buf[..n]
+            }
+            INS_MANAGE_CHANNEL => self.handle_manage_channel(cmd, buf),
+            INS_INSTALL => {
+                let n = commands::install(&mut self.registry, cmd, buf);
+                &buf[..n]
+            }
+            INS_DELETE => {
+                let n = commands::delete(&mut self.registry, cmd, buf);
+                &buf[..n]
+            }
+            INS_LOAD => {
+                let n = commands::load_stub(buf);
+                &buf[..n]
+            }
+            INS_GET_DATA => commands::get_data(self.card_lifecycle, cmd, buf),
+            INS_PUT_KEY => {
+                let n = commands::put_key_stub(buf);
+                &buf[..n]
+            }
+            INS_STORE_DATA => {
+                let n = commands::store_data_stub(buf);
+                &buf[..n]
+            }
+            _ => write_sw(buf, StatusWord::InsNotSupported),
+        }
+    }
+
+    // -- SELECT by AID --
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_select_by_aid<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
+        let aid = cmd.data();
+        if aid.is_empty() {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+
+        let channel = cmd.cla().channel();
+
+        // Check if selecting the ISD itself.
+        if registry::aid_matches(self.isd.aid(), aid) {
+            // Deselect current applet on this channel.
+            if (channel as usize) < self.channels.len() {
+                self.channels[channel as usize].deselect();
+            }
+            // ISD is always selected when no applet is selected.
+            return write_sw(buf, StatusWord::Success);
+        }
+
+        // Search registry for matching AID.
+        if let Some(idx) = registry::find_by_aid(&self.registry, aid) {
+            // Deselect current applet on this channel.
+            if (channel as usize) < self.channels.len() {
+                self.channels[channel as usize].select_applet(idx as u8);
+            }
+            return write_sw(buf, StatusWord::Success);
+        }
+
+        // Not found.
+        write_sw(buf, StatusWord::wrong_params(0x82))
+    }
+
+    // -- MANAGE CHANNEL --
+
+    fn handle_manage_channel<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        match channel::manage_channel(&mut self.channels, cmd.p1(), cmd.p2()) {
+            Ok(ch_num) => {
+                if cmd.p1() == channel::MANAGE_CHANNEL_OPEN {
+                    // Return the assigned channel number.
+                    write_data_sw(buf, &[ch_num], StatusWord::Success)
+                } else {
+                    write_sw(buf, StatusWord::Success)
+                }
+            }
+            Err(sw) => write_sw(buf, sw),
+        }
+    }
+
+    // -- SCP: INITIALIZE UPDATE --
+
+    fn handle_initialize_update<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        let data = cmd.data();
+        if data.len() < 8 {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+        let mut host_challenge = [0u8; 8];
+        host_challenge.copy_from_slice(&data[..8]);
+
+        let key_version = cmd.p1();
+
+        // Look up key set.
+        let Some((keys, actual_version)) = self.key_store.get_or_default(key_version) else {
+            return write_sw(buf, StatusWord::wrong_params(0x88));
+        };
+
+        // Generate card challenge. In a real implementation this would be
+        // random. For deterministic testing, derive from sequence counter.
+        let mut card_challenge = [0u8; 8];
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            card_challenge[6] = (self.sequence_counter >> 8) as u8;
+            card_challenge[7] = self.sequence_counter as u8;
+            // SCP02: bytes 2..8 are the card challenge, bytes 0..2 are
+            // sequence counter. We place seq counter in first 2 bytes.
+            card_challenge[0] = (self.sequence_counter >> 8) as u8;
+            card_challenge[1] = self.sequence_counter as u8;
+        }
+
+        let response = process_initialize_update(
+            &mut self.scp_state,
+            ScpVersion::Scp02,
+            actual_version,
+            &host_challenge,
+            keys,
+            &card_challenge,
+            &KEY_DIVERSIFICATION,
+            Some(self.sequence_counter),
+        );
+
+        write_data_sw(buf, &response, StatusWord::Success)
+    }
+
+    // -- SCP: EXTERNAL AUTHENTICATE --
+
+    fn handle_external_authenticate<'buf>(
+        &mut self,
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        let data = cmd.data();
+        if data.len() < 16 {
+            return write_sw(buf, StatusWord::WrongLength);
+        }
+        let mut host_crypto_and_mac = [0u8; 16];
+        host_crypto_and_mac.copy_from_slice(&data[..16]);
+
+        let security_level = cmd.p1();
+
+        match process_external_authenticate(
+            &mut self.scp_state,
+            security_level,
+            &host_crypto_and_mac,
+        ) {
+            Ok(()) => {
+                // Increment sequence counter for next session.
+                self.sequence_counter = self.sequence_counter.wrapping_add(1);
+                write_sw(buf, StatusWord::Success)
+            }
+            Err(simrs_gp_scp::ScpError::InvalidState) => {
+                write_sw(buf, StatusWord::command_not_allowed(0x85))
+            }
+            Err(simrs_gp_scp::ScpError::HostCryptogramMismatch) => {
+                write_sw(buf, StatusWord::command_not_allowed(0x82))
+            }
+            Err(simrs_gp_scp::ScpError::CmacMismatch) => {
+                // 69 88: Incorrect values in command data (SM related).
+                write_sw(buf, StatusWord::CommandNotAllowed(0x88))
+            }
+            Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
+        }
+    }
+
+    // -- Snapshot --
+
+    /// Snapshot size for this `GpOpen` configuration.
+    pub const SNAPSHOT_SIZE: usize = snapshot::snapshot_size(MAX_APPLETS, MAX_SDS);
+
+    /// Save the entire state to `buf`. Returns bytes written, or 0 if
+    /// `buf` is too small.
+    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+        snapshot::save_state(
+            self.card_lifecycle,
+            &self.isd,
+            &self.sds,
+            &self.registry,
+            &self.channels,
+            &self.scp_state,
+            self.sequence_counter,
+            self.default_selected,
+            buf,
+        )
+    }
+
+    /// Restore state from `buf`. Returns `true` on success.
+    pub fn restore_state(&mut self, buf: &[u8]) -> bool {
+        snapshot::restore_state(
+            &mut self.card_lifecycle,
+            &mut self.isd,
+            &mut self.sds,
+            &mut self.registry,
+            &mut self.channels,
+            &mut self.scp_state,
+            &mut self.sequence_counter,
+            &mut self.default_selected,
+            buf,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use simrs_gp_keys::KeySet;
+
+    fn test_keys() -> KeySet {
+        let k = [
+            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D,
+            0x4E, 0x4F,
+        ];
+        KeySet::des3_2key(k, k, k)
+    }
+
+    fn make_gp() -> GpOpen<8, 2> {
+        GpOpen::new(&test_keys())
+    }
+
+    // -- Basic construction --
+
+    #[test]
+    fn new_starts_op_ready() {
+        let gp = make_gp();
+        assert_eq!(gp.card_lifecycle(), CardLifecycle::OpReady);
+    }
+
+    #[test]
+    fn isd_has_default_aid() {
+        let gp = make_gp();
+        assert_eq!(gp.isd().aid(), &DEFAULT_ISD_AID);
+    }
+
+    #[test]
+    fn basic_channel_open_on_init() {
+        let gp = make_gp();
+        assert!(gp.channels()[0].is_open());
+        assert!(!gp.channels()[1].is_open());
+    }
+
+    // -- SELECT by AID --
+
+    #[test]
+    fn select_isd_by_aid() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        // SELECT by AID: 00 A4 04 00 07 <ISD AID>
+        let mut apdu = [0u8; 12];
+        apdu[0] = 0x00; // CLA interindustry
+        apdu[1] = 0xA4; // INS SELECT
+        apdu[2] = 0x04; // P1 = select by name
+        apdu[3] = 0x00; // P2
+        apdu[4] = 0x07; // Lc = 7
+        apdu[5..12].copy_from_slice(&DEFAULT_ISD_AID);
+
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00]);
+    }
+
+    #[test]
+    fn select_registered_applet() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // Register an applet via INSTALL.
+        let app_aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        // INSTALL APDU: 80 E6 0C 00 Lc [load_aid_len=0] [module_aid_len=0] [app_aid_len=6] [app_aid]
+        // APDU: CLA(1) INS(1) P1(1) P2(1) Lc(1) + data(9) = 14 bytes
+        // Data: load_aid_len(1)=0 + module_aid_len(1)=0 + app_aid_len(1)=6 + aid(6) = 9
+        let mut install_apdu = [0u8; 14];
+        install_apdu[0] = CLA_GP;
+        install_apdu[1] = INS_INSTALL;
+        install_apdu[2] = 0x0C; // P1 = install for install & make selectable
+        install_apdu[3] = 0x00;
+        install_apdu[4] = 0x09; // Lc = 9
+        install_apdu[5] = 0x00; // load file AID len = 0
+        install_apdu[6] = 0x00; // module AID len = 0
+        install_apdu[7] = 0x06; // app AID len = 6
+        install_apdu[8..14].copy_from_slice(&app_aid);
+
+        let rsp = gp.handle(&install_apdu, &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00], "INSTALL should succeed");
+
+        // Now SELECT by AID.
+        let mut select_apdu = [0u8; 11];
+        select_apdu[0] = 0x00;
+        select_apdu[1] = 0xA4;
+        select_apdu[2] = 0x04;
+        select_apdu[3] = 0x00;
+        select_apdu[4] = 0x06;
+        select_apdu[5..11].copy_from_slice(&app_aid);
+
+        let rsp = gp.handle(&select_apdu, &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00], "SELECT by AID should succeed");
+
+        // Verify the applet is selected on channel 0.
+        assert!(gp.selected_applet_index(0).is_some());
+    }
+
+    #[test]
+    fn select_unknown_aid_returns_not_found() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        let apdu = [0x00, 0xA4, 0x04, 0x00, 0x05, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp, &[0x6A, 0x82]); // file/app not found
+    }
+
+    // -- MANAGE CHANNEL --
+
+    #[test]
+    fn manage_channel_open_close() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // Open channel: 80 70 00 00
+        let open = [CLA_GP, INS_MANAGE_CHANNEL, 0x00, 0x00];
+        let rsp = gp.handle(&open, &mut buf);
+        // Response: channel number + 90 00
+        assert_eq!(rsp.len(), 3);
+        assert_eq!(rsp[0], 0x01); // channel 1
+        assert_eq!(&rsp[1..], &[0x90, 0x00]);
+        assert!(gp.channels()[1].is_open());
+
+        // Close channel 1: 80 70 80 01
+        let close = [CLA_GP, INS_MANAGE_CHANNEL, 0x80, 0x01];
+        let rsp = gp.handle(&close, &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00]);
+        assert!(!gp.channels()[1].is_open());
+    }
+
+    #[test]
+    fn manage_channel_close_basic_fails() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        let close_basic = [CLA_GP, INS_MANAGE_CHANNEL, 0x80, 0x00];
+        let rsp = gp.handle(&close_basic, &mut buf);
+        // Should fail: can't close basic channel.
+        assert_eq!(rsp[0], 0x69); // command not allowed
+    }
+
+    // -- GET STATUS --
+
+    #[test]
+    fn get_status_isd() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // GET STATUS P1=0x80 (ISD): 80 F2 80 00
+        let apdu = [CLA_GP, INS_GET_STATUS, 0x80, 0x00];
+        let rsp = gp.handle(&apdu, &mut buf);
+
+        // Response: AID_len(1) + AID(7) + lifecycle(1) + privileges(1) + SW(2) = 12
+        assert_eq!(rsp.len(), 12);
+        assert_eq!(rsp[0], 7); // AID length
+        assert_eq!(&rsp[1..8], &DEFAULT_ISD_AID);
+        assert_eq!(rsp[8], AppletLifecycle::Selectable.to_byte()); // lifecycle
+        assert_eq!(&rsp[10..12], &[0x90, 0x00]); // SW
+    }
+
+    #[test]
+    fn get_status_apps_empty() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // GET STATUS P1=0x40 (apps): 80 F2 40 00
+        let apdu = [CLA_GP, INS_GET_STATUS, 0x40, 0x00];
+        let rsp = gp.handle(&apdu, &mut buf);
+
+        // No apps registered, should be just SW.
+        assert_eq!(rsp, &[0x90, 0x00]);
+    }
+
+    // -- SET STATUS --
+
+    #[test]
+    fn set_status_card_lifecycle_transitions() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // OP_READY -> INITIALIZED
+        let apdu = [
+            CLA_GP,
+            INS_SET_STATUS,
+            0x80,
+            CardLifecycle::Initialized.to_byte(),
+        ];
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00]);
+        assert_eq!(gp.card_lifecycle(), CardLifecycle::Initialized);
+
+        // INITIALIZED -> SECURED
+        let apdu = [
+            CLA_GP,
+            INS_SET_STATUS,
+            0x80,
+            CardLifecycle::Secured.to_byte(),
+        ];
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00]);
+        assert_eq!(gp.card_lifecycle(), CardLifecycle::Secured);
+    }
+
+    #[test]
+    fn set_status_invalid_card_transition() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // OP_READY -> SECURED (skip INITIALIZED) should fail.
+        let apdu = [
+            CLA_GP,
+            INS_SET_STATUS,
+            0x80,
+            CardLifecycle::Secured.to_byte(),
+        ];
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp[0], 0x69); // command not allowed
+        assert_eq!(gp.card_lifecycle(), CardLifecycle::OpReady);
+    }
+
+    // -- SCP delegation --
+
+    #[test]
+    fn initialize_update_returns_28_bytes() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // INITIALIZE UPDATE: 80 50 00 00 08 <host_challenge[8]>
+        let mut apdu = [0u8; 13];
+        apdu[0] = CLA_GP;
+        apdu[1] = INS_INITIALIZE_UPDATE;
+        apdu[2] = 0x00; // P1 = key version 0 (any)
+        apdu[3] = 0x00;
+        apdu[4] = 0x08; // Lc
+        apdu[5..13].copy_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+
+        let rsp = gp.handle(&apdu, &mut buf);
+        // Response: 28 data bytes + SW(2) = 30
+        assert_eq!(rsp.len(), 30);
+        assert_eq!(&rsp[28..30], &[0x90, 0x00]);
+
+        // Verify SCP state is now InitUpdateDone.
+        assert!(matches!(gp.scp_state(), ScpState::InitUpdateDone { .. }));
+    }
+
+    #[test]
+    fn external_authenticate_without_init_update_fails() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // EXTERNAL AUTHENTICATE without prior INITIALIZE UPDATE.
+        let mut apdu = [0u8; 21];
+        apdu[0] = CLA_GP_SM;
+        apdu[1] = INS_EXTERNAL_AUTHENTICATE;
+        apdu[2] = 0x00; // security level
+        apdu[3] = 0x00;
+        apdu[4] = 0x10; // Lc = 16
+                        // 16 bytes of data (host cryptogram + MAC)
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp[0], 0x69); // command not allowed
+    }
+
+    // -- GET DATA --
+
+    #[test]
+    fn get_data_card_recognition() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // GET DATA tag 0066: 80 CA 00 66
+        let apdu = [CLA_GP, INS_GET_DATA, 0x00, 0x66];
+        let rsp = gp.handle(&apdu, &mut buf);
+        // Should return card recognition data + SW.
+        assert!(rsp.len() > 2);
+        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00]);
+        // First byte should be tag 0x66.
+        assert_eq!(rsp[0], 0x66);
+    }
+
+    #[test]
+    fn get_data_unknown_tag() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        let apdu = [CLA_GP, INS_GET_DATA, 0xFF, 0xFF];
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp, &[0x6A, 0x88]); // reference data not found
+    }
+
+    // -- DELETE --
+
+    #[test]
+    fn delete_registered_applet() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // First install an applet.
+        let app_aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        let mut install_apdu = [0u8; 14];
+        install_apdu[0] = CLA_GP;
+        install_apdu[1] = INS_INSTALL;
+        install_apdu[2] = 0x0C;
+        install_apdu[3] = 0x00;
+        install_apdu[4] = 9;
+        install_apdu[5] = 0x00; // load AID len
+        install_apdu[6] = 0x00; // module AID len
+        install_apdu[7] = 0x06; // app AID len
+        install_apdu[8..14].copy_from_slice(&app_aid);
+
+        let rsp = gp.handle(&install_apdu, &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00]);
+
+        // Verify it's registered.
+        assert!(registry::find_by_aid(&gp.registry, &app_aid).is_some());
+
+        // DELETE: 80 E4 00 00 08 4F 06 <AID>
+        let mut delete_apdu = [0u8; 13];
+        delete_apdu[0] = CLA_GP;
+        delete_apdu[1] = INS_DELETE;
+        delete_apdu[2] = 0x00;
+        delete_apdu[3] = 0x00;
+        delete_apdu[4] = 0x08; // Lc
+        delete_apdu[5] = 0x4F; // tag
+        delete_apdu[6] = 0x06; // AID length
+        delete_apdu[7..13].copy_from_slice(&app_aid);
+
+        let rsp = gp.handle(&delete_apdu, &mut buf);
+        assert_eq!(rsp, &[0x90, 0x00]);
+
+        // Verify it's gone.
+        assert!(registry::find_by_aid(&gp.registry, &app_aid).is_none());
+    }
+
+    // -- Snapshot --
+
+    #[test]
+    #[allow(clippy::large_stack_arrays)]
+    fn snapshot_roundtrip() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // Install an applet.
+        let app_aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01];
+        let mut install_apdu = [0u8; 14];
+        install_apdu[0] = CLA_GP;
+        install_apdu[1] = INS_INSTALL;
+        install_apdu[2] = 0x0C;
+        install_apdu[3] = 0x00;
+        install_apdu[4] = 9;
+        install_apdu[5] = 0x00;
+        install_apdu[6] = 0x00;
+        install_apdu[7] = 0x06;
+        install_apdu[8..14].copy_from_slice(&app_aid);
+        gp.handle(&install_apdu, &mut buf);
+
+        // Transition card lifecycle.
+        let apdu = [
+            CLA_GP,
+            INS_SET_STATUS,
+            0x80,
+            CardLifecycle::Initialized.to_byte(),
+        ];
+        gp.handle(&apdu, &mut buf);
+
+        // Save state.
+        let mut snap_buf = [0u8; GpOpen::<8, 2>::SNAPSHOT_SIZE];
+        let written = gp.save_state(&mut snap_buf);
+        assert!(written > 0, "snapshot should write bytes");
+
+        // Restore into a fresh instance.
+        let mut gp2: GpOpen<8, 2> = GpOpen::new(&test_keys());
+        assert!(gp2.restore_state(&snap_buf[..written]));
+
+        // Verify restored state.
+        assert_eq!(gp2.card_lifecycle(), CardLifecycle::Initialized);
+        assert!(registry::find_by_aid(gp2.registry(), &app_aid).is_some());
+    }
+
+    #[test]
+    fn snapshot_small_buffer_returns_zero() {
+        let gp = make_gp();
+        let mut small = [0u8; 2];
+        assert_eq!(gp.save_state(&mut small), 0);
+    }
+
+    #[test]
+    fn snapshot_invalid_data_returns_false() {
+        let mut gp = make_gp();
+        assert!(!gp.restore_state(&[]));
+    }
+
+    // -- Terminated card rejects commands --
+
+    #[test]
+    fn terminated_card_rejects_interindustry() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+
+        // Terminate the card through lifecycle transitions.
+        gp.card_lifecycle = CardLifecycle::Terminated;
+
+        // Any interindustry command should be rejected.
+        let apdu = [0x00, 0xB0, 0x00, 0x00]; // READ BINARY
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp[0], 0x69); // command not allowed
+    }
+
+    // -- CLA routing --
+
+    #[test]
+    fn unknown_cla_returns_ins_not_supported() {
+        let mut gp = make_gp();
+        let mut buf = [0u8; 256];
+        // CLA 0xA0 (GSM proprietary) -- not GP and not interindustry with SELECT by AID.
+        let apdu = [0xA0, 0xA4, 0x00, 0x00];
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(rsp, &[0x6D, 0x00]); // INS not supported
+    }
+}

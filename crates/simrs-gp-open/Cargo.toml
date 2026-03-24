@@ -1,0 +1,26 @@
+[package]
+name        = "simrs-gp-open"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GlobalPlatform OPEN runtime and Issuer Security Domain -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-iso7816  = { workspace = true }
+simrs-bertlv   = { workspace = true }
+simrs-gp-scp   = { workspace = true }
+simrs-gp-keys  = { workspace = true }
+simrs-jcre     = { workspace = true }
+simrs-pin      = { workspace = true }
+simrs-consttime = { workspace = true }
+simrs-secret   = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

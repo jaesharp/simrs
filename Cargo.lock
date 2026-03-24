@@ -1533,6 +1533,21 @@ name = "simrs-gp-keys"
 version = "0.1.0"
 
 [[package]]
+name = "simrs-gp-open"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-bertlv",
+ "simrs-consttime",
+ "simrs-gp-keys",
+ "simrs-gp-scp",
+ "simrs-iso7816",
+ "simrs-jcre",
+ "simrs-pin",
+ "simrs-secret",
+]
+
+[[package]]
 name = "simrs-gp-scp"
 version = "0.1.0"
 dependencies = [
