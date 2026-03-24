@@ -1452,6 +1452,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-card-api"
+version = "0.1.0"
+dependencies = [
+ "simrs-iso7816",
+]
+
+[[package]]
 name = "simrs-comp128"
 version = "0.1.0"
 dependencies = [
@@ -1533,6 +1540,7 @@ name = "simrs-gp-card"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "simrs-card-api",
  "simrs-gp-keys",
  "simrs-gp-open",
  "simrs-iso7816",
@@ -1853,6 +1861,7 @@ name = "simrs-sim"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "simrs-card-api",
  "simrs-fs",
  "simrs-gsm",
  "simrs-iso7816",

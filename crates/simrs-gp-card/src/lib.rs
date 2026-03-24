@@ -16,11 +16,9 @@
 //!
 //! # Event/Response types
 //!
-//! This crate defines [`SimEvent`] and [`SimResponse`] locally with the same
-//! layout as `simrs_sim::SimEvent` / `simrs_sim::SimResponse`. This avoids
-//! pulling in the heavy SIM/USIM dependency chain (simrs-fs, simrs-pin,
-//! simrs-milenage) that simrs-sim requires. A future unification pass can
-//! extract these types into a shared `simrs-card-api` crate.
+//! Uses [`SimEvent`] and [`SimResponse`] from `simrs-card-api`, shared with
+//! `simrs-sim`. Both card types use the same event/response types so they
+//! integrate with the same infrastructure (HLE, interposer, fuzzer, QEMU).
 //!
 //! # `no_std`
 //! This crate is fully `no_std`. No heap allocation.
@@ -32,64 +30,11 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+pub use simrs_card_api::{CardState, SimEvent, SimResponse};
+
 use simrs_gp_keys::KeySet;
 use simrs_gp_open::GpOpen;
 use simrs_iso7816::StatusWord;
-
-// ---------------------------------------------------------------------------
-// SimEvent / SimResponse (compatible with simrs-sim)
-// ---------------------------------------------------------------------------
-
-/// An event delivered to the card.
-///
-/// This is layout-compatible with `simrs_sim::SimEvent`. Defined locally to
-/// avoid a dependency on simrs-sim's SIM/USIM dependency chain.
-#[derive(Debug, Clone, Copy)]
-pub enum SimEvent<'a> {
-    /// Card power-on (cold reset). Returns ATR.
-    PowerOn,
-    /// Warm reset. Returns ATR.
-    Reset,
-    /// Card deactivation. Returns `Ignored`.
-    PowerOff,
-    /// APDU command (raw bytes, at least 4 for CLA INS P1 P2).
-    Apdu(&'a [u8]),
-    /// Advance timers by `elapsed_secs`. Returns `Ignored`.
-    Tick(u32),
-}
-
-/// A response produced by the card.
-///
-/// This is layout-compatible with `simrs_sim::SimResponse`. Defined locally to
-/// avoid a dependency on simrs-sim's SIM/USIM dependency chain.
-#[derive(Debug)]
-#[must_use]
-pub enum SimResponse<'a> {
-    /// Answer To Reset bytes.
-    Atr(&'a [u8]),
-    /// APDU response: data (may be empty) + status word.
-    Apdu {
-        /// Response data (empty for SW-only responses).
-        data: &'a [u8],
-        /// Status word (2 bytes).
-        sw: StatusWord,
-    },
-    /// Event was ignored (card not powered on, malformed APDU, etc.).
-    Ignored,
-}
-
-// ---------------------------------------------------------------------------
-// Card state
-// ---------------------------------------------------------------------------
-
-/// Internal card power state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CardState {
-    /// Card is not powered.
-    Off,
-    /// Card is powered and ready for APDU exchange.
-    Ready,
-}
 
 // ---------------------------------------------------------------------------
 // Default ATR

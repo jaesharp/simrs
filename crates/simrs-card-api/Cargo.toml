@@ -1,0 +1,16 @@
+[package]
+name        = "simrs-card-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared card event/response types for SIM and GlobalPlatform cards -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-iso7816 = { workspace = true }
+
+[lints]
+workspace = true

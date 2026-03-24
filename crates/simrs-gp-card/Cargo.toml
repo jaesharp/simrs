@@ -10,6 +10,7 @@ default = []
 std     = []
 
 [dependencies]
+simrs-card-api = { workspace = true }
 simrs-gp-open  = { workspace = true }
 simrs-gp-keys  = { workspace = true }
 simrs-iso7816  = { workspace = true }

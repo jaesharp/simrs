@@ -69,6 +69,10 @@
 // Many 3GPP terms used in docs (CLA, USIM, ATR, etc.)
 #![allow(clippy::doc_markdown)]
 
+pub use simrs_card_api::{
+    standard_reset_policy, CardState, ResetEffects, ResetKind, SimEvent, SimResponse,
+};
+
 #[cfg(not(any(feature = "gsm", feature = "usim")))]
 use simrs_fs::DfDef;
 #[cfg(feature = "gsm")]
@@ -77,85 +81,6 @@ use simrs_iso7816::{write_sw, Command, StatusWord};
 use simrs_milenage::{AuthenticationAlgorithm, MilenageParams};
 #[cfg(feature = "usim")]
 use simrs_usim::UsimApp;
-
-// ---------------------------------------------------------------------------
-// Lifecycle policy
-// ---------------------------------------------------------------------------
-
-/// Distinguishes cold reset (power-on) from warm reset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResetKind {
-    /// Cold reset -- card was powered on from the Off state, or the host
-    /// issued a full power cycle.
-    Cold,
-    /// Warm reset -- RST line asserted while Vcc remains applied.
-    Warm,
-}
-
-/// Per-subsystem flags controlling what session state is cleared on reset.
-///
-/// Each flag corresponds to a discrete piece of session state. A value of
-/// `true` means the subsystem is cleared; `false` preserves it across the
-/// reset boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct ResetEffects {
-    /// Clear PIN/PUK verified flags (re-verification required).
-    pub clear_pin_verified: bool,
-    /// Clear the GET RESPONSE queue (no stale data from prior session).
-    pub clear_response_queue: bool,
-    /// Reset file selection context (MF implicitly selected).
-    pub clear_file_selection: bool,
-    /// Close supplementary logical channels 1-3.
-    ///
-    /// USIM-specific; has no effect when only the `gsm` feature is enabled.
-    pub clear_logical_channels: bool,
-    /// Reset the proactive (STK) session and terminal capability.
-    ///
-    /// USIM-specific; has no effect when only the `gsm` feature is enabled.
-    pub clear_proactive_session: bool,
-    /// Clear the last AID match flag.
-    ///
-    /// USIM-specific; has no effect when only the `gsm` feature is enabled.
-    pub clear_last_aid_match: bool,
-}
-
-impl ResetEffects {
-    /// All subsystems cleared -- matches [ETSI TS 102 221 V18.3.0 clause 6.5](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A211%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C582%5D) reset procedures.
-    pub const fn all() -> Self {
-        Self {
-            clear_pin_verified: true,
-            clear_response_queue: true,
-            clear_file_selection: true,
-            clear_logical_channels: true,
-            clear_proactive_session: true,
-            clear_last_aid_match: true,
-        }
-    }
-
-    /// No subsystems cleared -- everything preserved across reset.
-    pub const fn none() -> Self {
-        Self {
-            clear_pin_verified: false,
-            clear_response_queue: false,
-            clear_file_selection: false,
-            clear_logical_channels: false,
-            clear_proactive_session: false,
-            clear_last_aid_match: false,
-        }
-    }
-}
-
-/// Standard reset policy: clear all session state on both cold and warm
-/// reset. This is the default used by [`Sim::new`] and matches ETSI TS
-/// 102 221 V18.3.0 clause 6.5 (reset procedures).
-///
-/// Both cold and warm resets clear all session state identically.
-/// Custom policies may differentiate by matching on `kind` -- pass a
-/// custom `fn(ResetKind) -> ResetEffects` to [`Sim::with_reset_policy`].
-pub const fn standard_reset_policy(_kind: ResetKind) -> ResetEffects {
-    ResetEffects::all()
-}
 
 // ---------------------------------------------------------------------------
 // Snapshot format header
@@ -260,74 +185,8 @@ const fn classify_cla(cla: u8) -> ClaFamily {
 /// Raw GSM CLA value for classification (always needed, not feature-gated).
 const CLA_GSM_RAW: u8 = 0xA0;
 
-// ---------------------------------------------------------------------------
-// SimEvent / SimResponse
-// ---------------------------------------------------------------------------
-
-/// An event delivered to the SIM card.
-///
-/// Per ISO/IEC 7816-3, the card lifecycle is:
-/// 1. `PowerOn` -- card activation, returns ATR
-/// 2. `Apdu` -- command exchange (repeats)
-/// 3. `Reset` -- warm reset, returns ATR
-/// 4. `PowerOff` -- card deactivation, returns `Ignored`
-///
-/// `PowerOn` and `Reset` invoke the configured reset policy to determine
-/// which session state is cleared. See [`Sim::with_reset_policy`] and
-/// [`ResetEffects`].
-///
-/// The `Tick` variant is an extension for advancing UICC-side timers
-/// (per [ETSI TS 102 223 V18.2.0 clause 6.6.21](../../../docs/specs/etsi/ts-102-223/ts_102223v180200p.pdf#%5B%7B%22num%22%3A232%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C199%5D)). Since `no_std` has no clock,
-/// the caller supplies elapsed seconds.
-#[derive(Debug, Clone, Copy)]
-pub enum SimEvent<'a> {
-    /// Card power-on (cold reset). Returns ATR.
-    PowerOn,
-    /// Warm reset. Returns ATR.
-    Reset,
-    /// Card deactivation. Returns `Ignored`.
-    ///
-    /// After `PowerOff`, subsequent APDUs return `Ignored` until the
-    /// next `PowerOn`.
-    PowerOff,
-    /// APDU command (raw bytes, at least 4 for CLA INS P1 P2).
-    Apdu(&'a [u8]),
-    /// Advance UICC-side proactive timers by `elapsed_secs`.
-    ///
-    /// Returns `Ignored` (timers are internal state). Check for expired
-    /// timers via `usim_app_mut().proactive_state().take_expired_timer()`.
-    Tick(u32),
-}
-
-/// A response produced by the SIM card.
-#[derive(Debug)]
-#[must_use]
-pub enum SimResponse<'a> {
-    /// Answer To Reset bytes.
-    Atr(&'a [u8]),
-    /// APDU response: data (may be empty) + status word.
-    Apdu {
-        /// Response data (empty for SW-only responses).
-        data: &'a [u8],
-        /// Status word (2 bytes).
-        sw: StatusWord,
-    },
-    /// Event was ignored (malformed APDU, card not powered on, etc.).
-    Ignored,
-}
-
-// ---------------------------------------------------------------------------
-// Card state
-// ---------------------------------------------------------------------------
-
-/// Internal card power state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CardState {
-    /// Card is not powered.
-    Off,
-    /// Card is powered and ready for APDU exchange.
-    Ready,
-}
+// SimEvent, SimResponse, and CardState are re-exported from simrs_card_api
+// at the top of this file.
 
 // ---------------------------------------------------------------------------
 // Sim

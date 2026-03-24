@@ -11,6 +11,7 @@ gsm     = ["dep:simrs-gsm"]
 usim    = ["dep:simrs-usim"]
 
 [dependencies]
+simrs-card-api = { workspace = true }
 simrs-iso7816  = { workspace = true }
 simrs-fs       = { workspace = true }
 simrs-pin      = { workspace = true }

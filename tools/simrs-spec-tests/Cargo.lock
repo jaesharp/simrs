@@ -757,6 +757,13 @@ name = "simrs-bertlv"
 version = "0.1.0"
 
 [[package]]
+name = "simrs-card-api"
+version = "0.1.0"
+dependencies = [
+ "simrs-iso7816",
+]
+
+[[package]]
 name = "simrs-comp128"
 version = "0.1.0"
 dependencies = [
@@ -874,6 +881,7 @@ version = "0.1.0"
 name = "simrs-sim"
 version = "0.1.0"
 dependencies = [
+ "simrs-card-api",
  "simrs-fs",
  "simrs-gsm",
  "simrs-iso7816",
