@@ -87,6 +87,52 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 | GSM 11.11 (ETS 300 608) | ME-SIM interface | v4.21.1 | [gsm](../../crates/simrs-gsm/) |
 | 3GPP TS 51.011 | SIM-ME interface (successor) | V4.15.0 | [gsm](../../crates/simrs-gsm/) |
 
+## GlobalPlatform Card Specifications
+
+| Spec | Title | Version | Ref | simrs Crate |
+|------|-------|---------|-----|-------------|
+| GP Card Specification | Card Management, OPEN, Security Domains | v2.1.1 | GPC_SPE_006 | gp-open, gp-scp, gp-keys |
+| GP Card Specification | (intermediate) | v2.2, v2.2.1 | -- | gp-open (reference) |
+| GP Card Specification | Current CC-certified | v2.3.1 | GPC_SPE_034 | gp-scp (SCP03 forward compat) |
+| GP Amendment A | Confidential Card Content Management | v1.2 | GPC_SPE_007 | gp-open (DAP) |
+| GP Amendment B | Remote Application Management over HTTP | v1.1.3 | GPC_SPE_011 | (future) |
+| GP Amendment C | Contactless Services | v1.2 | GPC_SPE_025 | gp-card (JCOP21+) |
+| GP Amendment D | Secure Channel Protocol 03 | v1.1.2 | GPC_SPE_014 | gp-scp |
+| GP Amendment E | Security Upgrade (ECC/RSA) | v1.1 | GPC_SPE_042 | gp-scp (re-integrated into GPCS) |
+| GP SE Access Control | Secure Element Access Control | v1.1 | GPD_SPE_013 | gp-card (Android HCE) |
+
+## JavaCard Platform Specifications
+
+| Spec | Title | Version | simrs Crate | Notes |
+|------|-------|---------|-------------|-------|
+| JC Virtual Machine Spec | Bytecode set, CAP format, type system | 2.1.1 | jcvm | JCOP target spec |
+| JC Runtime Environment Spec | Applet lifecycle, firewall, transactions | 2.1.1 | jcre | JCOP target spec |
+| JC API | Framework classes, crypto API | 2.1.1 | jcre | JCOP target spec |
+| JC VM Spec | (many applets target this) | 2.2.2 | jcvm (reference) | Extended int support |
+| JC VM Spec + RE Spec | (current classic) | 3.0.5 | jcvm, jcre (reference) | Normative clarity |
+| JC VM Spec + RE Spec | (latest free) | 3.1, 3.2 | jcvm, jcre (reference) | Best normative source |
+
+## IBM JCOP Product Documentation
+
+| Document | Variants | simrs Crate | Notes |
+|----------|----------|-------------|-------|
+| JCOP Family Overview | All | jcop-profile | JCOP10/20/21/21id/31bio specs |
+| JCOP10 Technical Brief | JCOP10 | jcop-profile | 8KB EEPROM, SCP01, RSA-1024 |
+| JCOP20 Technical Brief | JCOP20 | jcop-profile | 16KB, SCP02, RSA-2048 |
+
+## EMV Specifications
+
+| Spec | Title | Version | simrs Crate | Notes |
+|------|-------|---------|-------------|-------|
+| EMV Book 1 | ICC to Terminal Interface | v4.3 | -- | Physical interface (existing simrs-t0) |
+| EMV Book 2 | Security and Key Management | v4.3 | rsa, sha1 | RSA, SHA-1 for EMV applet |
+| EMV Book 3 | Application Specification | v4.3 | gp-applet-emv | Core EMV application logic |
+| EMV Book 4 | Other Interfaces | v4.3 | gp-applet-emv | Cardholder/attendant interface |
+| EMV Contactless Book A | Architecture | -- | (future) | Contactless EMV overview |
+| EMV Contactless Book B | Entry Point | -- | (future) | ISO 14443 entry point |
+| EMV Contactless Book C-2 | Kernel 2 (MasterCard) | -- | (future) | Scheme-specific kernel |
+| EMV Contactless Book D | Communication Protocol | -- | (future) | ISO 14443-4 APDU mapping |
+
 ---
 
 ## Revision Decision: Which Releases to Target

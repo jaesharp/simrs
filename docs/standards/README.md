@@ -13,6 +13,7 @@ Colours follow the [Diagram Style Guide](../DIAGRAM_STYLE_GUIDE.md).
 | [Filesystem & Data Lifecycle](03-filesystem.md) | EF catalog (LTE + 5G), data structures, APDU sequences |
 | [Proactive UICC & SIM Toolkit](04-proactive.md) | CAT/USAT commands, FETCH, OTA, event downloads |
 | [Crate Impact Analysis](05-crate-impact.md) | What each standard means for simrs crate public API |
+| [GlobalPlatform & JavaCard](06-globalplatform.md) | GP card management, SCP01/SCP02/SCP03, JCVM bytecodes, JCRE runtime, JCOP profiles |
 
 ## Standards-to-Crate Map
 

@@ -1,7 +1,7 @@
 # simrs Crate Index
 
 > 38 crates, 1746 tests, zero clippy/doc warnings. Pure `no_std` (where marked). Zero external runtime dependencies.
-> Pure Rust SIM/USIM card simulator for bare-metal simulation and Shannon baseband fuzzing.
+> Pure Rust SIM/USIM card simulator and GlobalPlatform/JavaCard card OS for bare-metal simulation, JCOP emulation, and Shannon baseband fuzzing.
 >
 > Colours follow the [Diagram Style Guide](docs/DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
 
@@ -242,6 +242,19 @@ graph TB
 | TCA eUICC Profile Package v3.3.1 | [profile](crates/simrs-profile/) | Profile Element parsing, DER-to-filesystem |
 | GSMA SGP.22 v2.6 | [profile](crates/simrs-profile/) | UPP format reference |
 | GSMA TS.48 v1.0 | [profile](crates/simrs-profile/) | Generic test profile fixtures |
+| GP Card Spec v2.1.1 (GPC_SPE_006) | gp-open, gp-scp, gp-keys | Card Manager, OPEN, SCP01/SCP02 (planned) |
+| GP Card Spec v2.3.1 (GPC_SPE_034) | gp-scp | SCP03 forward compatibility (planned) |
+| GP Amendment A v1.2 (GPC_SPE_007) | gp-open | DAP verification, delegated management (planned) |
+| GP Amendment D v1.1.2 (GPC_SPE_014) | gp-scp | SCP03 AES-CMAC secure channel (planned) |
+| JavaCard VM Spec 2.1.1 | jcvm | ~185 bytecodes, CAP format, type system (planned) |
+| JavaCard RE Spec 2.1.1 | jcre | Applet lifecycle, firewall, transactions (planned) |
+| JavaCard API 2.1.1 | jcre | Framework classes, crypto API (planned) |
+| NIST FIPS 180-1 | sha1 | SHA-1 hash (planned) |
+| RFC 1321 | md5 | MD5 hash (planned) |
+| PKCS#1 / RFC 2437 | rsa | RSA 512-2048 (planned) |
+| ISO 9797-1 | iso9797 | DES/AES CBC-MAC (planned) |
+| EMV v4.3 Books 1-4 | gp-applet-emv | Payment application (planned) |
+| IBM JCOP Family | jcop-profile | JCOP10-31bio variant profiles (planned) |
 
 ## Further Reading
 

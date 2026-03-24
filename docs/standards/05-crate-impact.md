@@ -111,6 +111,38 @@ Note: many proactive commands are already implemented (DISPLAY TEXT, GET INPUT, 
 | -- | simrs-kdf | HMAC-SHA-256 KDF for ME-side derivation (KASME, KAUSF, KSEAF, KAMF, KgNB) | Done |
 | -- | simrs-ecies | ECIES Profiles A + B for SUCI computation (X25519/P-256 + AES-128-CTR) | Done |
 
+## GlobalPlatform / JavaCard Impact
+
+New crates planned for the GP/JavaCard card OS extension (JCOP10-31bio):
+
+| Crate | Layer | `no_std` | GP Impact | Primary Spec |
+|-------|-------|----------|-----------|-------------|
+| simrs-sha1 | Foundation | yes | SHA-1 for SCP01/SCP02 key derivation, Data Block Hash | FIPS 180-1 |
+| simrs-md5 | Foundation | yes | MD5 for JCVM crypto API (JC MessageDigest) | RFC 1321 |
+| simrs-rsa | Foundation | yes | RSA 512-2048 for PKCS#1, DAP verification, EMV | RFC 2437 |
+| simrs-iso9797 | Composition | yes | CBC-MAC Method 1/2 for SCP C-MAC, tokens, receipts | ISO 9797-1 |
+| simrs-gp-keys | Composition | yes | Key store (ENC+MAC+DEK per SD, versioned) | GP 2.1.1 Appendix C |
+| simrs-gp-scp | Composition | yes | SCP01/SCP02/SCP03 state machines | GP 2.1.1 Appendix D/E |
+| simrs-jcre | Composition | yes | Applet trait, memory model, transactions, crypto API | JC RE 2.1.1 |
+| simrs-jcvm | Composition | yes | Bytecode interpreter, CAP parser, firewall | JC VM 2.1.1 |
+| simrs-gp-open | Application | yes | Card Manager, ISD, AID dispatch, lifecycle | GP 2.1.1 Ch 6-7 |
+| simrs-gp-card | Application | yes | Top-level GP card (SimEvent/SimResponse) | GP 2.1.1 Ch 3-5 |
+| simrs-jcop-profile | Meta | no | JCOP10-31bio variant definitions | IBM JCOP Family |
+| simrs-gp-applet-openpgp | Meta | yes | OpenPGP Card v2.0 | OpenPGP 2.0 |
+| simrs-gp-applet-piv | Meta | yes | PIV per NIST SP 800-73 | FIPS 201 |
+
+Impact on existing crates:
+
+| Crate | GP Impact | Changes |
+|-------|-----------|---------|
+| simrs-sim | Adapter: wrap Sim as GP Applet | `#[cfg(feature = "gp")]` Applet impl |
+| simrs-hle | New init functions | `GpCard` variant in SimInstance enum |
+| simrs-iso7816 | GP INS constants | New `gp_ins` module |
+| simrs-ota | Factor out CBC-MAC | Depend on simrs-iso9797 instead of inline |
+| simrs-fuzz | GP APDU corpus | Extended KNOWN_INS, SCP-aware fuzzing |
+| simrs-interposer | No changes | Works transparently at APDU level |
+| simrs-snapshot | No changes | GpCard implements Snapshot trait |
+
 ---
 
 ## Key Reasoning
