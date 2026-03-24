@@ -1,4 +1,5 @@
-//! Shared test helpers for the simrs GlobalPlatform BDD test suite.
+#![allow(missing_docs, clippy::missing_const_for_fn, clippy::cast_possible_truncation)]
+//! Shared test helpers for the simrs `GlobalPlatform` BDD test suite.
 //!
 //! Provides GP APDU constructors, card factory functions, and response
 //! parsing utilities used by the Cucumber step definitions in
@@ -102,7 +103,11 @@ pub fn initialize_update(key_version: u8, key_id: u8, host_challenge: &[u8; 8]) 
 }
 
 /// Build an EXTERNAL AUTHENTICATE APDU.
-pub fn external_authenticate(security_level: u8, host_cryptogram: &[u8; 8], c_mac: &[u8; 8]) -> [u8; 21] {
+pub fn external_authenticate(
+    security_level: u8,
+    host_cryptogram: &[u8; 8],
+    c_mac: &[u8; 8],
+) -> [u8; 21] {
     let mut apdu = [0u8; 21];
     apdu[0] = gp_cla::GP_MAC;
     apdu[1] = gp_ins::EXTERNAL_AUTHENTICATE;

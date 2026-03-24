@@ -254,11 +254,7 @@ const fn ct_gt_u64(lhs: u64, rhs: u64) -> CtBool {
 ///
 /// Panics if `out.len() < 2 * LIMBS`.
 #[allow(clippy::cast_possible_truncation)]
-pub fn mul_wide_into<const LIMBS: usize>(
-    lhs: &[u64; LIMBS],
-    rhs: &[u64; LIMBS],
-    out: &mut [u64],
-) {
+pub fn mul_wide_into<const LIMBS: usize>(lhs: &[u64; LIMBS], rhs: &[u64; LIMBS], out: &mut [u64]) {
     assert!(
         out.len() >= 2 * LIMBS,
         "output buffer too small: need {}, got {}",
@@ -278,9 +274,8 @@ pub fn mul_wide_into<const LIMBS: usize>(
         let mut carry: u128 = 0;
         let mut col = 0;
         while col < LIMBS {
-            let prod = u128::from(lhs[row]) * u128::from(rhs[col])
-                + u128::from(out[row + col])
-                + carry;
+            let prod =
+                u128::from(lhs[row]) * u128::from(rhs[col]) + u128::from(out[row + col]) + carry;
             out[row + col] = prod as u64;
             carry = prod >> 64;
             col += 1;
@@ -396,16 +391,8 @@ fn compute_r_squared<const LIMBS: usize>(modulus: &[u64; LIMBS]) -> [u64; LIMBS]
 
 /// Constant-time conditional assignment: `dst = src` if `cond` is true.
 #[inline]
-fn ct_assign_limbs<const LIMBS: usize>(
-    dst: &mut [u64; LIMBS],
-    src: &[u64; LIMBS],
-    cond: bool,
-) {
-    let cond_ct = if cond {
-        CtBool::TRUE
-    } else {
-        CtBool::FALSE
-    };
+fn ct_assign_limbs<const LIMBS: usize>(dst: &mut [u64; LIMBS], src: &[u64; LIMBS], cond: bool) {
+    let cond_ct = if cond { CtBool::TRUE } else { CtBool::FALSE };
     let mask = cond_ct.as_u64_mask();
     let mut idx = 0;
     while idx < LIMBS {
@@ -415,10 +402,7 @@ fn ct_assign_limbs<const LIMBS: usize>(
 }
 
 /// Subtract two limb arrays: `lhs - rhs`. Returns `(result, borrow)`.
-fn sub_limbs<const LIMBS: usize>(
-    lhs: &[u64; LIMBS],
-    rhs: &[u64; LIMBS],
-) -> ([u64; LIMBS], bool) {
+fn sub_limbs<const LIMBS: usize>(lhs: &[u64; LIMBS], rhs: &[u64; LIMBS]) -> ([u64; LIMBS], bool) {
     let mut result = [0u64; LIMBS];
     let mut borrow = false;
     let mut idx = 0;
@@ -486,8 +470,7 @@ pub fn mont_mul<const LIMBS: usize>(
 
         // First limb: (work[0] + m*n[0]) has low word = 0 by construction.
         // We only need the carry.
-        let prod0 =
-            u128::from(mont_quot) * u128::from(params.n[0]) + u128::from(work[0]);
+        let prod0 = u128::from(mont_quot) * u128::from(params.n[0]) + u128::from(work[0]);
         carry = prod0 >> 64;
 
         // Remaining limbs: compute work[j] + m*n[j] + carry, shift down by 1.
@@ -604,8 +587,7 @@ pub fn mod_exp<const LIMBS: usize>(
         let candidate = mont_mul(&accumulator, &base_mont, params);
 
         // Constant-time select: accumulator = bit ? candidate : accumulator.
-        accumulator.limbs =
-            <[u64; LIMBS]>::ct_select(bit_ct, &candidate.limbs, &accumulator.limbs);
+        accumulator.limbs = <[u64; LIMBS]>::ct_select(bit_ct, &candidate.limbs, &accumulator.limbs);
     }
 
     from_mont(&accumulator, params)
@@ -654,8 +636,8 @@ mod tests {
     fn be_bytes_roundtrip_full() {
         // 2 limbs = 16 bytes
         let bytes: [u8; 16] = [
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC,
-            0xBA, 0x98, 0x76, 0x54, 0x32, 0x10,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54,
+            0x32, 0x10,
         ];
         let val = BigUint::<2>::from_be_bytes(&bytes);
         let mut out = [0u8; 16];
@@ -787,7 +769,9 @@ mod tests {
     #[test]
     fn ct_cmp_high_limb() {
         let lhs = BigUint::<2> { limbs: [0, 1] };
-        let rhs = BigUint::<2> { limbs: [u64::MAX, 0] };
+        let rhs = BigUint::<2> {
+            limbs: [u64::MAX, 0],
+        };
         assert_eq!(lhs.ct_cmp(&rhs), 1); // 2^64 > 2^64 - 1
     }
 
@@ -902,9 +886,7 @@ mod tests {
     #[test]
     fn mont_roundtrip_identity_2limb() {
         // n = 2^64 + 1 = 0x1_0000_0000_0000_0001 (odd, 2 limbs)
-        let modulus = BigUint::<2> {
-            limbs: [1, 1],
-        };
+        let modulus = BigUint::<2> { limbs: [1, 1] };
         let params = MontParams::new(&modulus);
 
         let val = BigUint::<2>::from_u64(42);
@@ -1215,10 +1197,9 @@ mod proptests {
 
     // We need odd moduli > 1 for Montgomery arithmetic.
     fn arb_odd_modulus_1limb() -> impl Strategy<Value = u64> {
-        (1u64..=u64::MAX / 2).prop_map(|v| v | 1).prop_filter(
-            "modulus must be > 1",
-            |&v| v > 1,
-        )
+        (1u64..=u64::MAX / 2)
+            .prop_map(|v| v | 1)
+            .prop_filter("modulus must be > 1", |&v| v > 1)
     }
 
     proptest! {
