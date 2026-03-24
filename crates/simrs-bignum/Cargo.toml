@@ -1,0 +1,19 @@
+[package]
+name        = "simrs-bignum"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Const-generic big integer arithmetic for RSA -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-consttime = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
