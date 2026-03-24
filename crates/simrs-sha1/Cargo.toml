@@ -1,0 +1,20 @@
+[package]
+name        = "simrs-sha1"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SHA-1 hash per NIST FIPS 180-1 -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+ct-validation = []
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }
+simrs-consttime-validation = { workspace = true }
+
+[lints]
+workspace = true
