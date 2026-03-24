@@ -1741,6 +1741,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-rsa"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-bignum",
+ "simrs-consttime",
+ "simrs-secret",
+ "simrs-sha1",
+]
+
+[[package]]
 name = "simrs-secret"
 version = "0.1.0"
 dependencies = [

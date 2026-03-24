@@ -1,0 +1,22 @@
+[package]
+name        = "simrs-rsa"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "RSA encryption/decryption and PKCS#1 v1.5 signing/verification -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-bignum    = { workspace = true }
+simrs-consttime = { workspace = true }
+simrs-secret    = { workspace = true }
+simrs-sha1      = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
