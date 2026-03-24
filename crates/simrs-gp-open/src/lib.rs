@@ -44,11 +44,10 @@ pub use commands::{
 };
 pub use lifecycle::{AppletLifecycle, CardLifecycle};
 pub use registry::{AppletEntry, SecurityDomain};
+pub use simrs_gp_scp::ScpState;
 
 use simrs_gp_keys::KeyStore;
-use simrs_gp_scp::{
-    process_external_authenticate, process_initialize_update, ScpState, ScpVersion,
-};
+use simrs_gp_scp::{process_external_authenticate, process_initialize_update, ScpVersion};
 use simrs_iso7816::{ins, write_data_sw, write_sw, Command, StatusWord};
 
 // ---------------------------------------------------------------------------
@@ -152,6 +151,14 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
     /// The SCP session state.
     pub const fn scp_state(&self) -> &ScpState {
         &self.scp_state
+    }
+
+    /// Reset the SCP session state to `NoSession`.
+    ///
+    /// Called on card reset (warm or cold) to invalidate any in-progress
+    /// secure channel authentication per GP 2.1.1 clause 7.1.
+    pub const fn reset_scp_state(&mut self) {
+        self.scp_state = ScpState::NoSession;
     }
 
     /// SCP02 sequence counter.

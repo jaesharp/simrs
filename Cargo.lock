@@ -1529,6 +1529,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-gp-card"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-gp-keys",
+ "simrs-gp-open",
+ "simrs-iso7816",
+ "simrs-jcre",
+]
+
+[[package]]
 name = "simrs-gp-keys"
 version = "0.1.0"
 

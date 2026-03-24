@@ -1,0 +1,22 @@
+[package]
+name        = "simrs-gp-card"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GlobalPlatform card: top-level event-driven card type parallel to simrs-sim -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-gp-open  = { workspace = true }
+simrs-gp-keys  = { workspace = true }
+simrs-iso7816  = { workspace = true }
+simrs-jcre     = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

@@ -18,6 +18,7 @@ members = [
     "crates/simrs-gp-scp",
     "crates/simrs-jcre",
     "crates/simrs-gp-open",
+    "crates/simrs-gp-card",
     "crates/simrs-kdf",
     "crates/simrs-ecies",
     "crates/simrs-milenage",
@@ -80,6 +81,7 @@ simrs-gp-keys             = { path = "crates/simrs-gp-keys",             default
 simrs-gp-scp              = { path = "crates/simrs-gp-scp",              default-features = false }
 simrs-jcre                = { path = "crates/simrs-jcre",                default-features = false }
 simrs-gp-open             = { path = "crates/simrs-gp-open",             default-features = false }
+simrs-gp-card             = { path = "crates/simrs-gp-card",             default-features = false }
 simrs-kdf                 = { path = "crates/simrs-kdf",                 default-features = false }
 simrs-ecies               = { path = "crates/simrs-ecies",               default-features = false }
 simrs-milenage            = { path = "crates/simrs-milenage",            default-features = false }
