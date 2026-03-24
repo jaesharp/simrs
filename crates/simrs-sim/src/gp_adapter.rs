@@ -89,6 +89,22 @@ impl<A: AuthenticationAlgorithm> SimApplet<A> {
         &mut self.gsm
     }
 
+    /// Compile-time snapshot size for this applet configuration.
+    #[cfg(all(feature = "usim", feature = "gsm"))]
+    pub const SNAPSHOT_SIZE: usize = UsimApp::<A>::SNAPSHOT_SIZE + GsmApp::SNAPSHOT_SIZE;
+
+    /// Compile-time snapshot size for this applet configuration.
+    #[cfg(all(feature = "usim", not(feature = "gsm")))]
+    pub const SNAPSHOT_SIZE: usize = UsimApp::<A>::SNAPSHOT_SIZE;
+
+    /// Compile-time snapshot size for this applet configuration.
+    #[cfg(all(not(feature = "usim"), feature = "gsm"))]
+    pub const SNAPSHOT_SIZE: usize = GsmApp::SNAPSHOT_SIZE;
+
+    /// Compile-time snapshot size for this applet configuration.
+    #[cfg(not(any(feature = "usim", feature = "gsm")))]
+    pub const SNAPSHOT_SIZE: usize = 0;
+
     /// Route an APDU to the appropriate application layer, returning the
     /// number of response bytes written to `out`, or a status word on error.
     fn route_apdu(&mut self, cmd_bytes: &[u8], out: &mut [u8]) -> AppletResult {
@@ -189,16 +205,7 @@ impl<A: AuthenticationAlgorithm> Applet for SimApplet<A> {
     }
 
     fn snapshot_size(&self) -> usize {
-        let mut size = 0usize;
-        #[cfg(feature = "usim")]
-        {
-            size += UsimApp::<A>::SNAPSHOT_SIZE;
-        }
-        #[cfg(feature = "gsm")]
-        {
-            size += GsmApp::SNAPSHOT_SIZE;
-        }
-        size
+        Self::SNAPSHOT_SIZE
     }
 
     fn save_state(&self, buf: &mut [u8]) -> usize {
@@ -452,9 +459,7 @@ mod tests {
     #[cfg(feature = "usim")]
     #[test]
     fn snapshot_roundtrip() {
-        // Use a const-sized buffer large enough for the snapshot.
-        // UsimApp + GsmApp snapshots fit well within 8192 bytes.
-        const BUF: usize = 8192;
+        const BUF: usize = SimApplet::<MilenageParams>::SNAPSHOT_SIZE;
 
         let mut applet = make_applet();
         let mut out = [0u8; 256];
@@ -465,7 +470,7 @@ mod tests {
 
         // Save state.
         let size = applet.snapshot_size();
-        assert!(size <= BUF, "snapshot_size exceeds test buffer");
+        assert_eq!(size, BUF, "snapshot_size must match compile-time const");
         let mut snap = [0u8; BUF];
         let written = applet.save_state(&mut snap);
         assert_eq!(
