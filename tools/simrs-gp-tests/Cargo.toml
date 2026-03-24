@@ -1,0 +1,28 @@
+[package]
+name        = "simrs-gp-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GlobalPlatform BDD test suite for simrs GP card emulator"
+publish     = false
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+simrs-iso7816  = { workspace = true }
+simrs-bertlv   = { workspace = true }
+simrs-des      = { workspace = true }
+simrs-secret   = { workspace = true }
+
+[dev-dependencies]
+cucumber = { workspace = true }
+tokio    = { workspace = true }
+futures  = { workspace = true }
+
+[[test]]
+name    = "cucumber"
+harness = false
+
+[lints]
+workspace = true
