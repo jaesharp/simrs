@@ -1,0 +1,21 @@
+[package]
+name        = "simrs-jcvm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "JavaCard Virtual Machine bytecode interpreter -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-jcre    = { workspace = true }
+simrs-consttime = { workspace = true }
+simrs-iso7816 = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
