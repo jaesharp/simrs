@@ -1618,6 +1618,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-jcre"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-iso7816",
+]
+
+[[package]]
 name = "simrs-kdf"
 version = "0.1.0"
 dependencies = [
