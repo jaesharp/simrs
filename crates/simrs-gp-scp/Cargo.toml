@@ -1,0 +1,23 @@
+[package]
+name        = "simrs-gp-scp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GlobalPlatform SCP01/SCP02 secure channel protocol -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-des      = { workspace = true }
+simrs-iso9797  = { workspace = true }
+simrs-gp-keys  = { workspace = true }
+simrs-consttime = { workspace = true }
+simrs-secret   = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
