@@ -144,6 +144,36 @@ pub mod ins {
     pub const GET_IDENTITY: u8 = 0x78;
 }
 
+/// `GlobalPlatform` card management instruction codes per
+/// [GP Card Specification v2.1.1](../../../telecom-standards/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
+/// Chapter 9.
+pub mod gp_ins {
+    /// INITIALIZE UPDATE (SCP establishment). GP 2.1.1 Appendix D/E.
+    pub const INITIALIZE_UPDATE: u8 = 0x50;
+    /// EXTERNAL AUTHENTICATE (SCP establishment). GP 2.1.1 Appendix D/E.
+    pub const EXTERNAL_AUTHENTICATE: u8 = 0x82;
+    /// GET DATA. GP 2.1.1 clause 9.3.
+    pub const GET_DATA: u8 = 0xCA;
+    /// PUT KEY. GP 2.1.1 clause 9.8.
+    pub const PUT_KEY: u8 = 0xD8;
+    /// STORE DATA. GP 2.1.1 clause 9.11.
+    pub const STORE_DATA: u8 = 0xE2;
+    /// DELETE. GP 2.1.1 clause 9.2.
+    pub const DELETE: u8 = 0xE4;
+    /// INSTALL. GP 2.1.1 clause 9.5.
+    pub const INSTALL: u8 = 0xE6;
+    /// LOAD. GP 2.1.1 clause 9.6.
+    pub const LOAD: u8 = 0xE8;
+    /// SET STATUS. GP 2.1.1 clause 9.10.
+    pub const SET_STATUS: u8 = 0xF0;
+    /// GET STATUS. GP 2.1.1 clause 9.4.
+    pub const GET_STATUS: u8 = 0xF2;
+    /// BEGIN R-MAC SESSION (SCP02). GP 2.1.1 Appendix E clause E.5.3.
+    pub const BEGIN_RMAC_SESSION: u8 = 0x70;
+    /// END R-MAC SESSION (SCP02). GP 2.1.1 Appendix E clause E.5.4.
+    pub const END_RMAC_SESSION: u8 = 0x78;
+}
+
 // ---------------------------------------------------------------------------
 // FCP (File Control Parameters) tags
 // ---------------------------------------------------------------------------
