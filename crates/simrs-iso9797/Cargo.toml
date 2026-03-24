@@ -1,0 +1,21 @@
+[package]
+name        = "simrs-iso9797"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ISO 9797-1 CBC-MAC and CBC encrypt/decrypt for DES/3DES/AES -- no_std, no_alloc"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+simrs-des      = { workspace = true }
+simrs-rijndael = { workspace = true }
+simrs-secret   = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

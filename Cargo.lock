@@ -1571,6 +1571,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-iso9797"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-des",
+ "simrs-rijndael",
+ "simrs-secret",
+]
+
+[[package]]
 name = "simrs-kdf"
 version = "0.1.0"
 dependencies = [
@@ -1587,6 +1597,13 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-consttime-validation",
+]
+
+[[package]]
+name = "simrs-md5"
+version = "0.1.0"
+dependencies = [
+ "proptest",
 ]
 
 [[package]]
@@ -1610,7 +1627,7 @@ dependencies = [
  "simrs-consttime-validation",
  "simrs-des",
  "simrs-iso7816",
- "simrs-rijndael",
+ "simrs-iso9797",
  "simrs-secret",
 ]
 
@@ -1731,6 +1748,14 @@ dependencies = [
  "simrs-sim",
  "simrs-usim",
  "tokio",
+]
+
+[[package]]
+name = "simrs-sha1"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-consttime-validation",
 ]
 
 [[package]]
