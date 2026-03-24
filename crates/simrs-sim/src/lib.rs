@@ -150,7 +150,7 @@ const STATE_HASH_BUF: usize = SNAPSHOT_HEADER_SIZE + 256;
 /// command into a routing family. The original CLA byte is passed to
 /// the application handler unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ClaFamily {
+pub(crate) enum ClaFamily {
     /// Interindustry: (CLA & 0xF0) in {0x00, 0x40, 0x60}.
     Interindustry,
     /// ETSI proprietary: (CLA & 0xF0) in {0x80, 0xC0, 0xE0}.
@@ -162,7 +162,7 @@ enum ClaFamily {
 }
 
 /// Classify a CLA byte into a routing family.
-const fn classify_cla(cla: u8) -> ClaFamily {
+pub(crate) const fn classify_cla(cla: u8) -> ClaFamily {
     // GSM legacy is an exact match (0xA0).
     if cla == CLA_GSM_RAW {
         return ClaFamily::Gsm;
@@ -687,6 +687,9 @@ fn fnv1a(data: &[u8]) -> u64 {
     }
     hash
 }
+
+#[cfg(feature = "gp-applet")]
+pub mod gp_adapter;
 
 // ---------------------------------------------------------------------------
 // Tests

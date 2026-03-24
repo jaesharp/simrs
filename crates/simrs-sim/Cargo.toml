@@ -9,6 +9,7 @@ description = "Top-level SIM/USIM simulator -- state machine orchestrator -- no_
 default = []
 gsm     = ["dep:simrs-gsm"]
 usim    = ["dep:simrs-usim"]
+gp-applet = ["dep:simrs-jcre"]
 
 [dependencies]
 simrs-card-api = { workspace = true }
@@ -19,6 +20,7 @@ simrs-milenage = { workspace = true }
 simrs-secret   = { workspace = true }
 simrs-gsm      = { workspace = true, optional = true }
 simrs-usim     = { workspace = true, optional = true }
+simrs-jcre     = { workspace = true, optional = true }
 
 [dev-dependencies]
 simrs-gsm      = { workspace = true }

@@ -1865,6 +1865,7 @@ dependencies = [
  "simrs-fs",
  "simrs-gsm",
  "simrs-iso7816",
+ "simrs-jcre",
  "simrs-milenage",
  "simrs-pin",
  "simrs-proactive",
