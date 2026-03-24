@@ -1657,11 +1657,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-jcop-profile"
+version = "0.1.0"
+
+[[package]]
 name = "simrs-jcre"
 version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-iso7816",
+]
+
+[[package]]
+name = "simrs-jcvm"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "simrs-consttime",
+ "simrs-iso7816",
+ "simrs-jcre",
 ]
 
 [[package]]
