@@ -27,7 +27,6 @@ extern crate std;
 
 use simrs_consttime::ct_eq;
 use simrs_des::{Des, TripleDes};
-use simrs_rijndael::Rijndael;
 use simrs_secret::Secret;
 
 // ---------------------------------------------------------------------------
@@ -495,23 +494,9 @@ fn apply_padding(data: &[u8], padded: &mut [u8], block_size: usize) -> Result<us
 /// all-zeros per the OTA specification default. Returns the 8-byte MAC
 /// (left half of the final CBC block) per [ETSI TS 102 225 V19.0.0 Annex B](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf).
 fn aes_cbc_mac(key: &Secret<[u8; 16]>, data: &[u8]) -> [u8; 8] {
-    let rij = Rijndael::new(key);
-    let mut cv = [0u8; 16]; // IV = 0
-
-    let mut off = 0;
-    while off + AES_BLOCK <= data.len() {
-        let mut block = [0u8; 16];
-        block.copy_from_slice(&data[off..off + 16]);
-        // XOR with previous ciphertext (or IV)
-        for i in 0..16 {
-            block[i] ^= cv[i];
-        }
-        cv = rij.encrypt(&block);
-        off += 16;
-    }
-
+    let full_mac = simrs_iso9797::aes128_cbc_mac(key, data);
     let mut mac = [0u8; 8];
-    mac.copy_from_slice(&cv[..8]);
+    mac.copy_from_slice(&full_mac[..8]);
     mac
 }
 
@@ -521,53 +506,19 @@ fn aes_cbc_mac(key: &Secret<[u8; 16]>, data: &[u8]) -> [u8; 8] {
 
 /// AES-128 CBC encrypt `data` in-place.
 ///
-/// `data` must be a multiple of 16 bytes. IV is all-zeros.
+/// `data` must be a multiple of 16 bytes. IV is all-zeros per
+/// ETSI TS 102 225 V19.0.0 clause 5.1. Replay protection is provided
+/// by the CNTR field inside the encrypted region.
 fn aes_cbc_encrypt(key: &Secret<[u8; 16]>, data: &mut [u8]) {
-    let rij = Rijndael::new(key);
-    // IV is always zero per ETSI TS 102 225 V19.0.0 clause 5.1.
-    // Replay protection is provided by the CNTR field inside the encrypted region.
-    let mut cv = [0u8; 16];
-
-    let mut off = 0;
-    while off + AES_BLOCK <= data.len() {
-        let mut block = [0u8; 16];
-        block.copy_from_slice(&data[off..off + 16]);
-        for i in 0..16 {
-            block[i] ^= cv[i];
-        }
-        cv = rij.encrypt(&block);
-        data[off..off + 16].copy_from_slice(&cv);
-        off += 16;
-    }
+    simrs_iso9797::aes128_cbc_encrypt(key, &[0u8; 16], data);
 }
 
 /// AES-128 CBC decrypt `data` in-place.
 ///
-/// `data` must be a multiple of 16 bytes. IV is all-zeros.
-/// Mirrors [`aes_cbc_encrypt`]: decrypt each block with `Rijndael::decrypt`,
-/// then XOR with the previous ciphertext block (or IV for the first block).
+/// `data` must be a multiple of 16 bytes. IV is all-zeros per
+/// ETSI TS 102 225 V19.0.0 clause 5.1.
 fn aes_cbc_decrypt(key: &Secret<[u8; 16]>, data: &mut [u8]) {
-    let rij = Rijndael::new(key);
-    // IV is always zero per ETSI TS 102 225 V19.0.0 clause 5.1.
-    // Replay protection is provided by the CNTR field inside the encrypted region.
-    let mut prev_ct = [0u8; 16];
-
-    let mut off = 0;
-    while off + AES_BLOCK <= data.len() {
-        let mut ct_block = [0u8; 16];
-        ct_block.copy_from_slice(&data[off..off + 16]);
-
-        let mut pt_block = rij.decrypt(&ct_block);
-        let mut i = 0;
-        while i < 16 {
-            pt_block[i] ^= prev_ct[i];
-            i += 1;
-        }
-
-        data[off..off + 16].copy_from_slice(&pt_block);
-        prev_ct = ct_block;
-        off += 16;
-    }
+    simrs_iso9797::aes128_cbc_decrypt(key, &[0u8; 16], data);
 }
 
 // ---------------------------------------------------------------------------
@@ -601,21 +552,14 @@ fn des_decrypt_block(key: &OtaCryptoKey, block: [u8; 8]) -> [u8; 8] {
 /// Returns the 4-byte MAC (left half of the final CBC block) per
 /// [ETSI TS 102 225 V19.0.0 clause 5.1.3.2](../../../docs/specs/etsi/ts-102-225/ts_102225v190000p.pdf).
 fn des_cbc_mac(key: &OtaCryptoKey, data: &[u8]) -> [u8; 4] {
-    let mut cv = [0u8; 8]; // IV = 0
-
-    let mut off = 0;
-    while off + DES_BLOCK <= data.len() {
-        let mut block = [0u8; 8];
-        block.copy_from_slice(&data[off..off + 8]);
-        for i in 0..8 {
-            block[i] ^= cv[i];
-        }
-        cv = des_encrypt_block(key, block);
-        off += 8;
-    }
-
+    let full_mac = match key {
+        OtaCryptoKey::Des(k) => simrs_iso9797::des_cbc_mac(k, data),
+        OtaCryptoKey::TripleDes(k) => simrs_iso9797::des3_2key_cbc_mac(k, data),
+        OtaCryptoKey::TripleDes3(k) => simrs_iso9797::des3_3key_cbc_mac(k, data),
+        OtaCryptoKey::Aes(_) => unreachable!(),
+    };
     let mut mac = [0u8; 4];
-    mac.copy_from_slice(&cv[..4]);
+    mac.copy_from_slice(&full_mac[..4]);
     mac
 }
 
@@ -623,18 +567,21 @@ fn des_cbc_mac(key: &OtaCryptoKey, data: &[u8]) -> [u8; 4] {
 ///
 /// `data` must be a multiple of 8 bytes. IV is all-zeros.
 fn des_cbc_encrypt(key: &OtaCryptoKey, data: &mut [u8]) {
-    let mut cv = [0u8; 8];
-
-    let mut off = 0;
-    while off + DES_BLOCK <= data.len() {
-        let mut block = [0u8; 8];
-        block.copy_from_slice(&data[off..off + 8]);
-        for i in 0..8 {
-            block[i] ^= cv[i];
+    if let OtaCryptoKey::TripleDes(k) = key {
+        simrs_iso9797::des3_2key_cbc_encrypt(k, &[0u8; 8], data);
+    } else {
+        let mut cv = [0u8; 8];
+        let mut off = 0;
+        while off + DES_BLOCK <= data.len() {
+            let mut block = [0u8; 8];
+            block.copy_from_slice(&data[off..off + 8]);
+            for i in 0..8 {
+                block[i] ^= cv[i];
+            }
+            cv = des_encrypt_block(key, block);
+            data[off..off + 8].copy_from_slice(&cv);
+            off += 8;
         }
-        cv = des_encrypt_block(key, block);
-        data[off..off + 8].copy_from_slice(&cv);
-        off += 8;
     }
 }
 
@@ -642,21 +589,22 @@ fn des_cbc_encrypt(key: &OtaCryptoKey, data: &mut [u8]) {
 ///
 /// `data` must be a multiple of 8 bytes. IV is all-zeros.
 fn des_cbc_decrypt(key: &OtaCryptoKey, data: &mut [u8]) {
-    let mut prev_ct = [0u8; 8];
-
-    let mut off = 0;
-    while off + DES_BLOCK <= data.len() {
-        let mut ct_block = [0u8; 8];
-        ct_block.copy_from_slice(&data[off..off + 8]);
-
-        let mut pt_block = des_decrypt_block(key, ct_block);
-        for i in 0..8 {
-            pt_block[i] ^= prev_ct[i];
+    if let OtaCryptoKey::TripleDes(k) = key {
+        simrs_iso9797::des3_2key_cbc_decrypt(k, &[0u8; 8], data);
+    } else {
+        let mut prev_ct = [0u8; 8];
+        let mut off = 0;
+        while off + DES_BLOCK <= data.len() {
+            let mut ct_block = [0u8; 8];
+            ct_block.copy_from_slice(&data[off..off + 8]);
+            let mut pt_block = des_decrypt_block(key, ct_block);
+            for i in 0..8 {
+                pt_block[i] ^= prev_ct[i];
+            }
+            data[off..off + 8].copy_from_slice(&pt_block);
+            prev_ct = ct_block;
+            off += 8;
         }
-
-        data[off..off + 8].copy_from_slice(&pt_block);
-        prev_ct = ct_block;
-        off += 8;
     }
 }
 
