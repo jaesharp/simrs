@@ -508,9 +508,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                 .selected_applet_index(channel)
                 .map_or(0, |i| i as usize);
             if let Some(idx) = registry::find_by_aid_after(&self.registry, aid, start) {
-                if (channel as usize) < self.channels.len() {
-                    self.channels[channel as usize].select_applet(idx as u8);
-                }
+                self.select_on_channel(channel, idx as u8);
                 let entry = self.registry[idx].as_ref();
                 let selected_aid = entry.map_or(aid, registry::AppletEntry::aid);
                 let lc = entry.map_or(0x00, |e| e.lifecycle().to_byte());
@@ -524,17 +522,13 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         if registry::aid_exact_match(self.isd.aid(), aid)
             || registry::partial_aid_matches(self.isd.aid(), aid)
         {
-            if (channel as usize) < self.channels.len() {
-                self.channels[channel as usize].deselect();
-            }
+            self.deselect_channel(channel);
             return Self::select_response(buf, self.isd.aid(), self.isd.lifecycle().to_byte());
         }
 
         // Search registry for matching AID (exact, prefix, or partial).
         if let Some(idx) = registry::find_by_aid(&self.registry, aid) {
-            if (channel as usize) < self.channels.len() {
-                self.channels[channel as usize].select_applet(idx as u8);
-            }
+            self.select_on_channel(channel, idx as u8);
             let entry = self.registry[idx].as_ref();
             let selected_aid = entry.map_or(aid, registry::AppletEntry::aid);
             let lc = entry.map_or(0x00, |e| e.lifecycle().to_byte());
@@ -543,6 +537,18 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
 
         // Not found.
         write_sw(buf, StatusWord::wrong_params(0x82))
+    }
+
+    const fn select_on_channel(&mut self, channel: u8, idx: u8) {
+        if (channel as usize) < self.channels.len() {
+            self.channels[channel as usize].select_applet(idx);
+        }
+    }
+
+    const fn deselect_channel(&mut self, channel: u8) {
+        if (channel as usize) < self.channels.len() {
+            self.channels[channel as usize].deselect();
+        }
     }
 
     /// Build FCI response for SELECT per GP 2.1.1 clause 9.9.3.1 Table 9-13:

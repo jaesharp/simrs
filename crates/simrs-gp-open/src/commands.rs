@@ -102,9 +102,9 @@ pub fn get_status<'buf, const N: usize, const M: usize, const L: usize>(
     if off + 2 > buf.len() {
         return write_sw(buf, StatusWord::WrongLength);
     }
-    let sw = StatusWord::Success.to_bytes();
-    buf[off] = sw[0];
-    buf[off + 1] = sw[1];
+    let [sw1, sw2] = StatusWord::Success.to_bytes();
+    buf[off] = sw1;
+    buf[off + 1] = sw2;
     &buf[..off + 2]
 }
 
@@ -112,8 +112,11 @@ pub fn get_status<'buf, const N: usize, const M: usize, const L: usize>(
 #[allow(clippy::cast_possible_truncation)]
 fn write_e3_entry(buf: &mut [u8], off: &mut usize, aid: &[u8], lifecycle: u8, privileges: u8) -> bool {
     // E3 { 4F { AID } 9F70 01 { lifecycle } C5 01 { privileges } }
-    let inner_len = (2 + aid.len()) + 4 + 3; // 4F{AID} + 9F70{01}{lc} + C5{01}{priv}
-    let total = 2 + inner_len;
+    let aid_tlv_len = 2 + aid.len();   // tag 4F (1) + len (1) + AID
+    let lifecycle_tlv_len = 4;         // tag 9F70 (2) + len (1) + value (1)
+    let privileges_tlv_len = 3;       // tag C5 (1) + len (1) + value (1)
+    let inner_len = aid_tlv_len + lifecycle_tlv_len + privileges_tlv_len;
+    let total = 2 + inner_len;         // tag E3 (1) + len (1) + inner
     if *off + total + 2 > buf.len() {
         return false;
     }
@@ -162,118 +165,80 @@ pub fn set_status<const N: usize, const M: usize>(
     let p2 = cmd.p2();
 
     match p1 {
-        0x80 => {
+        P1_ISD => {
             // Card lifecycle transition.
             let Some(target) = CardLifecycle::from_byte(p2) else {
-                let sw = StatusWord::wrong_params(0x86).to_bytes();
-                buf[0] = sw[0];
-                buf[1] = sw[1];
-                return 2;
+                return write_sw_raw(buf, StatusWord::wrong_params(0x86));
             };
             let Some(new_state) = card_lifecycle.transition(target) else {
-                let sw = StatusWord::command_not_allowed(0x85).to_bytes();
-                buf[0] = sw[0];
-                buf[1] = sw[1];
-                return 2;
+                return write_sw_raw(buf, StatusWord::command_not_allowed(0x85));
             };
             *card_lifecycle = new_state;
-            let sw = StatusWord::Success.to_bytes();
-            buf[0] = sw[0];
-            buf[1] = sw[1];
-            2
+            write_sw_raw(buf, StatusWord::Success)
         }
-        0x40 => {
+        P1_APPS => {
             // Application lifecycle transition.
             let Some(target_lc) = AppletLifecycle::from_byte(p2) else {
-                let sw = StatusWord::wrong_params(0x86).to_bytes();
-                buf[0] = sw[0];
-                buf[1] = sw[1];
-                return 2;
+                return write_sw_raw(buf, StatusWord::wrong_params(0x86));
             };
 
             let aid = cmd.data();
             if aid.is_empty() || aid.len() > MAX_AID_LEN {
-                let sw = StatusWord::WrongLength.to_bytes();
-                buf[0] = sw[0];
-                buf[1] = sw[1];
-                return 2;
+                return write_sw_raw(buf, StatusWord::WrongLength);
             }
 
             // Search in registry.
             for entry in registry.iter_mut().flatten() {
                 if entry.aid() == aid {
-                    if let Some(new_lc) = entry.lifecycle().transition(target_lc) {
-                        entry.set_lifecycle(new_lc);
-                        let sw = StatusWord::Success.to_bytes();
-                        buf[0] = sw[0];
-                        buf[1] = sw[1];
-                        return 2;
-                    }
-                    let sw = StatusWord::command_not_allowed(0x85).to_bytes();
-                    buf[0] = sw[0];
-                    buf[1] = sw[1];
-                    return 2;
+                    return try_lifecycle_transition(entry.lifecycle(), target_lc, |lc| entry.set_lifecycle(lc), buf);
                 }
             }
             // Search in SDs.
             for sd in sds.iter_mut().flatten() {
                 if sd.aid() == aid {
-                    if let Some(new_lc) = sd.lifecycle().transition(target_lc) {
-                        sd.set_lifecycle(new_lc);
-                        let sw = StatusWord::Success.to_bytes();
-                        buf[0] = sw[0];
-                        buf[1] = sw[1];
-                        return 2;
-                    }
-                    let sw = StatusWord::command_not_allowed(0x85).to_bytes();
-                    buf[0] = sw[0];
-                    buf[1] = sw[1];
-                    return 2;
+                    return try_lifecycle_transition(sd.lifecycle(), target_lc, |lc| sd.set_lifecycle(lc), buf);
                 }
             }
             // Also check ISD.
             if isd.aid() == aid {
-                if let Some(new_lc) = isd.lifecycle().transition(target_lc) {
-                    isd.set_lifecycle(new_lc);
-                    let sw = StatusWord::Success.to_bytes();
-                    buf[0] = sw[0];
-                    buf[1] = sw[1];
-                    return 2;
-                }
-                let sw = StatusWord::command_not_allowed(0x85).to_bytes();
-                buf[0] = sw[0];
-                buf[1] = sw[1];
-                return 2;
+                return try_lifecycle_transition(isd.lifecycle(), target_lc, |lc| isd.set_lifecycle(lc), buf);
             }
             // Not found.
-            let sw = StatusWord::wrong_params(0x82).to_bytes();
-            buf[0] = sw[0];
-            buf[1] = sw[1];
-            2
+            write_sw_raw(buf, StatusWord::wrong_params(0x82))
         }
-        _ => {
-            let sw = StatusWord::wrong_params(0x86).to_bytes();
-            buf[0] = sw[0];
-            buf[1] = sw[1];
-            2
-        }
+        _ => write_sw_raw(buf, StatusWord::wrong_params(0x86)),
+    }
+}
+
+/// Try a lifecycle transition and write the result SW into `buf`.
+fn try_lifecycle_transition(
+    current: AppletLifecycle,
+    target: AppletLifecycle,
+    set_fn: impl FnOnce(AppletLifecycle),
+    buf: &mut [u8],
+) -> usize {
+    if let Some(new_lc) = current.transition(target) {
+        set_fn(new_lc);
+        write_sw_raw(buf, StatusWord::Success)
+    } else {
+        write_sw_raw(buf, StatusWord::command_not_allowed(0x85))
     }
 }
 
 // ---------------------------------------------------------------------------
-// INSTALL (GP 2.1.1 clause 9.9) -- simplified stub
+// INSTALL (GP 2.1.1 clause 9.5)
 // ---------------------------------------------------------------------------
+
+/// INSTALL P1 values per GP 2.1.1 Table 9-5.
+const INSTALL_P1_FOR_LOAD: u8 = 0x02;
+const INSTALL_P1_FOR_INSTALL: u8 = 0x04;
+const INSTALL_P1_FOR_MAKE_SELECTABLE: u8 = 0x08;
+const INSTALL_P1_FOR_INSTALL_AND_MAKE_SELECTABLE: u8 = 0x0C;
 
 /// Process INSTALL command per GP 2.1.1 clause 9.5.
 ///
-/// Handles P1 variants:
-/// - 0x02: INSTALL [for load] -- registers load file AID (stub: accepts).
-/// - 0x04: INSTALL [for install] -- creates app in INSTALLED state.
-/// - 0x08: INSTALL [for make selectable] -- stub: accepts.
-/// - 0x0C: INSTALL [for install and make selectable] -- creates app in SELECTABLE state.
-///
 /// Returns response length written into `buf`.
-#[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
+#[allow(clippy::cast_possible_truncation)]
 pub fn install<const N: usize, const L: usize>(
     card_lifecycle: &mut CardLifecycle,
     registry: &mut [Option<AppletEntry>; N],
@@ -285,7 +250,7 @@ pub fn install<const N: usize, const L: usize>(
     let data = cmd.data();
 
     // P1=0x02: INSTALL [for load] -- register load file AID.
-    if p1 == 0x02 {
+    if p1 == INSTALL_P1_FOR_LOAD {
         if data.is_empty() {
             return write_sw_raw(buf, StatusWord::WrongLength);
         }
@@ -295,11 +260,9 @@ pub fn install<const N: usize, const L: usize>(
         }
         let lf_aid = &data[1..=lf_aid_len];
 
-        // Check for duplicate.
         if registry::find_load_file(load_files, lf_aid).is_some() {
             return write_sw_raw(buf, StatusWord::command_not_allowed(0x85));
         }
-
         let Some(slot) = registry::find_empty_lf_slot(load_files) else {
             return write_sw_raw(buf, StatusWord::command_not_allowed(0x85));
         };
@@ -308,30 +271,10 @@ pub fn install<const N: usize, const L: usize>(
     }
 
     // P1=0x08: INSTALL [for make selectable] -- transition INSTALLED -> SELECTABLE.
-    if p1 == 0x08 {
-        // Parse the app AID (same format: skip load_aid, module_aid, then app_aid).
-        let mut off = 0;
-        if off >= data.len() {
+    if p1 == INSTALL_P1_FOR_MAKE_SELECTABLE {
+        let Ok((app_aid, _)) = parse_install_aids(data) else {
             return write_sw_raw(buf, StatusWord::WrongLength);
-        }
-        let load_len = data[off] as usize;
-        off += 1 + load_len;
-        if off >= data.len() {
-            return write_sw_raw(buf, StatusWord::WrongLength);
-        }
-        let module_len = data[off] as usize;
-        off += 1 + module_len;
-        if off >= data.len() {
-            return write_sw_raw(buf, StatusWord::WrongLength);
-        }
-        let app_len = data[off] as usize;
-        off += 1;
-        if app_len == 0 || off + app_len > data.len() {
-            return write_sw_raw(buf, StatusWord::WrongLength);
-        }
-        let app_aid = &data[off..off + app_len];
-
-        // Find the app in registry and transition to Selectable.
+        };
         for entry in registry.iter_mut().flatten() {
             if entry.aid() == app_aid {
                 if let Some(new_lc) = entry.lifecycle().transition(AppletLifecycle::Selectable) {
@@ -345,34 +288,13 @@ pub fn install<const N: usize, const L: usize>(
     }
 
     // P1=0x04 or P1=0x0C: install (and optionally make selectable).
-    // Data: load_aid_len | load_aid | module_aid_len | module_aid | app_aid_len | app_aid | ...
-    if p1 != 0x04 && p1 != 0x0C {
+    if p1 != INSTALL_P1_FOR_INSTALL && p1 != INSTALL_P1_FOR_INSTALL_AND_MAKE_SELECTABLE {
         return write_sw_raw(buf, StatusWord::wrong_params(0x86));
     }
 
-    let mut off = 0;
-    // Skip load file AID.
-    if off >= data.len() {
+    let Ok((app_aid, load_len)) = parse_install_aids(data) else {
         return write_sw_raw(buf, StatusWord::WrongLength);
-    }
-    let load_len = data[off] as usize;
-    off += 1 + load_len;
-    // Skip module AID.
-    if off >= data.len() {
-        return write_sw_raw(buf, StatusWord::WrongLength);
-    }
-    let module_len = data[off] as usize;
-    off += 1 + module_len;
-    // Application AID.
-    if off >= data.len() {
-        return write_sw_raw(buf, StatusWord::WrongLength);
-    }
-    let app_len = data[off] as usize;
-    off += 1;
-    if app_len == 0 || app_len > MAX_AID_LEN || off + app_len > data.len() {
-        return write_sw_raw(buf, StatusWord::WrongLength);
-    }
-    let app_aid = &data[off..off + app_len];
+    };
 
     // Check for duplicate.
     for entry in registry.iter().flatten() {
@@ -382,13 +304,11 @@ pub fn install<const N: usize, const L: usize>(
         }
     }
 
-    // Find empty slot.
     let Some(slot) = registry::find_empty_slot(registry) else {
         return write_sw_raw(buf, StatusWord::command_not_allowed(0x85));
     };
 
-    // P1=0x04: INSTALLED state (0x03). P1=0x0C: SELECTABLE state (0x07).
-    let lifecycle = if p1 == 0x04 {
+    let lifecycle = if p1 == INSTALL_P1_FOR_INSTALL {
         AppletLifecycle::Installed
     } else {
         AppletLifecycle::Selectable
@@ -414,6 +334,32 @@ pub fn install<const N: usize, const L: usize>(
     }
 
     write_sw_raw(buf, StatusWord::Success)
+}
+
+/// Parse INSTALL command data: `load_aid_len | load_aid | module_aid_len | module_aid | app_aid_len | app_aid`.
+///
+/// Returns `(app_aid, load_aid_len)` on success.
+fn parse_install_aids(data: &[u8]) -> Result<(&[u8], usize), ()> {
+    let mut off = 0;
+    if off >= data.len() {
+        return Err(());
+    }
+    let load_len = data[off] as usize;
+    off += 1 + load_len;
+    if off >= data.len() {
+        return Err(());
+    }
+    let module_len = data[off] as usize;
+    off += 1 + module_len;
+    if off >= data.len() {
+        return Err(());
+    }
+    let app_len = data[off] as usize;
+    off += 1;
+    if app_len == 0 || app_len > MAX_AID_LEN || off + app_len > data.len() {
+        return Err(());
+    }
+    Ok((&data[off..off + app_len], load_len))
 }
 
 /// Helper: write a StatusWord into buf, return 2.
@@ -599,14 +545,17 @@ fn get_data_card_recognition(card_lifecycle: CardLifecycle, buf: &mut [u8]) -> &
     write_data_sw(buf, &data, StatusWord::Success)
 }
 
+/// CPLC data length per GP 2.1.1 clause 9.6 Table 9-4.
+const CPLC_DATA_LEN: usize = 42;
+
 /// CPLC (Card Production Life Cycle) data per GP 2.1.1 clause 9.6.
 /// Returns tag 9F7F with 42 bytes of manufacturing data (all zeros for simulator).
+#[allow(clippy::cast_possible_truncation)]
 fn get_data_cplc(buf: &mut [u8]) -> &[u8] {
-    let mut data = [0u8; 45];
-    data[0] = 0x9F;
-    data[1] = 0x7F;
-    data[2] = 0x2A; // 42 bytes of CPLC data
-    // Remaining 42 bytes are zero (simulator defaults).
+    let mut data = [0u8; 3 + CPLC_DATA_LEN];
+    data[0] = (TAG_CPLC >> 8) as u8;
+    data[1] = TAG_CPLC as u8;
+    data[2] = CPLC_DATA_LEN as u8;
     write_data_sw(buf, &data, StatusWord::Success)
 }
 
@@ -615,25 +564,10 @@ fn get_data_cplc(buf: &mut [u8]) -> &[u8] {
 // ---------------------------------------------------------------------------
 
 /// LOAD command stub -- accepts and returns 90 00.
-pub fn load_stub(buf: &mut [u8]) -> usize {
-    let sw = StatusWord::Success.to_bytes();
-    buf[0] = sw[0];
-    buf[1] = sw[1];
-    2
-}
+pub fn load_stub(buf: &mut [u8]) -> usize { write_sw_raw(buf, StatusWord::Success) }
 
 /// PUT KEY command stub -- accepts and returns 90 00.
-pub fn put_key_stub(buf: &mut [u8]) -> usize {
-    let sw = StatusWord::Success.to_bytes();
-    buf[0] = sw[0];
-    buf[1] = sw[1];
-    2
-}
+pub fn put_key_stub(buf: &mut [u8]) -> usize { write_sw_raw(buf, StatusWord::Success) }
 
 /// STORE DATA command stub -- accepts and returns 90 00.
-pub fn store_data_stub(buf: &mut [u8]) -> usize {
-    let sw = StatusWord::Success.to_bytes();
-    buf[0] = sw[0];
-    buf[1] = sw[1];
-    2
-}
+pub fn store_data_stub(buf: &mut [u8]) -> usize { write_sw_raw(buf, StatusWord::Success) }
