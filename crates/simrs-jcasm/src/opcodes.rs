@@ -15,8 +15,6 @@ pub enum ArgKind {
     Local,
     /// 1-byte field offset.
     FieldOffset,
-    /// 1-byte method index.
-    MethodIndex,
     /// 1-byte type token (for new/newarray).
     TypeToken,
     /// Branch label (resolved to 1-byte signed offset).
@@ -91,7 +89,9 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     OpcodeEntry { mnemonic: "goto_w",       byte: 0xA8, arg: ArgKind::WideLabel },
 
     // Invoke
-    OpcodeEntry { mnemonic: "invokestatic", byte: 0x8D, arg: ArgKind::MethodIndex },
+    // invokestatic takes 2 bytes: (package_index, method_index).
+    // For intra-package calls, use package_index=0.
+    OpcodeEntry { mnemonic: "invokestatic", byte: 0x8D, arg: ArgKind::Imm16 },
 
     // Return
     OpcodeEntry { mnemonic: "sreturn",      byte: 0x78, arg: ArgKind::None },

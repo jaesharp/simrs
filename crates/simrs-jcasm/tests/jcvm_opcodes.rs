@@ -389,18 +389,16 @@ fn return_void_from_method() {
 // "invokestatic invokes a static method, identified by a method token."
 // =========================================================================
 
-/// JCVM 3.1 Section 7.5.9: invokestatic with invalid method index
-/// returns InvalidMethod.
+/// JCVM 3.1 Section 7.5.9: invokestatic calls another method.
 ///
-/// Note: invokestatic currently returns InvalidMethod because the
-/// opcode handler may expect a different index encoding. This test
-/// documents the current behavior -- fixing invokestatic dispatch
-/// is tracked separately.
+/// invokestatic takes 2-byte operand: (pkg_idx << 8 | method_idx).
+/// For intra-package calls, pkg_idx=0. So invokestatic(1) encodes
+/// as 0x8D 0x00 0x01 -- call method 1 in package 0.
 #[test]
-fn invokestatic_invalid_method_returns_error() {
+fn invokestatic_calls_method_1() {
     let (aid, m) = jcasm! { applet A0_00_00_62_60 {
         fn process() {
-            invokestatic(1);
+            invokestatic(1);  // pkg=0, method=1
             sreturn;
         }
         fn helper() {
@@ -408,7 +406,18 @@ fn invokestatic_invalid_method_returns_error() {
             sreturn;
         }
     }};
-    // Current behavior: InvalidMethod (method dispatch needs work)
+    assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(4));
+}
+
+/// JCVM 3.1 Section 7.5.9: invokestatic with invalid method index.
+#[test]
+fn invokestatic_invalid_method() {
+    let (aid, m) = jcasm! { applet A0_00_00_62_61 {
+        fn process() {
+            invokestatic(99);  // pkg=0, method=99 (doesn't exist)
+            sreturn;
+        }
+    }};
     assert_eq!(run_applet(aid, m), ExecResult::InvalidMethod);
 }
 

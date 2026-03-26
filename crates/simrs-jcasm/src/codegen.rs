@@ -132,7 +132,7 @@ fn assemble_method(
                         }
                     }
                     ArgKind::Imm8 | ArgKind::Local | ArgKind::FieldOffset
-                    | ArgKind::MethodIndex | ArgKind::TypeToken => {
+                    | ArgKind::TypeToken => {
                         let val = extract_int(arg, mnemonic, *span)?;
                         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                         bytecode.push(val as u8);
@@ -196,7 +196,7 @@ fn instruction_size(arg: ArgKind) -> usize {
     match arg {
         ArgKind::None => 1,
         ArgKind::Imm8 | ArgKind::Local | ArgKind::FieldOffset
-        | ArgKind::MethodIndex | ArgKind::TypeToken | ArgKind::Label => 2,
+        | ArgKind::TypeToken | ArgKind::Label => 2,
         ArgKind::Imm16 | ArgKind::WideLabel => 3,
     }
 }
