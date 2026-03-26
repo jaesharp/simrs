@@ -64,6 +64,9 @@ const CLA_GP_SM: u8 = 0x84;
 /// Default ISD AID per GP 2.1.1: A0 00 00 01 51 00 00.
 const DEFAULT_ISD_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
 
+/// Default ISD AID per GP 2.3.1: A0 00 00 01 51 00 00 00.
+const DEFAULT_ISD_AID_GP23: [u8; 8] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00, 0x00];
+
 /// Fixed maximum load files (no const generic -- keeps API stable).
 const MAX_LOAD_FILES: usize = 8;
 
@@ -97,6 +100,8 @@ pub struct GpOpen<const MAX_APPLETS: usize, const MAX_SDS: usize> {
     key_store: KeyStore<4>,
     sequence_counter: u16,
     default_selected: Option<u8>,
+    iin: [u8; 16],
+    iin_len: u8,
 }
 
 impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS> {
@@ -126,6 +131,8 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             key_store,
             sequence_counter: 0,
             default_selected: None,
+            iin: *b"ISD_IIN\0\0\0\0\0\0\0\0\0",
+            iin_len: 7,
         }
     }
 
@@ -136,9 +143,23 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         gp
     }
 
+    /// Create with the GP 2.3.1 default 8-byte ISD AID.
+    pub fn new_gp23(keys: &simrs_gp_keys::KeySet) -> Self {
+        Self::with_isd_aid(&DEFAULT_ISD_AID_GP23, keys)
+    }
+
     /// Current card lifecycle state.
     pub const fn card_lifecycle(&self) -> CardLifecycle {
         self.card_lifecycle
+    }
+
+    /// Configured Issuer Identification Number (IIN), if any.
+    pub fn iin(&self) -> Option<&[u8]> {
+        if self.iin_len > 0 {
+            Some(&self.iin[..self.iin_len as usize])
+        } else {
+            None
+        }
     }
 
     /// Reference to the ISD.
@@ -483,7 +504,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                 let n = commands::load_stub(buf);
                 &buf[..n]
             }
-            INS_GET_DATA => commands::get_data(self.card_lifecycle, self.isd.aid(), cmd, buf),
+            INS_GET_DATA => commands::get_data(self.card_lifecycle, self.isd.aid(), self.iin(), cmd, buf),
             INS_PUT_KEY => {
                 let n = commands::put_key_stub(buf);
                 &buf[..n]
@@ -518,7 +539,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                 let entry = self.registry[idx].as_ref();
                 let selected_aid = entry.map_or(aid, registry::AppletEntry::aid);
                 let lc = entry.map_or(0x00, |e| e.lifecycle().to_byte());
-                return Self::select_response(buf, selected_aid, lc);
+                return Self::select_response(buf, selected_aid, lc, self.card_lifecycle);
             }
             return write_sw(buf, StatusWord::wrong_params(0x82));
         }
@@ -529,7 +550,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             || registry::partial_aid_matches(self.isd.aid(), aid)
         {
             self.deselect_channel(channel);
-            return Self::select_response(buf, self.isd.aid(), self.isd.lifecycle().to_byte());
+            return Self::select_response(buf, self.isd.aid(), self.isd.lifecycle().to_byte(), self.card_lifecycle);
         }
 
         // Search registry for matching AID (exact, prefix, or partial).
@@ -538,7 +559,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             let entry = self.registry[idx].as_ref();
             let selected_aid = entry.map_or(aid, registry::AppletEntry::aid);
             let lc = entry.map_or(0x00, |e| e.lifecycle().to_byte());
-            return Self::select_response(buf, selected_aid, lc);
+            return Self::select_response(buf, selected_aid, lc, self.card_lifecycle);
         }
 
         // Not found.
@@ -558,28 +579,46 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
     }
 
     /// Build FCI response for SELECT per GP 2.1.1 clause 9.9.3.1 Table 9-13:
-    /// `6F { 84 { AID } A5 { 9F65 { lifecycle } } }`.
+    /// `6F { 84 { AID } A5 { 73 { OIDs } 9F65 { lifecycle } } }`.
+    ///
+    /// The A5 template includes card recognition data (tag 73) containing
+    /// GP OIDs and protocol identifiers, matching Oracle Java Card behavior.
     #[allow(clippy::cast_possible_truncation)]
-    fn select_response<'buf>(buf: &'buf mut [u8], aid: &[u8], lifecycle: u8) -> &'buf [u8] {
-        // FCI template: 6F len { 84 aid_len aid  A5 len { 9F65 01 lifecycle } }
-        let a5_inner = 4usize; // tag 9F65(2) + len(1) + lifecycle(1)
-        let a5_block = 2 + a5_inner; // tag A5(1) + len(1) + inner
-        let inner_len = 2 + aid.len() + a5_block; // tag 84 + aid_len + aid + A5 block
-        let fci_len = 2 + inner_len; // tag 6F + len + inner
-        let mut fci = [0u8; 42]; // max: 2 + 2 + 16 + 6 = 26
-        fci[0] = 0x6F;
-        fci[1] = inner_len as u8;
-        fci[2] = 0x84;
-        fci[3] = aid.len() as u8;
-        let mut off = 4;
+    fn select_response<'buf>(
+        buf: &'buf mut [u8],
+        aid: &[u8],
+        lifecycle: u8,
+        card_lifecycle: CardLifecycle,
+    ) -> &'buf [u8] {
+        let tag73_inner = commands::build_card_recognition_oids(card_lifecycle);
+        let tag73_block = 2 + tag73_inner.len(); // tag 73(1) + len(1) + inner(49) = 51
+        let lifecycle_tlv = 4usize;              // tag 9F65(2) + len(1) + lifecycle(1)
+        let a5_inner = tag73_block + lifecycle_tlv;
+        let a5_block = 2 + a5_inner;             // tag A5(1) + len(1) + inner
+        let inner_len = 2 + aid.len() + a5_block; // tag 84(1) + len(1) + aid + A5 block
+        let fci_len = 2 + inner_len;              // tag 6F(1) + len(1) + inner
+        let mut fci = [0u8; 80];
+        let mut off = 0;
+        fci[off] = 0x6F;
+        fci[off + 1] = inner_len as u8;
+        off += 2;
+        fci[off] = 0x84;
+        fci[off + 1] = aid.len() as u8;
+        off += 2;
         fci[off..off + aid.len()].copy_from_slice(aid);
         off += aid.len();
         fci[off] = 0xA5;
         fci[off + 1] = a5_inner as u8;
-        fci[off + 2] = 0x9F;
-        fci[off + 3] = 0x65;
-        fci[off + 4] = 0x01;
-        fci[off + 5] = lifecycle;
+        off += 2;
+        fci[off] = 0x73;
+        fci[off + 1] = tag73_inner.len() as u8;
+        off += 2;
+        fci[off..off + tag73_inner.len()].copy_from_slice(&tag73_inner);
+        off += tag73_inner.len();
+        fci[off] = 0x9F;
+        fci[off + 1] = 0x65;
+        fci[off + 2] = 0x01;
+        fci[off + 3] = lifecycle;
         write_data_sw(buf, &fci[..fci_len], StatusWord::Success)
     }
 

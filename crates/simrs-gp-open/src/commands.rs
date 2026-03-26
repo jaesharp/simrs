@@ -496,52 +496,78 @@ pub static GET_DATA_0066_SCHEMA: simrs_apdu_schema::ResponseSchema =
 /// Process GET DATA command.
 ///
 /// P1P2 encodes the tag being requested. Supported tags:
-/// - 0x0042: IIN (not configured -- returns 6A 88)
+/// - 0x0042: IIN (returns TLV-encoded IIN when configured, else 6A 88)
 /// - 0x0066: Card Recognition Data
 /// - 0x9F7F: CPLC (Card Production Life Cycle)
 pub fn get_data<'buf>(
     card_lifecycle: CardLifecycle,
     _isd_aid: &[u8],
+    iin: Option<&[u8]>,
     cmd: &Command<'_>,
     buf: &'buf mut [u8],
 ) -> &'buf [u8] {
     let tag = u16::from_be_bytes([cmd.p1(), cmd.p2()]);
 
     match tag {
-        TAG_IIN => {
-            // GP 2.1.1 Table 9-2: IIN is a separate data object, not the ISD AID.
-            // IIN is not configured on this simulator.
-            write_sw(buf, StatusWord::wrong_params(0x88))
-        }
+        TAG_IIN => get_data_iin(iin, buf),
         TAG_CARD_DATA => get_data_card_recognition(card_lifecycle, buf),
         TAG_CPLC => get_data_cplc(buf),
         _ => write_sw(buf, StatusWord::wrong_params(0x88)),
     }
 }
 
-/// Card Recognition Data per GP 2.1.1 Table 9-3 with extended OIDs.
-fn get_data_card_recognition(card_lifecycle: CardLifecycle, buf: &mut [u8]) -> &[u8] {
+/// IIN data per GP 2.1.1 Table 9-2.
+///
+/// Returns TLV `42 <len> <iin_data>` when an IIN is configured, or 6A 88
+/// (referenced data not found) when no IIN is available.
+#[allow(clippy::cast_possible_truncation)]
+fn get_data_iin<'buf>(iin: Option<&[u8]>, buf: &'buf mut [u8]) -> &'buf [u8] {
+    let Some(iin_bytes) = iin else {
+        return write_sw(buf, StatusWord::wrong_params(0x88));
+    };
+    // Build TLV: tag 42, length, IIN data.
+    let mut data = [0u8; 18]; // tag(1) + len(1) + max 16 bytes
+    data[0] = 0x42;
+    data[1] = iin_bytes.len() as u8;
+    data[2..2 + iin_bytes.len()].copy_from_slice(iin_bytes);
+    write_data_sw(buf, &data[..2 + iin_bytes.len()], StatusWord::Success)
+}
+
+/// Build the card recognition OIDs (inner content of tag 73), 49 bytes.
+///
+/// Used in both GET DATA 0066 response and SELECT FCI (A5 template).
+/// The lifecycle byte at offset 9 is the only dynamic element.
+pub const fn build_card_recognition_oids(card_lifecycle: CardLifecycle) -> [u8; 49] {
     #[rustfmt::skip]
-    let data: [u8; 53] = [
-        0x66, 0x33,                                         // tag 66, length 51
-        0x73, 0x31,                                         // tag 73 (card recognition data), length 49
-        0x06, 0x07,                                         // OID tag, length 7
-        0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x01,         // GP 2.1.1 OID: 1.2.840.114283.1
-        card_lifecycle.to_byte(),                           // card lifecycle
-        0x02,                                               // SCP02 identifier
+    let mut oids: [u8; 49] = [
+        0x06, 0x07, 0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x01, // GP OID
+        0x00, 0x02,                                               // lifecycle placeholder + SCP02
         // Tag 60: Card Management Type OID (SSD support)
-        0x60, 0x0C,                                         // tag 60, length 12
-        0x06, 0x0A,                                         // OID tag, length 10
+        0x60, 0x0C,
+        0x06, 0x0A,
         0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x02, 0x02, 0x01, 0x01,
         // Tag 63: Card Identification Scheme OID
-        0x63, 0x09,                                         // tag 63, length 9
-        0x06, 0x07,                                         // OID tag, length 7
+        0x63, 0x09,
+        0x06, 0x07,
         0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x03,
         // Tag 64: Secure Channel Protocol OID (SCP02, i=0x15)
-        0x64, 0x0B,                                         // tag 64, length 11
-        0x06, 0x09,                                         // OID tag, length 9
+        0x64, 0x0B,
+        0x06, 0x09,
         0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x04, 0x02, 0x15,
     ];
+    oids[9] = card_lifecycle.to_byte();
+    oids
+}
+
+/// Card Recognition Data per GP 2.1.1 Table 9-3 with extended OIDs.
+fn get_data_card_recognition(card_lifecycle: CardLifecycle, buf: &mut [u8]) -> &[u8] {
+    let oids = build_card_recognition_oids(card_lifecycle);
+    let mut data = [0u8; 53];
+    data[0] = 0x66; // outer tag
+    data[1] = 0x33; // outer length (51)
+    data[2] = 0x73; // tag 73
+    data[3] = 0x31; // length 49
+    data[4..53].copy_from_slice(&oids);
     write_data_sw(buf, &data, StatusWord::Success)
 }
 

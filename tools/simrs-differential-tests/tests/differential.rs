@@ -606,10 +606,10 @@ fn diff_get_data_0042_isd_aid() {
     eprintln!("GET DATA 0042 simrs:  {:?}", dr.simrs);
     eprintln!("GET DATA 0042 Oracle: {:?}", dr.oracle);
 
-    // simrs returns the 7-byte ISD AID. Oracle may return 8-byte or reject.
-    if dr.simrs.is_success() {
-        assert_eq!(&dr.simrs.data, &SIMRS_ISD_AID, "simrs ISD AID mismatch");
-    }
+    // Both now return IIN data (tag 42 + "ISD_IIN").
+    assert!(dr.simrs.is_success(), "simrs GET DATA 0042 should succeed");
+    assert!(dr.oracle.is_success(), "Oracle GET DATA 0042 should succeed");
+    assert_eq!(dr.simrs.data, dr.oracle.data, "IIN data should match");
     eprintln!(
         "SW match: {} (simrs={:04X}, oracle={:04X})",
         dr.sw_match(), dr.simrs.sw16(), dr.oracle.sw16()

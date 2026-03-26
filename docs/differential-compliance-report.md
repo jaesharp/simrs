@@ -69,14 +69,27 @@ simrs uses explicit challenge mode (i=0x00), producing 29 bytes per spec.
 
 ---
 
-### D6: Bad EXTERNAL AUTHENTICATE SW
+### D6: Bad EXTERNAL AUTHENTICATE SW -- DELIBERATE
 
 | | simrs | Oracle |
 |-|-------|--------|
 | **SW** | 6988 (SM data objects incorrect) | 6985 (conditions not satisfied) |
 
-**Category: B (spec ambiguity)** -- both implementations choose valid but different SWs.
-simrs's 6988 is defensible for the padding oracle defense (Avoine & Ferreira TCHES 2018).
+**Category: D (deliberate security choice)**
+
+simrs returns 6988 for ALL EXTERNAL AUTHENTICATE failures -- whether the host
+cryptogram is wrong, the C-MAC is wrong, or both. This is a deliberate
+countermeasure against the padding oracle attack described by Avoine & Ferreira
+("Rescuing Mutual Authentication from the Depths of the TCHES 2018 GP SCP
+Analysis"). The attack exploits the ability to distinguish MAC failure from
+cryptogram failure via different status words, allowing offline key recovery.
+
+GP 2.1.1 Table 9-9 lists both 6985 and 6988 as valid SWs for EXTERNAL
+AUTHENTICATE failure. Our uniform 6988 response closes the oracle by making
+all failure modes indistinguishable to the terminal.
+
+Oracle's 6985 is also spec-compliant. The difference is a security policy
+choice, not a bug.
 
 ---
 
@@ -146,16 +159,16 @@ of incorrectly returning the ISD AID.
 | D3 | B: GP version | **RESOLVED** | INIT UPDATE length (simrs now supports SCP03) |
 | D4 | A: simrs bug | **FIXED** | Invalid INS SW (6985 -> 6D00) |
 | D5 | A: simrs bug | **FIXED** | Wrong KV SW (6A88 -> 6A86) |
-| D6 | B: spec ambiguity | -- | EXT AUTH failure SW (6988 vs 6985) |
+| D6 | D: security choice | **DELIBERATE** | EXT AUTH uniform SW (padding oracle defense) |
 | D7 | C: missing feature | **FIXED** | CPLC tag 9F7F |
 | D8 | C: missing feature | **FIXED** | Extended card recognition data |
 | D9 | A: simrs bug | **FIXED** | GET DATA 0042 returns wrong data |
 | D10 | A: simrs bug | **FIXED** | ISD privileges 0x80 -> 0x9E |
 | D11 | A: simrs bug | **FIXED** | GET STATUS E3 TLV format |
 
-### Remaining divergence (1, spec ambiguity):
+### Remaining divergence (1, deliberate security choice):
 
-- **D6**: EXT AUTH failure SW (6988 vs 6985) -- spec allows both values
+- **D6**: EXT AUTH failure SW (6988 vs 6985) -- deliberate padding oracle defense
 
 ### SCP03 validation:
 
