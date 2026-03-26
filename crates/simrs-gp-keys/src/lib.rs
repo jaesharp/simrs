@@ -49,6 +49,8 @@ pub enum ScpId {
     Scp01 = 0x01,
     /// Secure Channel Protocol 02 (GP 2.1.1 Appendix E).
     Scp02 = 0x02,
+    /// Secure Channel Protocol 03 (GP 2.3.1 Amendment D).
+    Scp03 = 0x03,
 }
 
 impl ScpId {
@@ -62,6 +64,7 @@ impl ScpId {
         match b {
             0x01 => Some(Self::Scp01),
             0x02 => Some(Self::Scp02),
+            0x03 => Some(Self::Scp03),
             _ => None,
         }
     }
@@ -158,7 +161,7 @@ impl KeySet {
             mac: mac24,
             dek: dek24,
             key_len: 16,
-            scp_id: ScpId::Scp02, // AES keys default to SCP02
+            scp_id: ScpId::Scp03,
         }
     }
 
@@ -388,6 +391,10 @@ impl<const MAX_VERSIONS: usize> KeyStore<MAX_VERSIONS> {
                 KeyType::Des3TwoKey | KeyType::Aes128 => 16,
                 KeyType::Des3ThreeKey => 24,
             };
+            let scp_id = match key_type {
+                KeyType::Aes128 => ScpId::Scp03,
+                _ => ScpId::Scp02,
+            };
             self.entries[i] = Some(KeyEntry {
                 version,
                 keys: KeySet {
@@ -396,7 +403,7 @@ impl<const MAX_VERSIONS: usize> KeyStore<MAX_VERSIONS> {
                     mac,
                     dek,
                     key_len,
-                    scp_id: ScpId::Scp02, // default on restore
+                    scp_id,
                 },
             });
         }

@@ -76,7 +76,6 @@ fn given_scp_cmac_session(world: &mut GpWorld) {
 
 #[given("no SCP session is active")]
 fn given_no_scp_session(world: &mut GpWorld) {
-    world.scp_authenticated = false;
     // Reset to clear any in-progress SCP state.
     world.reset_card();
     world.ensure_powered();
@@ -87,14 +86,14 @@ fn given_test_applet_installed(world: &mut GpWorld, aid_hex: String) {
     let aid = parse_hex(&aid_hex);
     // Need an SCP session for INSTALL (which requires auth).
     // If we don't have one, establish a temporary one.
-    let had_auth = world.scp_authenticated;
+    let had_auth = world.scp_authenticated();
     if !had_auth {
         world.establish_scp02_session(0x00);
     }
     world.install_test_applet(&aid);
     if !had_auth {
         world.card.open_mut().reset_scp_state();
-        world.scp_authenticated = false;
+        world.scp_session = None;
     }
 }
 
@@ -141,7 +140,7 @@ fn given_computed_host_cryptogram(world: &mut GpWorld) {
     // Derive keys if not already done, then compute host cryptogram.
     derive_scp01_session_from_response(world);
     let hc = simrs_gp_scp::compute_scp01_host_cryptogram(
-        &world.session_enc,
+        &world.session_enc(),
         &world.host_challenge,
         &world.card_challenge,
     );
@@ -149,7 +148,12 @@ fn given_computed_host_cryptogram(world: &mut GpWorld) {
 }
 
 /// Helper: derive SCP01 session keys from the last INIT UPDATE response.
+///
+/// Creates an `Scp01Session` (with sec_level 0x00) so that the convenience
+/// accessors `session_enc()` / `session_mac()` work in subsequent steps.
 fn derive_scp01_session_from_response(world: &mut GpWorld) {
+    use super::world::Scp01Session;
+
     let data = world.response_data().to_vec();
     assert!(data.len() >= 28, "need INIT UPDATE response");
     let mut cc = [0u8; 8];
@@ -159,8 +163,11 @@ fn derive_scp01_session_from_response(world: &mut GpWorld) {
     let keys = simrs_gp_keys::KeySet::des3_2key(TEST_KEY_ENC, TEST_KEY_MAC, TEST_KEY_DEK);
     let (enc, mac, _dek) =
         simrs_gp_scp::derive_scp01_session_keys(&keys, &world.host_challenge, &cc);
-    world.session_enc = enc;
-    world.session_mac = mac;
+    world.scp_session = Some(Box::new(Scp01Session {
+        enc,
+        mac,
+        sec_level: 0x00,
+    }));
 }
 
 #[given(regex = r"^I have established an SCP02 session with security level 0x([0-9A-Fa-f]+).*$")]
@@ -169,6 +176,19 @@ fn given_scp02_session(world: &mut GpWorld, level_hex: String) {
     // Ensure SCP02 key version is used (may have been changed by SCP01 Background).
     world.init_update_kv = TEST_KEY_VERSION;
     world.establish_scp02_session(level);
+}
+
+#[given(regex = r"^I have established an SCP03 session with security level 0x([0-9A-Fa-f]+).*$")]
+fn given_scp03_session(world: &mut GpWorld, level_hex: String) {
+    let level = u8::from_str_radix(&level_hex, 16).expect("invalid security level hex");
+    world.init_update_kv = 0x03; // AES-128 key version
+    world.establish_scp02_session(level);
+}
+
+#[given(regex = r"^I have established an SCP03 session$")]
+fn given_scp03_session_default(world: &mut GpWorld) {
+    world.init_update_kv = 0x03;
+    world.establish_scp02_session(0x01); // C-MAC
 }
 
 #[given(regex = r"^the card sequence counter has been advanced to 0x([0-9A-Fa-f]+)$")]
@@ -218,7 +238,7 @@ fn given_load_file_prepared(world: &mut GpWorld, _aid_hex: String) {
 fn given_app_in_installed_state(world: &mut GpWorld, aid_hex: String) {
     let aid = parse_hex(&aid_hex);
     // Install the applet in INSTALLED state (P1=0x04) via INSTALL [for install].
-    let had_auth = world.scp_authenticated;
+    let had_auth = world.scp_authenticated();
     if !had_auth {
         world.establish_scp02_session(security_level::C_MAC);
     }
@@ -236,8 +256,7 @@ fn given_app_in_installed_state(world: &mut GpWorld, aid_hex: String) {
     );
     if !had_auth {
         world.card.open_mut().reset_scp_state();
-        world.scp_authenticated = false;
-        world.security_level = 0;
+        world.scp_session = None;
     }
 }
 
@@ -245,15 +264,14 @@ fn given_app_in_installed_state(world: &mut GpWorld, aid_hex: String) {
 fn given_app_in_selectable_state(world: &mut GpWorld, aid_hex: String) {
     // Install as SELECTABLE (P1=0x0C).
     let aid = parse_hex(&aid_hex);
-    let had_auth = world.scp_authenticated;
+    let had_auth = world.scp_authenticated();
     if !had_auth {
         world.establish_scp02_session(security_level::C_MAC);
     }
     world.install_test_applet(&aid);
     if !had_auth {
         world.card.open_mut().reset_scp_state();
-        world.scp_authenticated = false;
-        world.security_level = 0;
+        world.scp_session = None;
     }
 }
 
@@ -262,15 +280,14 @@ fn given_app_in_locked_state(world: &mut GpWorld, aid_hex: String) {
     // Install as SELECTABLE then lock via SET STATUS.
     given_app_in_selectable_state(world, aid_hex.clone());
     let aid = parse_hex(&aid_hex);
-    let had_auth = world.scp_authenticated;
+    let had_auth = world.scp_authenticated();
     if !had_auth {
         world.establish_scp02_session(security_level::C_MAC);
     }
     world.send_gp_command(&[gp_cla::GP, gp_ins::SET_STATUS, 0x40, 0x83], &aid);
     if !had_auth {
         world.card.open_mut().reset_scp_state();
-        world.scp_authenticated = false;
-        world.security_level = 0;
+        world.scp_session = None;
     }
 }
 
@@ -338,7 +355,7 @@ fn given_load_file_instances(world: &mut GpWorld, lf_hex: String, inst1_hex: Str
     lfs[lf_slot] = Some(LoadFileEntry::new(&lf_aid));
 
     // Install instances via temp SCP session and link to load file.
-    let had_auth = world.scp_authenticated;
+    let had_auth = world.scp_authenticated();
     if !had_auth {
         world.establish_scp02_session(0x00);
     }
@@ -346,8 +363,7 @@ fn given_load_file_instances(world: &mut GpWorld, lf_hex: String, inst1_hex: Str
     world.install_test_applet(&inst2);
     if !had_auth {
         world.card.open_mut().reset_scp_state();
-        world.scp_authenticated = false;
-        world.security_level = 0;
+        world.scp_session = None;
     }
 
     // Link instances to load file by finding their registry slots.
@@ -451,7 +467,7 @@ fn given_scp01_session(world: &mut GpWorld) {
 
 #[given(regex = r"^I record the current session C-MAC key.*$")]
 fn given_record_cmac_key(world: &mut GpWorld) {
-    world.old_session_mac = world.session_mac;
+    world.old_session_mac = world.session_mac();
 }
 
 #[given(regex = r"^I have started an R-MAC session.*$")]
@@ -806,6 +822,8 @@ fn when_ext_auth_with_level_and_crypto(world: &mut GpWorld, level_hex: String, c
 
 #[when(regex = r"^I send EXTERNAL AUTHENTICATE with security level 0x([0-9A-Fa-f]+) and the host cryptogram$")]
 fn when_ext_auth_with_host_crypto(world: &mut GpWorld, level_hex: String) {
+    use super::world::{Scp01Session, Scp02Session};
+
     let level = u8::from_str_radix(&level_hex, 16).expect("invalid security level");
     // Compute C-MAC for EXT AUTH using the host cryptogram.
     let scp_version = if world.init_update_kv == 0x02 {
@@ -813,8 +831,10 @@ fn when_ext_auth_with_host_crypto(world: &mut GpWorld, level_hex: String) {
     } else {
         simrs_gp_scp::ScpVersion::Scp02
     };
+    let session_mac = world.session_mac();
+    let session_enc = world.session_enc();
     let (cmac, _) = simrs_gp_scp::generate_cmac(
-        &world.session_mac,
+        &session_mac,
         &[0x84, 0x82, level, 0x00],
         &world.host_cryptogram,
         &[0u8; 8],
@@ -823,9 +843,22 @@ fn when_ext_auth_with_host_crypto(world: &mut GpWorld, level_hex: String) {
     let ea_apdu = external_authenticate(level, &world.host_cryptogram, &cmac);
     world.send_apdu(&ea_apdu);
     if world.sw1 == 0x90 {
-        world.scp_authenticated = true;
-        world.security_level = level;
-        world.last_cmac = cmac;
+        if scp_version == simrs_gp_scp::ScpVersion::Scp01 {
+            world.scp_session = Some(Box::new(Scp01Session {
+                enc: session_enc,
+                mac: session_mac,
+                sec_level: level,
+            }));
+        } else {
+            let mut icv = [0u8; 8];
+            icv.copy_from_slice(&cmac);
+            world.scp_session = Some(Box::new(Scp02Session {
+                enc: session_enc,
+                mac: session_mac,
+                sec_level: level,
+                icv,
+            }));
+        }
     }
 }
 
@@ -885,7 +918,7 @@ fn when_restore_snapshot(_world: &mut GpWorld) {
 fn when_compute_host_cryptogram_scp01(world: &mut GpWorld) {
     // SCP01 host cryptogram: MAC(session_S-ENC, card_challenge || host_challenge).
     let hc = simrs_gp_scp::compute_scp01_host_cryptogram(
-        &world.session_enc,
+        &world.session_enc(),
         &world.host_challenge,
         &world.card_challenge,
     );
@@ -896,14 +929,21 @@ fn when_compute_host_cryptogram_scp01(world: &mut GpWorld) {
 fn when_compute_host_cryptogram_scp02(world: &mut GpWorld) {
     // SCP02 host cryptogram: computed in establish_scp02_session.
     // For standalone When steps, derive from response data.
+    use super::world::Scp02Session;
+
     let data = world.response_data().to_vec();
     if data.len() >= 28 {
         let keys = simrs_gp_keys::KeySet::des3_2key(TEST_KEY_ENC, TEST_KEY_MAC, TEST_KEY_DEK);
         let seq = u16::from_be_bytes([data[12], data[13]]);
         let mut cc6 = [0u8; 6];
         cc6.copy_from_slice(&data[14..20]);
-        let (enc, _mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
-        world.session_enc = enc;
+        let (enc, mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
+        world.scp_session = Some(Box::new(Scp02Session {
+            enc,
+            mac,
+            sec_level: 0x00,
+            icv: [0u8; 8],
+        }));
         world.host_cryptogram = simrs_gp_scp::compute_scp02_host_cryptogram(
             &enc, &world.host_challenge, seq, &cc6,
         );
@@ -937,8 +977,6 @@ fn when_flip_cryptogram(world: &mut GpWorld) {
     let mut cc6 = [0u8; 6];
     cc6.copy_from_slice(&data[14..20]);
     let (enc, mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
-    world.session_enc = enc;
-    world.session_mac = mac;
 
     // Compute correct host cryptogram then flip bit 0 of byte 3.
     let mut host_crypto =
@@ -1073,11 +1111,12 @@ fn when_send_store_data_encrypted(world: &mut GpWorld, hex: String) {
     let padded = &padded[..padded_len];
 
     // Encrypt with 3DES CBC using session S-ENC.
-    let enc_key = simrs_secret::Secret::new(world.session_enc);
+    let session_enc = world.session_enc();
+    let enc_key = simrs_secret::Secret::new(session_enc);
     // IV for SCP02 C-ENC: DES_ECB(S-ENC left half, ICV).
     let iv = simrs_gp_scp::des_ecb_encrypt_left_half(
-        &world.session_enc,
-        world.last_cmac,
+        &session_enc,
+        world.scp_session.as_ref().unwrap().icv_for_cenc(),
     );
     let mut encrypted = padded.to_vec();
     simrs_iso9797::des3_2key_cbc_encrypt(&enc_key, &iv, &mut encrypted);
@@ -1236,7 +1275,7 @@ fn when_send_get_status_old_cmac(world: &mut GpWorld) {
         &[0x80, 0xF2, 0x80, 0x00],
         &data,
         &[0u8; 8],
-        world.scp_version,
+        world.scp_version(),
     );
 
     // Build APDU with the stale C-MAC.
@@ -1297,6 +1336,22 @@ fn then_response_data_length(world: &mut GpWorld, expected: usize) {
     assert_eq!(
         actual, expected,
         "expected {expected} bytes of response data, got {actual}"
+    );
+}
+
+#[then(regex = r"^byte (\d+) of the response data is 0x([0-9A-Fa-f]+)$")]
+fn then_response_byte(world: &mut GpWorld, index: usize, expected_hex: String) {
+    let expected = u8::from_str_radix(&expected_hex, 16).expect("invalid hex");
+    let data = world.response_data();
+    assert!(
+        index < data.len(),
+        "byte index {index} out of range (response has {} bytes)",
+        data.len()
+    );
+    assert_eq!(
+        data[index], expected,
+        "byte {index} of response: expected 0x{expected:02X}, got 0x{:02X}",
+        data[index]
     );
 }
 
@@ -1489,6 +1544,8 @@ fn then_bytes_range_are(_world: &mut GpWorld, _start: String, _end: String) {
 
 #[then(regex = r"^the session S-ENC equals 3DES_CBC\(\[40\]\*16, \[([0-9A-Fa-f ]+)\], IV=\[00\]\*8\)$")]
 fn then_session_enc_equals(world: &mut GpWorld, _input_hex: String) {
+    use super::world::Scp02Session;
+
     // Verify that the derived session S-ENC matches the known-vector derivation.
     // The keys are all [0x40]*16 and the derivation data is given.
     // We verify by deriving session keys and checking they match.
@@ -1496,21 +1553,33 @@ fn then_session_enc_equals(world: &mut GpWorld, _input_hex: String) {
     let data = world.response_data().to_vec();
     assert!(data.len() >= 14, "need INIT UPDATE response");
     let seq = u16::from_be_bytes([data[12], data[13]]);
-    let (enc, _mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
+    let (enc, mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
     // Verify it's non-zero (actual derivation happened).
     assert_ne!(enc, [0u8; 16], "session S-ENC should be non-zero");
-    world.session_enc = enc;
+    world.scp_session = Some(Box::new(Scp02Session {
+        enc,
+        mac,
+        sec_level: 0x00,
+        icv: [0u8; 8],
+    }));
 }
 
 #[then(regex = r"^the session (C-MAC|R-MAC|DEK) equals 3DES_CBC.*$")]
 fn then_session_other_key_equals(world: &mut GpWorld, _key_name: String) {
+    use super::world::Scp02Session;
+
     // Verify the named session key was derived (non-zero).
     let keys = simrs_gp_keys::KeySet::des3_2key(TEST_KEY_ENC, TEST_KEY_MAC, TEST_KEY_DEK);
     let data = world.response_data().to_vec();
     if data.len() >= 14 {
         let seq = u16::from_be_bytes([data[12], data[13]]);
-        let (_enc, mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
-        world.session_mac = mac;
+        let (enc, mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
+        world.scp_session = Some(Box::new(Scp02Session {
+            enc,
+            mac,
+            sec_level: 0x00,
+            icv: [0u8; 8],
+        }));
     }
 }
 
@@ -1528,22 +1597,22 @@ fn then_session_keys_all_distinct(world: &mut GpWorld) {
 
 #[then(regex = r"^the session security level is NO_SECURE_MESSAGING$")]
 fn then_security_level_none(world: &mut GpWorld) {
-    assert_eq!(world.security_level, 0x00, "expected security level 0x00");
+    assert_eq!(world.security_level(), 0x00, "expected security level 0x00");
 }
 
 #[then(regex = r"^the session security level is C_MAC$")]
 fn then_security_level_cmac(world: &mut GpWorld) {
-    assert_eq!(world.security_level, 0x01, "expected security level 0x01");
+    assert_eq!(world.security_level(), 0x01, "expected security level 0x01");
 }
 
 #[then(regex = r"^the session security level is C_MAC_AND_C_ENC$")]
 fn then_security_level_cmac_cenc(world: &mut GpWorld) {
-    assert_eq!(world.security_level, 0x03, "expected security level 0x03");
+    assert_eq!(world.security_level(), 0x03, "expected security level 0x03");
 }
 
 #[then(regex = r"^an SCP01 secure channel session is established$")]
 fn then_scp01_session_established(world: &mut GpWorld) {
-    assert!(world.scp_authenticated, "SCP session should be established");
+    assert!(world.scp_authenticated(), "SCP session should be established");
 }
 
 #[then(regex = r"^the session .* key equals .*$")]
@@ -1558,14 +1627,20 @@ fn then_derive_scp01_session(world: &mut GpWorld) {
 
 #[then(regex = r"^I derive session (S-ENC|C-MAC|R-MAC|DEK) with constant 0x([0-9A-Fa-f]+) and the sequence counter$")]
 fn then_derive_scp02_session_key(world: &mut GpWorld, _key_name: String, _constant_hex: String) {
+    use super::world::Scp02Session;
+
     // SCP02 session key derivation -- verify by deriving and storing.
     let keys = simrs_gp_keys::KeySet::des3_2key(TEST_KEY_ENC, TEST_KEY_MAC, TEST_KEY_DEK);
     let data = world.response_data().to_vec();
     if data.len() >= 14 {
         let seq = u16::from_be_bytes([data[12], data[13]]);
         let (enc, mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
-        world.session_enc = enc;
-        world.session_mac = mac;
+        world.scp_session = Some(Box::new(Scp02Session {
+            enc,
+            mac,
+            sec_level: 0x00,
+            icv: [0u8; 8],
+        }));
     }
 }
 
@@ -1575,7 +1650,7 @@ fn then_card_cryptogram_matches(world: &mut GpWorld) {
     assert!(data.len() >= 28, "need INIT UPDATE response");
     let card_crypto = &data[20..28];
     let expected = simrs_gp_scp::compute_scp01_card_cryptogram(
-        &world.session_enc,
+        &world.session_enc(),
         &world.host_challenge,
         &world.card_challenge,
     );
@@ -1594,7 +1669,7 @@ fn then_card_cryptogram_scp02(world: &mut GpWorld) {
     let mut cc6 = [0u8; 6];
     cc6.copy_from_slice(&data[14..20]);
     let expected = simrs_gp_scp::compute_scp02_card_cryptogram(
-        &world.session_enc,
+        &world.session_enc(),
         &world.host_challenge,
         seq,
         &cc6,
@@ -1607,15 +1682,15 @@ fn then_derivation_data(world: &mut GpWorld) {
     // Verify the SCP01 derivation data layout by deriving keys and
     // checking they match the card's session.
     derive_scp01_session_from_response(world);
-    assert_ne!(world.session_enc, [0u8; 16], "session keys should be derived");
+    assert_ne!(world.session_enc(), [0u8; 16], "session keys should be derived");
 }
 
 #[then(regex = r"^session_(S-ENC|C-MAC|DEK) equals 3DES_ECB\(static_(S-ENC|C-MAC|DEK), derivation_data\)$")]
 fn then_scp01_session_key_equals(world: &mut GpWorld, _key_name: String, _static_name: String) {
     // The keys were already derived by derive_scp01_session_from_response.
     // Just assert they're non-zero (actual derivation happened).
-    assert_ne!(world.session_enc, [0u8; 16], "session S-ENC should be derived");
-    assert_ne!(world.session_mac, [0u8; 16], "session C-MAC should be derived");
+    assert_ne!(world.session_enc(), [0u8; 16], "session S-ENC should be derived");
+    assert_ne!(world.session_mac(), [0u8; 16], "session C-MAC should be derived");
 }
 
 #[then(regex = r"^a new card challenge and cryptogram are returned$")]
@@ -1679,6 +1754,8 @@ fn then_all_three_same_sw(_world: &mut GpWorld) {
 
 #[then(regex = r"^the previous SCP\d* session is invalidated$")]
 fn then_previous_session_invalidated(world: &mut GpWorld) {
+    use super::world::{Scp01Session, Scp02Session};
+
     // Complete the new session so the card moves to Authenticated with new
     // session keys. Detect SCP version from the INIT UPDATE response.
     let data = world.response_data().to_vec();
@@ -1735,12 +1812,22 @@ fn then_previous_session_invalidated(world: &mut GpWorld) {
         world.sw1, world.sw2
     );
 
-    world.session_enc = enc;
-    world.session_mac = mac;
-    world.last_cmac = cmac;
-    world.scp_authenticated = true;
-    world.security_level = security_level::C_MAC;
-    world.scp_version = scp_version;
+    if scp_version == simrs_gp_scp::ScpVersion::Scp01 {
+        world.scp_session = Some(Box::new(Scp01Session {
+            enc,
+            mac,
+            sec_level: security_level::C_MAC,
+        }));
+    } else {
+        let mut icv = [0u8; 8];
+        icv.copy_from_slice(&cmac);
+        world.scp_session = Some(Box::new(Scp02Session {
+            enc,
+            mac,
+            sec_level: security_level::C_MAC,
+            icv,
+        }));
+    }
 }
 
 #[then(regex = r"^the command is rejected because.*$")]

@@ -1545,8 +1545,11 @@ dependencies = [
  "simrs-card-api",
  "simrs-gp-card",
  "simrs-gp-keys",
+ "simrs-gp-scp",
  "simrs-interposer",
  "simrs-jcsl",
+ "simrs-rijndael",
+ "simrs-secret",
  "simrs-transport",
 ]
 
@@ -1627,6 +1630,7 @@ dependencies = [
  "simrs-des",
  "simrs-gp-keys",
  "simrs-iso9797",
+ "simrs-rijndael",
  "simrs-secret",
 ]
 
@@ -1645,6 +1649,7 @@ dependencies = [
  "simrs-gp-scp",
  "simrs-iso7816",
  "simrs-iso9797",
+ "simrs-jcvm",
  "simrs-secret",
  "tokio",
 ]

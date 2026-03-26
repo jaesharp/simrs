@@ -11,6 +11,7 @@ std     = []
 
 [dependencies]
 simrs-des         = { workspace = true }
+simrs-rijndael    = { workspace = true }
 simrs-iso9797     = { workspace = true }
 simrs-gp-keys     = { workspace = true }
 simrs-consttime   = { workspace = true }

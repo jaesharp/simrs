@@ -86,6 +86,7 @@ pub fn des_ecb_encrypt_left_half(key16: &[u8; 16], block: [u8; 8]) -> [u8; 8] {
 /// - `scp_version` -- SCP01 or SCP02 (affects ICV handling)
 ///
 /// Returns `(mac, new_icv)` -- the 8-byte MAC and the new ICV for chaining.
+#[allow(clippy::missing_panics_doc)]
 pub fn generate_cmac(
     session_mac: &[u8; 16],
     apdu_header: &[u8; 4],
@@ -118,6 +119,10 @@ pub fn generate_cmac(
             // SCP02: encrypt ICV with single-DES ECB (left half of session MAC key)
             des_ecb_encrypt_left_half(session_mac, *icv)
         }
+        ScpVersion::Scp03 => {
+            // SCP03 uses AES-CMAC; use scp03_generate_cmac() instead.
+            panic!("generate_cmac called with SCP03; use scp03_generate_cmac");
+        }
     };
 
     let mac = des3_2key_cbc_mac_with_iv(&cmac_key, effective_icv, &padded[..padded_len]);
@@ -145,7 +150,7 @@ pub fn unwrap_command(
     apdu: &[u8],
     output: &mut [u8],
 ) -> Result<usize, ScpError> {
-    let (session_enc, session_mac, security_level, current_icv, scp_version) = match state {
+    let (session_enc, session_mac, security_level, current_icv8, scp_version) = match state {
         ScpState::Authenticated {
             session_enc,
             session_mac,
@@ -153,13 +158,17 @@ pub fn unwrap_command(
             icv,
             scp_version,
             ..
-        } => (
-            *session_enc,
-            *session_mac,
-            *security_level,
-            *icv,
-            *scp_version,
-        ),
+        } => {
+            let mut icv8 = [0u8; 8];
+            icv8.copy_from_slice(&icv[0..8]);
+            (
+                *session_enc,
+                *session_mac,
+                *security_level,
+                icv8,
+                *scp_version,
+            )
+        }
         _ => return Err(ScpError::InvalidState),
     };
 
@@ -217,11 +226,16 @@ pub fn unwrap_command(
     let cmac_key = Secret::new(session_mac);
 
     // ICV handling depends on SCP version.
+    // SCP03 is handled separately in scp03::scp03_unwrap_command.
     let effective_icv = match scp_version {
         ScpVersion::Scp01 => [0u8; 8], // SCP01: ICV is always zeros
         ScpVersion::Scp02 => {
             // SCP02: ICV is encrypted with single-DES ECB (left half of session MAC key)
-            des_ecb_encrypt_left_half(&session_mac, current_icv)
+            des_ecb_encrypt_left_half(&session_mac, current_icv8)
+        }
+        ScpVersion::Scp03 => {
+            // SCP03 should not reach this code path; handled by scp03_unwrap_command.
+            return Err(ScpError::InvalidState);
         }
     };
 
@@ -231,9 +245,10 @@ pub fn unwrap_command(
         return Err(ScpError::CmacMismatch);
     }
 
-    // Update ICV for next command.
+    // Update ICV for next command (SCP01/02: store 8-byte MAC in first 8 bytes).
     if let ScpState::Authenticated { icv, .. } = state {
-        *icv = expected_cmac;
+        icv[0..8].copy_from_slice(&expected_cmac);
+        icv[8..16].fill(0);
     }
 
     // Extract data (strip MAC).
@@ -255,6 +270,10 @@ pub fn unwrap_command(
             ScpVersion::Scp02 => {
                 // IV for C-ENC = DES_ECB(`session_ENC` left half, ICV used for this cmd)
                 des_ecb_encrypt_left_half(&session_enc, effective_icv)
+            }
+            ScpVersion::Scp03 => {
+                // SCP03 C-ENC handled in scp03 module.
+                return Err(ScpError::InvalidState);
             }
         };
 
@@ -285,14 +304,16 @@ pub fn wrap_response(
     sw2: u8,
     output: &mut [u8],
 ) -> usize {
-    let (sess_rmac, is_rmac_active, current_icv) = if let ScpState::Authenticated {
+    let (sess_rmac, is_rmac_active, current_icv8) = if let ScpState::Authenticated {
         session_rmac,
         rmac_active,
         icv,
         ..
     } = state
     {
-        (*session_rmac, *rmac_active, *icv)
+        let mut icv8 = [0u8; 8];
+        icv8.copy_from_slice(&icv[0..8]);
+        (*session_rmac, *rmac_active, icv8)
     } else {
         // Not authenticated: pass through.
         let total = response_data.len() + 2;
@@ -322,7 +343,7 @@ pub fn wrap_response(
     let padded_len = pad_method2(&rmac_data[..data_len], 8, &mut padded);
 
     let rmac_key = Secret::new(sess_rmac);
-    let rmac = des3_2key_cbc_mac_with_iv(&rmac_key, current_icv, &padded[..padded_len]);
+    let rmac = des3_2key_cbc_mac_with_iv(&rmac_key, current_icv8, &padded[..padded_len]);
 
     // Output: response_data || R-MAC || SW1 || SW2
     let total = response_data.len() + 8 + 2;

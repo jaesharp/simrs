@@ -207,9 +207,10 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             session_rmac: [0u8; 16],
             session_dek: [0u8; 16],
             security_level: 0x00,
-            icv: [0u8; 8],
+            icv: [0u8; 16],
             rmac_active: false,
             scp_version: ScpVersion::Scp02,
+            enc_counter: 0,
         };
     }
 
@@ -384,10 +385,15 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         // commands requiring auth must include and pass C-MAC verification.
         // GP 2.1.1 clause 8.3.1.
         if !auth_exempt {
-            if let ScpState::Authenticated { security_level, .. } = self.scp_state {
+            if let ScpState::Authenticated { security_level, scp_version, .. } = self.scp_state {
                 if security_level & 0x01 != 0 {
                     let mut uw_data = [0u8; 256];
-                    match unwrap_command(&mut self.scp_state, raw, &mut uw_data) {
+                    let uw_result = if scp_version == ScpVersion::Scp03 {
+                        self.scp03_unwrap(raw, &mut uw_data)
+                    } else {
+                        unwrap_command(&mut self.scp_state, raw, &mut uw_data)
+                    };
+                    match uw_result {
                         Ok(data_len) => {
                             // Rebuild APDU without C-MAC for dispatch.
                             let mut uw_apdu = [0u8; 261];
@@ -597,6 +603,37 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         }
     }
 
+    // -- SCP03 C-MAC unwrap helper --
+
+    fn scp03_unwrap(
+        &mut self,
+        apdu: &[u8],
+        output: &mut [u8],
+    ) -> Result<usize, ScpError> {
+        if let ScpState::Authenticated {
+            session_enc,
+            session_mac,
+            security_level,
+            icv,
+            enc_counter,
+            scp_version: ScpVersion::Scp03,
+            ..
+        } = &mut self.scp_state
+        {
+            simrs_gp_scp::scp03::unwrap_command(
+                session_enc,
+                session_mac,
+                *security_level,
+                icv,
+                enc_counter,
+                apdu,
+                output,
+            )
+        } else {
+            Err(ScpError::InvalidState)
+        }
+    }
+
     // -- SCP: INITIALIZE UPDATE --
 
     fn handle_initialize_update<'buf>(
@@ -622,6 +659,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         let scp_version = match keys.scp_id() {
             simrs_gp_keys::ScpId::Scp01 => ScpVersion::Scp01,
             simrs_gp_keys::ScpId::Scp02 => ScpVersion::Scp02,
+            simrs_gp_keys::ScpId::Scp03 => ScpVersion::Scp03,
         };
 
         // Generate card challenge. For deterministic testing, derive from
@@ -635,6 +673,18 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                 card_challenge[0] = (self.sequence_counter >> 8) as u8;
                 card_challenge[1] = self.sequence_counter as u8;
             }
+        }
+
+        if scp_version == ScpVersion::Scp03 {
+            let response = simrs_gp_scp::process_initialize_update_scp03(
+                &mut self.scp_state,
+                actual_version,
+                &host_challenge,
+                keys,
+                &card_challenge,
+                &KEY_DIVERSIFICATION,
+            );
+            return write_data_sw(buf, &response, StatusWord::Success);
         }
 
         let response = process_initialize_update(
@@ -671,11 +721,27 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
 
         let security_level = cmd.p1();
 
-        match process_external_authenticate(
-            &mut self.scp_state,
-            security_level,
-            &host_crypto_and_mac,
-        ) {
+        // Dispatch SCP03 or SCP01/02 based on InitUpdateDone state.
+        let is_scp03 = matches!(
+            self.scp_state,
+            ScpState::InitUpdateDone { scp_version: ScpVersion::Scp03, .. }
+        );
+
+        let result = if is_scp03 {
+            simrs_gp_scp::process_external_authenticate_scp03(
+                &mut self.scp_state,
+                security_level,
+                &host_crypto_and_mac,
+            )
+        } else {
+            process_external_authenticate(
+                &mut self.scp_state,
+                security_level,
+                &host_crypto_and_mac,
+            )
+        };
+
+        match result {
             Ok(()) => write_sw(buf, StatusWord::Success),
             Err(simrs_gp_scp::ScpError::InvalidState) => {
                 write_sw(buf, StatusWord::command_not_allowed(0x85))
