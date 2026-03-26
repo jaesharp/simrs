@@ -35,6 +35,7 @@
 //! ```
 
 mod session;
+pub mod scp03;
 
 pub use session::{DiffSession, DiffSessionBuilder};
 
