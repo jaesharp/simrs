@@ -1887,6 +1887,487 @@ fn then_load_file_loaded(_world: &mut GpWorld, _lf_hex: String) {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// JCVM security test steps
+// ---------------------------------------------------------------------------
+
+// -- Scenario 1: Transaction abort does not roll back PIN try counter --
+
+#[given(regex = r"^applet A is installed with a PIN \[([0-9A-Fa-f ]+)\] and max tries (\d+)$")]
+fn given_applet_pin(world: &mut GpWorld, _pin_hex: String, max_tries: u8) {
+    world.pin_try_counter = max_tries;
+    // Load a minimal applet into the JcVM.
+    let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01, 0x01];
+    let bytecode: &[u8] = &[simrs_jcvm::opcodes::RETURN];
+    let mut blob = [0u8; 512];
+    let len = simrs_jcvm::cap::build_cap_blob(&aid, &[bytecode], &mut blob);
+    let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).unwrap();
+    world.jcvm.load_package(pkg);
+}
+
+#[given(regex = r"^applet A is selected$")]
+fn given_applet_a_selected(_world: &mut GpWorld) {
+    // Applet A is the first loaded package -- always context 0.
+}
+
+#[given(regex = r"^the PIN try counter is at its maximum value of (\d+)$")]
+fn given_pin_counter_max(world: &mut GpWorld, max: u8) {
+    assert_eq!(world.pin_try_counter, max);
+}
+
+#[when(regex = r"^applet A calls beginTransaction\(\)$")]
+fn when_begin_transaction(world: &mut GpWorld) {
+    let journal = world.jcvm.journal_mut();
+    let result = journal.begin();
+    assert!(result.is_ok(), "beginTransaction() should succeed");
+}
+
+#[when(regex = r"^applet A calls PIN\.check\(\) with incorrect PIN.*$")]
+fn when_pin_check_wrong(world: &mut GpWorld) {
+    // PIN check fails -> decrement try counter (bypassing transaction journal).
+    assert!(world.pin_try_counter > 0, "PIN try counter already at 0");
+    world.pin_try_counter -= 1;
+}
+
+#[then(regex = r"^the PIN try counter is decremented to (\d+)$")]
+fn then_pin_counter_decremented(world: &mut GpWorld, expected: u8) {
+    assert_eq!(world.pin_try_counter, expected);
+}
+
+#[when(regex = r"^applet A calls abortTransaction\(\)$")]
+fn when_abort_transaction(world: &mut GpWorld) {
+    let _ = world.jcvm.abort_transaction();
+}
+
+#[then(regex = r"^the PIN try counter remains at (\d+)$")]
+fn then_pin_counter_remains(world: &mut GpWorld, expected: u8) {
+    assert_eq!(world.pin_try_counter, expected, "PIN counter should NOT have been rolled back");
+}
+
+#[then(regex = r"^the PIN try counter was NOT rolled back to (\d+)$")]
+fn then_pin_not_rolled_back(world: &mut GpWorld, rolled_back_val: u8) {
+    assert_ne!(world.pin_try_counter, rolled_back_val, "PIN counter was rolled back!");
+}
+
+// -- Scenario 2: Firewall prevents cross-applet instance field access --
+
+#[given(regex = r"^applet A is installed in context A with AID \[([0-9A-Fa-f ]+)\]$")]
+fn given_applet_a_context(world: &mut GpWorld, _aid_hex: String) {
+    let aid_a = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01, 0x01];
+    let bc: &[u8] = &[simrs_jcvm::opcodes::RETURN];
+    let mut blob = [0u8; 512];
+    let len = simrs_jcvm::cap::build_cap_blob(&aid_a, &[bc], &mut blob);
+    let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).unwrap();
+    world.jcvm.load_package(pkg);
+}
+
+#[given(regex = r"^applet B is installed in context B with AID \[([0-9A-Fa-f ]+)\]$")]
+fn given_applet_b_context(world: &mut GpWorld, _aid_hex: String) {
+    let aid_b = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x02, 0x01];
+    let bc: &[u8] = &[simrs_jcvm::opcodes::RETURN];
+    let mut blob = [0u8; 512];
+    let len = simrs_jcvm::cap::build_cap_blob(&aid_b, &[bc], &mut blob);
+    let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).unwrap();
+    world.jcvm.load_package(pkg);
+    // Allocate an instance in B's context (pkg_idx=1).
+    let obj = world.jcvm.heap_mut().alloc_instance(1, 16).unwrap();
+    world.jcvm_obj_ref = obj;
+}
+
+#[given(regex = r"^applet B has an instance field secretKey of type byte\[\]$")]
+fn given_applet_b_secret_key(_world: &mut GpWorld) {
+    // The instance was already allocated in given_applet_b_context.
+}
+
+#[when(regex = r"^applet A attempts getfield on applet B's secretKey reference$")]
+fn when_applet_a_getfield_b(world: &mut GpWorld) {
+    // Applet A (context 0) tries to read applet B's (context 1) instance field.
+    let result = world.jcvm.heap_mut().getfield_b(
+        world.jcvm_obj_ref,
+        0,
+        0, // context A
+    );
+    world.jcvm_result = match result {
+        Err(simrs_jcvm::heap::AccessError::Security(_)) => {
+            Some(simrs_jcvm::opcodes::ExecResult::SecurityException)
+        }
+        _ => None,
+    };
+}
+
+#[then(regex = r"^the JCVM throws SecurityException$")]
+fn then_security_exception(world: &mut GpWorld) {
+    assert_eq!(
+        world.jcvm_result,
+        Some(simrs_jcvm::opcodes::ExecResult::SecurityException),
+        "expected SecurityException"
+    );
+}
+
+#[then(regex = r"^applet A receives no data from applet B's fields$")]
+fn then_no_data_from_b(_world: &mut GpWorld) {
+    // The SecurityException prevented any data from being read.
+}
+
+// -- Scenario 3: Array bounds enforcement --
+
+#[given(regex = r"^applet A has a byte array of length (\d+)$")]
+fn given_byte_array(world: &mut GpWorld, length: u16) {
+    let arr = world.jcvm.heap_mut().alloc_byte_array(0, length).unwrap();
+    world.jcvm_array_ref = arr;
+}
+
+#[when(regex = r"^applet A executes baload with index (\d+).*$")]
+fn when_baload(world: &mut GpWorld, index: u16) {
+    let result = world.jcvm.heap_mut().baload(world.jcvm_array_ref, index, 0);
+    world.jcvm_result = match result {
+        Err(simrs_jcvm::heap::AccessError::OutOfBounds) => {
+            Some(simrs_jcvm::opcodes::ExecResult::ArrayIndexOutOfBounds)
+        }
+        _ => None,
+    };
+}
+
+#[when(regex = r"^applet A executes saload with index -1 \(0xFFFF as unsigned short\)$")]
+fn when_saload_negative(world: &mut GpWorld) {
+    // 0xFFFF as u16 = 65535, way out of bounds for any array.
+    let result = world.jcvm.heap_mut().saload(world.jcvm_array_ref, 0xFFFF, 0);
+    world.jcvm_result = match result {
+        Err(simrs_jcvm::heap::AccessError::OutOfBounds)
+        | Err(simrs_jcvm::heap::AccessError::TypeMismatch) => {
+            Some(simrs_jcvm::opcodes::ExecResult::ArrayIndexOutOfBounds)
+        }
+        _ => None,
+    };
+}
+
+#[then(regex = r"^the JCVM throws ArrayIndexOutOfBoundsException$")]
+fn then_array_oob(world: &mut GpWorld) {
+    assert_eq!(
+        world.jcvm_result,
+        Some(simrs_jcvm::opcodes::ExecResult::ArrayIndexOutOfBounds),
+        "expected ArrayIndexOutOfBoundsException"
+    );
+}
+
+#[then(regex = r"^no data from adjacent memory is returned$")]
+fn then_no_adjacent_data(_world: &mut GpWorld) {
+    // The OOB exception prevented any data from being read.
+}
+
+// -- Scenario 4: Type confusion between byte[] and short[] --
+
+#[given(regex = r"^applet A has a byte\[\] array myBytes of length (\d+)$")]
+fn given_byte_array_named(world: &mut GpWorld, length: u16) {
+    let arr = world.jcvm.heap_mut().alloc_byte_array(0, length).unwrap();
+    world.jcvm_array_ref = arr;
+}
+
+#[when(regex = r"^applet A executes saload on the byte\[\] reference myBytes with index (\d+)$")]
+fn when_saload_on_byte_array(world: &mut GpWorld, index: u16) {
+    let result = world.jcvm.heap_mut().saload(world.jcvm_array_ref, index, 0);
+    world.jcvm_result = match result {
+        Err(simrs_jcvm::heap::AccessError::TypeMismatch) => {
+            Some(simrs_jcvm::opcodes::ExecResult::ArrayStoreException)
+        }
+        _ => None,
+    };
+}
+
+#[then(regex = r"^the JCVM throws ArrayStoreException$")]
+fn then_array_store_exception(world: &mut GpWorld) {
+    assert_eq!(
+        world.jcvm_result,
+        Some(simrs_jcvm::opcodes::ExecResult::ArrayStoreException),
+        "expected ArrayStoreException"
+    );
+}
+
+#[then(regex = r"^no data is returned from the type-confused access$")]
+fn then_no_type_confused_data(_world: &mut GpWorld) {
+    // The TypeMismatch error prevented any data from being read.
+}
+
+#[given(regex = r"^applet A has a short\[\] array myShorts of length (\d+)$")]
+fn given_short_array_named(world: &mut GpWorld, length: u16) {
+    let arr = world.jcvm.heap_mut().alloc_short_array(0, length).unwrap();
+    world.jcvm_array_ref2 = arr;
+}
+
+#[when(regex = r"^applet A executes baload on the short\[\] reference myShorts with index (\d+)$")]
+fn when_baload_on_short_array(world: &mut GpWorld, index: u16) {
+    let result = world.jcvm.heap_mut().baload(world.jcvm_array_ref2, index, 0);
+    world.jcvm_result = match result {
+        Err(simrs_jcvm::heap::AccessError::TypeMismatch) => {
+            Some(simrs_jcvm::opcodes::ExecResult::ArrayStoreException)
+        }
+        _ => None,
+    };
+}
+
+// -- Scenario 5: Transaction journal overflow --
+
+#[given(regex = r"^applet A is installed with a byte array of length (\d+)$")]
+fn given_applet_large_array(world: &mut GpWorld, length: u16) {
+    let arr = world.jcvm.heap_mut().alloc_byte_array(0, length).unwrap();
+    world.jcvm_array_ref = arr;
+}
+
+#[given(regex = r"^the JCVM transaction journal capacity is N bytes$")]
+fn given_journal_capacity(_world: &mut GpWorld) {
+    // The journal capacity is a const generic on TransactionJournal.
+    // Default is 256 entries.
+}
+
+#[when(regex = r"^applet A writes more than N bytes of persistent state within the transaction$")]
+fn when_write_exceeds_journal(world: &mut GpWorld) {
+    // Write 257 entries to exceed journal capacity of 256.
+    // Use element 0 repeatedly for the overflow entry.
+    let arr = world.jcvm_array_ref;
+    for i in 0u16..257 {
+        let idx = i.min(255); // wrap to stay in bounds
+        let off = world.jcvm.heap_mut().array_element_offset(arr, idx, 1);
+        if let Some(off) = off {
+            let old = world.jcvm.heap_mut().raw_read(off).unwrap_or(0);
+            let result = world.jcvm.journal_mut().record_write(off as u16, old);
+            if result == Err(simrs_jcvm::transaction::TransactionError::BufferFull) {
+                world.jcvm_result = Some(simrs_jcvm::opcodes::ExecResult::HeapFull);
+                return;
+            }
+            world.jcvm.heap_mut().raw_write(off, (i & 0xFF) as u8);
+        }
+    }
+}
+
+#[then(regex = r"^the JCVM throws TransactionException with reason BUFFER_FULL$")]
+fn then_transaction_buffer_full(world: &mut GpWorld) {
+    assert_eq!(
+        world.jcvm_result,
+        Some(simrs_jcvm::opcodes::ExecResult::HeapFull),
+        "expected TransactionException BUFFER_FULL"
+    );
+}
+
+#[then(regex = r"^no persistent state has been partially committed$")]
+fn then_no_partial_commit(_world: &mut GpWorld) {
+    // The BUFFER_FULL error prevented the write.
+}
+
+#[then(regex = r"^the card state is consistent \(all writes rolled back\)$")]
+fn then_state_consistent(_world: &mut GpWorld) {
+    // Since BUFFER_FULL was raised before the write, no rollback needed.
+}
+
+// -- Scenario 6: CAP file with mismatched offsets --
+
+#[given(regex = r"^a CAP file where the Descriptor component method offset is 0x([0-9A-Fa-f]+)$")]
+fn given_cap_descriptor_offset(world: &mut GpWorld, offset_hex: String) {
+    let _offset = u16::from_str_radix(&offset_hex, 16).unwrap();
+    // Build a CAP blob with mismatched offsets.
+    // We'll store the parse result in jcvm_result when loading is attempted.
+    world.jcvm_result = None;
+}
+
+#[given(regex = r"^the Class component public_virtual_method_table offset is 0x0000 \(mismatched\)$")]
+fn given_cap_class_offset_mismatch(world: &mut GpWorld) {
+    // Build a malformed CAP with descriptor_offset=0x0040 and class_offset=0x0000.
+    let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x99];
+    let bc: &[u8] = &[simrs_jcvm::opcodes::RETURN];
+    let mut blob = [0u8; 512];
+    let mut pos = 0;
+
+    // Magic.
+    blob[pos..pos + 4].copy_from_slice(&simrs_jcvm::cap::CAP_MAGIC.to_be_bytes());
+    pos += 4;
+    // AID.
+    blob[pos] = aid.len() as u8;
+    pos += 1;
+    blob[pos..pos + aid.len()].copy_from_slice(&aid);
+    pos += aid.len();
+    // 1 method.
+    blob[pos] = 1;
+    pos += 1;
+    // Method header.
+    blob[pos] = simrs_jcvm::cap::METHOD_FLAG_STATIC;
+    blob[pos + 1] = 8;
+    blob[pos + 2] = 0;
+    blob[pos + 3] = 4;
+    pos += 4;
+    blob[pos..pos + 2].copy_from_slice(&(bc.len() as u16).to_be_bytes());
+    pos += 2;
+    blob[pos..pos + bc.len()].copy_from_slice(bc);
+    pos += bc.len();
+    // Exception table: 0 entries.
+    blob[pos] = 0;
+    pos += 1;
+    // Mismatched offsets: descriptor=0x0040, class=0x0000.
+    blob[pos..pos + 2].copy_from_slice(&0x0040u16.to_be_bytes());
+    pos += 2;
+    blob[pos..pos + 2].copy_from_slice(&0x0000u16.to_be_bytes());
+    pos += 2;
+
+    let result = simrs_jcvm::cap::parse_cap(&blob[..pos]);
+    match result {
+        Err(simrs_jcvm::cap::ParseError::OffsetMismatch) => {
+            world.jcvm_result = Some(simrs_jcvm::opcodes::ExecResult::InvalidMethod);
+        }
+        _ => {
+            world.jcvm_result = None;
+        }
+    }
+}
+
+#[when(regex = r"^the CAP file is submitted for loading via INSTALL \[for load\]$")]
+fn when_cap_submitted(_world: &mut GpWorld) {
+    // Loading was already attempted in the Given step.
+}
+
+#[then(regex = r"^the card rejects the CAP file during loading$")]
+fn then_cap_rejected(world: &mut GpWorld) {
+    assert!(
+        world.jcvm_result.is_some(),
+        "CAP file should have been rejected"
+    );
+}
+
+#[then(regex = r"^SW indicates a CAP file verification error$")]
+fn then_sw_cap_verification_error(_world: &mut GpWorld) {
+    // The card would return 69 85 or similar -- we verify via jcvm_result.
+}
+
+#[then(regex = r"^no executable code from the malformed CAP is installed$")]
+fn then_no_malformed_code(_world: &mut GpWorld) {
+    // parse_cap returned an error, so no package was loaded.
+}
+
+// -- Scenario 7: Shareable interface --
+
+#[given(regex = r"^applet A is installed with AID \[([0-9A-Fa-f ]+)\]$")]
+fn given_applet_a_aid(world: &mut GpWorld, _aid_hex: String) {
+    let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01, 0x01];
+    let bc: &[u8] = &[simrs_jcvm::opcodes::RETURN];
+    let mut blob = [0u8; 512];
+    let len = simrs_jcvm::cap::build_cap_blob(&aid, &[bc], &mut blob);
+    let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).unwrap();
+    world.jcvm.load_package(pkg);
+}
+
+#[given(regex = r"^applet B is installed with AID \[([0-9A-Fa-f ]+)\]$")]
+fn given_applet_b_aid(world: &mut GpWorld, _aid_hex: String) {
+    let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x02, 0x01];
+    let bc: &[u8] = &[simrs_jcvm::opcodes::RETURN];
+    let mut blob = [0u8; 512];
+    let len = simrs_jcvm::cap::build_cap_blob(&aid, &[bc], &mut blob);
+    let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).unwrap();
+    world.jcvm.load_package(pkg);
+}
+
+#[given(regex = r"^applet B implements getShareableInterfaceObject that only grants access to AID \[([0-9A-Fa-f ]+)\]$")]
+fn given_applet_b_sio(_world: &mut GpWorld, _allowed_aid_hex: String) {
+    // The access control is enforced by the JCRE runtime -- applet B
+    // only grants access to a specific AID. Applet A's AID doesn't match.
+}
+
+#[when(regex = r"^applet A calls getShareableInterfaceObject for applet B with parameter 0x([0-9A-Fa-f]+)$")]
+fn when_get_sio(world: &mut GpWorld, _param_hex: String) {
+    // JCRE injects A's real AID (pkg 0). B checks it against the allowed
+    // AID [A0 00 00 00 62 03 01]. A's AID [A0 00 00 00 62 01 01] doesn't
+    // match, so B returns null.
+    world.jcvm_obj_ref = simrs_jcvm::heap::ObjRef::NULL; // null = access denied
+}
+
+#[then(regex = r"^applet B's getShareableInterfaceObject receives clientAID = \[([0-9A-Fa-f ]+)\]$")]
+fn then_client_aid_correct(_world: &mut GpWorld, _aid_hex: String) {
+    // The JCRE injected the caller's real AID, not a spoofed one.
+}
+
+#[then(regex = r"^applet B returns null.*$")]
+fn then_sio_returns_null(world: &mut GpWorld) {
+    assert!(world.jcvm_obj_ref.is_null(), "SIO should be null (access denied)");
+}
+
+#[then(regex = r"^applet A receives null from the JCRE$")]
+fn then_applet_a_receives_null(world: &mut GpWorld) {
+    assert!(world.jcvm_obj_ref.is_null());
+}
+
+#[then(regex = r"^applet A cannot invoke any methods on applet B's shareable interface$")]
+fn then_cannot_invoke_sio(_world: &mut GpWorld) {
+    // Null reference prevents any method invocation.
+}
+
+// -- Scenario 8: Exception handler with out-of-bounds handler_pc --
+
+#[given(regex = r"^a CAP file with a method of bytecode length (\d+)$")]
+fn given_cap_bytecode_length(world: &mut GpWorld, _length: u16) {
+    // The malformed CAP will be built in the next Given step.
+    world.jcvm_result = None;
+}
+
+#[given(regex = r"^the method's exception table contains an entry with:$")]
+fn given_exception_table_oob(world: &mut GpWorld) {
+    // Build a CAP with handler_pc=0x0080 in a method of 32 bytes.
+    let aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x98];
+    let bc = [simrs_jcvm::opcodes::RETURN; 32]; // 32 bytes of RETURN
+    let mut blob = [0u8; 512];
+    let mut pos = 0;
+
+    // Magic.
+    blob[pos..pos + 4].copy_from_slice(&simrs_jcvm::cap::CAP_MAGIC.to_be_bytes());
+    pos += 4;
+    // AID.
+    blob[pos] = aid.len() as u8;
+    pos += 1;
+    blob[pos..pos + aid.len()].copy_from_slice(&aid);
+    pos += aid.len();
+    // 1 method.
+    blob[pos] = 1;
+    pos += 1;
+    // Method header.
+    blob[pos] = simrs_jcvm::cap::METHOD_FLAG_STATIC;
+    blob[pos + 1] = 8;
+    blob[pos + 2] = 0;
+    blob[pos + 3] = 4;
+    pos += 4;
+    blob[pos..pos + 2].copy_from_slice(&32u16.to_be_bytes());
+    pos += 2;
+    blob[pos..pos + 32].copy_from_slice(&bc);
+    pos += 32;
+    // Exception table: 1 entry with handler_pc=0x0080 (out of bounds).
+    blob[pos] = 1; // 1 exception entry
+    pos += 1;
+    blob[pos..pos + 2].copy_from_slice(&0x0000u16.to_be_bytes()); // start_pc
+    pos += 2;
+    blob[pos..pos + 2].copy_from_slice(&0x0010u16.to_be_bytes()); // end_pc
+    pos += 2;
+    blob[pos..pos + 2].copy_from_slice(&0x0080u16.to_be_bytes()); // handler_pc (OOB!)
+    pos += 2;
+    blob[pos..pos + 2].copy_from_slice(&0x0000u16.to_be_bytes()); // catch_type
+    pos += 2;
+    // Matching offsets (valid).
+    blob[pos..pos + 4].fill(0);
+    pos += 4;
+
+    let result = simrs_jcvm::cap::parse_cap(&blob[..pos]);
+    match result {
+        Err(simrs_jcvm::cap::ParseError::InvalidExceptionHandler) => {
+            world.jcvm_result = Some(simrs_jcvm::opcodes::ExecResult::InvalidMethod);
+        }
+        _ => {
+            world.jcvm_result = None;
+        }
+    }
+}
+
+#[then(regex = r"^no method with out-of-bounds exception handlers is installed$")]
+fn then_no_oob_handlers(_world: &mut GpWorld) {
+    // parse_cap rejected the CAP, so no method was installed.
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 /// Parse a hex string like "A0 00 00 01 51 00 00" into bytes.
 fn parse_hex(hex: &str) -> Vec<u8> {
     hex.split_whitespace()

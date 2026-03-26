@@ -43,6 +43,10 @@ use frame::{CallFrame, MAX_FRAMES, MAX_LOCALS, MAX_STACK};
 use heap::{ObjRef, ObjectHeap};
 use opcodes::ExecResult;
 use simrs_jcre::{Applet, AppletResult};
+use transaction::TransactionJournal;
+
+/// Default transaction journal capacity (entries).
+const JOURNAL_CAP: usize = 256;
 
 /// Maximum execution steps before the interpreter aborts (infinite loop guard).
 const EXEC_LIMIT: u32 = 100_000;
@@ -64,6 +68,8 @@ pub struct JcVM<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> {
     packages: [Option<Package>; MAX_PACKAGES],
     /// Static field storage.
     static_fields: [u8; 1024],
+    /// Transaction journal.
+    journal: TransactionJournal<JOURNAL_CAP>,
 
     // --- Transient state (NOT in snapshot, zeroed on restore) ---
     /// Operand stack (16-bit words).
@@ -95,6 +101,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
             heap: ObjectHeap::new(),
             packages: [None; MAX_PACKAGES],
             static_fields: [0u8; 1024],
+            journal: TransactionJournal::new(),
             stack: [0u16; MAX_STACK],
             stack_ptr: 0,
             frames: [CallFrame::empty(); MAX_FRAMES],
@@ -120,6 +127,18 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
             }
         }
         None
+    }
+
+    /// Mutable reference to the transaction journal.
+    pub fn journal_mut(&mut self) -> &mut TransactionJournal<JOURNAL_CAP> {
+        &mut self.journal
+    }
+
+    /// Abort the current transaction, rolling back heap writes.
+    pub fn abort_transaction(
+        &mut self,
+    ) -> Result<(), transaction::TransactionError> {
+        self.journal.abort(&mut self.heap)
     }
 
     /// Set the process method index for APDU dispatch.

@@ -50,6 +50,18 @@ pub struct GpWorld {
     pub saved_fci_aid: Vec<u8>,
     /// Computed host cryptogram (for EXT AUTH steps).
     pub host_cryptogram: [u8; 8],
+    /// JCVM instance for bytecode-level security tests.
+    pub jcvm: Box<simrs_jcvm::JcVM<4096, 4>>,
+    /// Last JCVM execution result.
+    pub jcvm_result: Option<simrs_jcvm::opcodes::ExecResult>,
+    /// Byte array ref allocated by scenario setup.
+    pub jcvm_array_ref: simrs_jcvm::heap::ObjRef,
+    /// Second array ref (for type confusion tests).
+    pub jcvm_array_ref2: simrs_jcvm::heap::ObjRef,
+    /// Instance object ref (for firewall tests).
+    pub jcvm_obj_ref: simrs_jcvm::heap::ObjRef,
+    /// PIN try counter value (for transaction tests).
+    pub pin_try_counter: u8,
 }
 
 impl std::fmt::Debug for GpWorld {
@@ -87,6 +99,12 @@ impl Default for GpWorld {
             init_update_kv: 0x01, // default key version (TEST_KEY_VERSION)
             saved_fci_aid: Vec::new(),
             host_cryptogram: [0; 8],
+            jcvm: Box::new(simrs_jcvm::JcVM::new()),
+            jcvm_result: None,
+            jcvm_array_ref: simrs_jcvm::heap::ObjRef::NULL,
+            jcvm_array_ref2: simrs_jcvm::heap::ObjRef::NULL,
+            jcvm_obj_ref: simrs_jcvm::heap::ObjRef::NULL,
+            pin_try_counter: 0,
         }
     }
 }

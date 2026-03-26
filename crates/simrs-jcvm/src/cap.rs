@@ -293,8 +293,10 @@ pub fn parse_cap(data: &[u8]) -> Result<Package, ParseError> {
                 class_offset = u16::from_be_bytes([data[pos + 2], data[pos + 3]]);
                 pos += 4;
 
-                // Cross-validate: if both are non-zero, they must match.
-                if descriptor_offset != 0 && class_offset != 0
+                // Cross-validate: if either is non-zero, both must match.
+                // A zeroed Class offset with a valid Descriptor offset is the
+                // Lancia & Bouffard (CARDIS 2015) attack vector.
+                if (descriptor_offset != 0 || class_offset != 0)
                     && descriptor_offset != class_offset
                 {
                     return Err(ParseError::OffsetMismatch);

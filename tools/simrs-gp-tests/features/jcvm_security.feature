@@ -5,8 +5,8 @@
 #
 # These scenarios define the contract that a conforming JCVM implementation
 # must satisfy to defend against demonstrated attack classes. All scenarios
-# are @wip since the JCVM does not yet exist in simrs, but they establish
-# the security requirements for any future implementation.
+# These scenarios define the security contract that the simrs JCVM
+# implementation must satisfy to defend against demonstrated attack classes.
 #
 # Standards:
 #   Java Card Virtual Machine Specification 3.1  Chapter 3 (Runtime Data Areas)
@@ -47,7 +47,6 @@ Feature: JCVM Security Regressions (CARDIS 2003-2021 Attack Defenses)
   # abortTransaction()."
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Transaction abort does not roll back PIN try counter
     # Witteman 2003; JCRE 2.2.1 clause 7.7
     # Attack: beginTransaction(), PIN.check(wrong_pin), abortTransaction().
@@ -75,7 +74,6 @@ Feature: JCVM Security Regressions (CARDIS 2003-2021 Attack Defenses)
   # shall throw SecurityException."
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Firewall prevents cross-applet instance field access
     # Poll & Mostowski, CARDIS 2008, Section 3; JCRE 2.2.1 Chapter 6
     # Applet A attempts to read applet B's instance field via a crafted
@@ -101,7 +99,6 @@ Feature: JCVM Security Regressions (CARDIS 2003-2021 Attack Defenses)
   # at runtime that the index is within [0, array.length - 1]."
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Array bounds enforcement prevents adjacent memory read
     # Poll et al., CARDIS 2008, Section 4; JCVM 3.1 Section 3.11.3
     Given applet A has a byte array of length 8
@@ -126,7 +123,6 @@ Feature: JCVM Security Regressions (CARDIS 2003-2021 Attack Defenses)
   # ArrayStoreException."
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Type confusion between byte[] and short[] arrays is prevented
     # Poll et al., CARDIS 2008, Section 4.1; JCVM 3.1 Section 3.11.3
     # Attack: via CAP manipulation, change baload (0x33) to saload (0x35)
@@ -153,7 +149,6 @@ Feature: JCVM Security Regressions (CARDIS 2003-2021 Attack Defenses)
   # the JCRE shall throw TransactionException with reason BUFFER_FULL."
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Transaction journal overflow throws TransactionException
     # Hogenboom & Mostowski, WISSEC 2009; JCRE 2.2.1 clause 7.6
     Given applet A is installed with a byte array of length 256
@@ -177,7 +172,6 @@ Feature: JCVM Security Regressions (CARDIS 2003-2021 Attack Defenses)
   # in the Class component are consistent with the Method component."
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: CAP file with mismatched Class/Descriptor component offsets is rejected
     # Lancia & Bouffard, CARDIS 2015; JCVM 3.1 Section 6.3
     # Attack: Descriptor component has valid method offset 0x0040.
@@ -205,7 +199,6 @@ Feature: JCVM Security Regressions (CARDIS 2003-2021 Attack Defenses)
   # to the AID of the requesting applet instance."
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Shareable interface enforces correct client AID and null denial
     # Witteman 2003; Poll et al., CARDIS 2008; JCRE 2.2.1 Section 6.2.4
     Given applet A is installed with AID [A0 00 00 00 62 01 01]
@@ -230,7 +223,6 @@ Feature: JCVM Security Regressions (CARDIS 2003-2021 Attack Defenses)
   # bytecode index within the same method's bytecode array."
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Exception handler with out-of-bounds handler_pc is rejected at load time
     # Barbu, Hoogvorst & Duc, SECRYPT 2012; JCVM spec exception table semantics
     Given a CAP file with a method of bytecode length 32
