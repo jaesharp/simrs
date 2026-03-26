@@ -15,6 +15,7 @@ quote       = "1"
 
 [dev-dependencies]
 simrs-jcvm = { workspace = true }
+proptest   = { workspace = true }
 
 [lints]
 workspace = true
