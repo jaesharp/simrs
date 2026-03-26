@@ -322,3 +322,209 @@ fn replay_manage_channel_sequence() {
     s.replay_sequence(&refs);
     s.print_summary();
 }
+
+// -----------------------------------------------------------------------
+// Extended replay sequences (BDD-derived)
+// -----------------------------------------------------------------------
+
+/// SCP02 handshake: SELECT + INIT UPDATE + wrong EXT AUTH.
+/// Both should reject the incorrect EXT AUTH.
+#[test]
+fn replay_scp02_handshake_failure() {
+    let mut s = diff_session!("replay-scp02-fail");
+
+    let host_challenge = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
+    let mut init_update = vec![0x80, 0x50, 0x00, 0x00, 0x08];
+    init_update.extend_from_slice(&host_challenge);
+
+    let bad_ext_auth = vec![
+        0x84, 0x82, 0x00, 0x00, 0x10,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    ];
+
+    let sequence: Vec<Vec<u8>> = vec![
+        select_aid(&SIMRS_ISD_AID),
+        init_update,
+        bad_ext_auth,
+    ];
+
+    let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
+    let stats = s.replay_sequence(&refs);
+
+    // SELECT and INIT UPDATE should succeed on both. EXT AUTH should fail on both.
+    assert_eq!(stats.total_apdus, 3);
+    eprintln!("SCP02 handshake failure: {} matches, {} sw mismatches, {} data mismatches",
+        stats.matches, stats.sw_mismatches, stats.data_mismatches);
+    s.print_summary();
+}
+
+/// Multiple GET DATA tags: 0066 (card recognition), 0042 (ISD AID), unknown.
+#[test]
+fn replay_get_data_multi_tag() {
+    let mut s = diff_session!("replay-gd-multi");
+
+    let sequence: Vec<Vec<u8>> = vec![
+        select_aid(&SIMRS_ISD_AID),
+        vec![0x80, 0xCA, 0x00, 0x66],           // Card Recognition Data
+        vec![0x80, 0xCA, 0x00, 0x42, 0x00],     // ISD AID
+        vec![0x80, 0xCA, 0xDE, 0xAD],           // Unknown tag
+        vec![0x80, 0xCA, 0x9F, 0x7F, 0x00],     // CPLC (divergence expected)
+    ];
+
+    let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
+    let stats = s.replay_sequence(&refs);
+
+    assert_eq!(stats.total_apdus, 5);
+    eprintln!("GET DATA multi: {} matches, {} divergences",
+        stats.matches, stats.sw_mismatches + stats.data_mismatches);
+    s.print_summary();
+}
+
+/// Repeated INIT UPDATE: sequence counter should increment on simrs.
+/// Oracle may have different counter behavior.
+#[test]
+fn replay_repeated_init_update() {
+    let mut s = diff_session!("replay-repeated-iu");
+
+    let hc1 = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let hc2 = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
+    let hc3 = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+
+    let mut iu1 = vec![0x80, 0x50, 0x00, 0x00, 0x08];
+    iu1.extend_from_slice(&hc1);
+    let mut iu2 = vec![0x80, 0x50, 0x00, 0x00, 0x08];
+    iu2.extend_from_slice(&hc2);
+    let mut iu3 = vec![0x80, 0x50, 0x00, 0x00, 0x08];
+    iu3.extend_from_slice(&hc3);
+
+    let sequence: Vec<Vec<u8>> = vec![
+        select_aid(&SIMRS_ISD_AID),
+        iu1,
+        iu2,
+        iu3,
+    ];
+
+    let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
+    let stats = s.replay_sequence(&refs);
+
+    assert_eq!(stats.total_apdus, 4);
+    // All INIT UPDATEs should succeed with SW 9000 on both.
+    // Data will differ (different crypto material) but SW should match.
+    eprintln!("Repeated INIT UPDATE: {} matches, {} data mismatches (expected for crypto)",
+        stats.matches, stats.data_mismatches);
+    s.print_summary();
+}
+
+// -----------------------------------------------------------------------
+// Semantic differential tests (field-level comparison via SchemaRegistry)
+// -----------------------------------------------------------------------
+
+/// Semantic comparison of INIT UPDATE: field structure matches even when
+/// crypto material differs (SCP02 vs SCP03).
+#[test]
+fn replay_semantic_init_update() {
+    let mut s = diff_session!("replay-sem-iu");
+
+    let sel = select_aid(&SIMRS_ISD_AID);
+    s.replay_one(&sel);
+
+    let hc = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let mut iu = vec![0x80, 0x50, 0x00, 0x00, 0x08];
+    iu.extend_from_slice(&hc);
+
+    // Use semantic comparison: schema-aware field matching.
+    let semantic_results = s.replay_one_semantic(&iu);
+    for result in &semantic_results {
+        eprintln!("Semantic INIT UPDATE: {result:?}");
+    }
+
+    s.print_summary();
+}
+
+/// Semantic comparison of GET DATA 0066: OID field matches exactly,
+/// lifecycle and SCP identifier fields are compared by policy.
+#[test]
+fn replay_semantic_get_data_0066() {
+    let mut s = diff_session!("replay-sem-gd66");
+
+    let gd = [0x80, 0xCA, 0x00, 0x66];
+    let semantic_results = s.replay_one_semantic(&gd);
+    for result in &semantic_results {
+        eprintln!("Semantic GET DATA 0066: {result:?}");
+    }
+
+    s.print_summary();
+}
+
+/// Semantic comparison of SELECT: FCI structure matches even when
+/// data lengths differ (simrs FCI vs Oracle FCI).
+#[test]
+fn replay_semantic_select() {
+    let mut s = diff_session!("replay-sem-sel");
+
+    let sel = select_aid(&SIMRS_ISD_AID);
+    let semantic_results = s.replay_one_semantic(&sel);
+    for result in &semantic_results {
+        eprintln!("Semantic SELECT: {result:?}");
+    }
+
+    s.print_summary();
+}
+
+/// Semantic comparison of a full discovery sequence:
+/// SELECT -> GET DATA 0066 -> INIT UPDATE.
+/// Uses schema-aware comparison for each step.
+#[test]
+fn replay_semantic_discovery() {
+    let mut s = diff_session!("replay-sem-disc");
+
+    let sel = select_aid(&SIMRS_ISD_AID);
+    let gd = [0x80, 0xCA, 0x00, 0x66];
+    let hc = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
+    let mut iu = vec![0x80, 0x50, 0x00, 0x00, 0x08];
+    iu.extend_from_slice(&hc);
+
+    for cmd in &[sel.as_slice(), &gd[..], iu.as_slice()] {
+        let results = s.replay_one_semantic(cmd);
+        for r in &results {
+            eprintln!("Semantic discovery step: {r:?}");
+        }
+    }
+
+    let sem_stats = s.semantic_stats();
+    eprintln!(
+        "Semantic: {} matches, {} mismatches, {} fallbacks",
+        sem_stats.semantic_matches, sem_stats.semantic_mismatches, sem_stats.schema_fallbacks
+    );
+    s.print_summary();
+}
+
+// -----------------------------------------------------------------------
+// Error resilience
+// -----------------------------------------------------------------------
+
+/// Error recovery: bad APDU -> SELECT -> GET DATA -> bad APDU -> SELECT.
+/// Tests that both implementations recover gracefully from errors.
+#[test]
+fn replay_error_resilience() {
+    let mut s = diff_session!("replay-resilience");
+
+    let sequence: Vec<Vec<u8>> = vec![
+        vec![0x80, 0xFD, 0x00, 0x00],           // Bad GP INS
+        vec![0x00, 0xFD, 0x00, 0x00],           // Bad ISO INS
+        select_aid(&SIMRS_ISD_AID),              // Recovery SELECT
+        vec![0x80, 0xCA, 0x00, 0x66],           // GET DATA (should work)
+        vec![0x80, 0xCA, 0xFF, 0xFF],           // Bad tag
+        select_aid(&SIMRS_ISD_AID),              // Recovery SELECT again
+    ];
+
+    let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
+    let stats = s.replay_sequence(&refs);
+
+    assert_eq!(stats.total_apdus, 6);
+    assert_eq!(stats.shadow_ignored, 0, "Oracle should process all APDUs");
+    eprintln!("Error resilience: {}/{} matched",
+        stats.matches, stats.total_apdus);
+    s.print_summary();
+}

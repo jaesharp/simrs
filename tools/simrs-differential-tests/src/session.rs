@@ -246,6 +246,19 @@ impl DiffSession {
         self.engine.replay_sequence(cmds)
     }
 
+    /// Replay a single APDU with semantic (schema-aware) comparison.
+    pub fn replay_one_semantic(
+        &mut self,
+        cmd: &[u8],
+    ) -> Vec<simrs_interposer::semantic::SemanticResult> {
+        self.engine.replay_one_semantic(cmd)
+    }
+
+    /// Access semantic comparison statistics.
+    pub const fn semantic_stats(&self) -> &simrs_interposer::diff::SemanticDivergenceStats {
+        &self.engine.semantic_stats
+    }
+
     /// Print a human-readable summary to stderr.
     pub fn print_summary(&self) {
         self.engine.print_summary();

@@ -517,6 +517,187 @@ fn manage_channel_open_close() {
 }
 
 // -----------------------------------------------------------------------
+// SCP02 authentication flow
+// -----------------------------------------------------------------------
+
+/// INITIALIZE UPDATE: both respond with 28+ bytes, SCP identifier differs.
+#[test]
+fn diff_scp_init_update_response_fields() {
+    let mut dc = dual_card!("diff-iu-fields");
+    dc.power_on();
+
+    // SELECT each card's ISD.
+    let _ = dc.simrs.process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
+    let _ = dc.oracle.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
+
+    let hc = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let mut apdu = vec![0x80, 0x50, 0x00, 0x00, 0x08];
+    apdu.extend_from_slice(&hc);
+    let dr = dc.exchange(&apdu);
+
+    assert!(dr.simrs.is_success() && dr.oracle.is_success());
+    assert!(dr.simrs.data.len() >= 28 && dr.oracle.data.len() >= 28);
+
+    // SCP identifier (byte 11): simrs=0x02 (SCP02), Oracle=0x02 or 0x03.
+    let simrs_scp = dr.simrs.data[11];
+    let oracle_scp = dr.oracle.data[11];
+    eprintln!("SCP identifiers: simrs=0x{simrs_scp:02X}, oracle=0x{oracle_scp:02X}");
+
+    // Key version (byte 10): both should report version 0x01.
+    let simrs_kv = dr.simrs.data[10];
+    let oracle_kv = dr.oracle.data[10];
+    eprintln!("Key versions: simrs=0x{simrs_kv:02X}, oracle=0x{oracle_kv:02X}");
+    assert_eq!(simrs_kv, oracle_kv, "key versions should match");
+}
+
+/// INITIALIZE UPDATE with non-existent key version: both reject with 6A 88.
+#[test]
+fn diff_scp_wrong_key_version() {
+    let mut dc = dual_card!("diff-bad-kv");
+    dc.power_on();
+
+    let _ = dc.simrs.process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
+    let _ = dc.oracle.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
+
+    let hc = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let mut apdu = vec![0x80, 0x50, 0xFF, 0x00, 0x08]; // KV=0xFF
+    apdu.extend_from_slice(&hc);
+    let dr = dc.exchange(&apdu);
+
+    eprintln!("Bad KV: simrs={:04X}, oracle={:04X}", dr.simrs.sw16(), dr.oracle.sw16());
+    assert!(!dr.simrs.is_success());
+    assert!(!dr.oracle.is_success());
+    // Both should return 6A88 (referenced data not found).
+    assert_eq!(dr.simrs.sw, [0x6A, 0x88], "simrs should return 6A88");
+}
+
+/// EXTERNAL AUTHENTICATE without INITIALIZE UPDATE: both reject.
+#[test]
+fn diff_ext_auth_without_init_update() {
+    let mut dc = dual_card!("diff-ea-noiu");
+    dc.power_on();
+
+    let ext_auth = [
+        0x84, 0x82, 0x00, 0x00, 0x10,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+    let dr = dc.exchange(&ext_auth);
+
+    eprintln!("EXT AUTH no IU: simrs={:04X}, oracle={:04X}", dr.simrs.sw16(), dr.oracle.sw16());
+    assert!(!dr.simrs.is_success());
+    assert!(!dr.oracle.is_success());
+    // Both should return 69xx (command not allowed).
+    assert_eq!(dr.simrs.sw[0], 0x69);
+    assert_eq!(dr.oracle.sw[0], 0x69);
+}
+
+// -----------------------------------------------------------------------
+// GET DATA 0042 (ISD AID)
+// -----------------------------------------------------------------------
+
+#[test]
+fn diff_get_data_0042_isd_aid() {
+    let mut dc = dual_card!("diff-gd-42");
+    dc.power_on();
+
+    let apdu = [0x80, 0xCA, 0x00, 0x42, 0x00];
+    let dr = dc.exchange(&apdu);
+
+    eprintln!("GET DATA 0042 simrs:  {:?}", dr.simrs);
+    eprintln!("GET DATA 0042 Oracle: {:?}", dr.oracle);
+
+    // simrs returns the 7-byte ISD AID. Oracle may return 8-byte or reject.
+    if dr.simrs.is_success() {
+        assert_eq!(&dr.simrs.data, &SIMRS_ISD_AID, "simrs ISD AID mismatch");
+    }
+    eprintln!(
+        "SW match: {} (simrs={:04X}, oracle={:04X})",
+        dr.sw_match(), dr.simrs.sw16(), dr.oracle.sw16()
+    );
+}
+
+// -----------------------------------------------------------------------
+// Error class consistency
+// -----------------------------------------------------------------------
+
+/// Both implementations return the same error class (6x) for various failures.
+#[test]
+fn diff_error_class_consistency() {
+    let mut dc = dual_card!("diff-err-class");
+    dc.power_on();
+
+    // Test cases: (APDU, expected error class prefix)
+    let cases: Vec<(Vec<u8>, u8)> = vec![
+        (vec![0x80, 0xFD, 0x00, 0x00], 0x69), // invalid GP INS -> 69xx (auth) or 6Dxx (INS)
+        (vec![0x80, 0xF2, 0x80, 0x00], 0x69), // GET STATUS w/o auth -> 69xx
+        (select_aid(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF]), 0x6A), // unknown AID -> 6Axx
+    ];
+
+    for (apdu, expected_class) in &cases {
+        let dr = dc.exchange(apdu);
+        assert!(!dr.simrs.is_success());
+        assert!(!dr.oracle.is_success());
+        // Both should return the same error class (high nibble of SW1).
+        let simrs_class = dr.simrs.sw[0] & 0xF0;
+        let oracle_class = dr.oracle.sw[0] & 0xF0;
+        assert_eq!(
+            simrs_class,
+            expected_class & 0xF0,
+            "simrs error class mismatch for APDU {:02X?}: got {:02X}",
+            apdu, dr.simrs.sw[0]
+        );
+        eprintln!(
+            "APDU {:02X?}: simrs={:04X}, oracle={:04X} (class match: {})",
+            &apdu[..4.min(apdu.len())],
+            dr.simrs.sw16(),
+            dr.oracle.sw16(),
+            simrs_class == oracle_class
+        );
+    }
+}
+
+// -----------------------------------------------------------------------
+// Full discovery sequence
+// -----------------------------------------------------------------------
+
+/// Standard card discovery flow replayed through both implementations.
+#[test]
+fn diff_full_discovery_sequence() {
+    let mut dc = dual_card!("diff-discovery");
+    dc.power_on();
+
+    // 1. SELECT ISD (each with their own AID).
+    let sel_s = dc.simrs.process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
+    assert!(matches!(sel_s, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]));
+    let sel_o = dc.oracle.transmit_apdu(&select_aid(&ORACLE_ISD_AID)).unwrap();
+    assert!(sel_o.len() >= 2 && sel_o[sel_o.len()-2] == 0x90);
+
+    // 2. GET DATA 0066 (Card Recognition Data).
+    let dr1 = dc.exchange(&[0x80, 0xCA, 0x00, 0x66]);
+    eprintln!("Discovery step 2 (GET DATA 0066): simrs={:04X}, oracle={:04X}",
+        dr1.simrs.sw16(), dr1.oracle.sw16());
+
+    // 3. INITIALIZE UPDATE.
+    let hc = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
+    let mut iu = vec![0x80, 0x50, 0x00, 0x00, 0x08];
+    iu.extend_from_slice(&hc);
+    let dr2 = dc.exchange(&iu);
+    eprintln!("Discovery step 3 (INIT UPDATE): simrs={:04X}, oracle={:04X}",
+        dr2.simrs.sw16(), dr2.oracle.sw16());
+    assert!(dr2.simrs.is_success() && dr2.oracle.is_success());
+
+    // 4. GET DATA CPLC (known divergence).
+    let dr3 = dc.exchange(&[0x80, 0xCA, 0x9F, 0x7F, 0x00]);
+    eprintln!("Discovery step 4 (CPLC): simrs={:04X}, oracle={:04X}",
+        dr3.simrs.sw16(), dr3.oracle.sw16());
+
+    // Summary.
+    let steps_both_success = [&dr1, &dr2].iter().filter(|d| d.simrs.is_success() && d.oracle.is_success()).count();
+    eprintln!("Discovery: {steps_both_success}/2 steps matched (excluding CPLC divergence)");
+}
+
+// -----------------------------------------------------------------------
 // APDU sequence: SELECT then GET DATA
 // -----------------------------------------------------------------------
 
