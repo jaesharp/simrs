@@ -1,0 +1,5 @@
+---
+source: tools/simrs-jcsl/src/configurator.rs
+expression: "hex_region(&bin, 32, 26)"
+---
+3c 5c 58 3c 41 51 5b 3c 30 31 32 33 34 35 36 37 38 39 30 31 32 33 34 35 10 0a

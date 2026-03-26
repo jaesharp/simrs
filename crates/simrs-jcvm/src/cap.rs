@@ -42,6 +42,22 @@ pub const CAP_MAGIC: u32 = 0xDECA_FFED;
 /// Method flag: static method.
 pub const METHOD_FLAG_STATIC: u8 = 0x08;
 
+/// Maximum exception table entries per method.
+pub const MAX_EXCEPTIONS: usize = 8;
+
+/// An entry in a method's exception handler table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExceptionEntry {
+    /// Start of the try region (inclusive).
+    pub start_pc: u16,
+    /// End of the try region (exclusive).
+    pub end_pc: u16,
+    /// PC of the handler code.
+    pub handler_pc: u16,
+    /// Catch type (0 = catch-all).
+    pub catch_type: u16,
+}
+
 /// Information about a single method in a package.
 #[derive(Clone, Copy)]
 pub struct MethodInfo {
@@ -57,6 +73,12 @@ pub struct MethodInfo {
     pub bytecode: [u8; MAX_BYTECODE],
     /// Actual bytecode length.
     pub bytecode_len: u16,
+    /// Exception handler table.
+    pub exception_table: [Option<ExceptionEntry>; MAX_EXCEPTIONS],
+    /// Descriptor-component method offset (for cross-validation).
+    pub descriptor_offset: u16,
+    /// Class-component method offset (for cross-validation).
+    pub class_offset: u16,
 }
 
 impl MethodInfo {
@@ -69,6 +91,9 @@ impl MethodInfo {
             max_locals: 0,
             bytecode: [0u8; MAX_BYTECODE],
             bytecode_len: 0,
+            exception_table: [None; MAX_EXCEPTIONS],
+            descriptor_offset: 0,
+            class_offset: 0,
         }
     }
 
@@ -139,6 +164,12 @@ pub enum ParseError {
     TooManyMethods,
     /// Method bytecode exceeds `MAX_BYTECODE`.
     BytecodeTooLong,
+    /// Exception handler `handler_pc` outside method bytecode range.
+    InvalidExceptionHandler,
+    /// Descriptor and Class component method offsets do not match.
+    OffsetMismatch,
+    /// Too many exception table entries.
+    TooManyExceptions,
 }
 
 /// Parse a binary CAP blob into a [`Package`].
@@ -221,6 +252,56 @@ pub fn parse_cap(data: &[u8]) -> Result<Package, ParseError> {
         bytecode[..bytecode_len as usize].copy_from_slice(&data[pos..pos + bytecode_len as usize]);
         pos += bytecode_len as usize;
 
+        // Parse optional exception table + offsets (extended format).
+        let mut exception_table = [None; MAX_EXCEPTIONS];
+        let mut descriptor_offset: u16 = 0;
+        let mut class_offset: u16 = 0;
+
+        if pos < data.len() {
+            let exc_count = data[pos] as usize;
+            pos += 1;
+            if exc_count > MAX_EXCEPTIONS {
+                return Err(ParseError::TooManyExceptions);
+            }
+            for exc_slot in exception_table.iter_mut().take(exc_count) {
+                if data.len() < pos + 8 {
+                    return Err(ParseError::TooShort);
+                }
+                let start_pc = u16::from_be_bytes([data[pos], data[pos + 1]]);
+                let end_pc = u16::from_be_bytes([data[pos + 2], data[pos + 3]]);
+                let handler_pc = u16::from_be_bytes([data[pos + 4], data[pos + 5]]);
+                let catch_type = u16::from_be_bytes([data[pos + 6], data[pos + 7]]);
+                pos += 8;
+
+                // Validate exception handler bounds per JCVM spec.
+                if handler_pc >= bytecode_len || start_pc >= bytecode_len
+                    || end_pc > bytecode_len || start_pc >= end_pc
+                {
+                    return Err(ParseError::InvalidExceptionHandler);
+                }
+                *exc_slot = Some(ExceptionEntry {
+                    start_pc,
+                    end_pc,
+                    handler_pc,
+                    catch_type,
+                });
+            }
+
+            // Parse descriptor and class offsets.
+            if data.len() >= pos + 4 {
+                descriptor_offset = u16::from_be_bytes([data[pos], data[pos + 1]]);
+                class_offset = u16::from_be_bytes([data[pos + 2], data[pos + 3]]);
+                pos += 4;
+
+                // Cross-validate: if both are non-zero, they must match.
+                if descriptor_offset != 0 && class_offset != 0
+                    && descriptor_offset != class_offset
+                {
+                    return Err(ParseError::OffsetMismatch);
+                }
+            }
+        }
+
         *slot = Some(MethodInfo {
             flags,
             max_stack,
@@ -228,6 +309,9 @@ pub fn parse_cap(data: &[u8]) -> Result<Package, ParseError> {
             max_locals,
             bytecode,
             bytecode_len,
+            exception_table,
+            descriptor_offset,
+            class_offset,
         });
     }
 
@@ -275,6 +359,12 @@ pub fn build_cap_blob(aid: &[u8], bytecodes: &[&[u8]], buf: &mut [u8]) -> usize 
         pos += 2;
         buf[pos..pos + bc_len].copy_from_slice(&bc[..bc_len]);
         pos += bc_len;
+        // Exception table: 0 entries.
+        buf[pos] = 0;
+        pos += 1;
+        // Matching descriptor/class offsets (both 0 = unused).
+        buf[pos..pos + 4].fill(0);
+        pos += 4;
     }
 
     pos
@@ -287,11 +377,12 @@ pub fn build_cap_blob(aid: &[u8], bytecodes: &[&[u8]], buf: &mut [u8]) -> usize 
 impl Package {
     /// Maximum snapshot size for a single package.
     ///
-    /// Layout: `aid_len`(1) + aid(16) + `method_count`(1) +
-    ///   for each method: present(1) + flags(1) + `max_stack`(1) + nargs(1) +
-    ///     `max_locals`(1) + `bytecode_len`(2) + bytecode(256)
+    /// Layout per method: present(1) + flags(1) + max_stack(1) + nargs(1) +
+    ///   max_locals(1) + bytecode_len(2) + bytecode(256) +
+    ///   exc_count(1) + exceptions(8*8) + offsets(4)
     pub const MAX_SNAPSHOT_SIZE: usize =
-        1 + MAX_AID_LEN + 1 + MAX_METHODS * (1 + 1 + 1 + 1 + 1 + 2 + MAX_BYTECODE);
+        1 + MAX_AID_LEN + 1
+            + MAX_METHODS * (1 + 1 + 1 + 1 + 1 + 2 + MAX_BYTECODE + 1 + MAX_EXCEPTIONS * 8 + 4);
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
@@ -318,10 +409,6 @@ impl Package {
                     off += 1;
                 }
                 Some(m) => {
-                    let needed = 1 + 1 + 1 + 1 + 1 + 2 + m.bytecode_len as usize;
-                    if off + needed > buf.len() {
-                        return 0;
-                    }
                     buf[off] = 1; // present
                     off += 1;
                     buf[off] = m.flags;
@@ -335,8 +422,34 @@ impl Package {
                     buf[off..off + 2].copy_from_slice(&m.bytecode_len.to_le_bytes());
                     off += 2;
                     let bc_len = m.bytecode_len as usize;
+                    if off + bc_len + 1 + MAX_EXCEPTIONS * 8 + 4 > buf.len() {
+                        return 0;
+                    }
                     buf[off..off + bc_len].copy_from_slice(&m.bytecode[..bc_len]);
                     off += bc_len;
+                    // Exception table.
+                    let exc_count = m
+                        .exception_table
+                        .iter()
+                        .filter(|e| e.is_some())
+                        .count();
+                    buf[off] = exc_count as u8;
+                    off += 1;
+                    for exc in m.exception_table.iter().flatten() {
+                        buf[off..off + 2].copy_from_slice(&exc.start_pc.to_le_bytes());
+                        off += 2;
+                        buf[off..off + 2].copy_from_slice(&exc.end_pc.to_le_bytes());
+                        off += 2;
+                        buf[off..off + 2].copy_from_slice(&exc.handler_pc.to_le_bytes());
+                        off += 2;
+                        buf[off..off + 2].copy_from_slice(&exc.catch_type.to_le_bytes());
+                        off += 2;
+                    }
+                    // Offsets.
+                    buf[off..off + 2].copy_from_slice(&m.descriptor_offset.to_le_bytes());
+                    off += 2;
+                    buf[off..off + 2].copy_from_slice(&m.class_offset.to_le_bytes());
+                    off += 2;
                 }
             }
         }
@@ -391,6 +504,37 @@ impl Package {
                 let bc_len = bytecode_len as usize;
                 bytecode[..bc_len].copy_from_slice(&buf[off..off + bc_len]);
                 off += bc_len;
+                // Exception table.
+                let mut exception_table = [None; MAX_EXCEPTIONS];
+                if off < buf.len() {
+                    let exc_count = buf[off] as usize;
+                    off += 1;
+                    for exc_slot in exception_table.iter_mut().take(exc_count.min(MAX_EXCEPTIONS)) {
+                        if off + 8 > buf.len() {
+                            return false;
+                        }
+                        let start_pc = u16::from_le_bytes([buf[off], buf[off + 1]]);
+                        let end_pc = u16::from_le_bytes([buf[off + 2], buf[off + 3]]);
+                        let handler_pc = u16::from_le_bytes([buf[off + 4], buf[off + 5]]);
+                        let catch_type = u16::from_le_bytes([buf[off + 6], buf[off + 7]]);
+                        off += 8;
+                        *exc_slot = Some(ExceptionEntry {
+                            start_pc,
+                            end_pc,
+                            handler_pc,
+                            catch_type,
+                        });
+                    }
+                }
+                // Offsets.
+                let mut descriptor_offset = 0u16;
+                let mut class_offset = 0u16;
+                if off + 4 <= buf.len() {
+                    descriptor_offset = u16::from_le_bytes([buf[off], buf[off + 1]]);
+                    class_offset = u16::from_le_bytes([buf[off + 2], buf[off + 3]]);
+                    off += 4;
+                }
+
                 *method_slot = Some(MethodInfo {
                     flags,
                     max_stack,
@@ -398,6 +542,9 @@ impl Package {
                     max_locals,
                     bytecode,
                     bytecode_len,
+                    exception_table,
+                    descriptor_offset,
+                    class_offset,
                 });
             }
         }

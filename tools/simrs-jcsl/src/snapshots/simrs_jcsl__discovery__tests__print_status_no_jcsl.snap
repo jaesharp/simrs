@@ -1,0 +1,14 @@
+---
+source: tools/simrs-jcsl/src/discovery.rs
+expression: redacted
+---
+jcsl binary search locations:
+
+  1. SIMRS_JCSL_BINARY  (not set)
+  2. <xdg_cache>/simrs/jcsl  [valid, scp=unconfigured, pin=unconfigured]
+  3. <workspace>/tools/oracle-jcvm-ref/runtime/bin/jcsl.orig  [valid, scp=unconfigured, pin=unconfigured]
+  3. <workspace>/tools/oracle-jcvm-ref/runtime/bin/jcsl  [valid, scp=unconfigured, pin=unconfigured]
+
+Active installation (via XDG cache (~/.cache/simrs/)):
+  binary: <redacted>
+  configured: scp=no, pin=no

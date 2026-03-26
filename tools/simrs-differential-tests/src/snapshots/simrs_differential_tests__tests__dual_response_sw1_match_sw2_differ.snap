@@ -1,0 +1,8 @@
+---
+source: tools/simrs-differential-tests/src/lib.rs
+expression: output
+---
+simrs: ApduResponse { data[0]: [], sw: 6A82 }
+oracle: ApduResponse { data[0]: [], sw: 6A88 }
+sw_match: false
+sw1_match: true

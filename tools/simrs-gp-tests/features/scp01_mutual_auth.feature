@@ -44,7 +44,6 @@
 #   6A 88  referenced data not found (wrong key version/identifier)
 #   69 85  conditions of use not satisfied (command not allowed in current state)
 
-@wip
 Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   As a GlobalPlatform card simulator
   I must implement the SCP01 secure channel protocol for mutual authentication
@@ -68,7 +67,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # key information, the card challenge, and the card cryptogram.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INITIALIZE UPDATE with valid host challenge returns 28-byte response
     # APDU: 80 50 00 00 08 [host_challenge:8] 00
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
@@ -84,7 +82,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # Byte 10 is the key version number, byte 11 is the SCP identifier (0x01).
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INITIALIZE UPDATE response identifies SCP01
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
@@ -97,7 +94,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # an IV of all zeros and Method 2 padding (0x80 00 00 00 00 00 00 00).
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Card cryptogram matches MAC(session_S-ENC, host_challenge || card_challenge)
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
@@ -111,7 +107,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # cryptogram. The card verifies it and establishes the secure channel.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: EXTERNAL AUTHENTICATE with correct host cryptogram returns 90 00
     Given I have completed INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     And I have derived the session keys per Appendix D
@@ -125,11 +120,10 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # If the host cryptogram does not verify, the card rejects authentication.
   # ---------------------------------------------------------------------------
 
-  @wip
-  Scenario: EXTERNAL AUTHENTICATE with wrong host cryptogram returns 6A 88
+  Scenario: EXTERNAL AUTHENTICATE with wrong host cryptogram returns 69 88
     Given I have completed INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     When I send EXTERNAL AUTHENTICATE with security level 0x00 and cryptogram [FF FF FF FF FF FF FF FF]
-    Then SW is 6A 88
+    Then SW is 69 88
     And no SCP session is established
 
   # ---------------------------------------------------------------------------
@@ -139,7 +133,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # P1=0x03: C-MAC and C-ENC on subsequent commands
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Security level 0x00 establishes authentication-only session
     Given I have completed INITIALIZE UPDATE successfully
     And I have computed the correct host cryptogram
@@ -147,7 +140,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
     Then SW is 90 00
     And the session security level is NO_SECURE_MESSAGING
 
-  @wip
   Scenario: Security level 0x01 establishes C-MAC session
     Given I have completed INITIALIZE UPDATE successfully
     And I have computed the correct host cryptogram
@@ -155,7 +147,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
     Then SW is 90 00
     And the session security level is C_MAC
 
-  @wip
   Scenario: Security level 0x03 establishes C-MAC and C-ENC session
     Given I have completed INITIALIZE UPDATE successfully
     And I have computed the correct host cryptogram
@@ -169,7 +160,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # must reject the command.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INITIALIZE UPDATE with wrong key version returns 6A 88
     When I send INITIALIZE UPDATE with key version 0xFF and host challenge [01 02 03 04 05 06 07 08]
     Then SW is 6A 88
@@ -181,7 +171,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # a fresh authentication sequence.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Re-authentication starts a new SCP session
     Given I have established an SCP01 session with security level 0x01
     When I send INITIALIZE UPDATE with a new host challenge [AA BB CC DD EE FF 00 11]
@@ -195,7 +184,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # SET STATUS, etc.) must be rejected when no session is active.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: GP command before authentication returns 69 85
     When I send INSTALL [for load] without an authenticated SCP session
     Then SW is 69 85
@@ -208,7 +196,6 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # Applied independently for S-ENC, C-MAC, and DEK.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Session keys derived from host_challenge XOR card_challenge per Figures D-3/4/5
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00

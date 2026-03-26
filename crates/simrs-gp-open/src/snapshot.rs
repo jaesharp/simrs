@@ -17,7 +17,8 @@
 
 use crate::channel::ChannelState;
 use crate::lifecycle::{AppletLifecycle, CardLifecycle};
-use crate::registry::{AppletEntry, SecurityDomain, MAX_AID_LEN};
+use crate::registry::{AppletEntry, LoadFileEntry, SecurityDomain, MAX_AID_LEN};
+use crate::MAX_LOAD_FILES;
 use simrs_gp_scp::{restore_scp_state, save_scp_state, ScpState, SCP_STATE_SNAPSHOT_SIZE};
 
 /// Save a Security Domain / applet entry into `buf` at `off`. Returns new offset.
@@ -59,8 +60,14 @@ fn restore_aid_entry(buf: &[u8], off: usize) -> Option<(u8, [u8; MAX_AID_LEN], u
     Some((aid_len, aid, lifecycle, privileges, o))
 }
 
-/// Per-entry snapshot size: 1 (aid_len) + 16 (aid) + 1 (lifecycle) + 1 (privileges).
+/// Per SD/ISD entry: 1 (aid_len) + 16 (aid) + 1 (lifecycle) + 1 (privileges).
 const ENTRY_SIZE: usize = 1 + MAX_AID_LEN + 1 + 1;
+
+/// Per applet entry: ENTRY_SIZE + 1 (owner_sd_index).
+const APP_ENTRY_SIZE: usize = ENTRY_SIZE + 1;
+
+/// Per load file entry: 1 (aid_len) + 16 (aid) + 1 (instance_count) + 4 (slots).
+const LF_ENTRY_SIZE: usize = 1 + MAX_AID_LEN + 1 + 4;
 
 /// Compute the snapshot size for `GpOpen<MAX_APPLETS, MAX_SDS>`.
 pub const fn snapshot_size(max_applets: usize, max_sds: usize) -> usize {
@@ -69,7 +76,9 @@ pub const fn snapshot_size(max_applets: usize, max_sds: usize) -> usize {
     + 1 // sd_count
     + max_sds * ENTRY_SIZE
     + 1 // app_count
-    + max_applets * ENTRY_SIZE
+    + max_applets * APP_ENTRY_SIZE
+    + 1 // lf_count
+    + MAX_LOAD_FILES * LF_ENTRY_SIZE
     + 4 * 2 // channels
     + SCP_STATE_SNAPSHOT_SIZE // scp_state
     + 2 // sequence_counter
@@ -83,6 +92,7 @@ pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     isd: &SecurityDomain,
     sds: &[Option<SecurityDomain>; MAX_SDS],
     registry: &[Option<AppletEntry>; MAX_APPLETS],
+    load_files: &[Option<LoadFileEntry>; MAX_LOAD_FILES],
     channels: &[ChannelState; 4],
     scp_state: &ScpState,
     sequence_counter: u16,
@@ -129,7 +139,7 @@ pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
         off += ENTRY_SIZE;
     }
 
-    // Registry.
+    // Registry (applets with owner_sd_index).
     let app_count = registry.iter().filter(|e| e.is_some()).count();
     buf[off] = app_count as u8;
     off += 1;
@@ -141,10 +151,39 @@ pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
             entry.lifecycle().to_byte(),
             entry.privileges(),
         );
+        buf[off] = entry.owner_sd_index().unwrap_or(0xFF);
+        off += 1;
     }
     for _ in app_count..MAX_APPLETS {
-        buf[off..off + ENTRY_SIZE].fill(0);
-        off += ENTRY_SIZE;
+        buf[off..off + APP_ENTRY_SIZE].fill(0);
+        off += APP_ENTRY_SIZE;
+    }
+
+    // Load files.
+    let lf_count = load_files.iter().filter(|l| l.is_some()).count();
+    buf[off] = lf_count as u8;
+    off += 1;
+    for lf in load_files.iter().flatten() {
+        let aid = lf.aid();
+        buf[off] = aid.len() as u8;
+        off += 1;
+        let mut aid_buf = [0u8; MAX_AID_LEN];
+        aid_buf[..aid.len()].copy_from_slice(aid);
+        buf[off..off + MAX_AID_LEN].copy_from_slice(&aid_buf);
+        off += MAX_AID_LEN;
+        // Instance count and slots.
+        let slots = lf.instance_slots();
+        let inst_count = slots.iter().filter(|s| s.is_some()).count();
+        buf[off] = inst_count as u8;
+        off += 1;
+        for slot in slots {
+            buf[off] = slot.unwrap_or(0xFF);
+            off += 1;
+        }
+    }
+    for _ in lf_count..MAX_LOAD_FILES {
+        buf[off..off + LF_ENTRY_SIZE].fill(0);
+        off += LF_ENTRY_SIZE;
     }
 
     // Channels.
@@ -184,12 +223,13 @@ pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
 }
 
 /// Restore the `GpOpen` state from `buf`. Returns `true` on success.
-#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop, clippy::too_many_lines)]
 pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     card_lifecycle: &mut CardLifecycle,
     isd: &mut SecurityDomain,
     sds: &mut [Option<SecurityDomain>; MAX_SDS],
     registry: &mut [Option<AppletEntry>; MAX_APPLETS],
+    load_files: &mut [Option<LoadFileEntry>; MAX_LOAD_FILES],
     channels: &mut [ChannelState; 4],
     scp_state: &mut ScpState,
     sequence_counter: &mut u16,
@@ -242,7 +282,7 @@ pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     // Skip padding for unused SD slots.
     off += (MAX_SDS - sd_count) * ENTRY_SIZE;
 
-    // Registry.
+    // Registry (applets with owner_sd_index).
     let app_count = buf[off] as usize;
     off += 1;
     if app_count > MAX_APPLETS {
@@ -258,10 +298,53 @@ pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
         let Some(lc) = AppletLifecycle::from_byte(lc_byte) else {
             return false;
         };
-        registry[i] = Some(AppletEntry::new(&aid[..aid_len as usize], lc, privs));
-        off = new_off;
+        let sd_byte = buf[new_off];
+        let sd_idx = if sd_byte == 0xFF { None } else { Some(sd_byte) };
+        registry[i] = Some(AppletEntry::new_with_sd(
+            &aid[..aid_len as usize],
+            lc,
+            privs,
+            sd_idx,
+        ));
+        off = new_off + 1;
     }
-    off += (MAX_APPLETS - app_count) * ENTRY_SIZE;
+    off += (MAX_APPLETS - app_count) * APP_ENTRY_SIZE;
+
+    // Load files.
+    let lf_count = buf[off] as usize;
+    off += 1;
+    if lf_count > MAX_LOAD_FILES {
+        return false;
+    }
+    for slot in &mut *load_files {
+        *slot = None;
+    }
+    for i in 0..lf_count {
+        if off + LF_ENTRY_SIZE > buf.len() {
+            return false;
+        }
+        let aid_len = buf[off] as usize;
+        off += 1;
+        if aid_len == 0 || aid_len > MAX_AID_LEN {
+            return false;
+        }
+        let aid = &buf[off..off + aid_len];
+        off += MAX_AID_LEN;
+        let inst_count = buf[off] as usize;
+        off += 1;
+        let mut lf = LoadFileEntry::new(aid);
+        for _ in 0..inst_count.min(4) {
+            let slot_byte = buf[off];
+            if slot_byte != 0xFF {
+                let _ = lf.add_instance(slot_byte);
+            }
+            off += 1;
+        }
+        // Skip remaining slot bytes if inst_count < 4.
+        off += 4usize.saturating_sub(inst_count.min(4));
+        load_files[i] = Some(lf);
+    }
+    off += (MAX_LOAD_FILES - lf_count) * LF_ENTRY_SIZE;
 
     // Channels.
     for ch in channels.iter_mut() {

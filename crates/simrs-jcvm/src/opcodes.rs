@@ -106,12 +106,26 @@ pub const RETURN: u8 = 0x7A;
 /// `invokestatic`: invoke a static method
 pub const INVOKESTATIC: u8 = 0x8D;
 
+/// `saload`: load short from short array
+pub const SALOAD: u8 = 0x24;
+/// `baload`: load byte from byte array
+pub const BALOAD: u8 = 0x25;
+/// `sastore`: store short to short array
+pub const SASTORE: u8 = 0x26;
+/// `bastore`: store byte to byte array
+pub const BASTORE: u8 = 0x27;
+
 /// `new`: create object instance
 pub const NEW: u8 = 0x8F;
 /// `newarray`: create primitive array
 pub const NEWARRAY: u8 = 0x90;
 /// `arraylength`: get array length
 pub const ARRAYLENGTH: u8 = 0x92;
+
+/// `getfield_b`: read byte field from instance
+pub const GETFIELD_B: u8 = 0xAD;
+/// `putfield_b`: write byte field to instance
+pub const PUTFIELD_B: u8 = 0xAF;
 
 /// `goto_w`: unconditional branch (2-byte signed offset)
 pub const GOTO_W: u8 = 0xA8;
@@ -129,6 +143,8 @@ pub enum ExecResult {
     NullPointerException,
     /// Array index out of bounds.
     ArrayIndexOutOfBounds,
+    /// Array type mismatch (e.g. `saload` on `byte[]`).
+    ArrayStoreException,
     /// Security exception (firewall violation).
     SecurityException,
     /// Stack overflow.

@@ -1,0 +1,6 @@
+---
+source: tools/simrs-differential-tests/src/lib.rs
+expression: output
+---
+simrs_isd:  a0 00 00 01 51 00 00
+oracle_isd: a0 00 00 01 51 00 00 00

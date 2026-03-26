@@ -33,7 +33,6 @@
 #   6A 88  referenced data not found (wrong key version/identifier)
 #   69 85  conditions of use not satisfied
 
-@wip
 Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   As a GlobalPlatform card simulator
   I must implement the SCP02 secure channel protocol with sequence-counter-based
@@ -59,7 +58,6 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # + card_challenge[6] + card_cryptogram[8]
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INITIALIZE UPDATE returns 28-byte response with sequence counter
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
@@ -75,7 +73,6 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # memory and initialized to 0x0000 on card personalization.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Sequence counter starts at 0x0000 on a fresh card
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
@@ -85,7 +82,6 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # GP 2.1.1 Appendix E: sequence counter increments on each INITIALIZE UPDATE
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Sequence counter increments on each INITIALIZE UPDATE
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
@@ -100,25 +96,21 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # session_key = 3DES_CBC(static_key, derivation_data, IV=0x00[8])
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Session S-ENC derived with constant 0x0182 and sequence counter
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
     And the session S-ENC key equals 3DES_CBC(static_S-ENC, [01 82 00 00 00 00 00 00 00 00 00 00 00 00 00 00], IV=0x00[8])
 
-  @wip
   Scenario: Session C-MAC derived with constant 0x0101 and sequence counter
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
     And the session C-MAC key equals 3DES_CBC(static_C-MAC, [01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00], IV=0x00[8])
 
-  @wip
   Scenario: Session R-MAC derived with constant 0x0102 and sequence counter
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
     And the session R-MAC key equals 3DES_CBC(static_C-MAC, [01 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00], IV=0x00[8])
 
-  @wip
   Scenario: Session DEK derived with constant 0x0181 and sequence counter
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
@@ -130,7 +122,6 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   #   host_challenge || sequence_counter || card_challenge)
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Card cryptogram computed over host_challenge || sequence_counter || card_challenge
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then SW is 90 00
@@ -142,7 +133,6 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # Host cryptogram = MAC(session_S-ENC, sequence_counter || card_challenge || host_challenge)
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: EXTERNAL AUTHENTICATE with correct SCP02 host cryptogram returns 90 00
     Given I have completed SCP02 INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     And I have derived the SCP02 session keys
@@ -158,7 +148,6 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # the next command. The ICV is NOT reset to zero between commands.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: ICV chains from EXTERNAL AUTHENTICATE C-MAC to subsequent command
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
     When I send GET STATUS (P1=0x80) with C-MAC computed using the EXTERNAL AUTHENTICATE C-MAC as ICV
@@ -172,7 +161,6 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # This prevents a known-plaintext attack on the ICV chain.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: ICV is encrypted with session C-MAC before use as CBC IV
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
     When I send a GP command with C-MAC
@@ -184,14 +172,12 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # (CLA=0x84, INS=0x78) control response MAC generation.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: BEGIN R-MAC SESSION enables response MAC generation
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
     When I send BEGIN R-MAC SESSION [84 70 00 01] with C-MAC
     Then SW is 90 00
     And subsequent responses include an 8-byte R-MAC appended to the data
 
-  @wip
   Scenario: END R-MAC SESSION disables response MAC generation
     Given I have established an SCP02 session with R-MAC active
     When I send END R-MAC SESSION [84 78 00 03] with C-MAC
@@ -203,7 +189,6 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # The counter is stored in non-volatile memory and survives ATR/reset.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Sequence counter persists across card reset
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]
     Then the sequence counter in the response is 0x0000
@@ -217,7 +202,6 @@ Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)
   # The card must continue to function after wrap-around.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Sequence counter wraps from 0xFFFF to 0x0000
     Given the card sequence counter has been advanced to 0xFFFF
     When I send INITIALIZE UPDATE with host challenge [01 02 03 04 05 06 07 08]

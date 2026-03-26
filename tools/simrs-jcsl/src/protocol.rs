@@ -140,6 +140,15 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
+    /// Format bytes as a hex dump for snapshot readability.
+    fn hex_dump(bytes: &[u8]) -> String {
+        bytes
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     #[test]
     fn power_on_frame_encoding() {
         let frame = power_on_frame();
@@ -228,5 +237,49 @@ mod tests {
         write_frame(&mut buf, &frame).unwrap();
         assert_eq!(buf[2], 0x01); // high byte
         assert_eq!(buf[3], 0x02); // low byte
+    }
+
+    // -------------------------------------------------------------------
+    // Insta snapshots
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn snap_power_on_wire() {
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &power_on_frame()).unwrap();
+        insta::assert_snapshot!("power_on_wire", hex_dump(&buf));
+    }
+
+    #[test]
+    fn snap_power_off_wire() {
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &power_off_frame()).unwrap();
+        insta::assert_snapshot!("power_off_wire", hex_dump(&buf));
+    }
+
+    #[test]
+    fn snap_select_apdu_wire() {
+        // SELECT by DF name (no data)
+        let apdu = [0x00, 0xA4, 0x04, 0x00, 0x00];
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &apdu_frame(&apdu)).unwrap();
+        insta::assert_snapshot!("select_apdu_wire", hex_dump(&buf));
+    }
+
+    #[test]
+    fn snap_init_update_apdu_wire() {
+        // INITIALIZE UPDATE with 8-byte host challenge
+        let apdu = [0x80, 0x50, 0x00, 0x00, 0x08,
+                     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &apdu_frame(&apdu)).unwrap();
+        insta::assert_snapshot!("init_update_apdu_wire", hex_dump(&buf));
+    }
+
+    #[test]
+    fn snap_frame_debug() {
+        let frame = apdu_frame(&[0x00, 0xA4, 0x04, 0x00, 0x07,
+            0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00]);
+        insta::assert_snapshot!("frame_debug", format!("{frame:?}"));
     }
 }

@@ -1,0 +1,10 @@
+---
+source: crates/simrs-interposer/src/semantic/mod.rs
+expression: output
+---
+INIT_UPDATE: INIT_UPDATE
+GET_DATA_0066: GET_DATA_0066
+SELECT: SELECT
+UNKNOWN: None
+SHORT_CMD: None
+EMPTY: None

@@ -13,6 +13,9 @@ use crate::lifecycle::AppletLifecycle;
 /// Maximum AID length per ISO/IEC 7816-4 (16 bytes).
 pub const MAX_AID_LEN: usize = 16;
 
+/// Maximum instances tracked per load file.
+const MAX_INSTANCES_PER_LF: usize = 4;
+
 /// A registered applet entry in the GP registry.
 #[derive(Clone)]
 pub struct AppletEntry {
@@ -24,16 +27,34 @@ pub struct AppletEntry {
     lifecycle: AppletLifecycle,
     /// Privilege byte (GP 2.1.1 Table 9-3). Bit 7 = security domain.
     privileges: u8,
+    /// Index of the owning Security Domain in `GpOpen.sds[]`, if any.
+    /// `None` means ISD-managed (the default).
+    owner_sd_index: Option<u8>,
 }
 
 impl AppletEntry {
-    /// Create a new applet entry.
+    /// Create a new applet entry (ISD-managed).
     ///
     /// # Panics
     ///
     /// Panics if `aid` is empty or longer than 16 bytes.
     #[allow(clippy::cast_possible_truncation)]
     pub fn new(aid: &[u8], lifecycle: AppletLifecycle, privileges: u8) -> Self {
+        Self::new_with_sd(aid, lifecycle, privileges, None)
+    }
+
+    /// Create a new applet entry with explicit SD ownership.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `aid` is empty or longer than 16 bytes.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn new_with_sd(
+        aid: &[u8],
+        lifecycle: AppletLifecycle,
+        privileges: u8,
+        owner_sd_index: Option<u8>,
+    ) -> Self {
         assert!(
             !aid.is_empty() && aid.len() <= MAX_AID_LEN,
             "AID must be 1-16 bytes"
@@ -45,6 +66,7 @@ impl AppletEntry {
             aid_len: aid.len() as u8,
             lifecycle,
             privileges,
+            owner_sd_index,
         }
     }
 
@@ -71,6 +93,11 @@ impl AppletEntry {
     /// Whether this entry is a Security Domain (privilege bit 7).
     pub const fn is_security_domain(&self) -> bool {
         self.privileges & 0x80 != 0
+    }
+
+    /// Index of the owning SD, if any.
+    pub const fn owner_sd_index(&self) -> Option<u8> {
+        self.owner_sd_index
     }
 }
 
@@ -130,6 +157,85 @@ impl SecurityDomain {
     }
 }
 
+/// A load file entry in the GP registry.
+///
+/// Tracks the load file AID and the registry slot indices of instances
+/// created from it (for cascade DELETE per GP 2.1.1 clause 9.2).
+#[derive(Clone)]
+pub struct LoadFileEntry {
+    /// Load File AID.
+    aid: [u8; MAX_AID_LEN],
+    /// Effective AID length.
+    aid_len: u8,
+    /// Registry slot indices of instances created from this load file.
+    instance_slots: [Option<u8>; MAX_INSTANCES_PER_LF],
+}
+
+impl LoadFileEntry {
+    /// Create a new load file entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `aid` is empty or longer than 16 bytes.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn new(aid: &[u8]) -> Self {
+        assert!(
+            !aid.is_empty() && aid.len() <= MAX_AID_LEN,
+            "AID must be 1-16 bytes"
+        );
+        let mut buf = [0u8; MAX_AID_LEN];
+        buf[..aid.len()].copy_from_slice(aid);
+        Self {
+            aid: buf,
+            aid_len: aid.len() as u8,
+            instance_slots: [None; MAX_INSTANCES_PER_LF],
+        }
+    }
+
+    /// Load file AID bytes.
+    pub fn aid(&self) -> &[u8] {
+        &self.aid[..self.aid_len as usize]
+    }
+
+    /// Instance slot references.
+    pub const fn instance_slots(&self) -> &[Option<u8>; MAX_INSTANCES_PER_LF] {
+        &self.instance_slots
+    }
+
+    /// Track a new instance slot. Returns `false` if full.
+    pub fn add_instance(&mut self, slot: u8) -> bool {
+        for s in &mut self.instance_slots {
+            if s.is_none() {
+                *s = Some(slot);
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Find a load file by exact AID match. Returns index.
+pub fn find_load_file<const L: usize>(
+    load_files: &[Option<LoadFileEntry>; L],
+    aid: &[u8],
+) -> Option<usize> {
+    for (i, lf) in load_files.iter().enumerate() {
+        if let Some(lf) = lf {
+            if lf.aid() == aid {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
+/// Find an empty slot in the load file array.
+pub fn find_empty_lf_slot<const L: usize>(
+    load_files: &[Option<LoadFileEntry>; L],
+) -> Option<usize> {
+    load_files.iter().position(core::option::Option::is_none)
+}
+
 /// Check if `candidate` AID matches `requested` AID.
 ///
 /// Returns `true` for exact match or if `candidate` is a prefix of `requested`
@@ -146,11 +252,25 @@ pub fn aid_exact_match(candidate: &[u8], requested: &[u8]) -> bool {
     candidate == requested
 }
 
+/// Check if `partial` AID is a prefix of `registered` AID.
+///
+/// Used for partial AID selection per GP 2.1.1 clause 9.6.2.4:
+/// "the card shall search for the application whose AID starts with
+/// the partial DF name."
+pub fn partial_aid_matches(registered: &[u8], partial: &[u8]) -> bool {
+    if partial.len() > registered.len() {
+        return false;
+    }
+    &registered[..partial.len()] == partial
+}
+
 /// Search the registry for a matching AID. Returns the index.
 ///
 /// Strategy per GP 2.1.1 clause 9.3.2:
 /// 1. Exact match first.
-/// 2. If no exact match, first prefix match (candidate is prefix of requested).
+/// 2. If no exact match, prefix match (candidate is prefix of requested).
+/// 3. If no prefix match, partial AID match (requested is prefix of candidate,
+///    per GP 2.1.1 clause 9.6.2.4).
 ///
 /// Only selectable applets are considered.
 pub fn find_by_aid<const N: usize>(
@@ -165,10 +285,43 @@ pub fn find_by_aid<const N: usize>(
             }
         }
     }
-    // Second pass: prefix match.
+    // Second pass: prefix match (registered is prefix of requested).
     for (i, entry) in registry.iter().enumerate() {
         if let Some(e) = entry {
             if e.lifecycle().is_selectable() && aid_matches(e.aid(), requested_aid) {
+                return Some(i);
+            }
+        }
+    }
+    // Third pass: partial AID match (requested is prefix of registered).
+    for (i, entry) in registry.iter().enumerate() {
+        if let Some(e) = entry {
+            if e.lifecycle().is_selectable() && partial_aid_matches(e.aid(), requested_aid) {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
+/// Search for the next matching AID after `start_after` index.
+///
+/// Used for P2=0x02 (next occurrence) in SELECT by partial AID.
+/// Searches only by partial AID match (requested is prefix of registered).
+pub fn find_by_aid_after<const N: usize>(
+    registry: &[Option<AppletEntry>; N],
+    requested_aid: &[u8],
+    start_after: usize,
+) -> Option<usize> {
+    for (i, entry) in registry.iter().enumerate() {
+        if i <= start_after {
+            continue;
+        }
+        if let Some(e) = entry {
+            if e.lifecycle().is_selectable()
+                && (aid_exact_match(e.aid(), requested_aid)
+                    || partial_aid_matches(e.aid(), requested_aid))
+            {
                 return Some(i);
             }
         }

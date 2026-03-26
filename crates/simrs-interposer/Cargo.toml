@@ -24,6 +24,14 @@ simrs-milenage      = { workspace = true }
 simrs-fs            = { workspace = true }
 simrs-gsm           = { workspace = true }
 simrs-usim          = { workspace = true }
+simrs-bertlv        = { workspace = true }
+simrs-apdu-schema   = { workspace = true }
+simrs-iso7816       = { workspace = true }
+simrs-gp-scp        = { workspace = true }
+simrs-gp-open       = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
 
 [lints]
 workspace = true

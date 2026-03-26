@@ -1,0 +1,5 @@
+---
+source: crates/simrs-interposer/src/semantic/mod.rs
+expression: "format!(\"{:?}\", SemanticResult::Match)"
+---
+Match

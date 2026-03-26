@@ -1,7 +1,7 @@
 //! Response comparison and divergence tracking.
 
 /// Result of comparing a real SIM response with a shadow SIM response.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CompareResult {
     /// Both responses match (same SW and same data).
     Match,
@@ -312,5 +312,113 @@ mod tests {
         );
         assert!(msg.contains("SHADOW IGNORED"));
         assert!(msg.contains("6D00"));
+    }
+
+    // -------------------------------------------------------------------
+    // Insta snapshots
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn snap_compare_result_debug_all_variants() {
+        let variants = [
+            CompareResult::Match,
+            CompareResult::SwMismatch {
+                real_sw: (0x90, 0x00),
+                shadow_sw: (0x6A, 0x82),
+            },
+            CompareResult::DataMismatch {
+                sw: (0x90, 0x00),
+                real_len: 28,
+                shadow_len: 32,
+            },
+            CompareResult::ShadowIgnored {
+                real_sw: (0x61, 0x10),
+            },
+        ];
+        let output: String = variants
+            .iter()
+            .map(|v| format!("{v:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        insta::assert_snapshot!("compare_result_debug_variants", output);
+    }
+
+    #[test]
+    fn snap_divergence_stats_after_mixed_session() {
+        let mut stats = DivergenceStats::default();
+        stats.record(&CompareResult::Match);
+        stats.record(&CompareResult::Match);
+        stats.record(&CompareResult::Match);
+        stats.record(&CompareResult::SwMismatch {
+            real_sw: (0x90, 0x00),
+            shadow_sw: (0x6A, 0x82),
+        });
+        stats.record(&CompareResult::DataMismatch {
+            sw: (0x90, 0x00),
+            real_len: 10,
+            shadow_len: 5,
+        });
+        stats.record(&CompareResult::ShadowIgnored {
+            real_sw: (0x90, 0x00),
+        });
+        stats.record(&CompareResult::Match);
+        insta::assert_snapshot!("stats_mixed_session", format!("{stats:#?}"));
+    }
+
+    #[test]
+    fn snap_format_divergence_all_types() {
+        let select_cmd = [0x00, 0xA4, 0x04, 0x00, 0x07,
+                          0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+        let init_update = [0x80, 0x50, 0x00, 0x00, 0x08,
+                           0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+
+        let lines = [
+            format_divergence(&select_cmd, &CompareResult::Match, 0),
+            format_divergence(
+                &select_cmd,
+                &CompareResult::SwMismatch {
+                    real_sw: (0x90, 0x00),
+                    shadow_sw: (0x6A, 0x82),
+                },
+                1,
+            ),
+            format_divergence(
+                &init_update,
+                &CompareResult::DataMismatch {
+                    sw: (0x90, 0x00),
+                    real_len: 28,
+                    shadow_len: 32,
+                },
+                2,
+            ),
+            format_divergence(
+                &[0x80, 0xFD, 0x00, 0x00],
+                &CompareResult::ShadowIgnored {
+                    real_sw: (0x6D, 0x00),
+                },
+                3,
+            ),
+        ];
+        let output = lines.join("\n");
+        insta::assert_snapshot!("format_divergence_all_types", output);
+    }
+
+    #[test]
+    fn snap_hex_dump_various() {
+        let cases = [
+            ("empty", hex_dump(&[])),
+            ("single", hex_dump(&[0xFF])),
+            ("select_isd", hex_dump(&[0x00, 0xA4, 0x04, 0x00, 0x07,
+                0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00])),
+            ("init_update", hex_dump(&[0x80, 0x50, 0x00, 0x00, 0x08,
+                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08])),
+            ("sw_9000", hex_dump(&[0x90, 0x00])),
+        ];
+        let output: String = cases
+            .iter()
+            .map(|(label, hex)| format!("{label}: {hex}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        insta::assert_snapshot!("hex_dump_various", output);
     }
 }

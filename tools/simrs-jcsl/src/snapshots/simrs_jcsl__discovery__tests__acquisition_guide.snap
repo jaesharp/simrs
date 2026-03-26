@@ -1,0 +1,29 @@
+---
+source: tools/simrs-jcsl/src/discovery.rs
+expression: ACQUISITION_GUIDE
+---
+The jcsl simulator is part of the Oracle Java Card Development Kit Simulator,
+available at no cost from Oracle (requires an Oracle account).
+
+  1. Visit https://www.oracle.com/java/technologies/javacard-sdk-downloads.html
+
+  2. Download the "Java Card Development Kit Simulator" for Linux x86.
+     The file is typically named:
+       java_card_kit-classic-3_2_0-linux-bin-do.zip  (or similar)
+
+  3. Extract the archive:
+       unzip java_card_kit-classic-*.zip -d /tmp/jcdk
+
+  4. Install into the simrs cache:
+       cargo run -p simrs-jcsl -- install /tmp/jcdk
+
+     This copies the runtime files to ~/.cache/simrs/ where they are
+     automatically discovered by the test harness.
+
+  Alternatively, set the SIMRS_JCSL_BINARY environment variable to point
+  directly at the jcsl binary:
+       export SIMRS_JCSL_BINARY=/path/to/jcsl
+
+Note: The jcsl binary is a 32-bit x86 Linux ELF executable. On 64-bit
+systems you may need 32-bit compatibility libraries (libc6-i386 or
+equivalent for your distribution).

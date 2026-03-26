@@ -1,0 +1,9 @@
+---
+source: tools/simrs-jcsl/src/discovery.rs
+expression: inst.to_string()
+---
+jcsl installation:
+  binary:     /home/user/.cache/simrs/jcsl
+  lib_dir:    /home/user/.cache/simrs
+  source:     XDG cache (~/.cache/simrs/)
+  configured: scp=no, pin=no

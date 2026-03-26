@@ -1,0 +1,9 @@
+[package]
+name        = "simrs-apdu-schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "APDU response schema types for semantic comparison -- no_std, zero deps"
+
+[lints]
+workspace = true

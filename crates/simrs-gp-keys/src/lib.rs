@@ -37,6 +37,36 @@ extern crate std;
 // Key types (GP 2.1.1 Appendix C, Table C-1)
 // ---------------------------------------------------------------------------
 
+/// SCP protocol version associated with a key set.
+///
+/// Determines which Secure Channel Protocol is used with these keys.
+/// Mirrors `simrs_gp_scp::ScpVersion` without introducing a circular
+/// dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ScpId {
+    /// Secure Channel Protocol 01 (GP 2.1.1 Appendix D).
+    Scp01 = 0x01,
+    /// Secure Channel Protocol 02 (GP 2.1.1 Appendix E).
+    Scp02 = 0x02,
+}
+
+impl ScpId {
+    /// Convert to the SCP identifier byte used in INIT UPDATE responses.
+    pub const fn to_byte(self) -> u8 {
+        self as u8
+    }
+
+    /// Parse from a byte. Returns `None` for unknown values.
+    pub const fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0x01 => Some(Self::Scp01),
+            0x02 => Some(Self::Scp02),
+            _ => None,
+        }
+    }
+}
+
 /// Key type indicator for GP key sets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyType {
@@ -68,6 +98,8 @@ pub struct KeySet {
     dek: [u8; 24],
     /// Effective key length in bytes (16 for 2-key 3DES/AES, 24 for 3-key 3DES).
     key_len: u8,
+    /// SCP version associated with this key set.
+    scp_id: ScpId,
 }
 
 impl KeySet {
@@ -87,7 +119,15 @@ impl KeySet {
             mac: mac24,
             dek: dek24,
             key_len: 16,
+            scp_id: ScpId::Scp02,
         }
+    }
+
+    /// Create a 2-key Triple DES key set for SCP01.
+    pub fn des3_2key_scp01(enc: [u8; 16], mac: [u8; 16], dek: [u8; 16]) -> Self {
+        let mut ks = Self::des3_2key(enc, mac, dek);
+        ks.scp_id = ScpId::Scp01;
+        ks
     }
 
     /// Create a 3-key Triple DES key set (24-byte keys).
@@ -98,6 +138,7 @@ impl KeySet {
             mac,
             dek,
             key_len: 24,
+            scp_id: ScpId::Scp02,
         }
     }
 
@@ -117,6 +158,7 @@ impl KeySet {
             mac: mac24,
             dek: dek24,
             key_len: 16,
+            scp_id: ScpId::Scp02, // AES keys default to SCP02
         }
     }
 
@@ -138,6 +180,11 @@ impl KeySet {
     /// Get the DEK key bytes (first `key_len()` bytes are valid).
     pub fn dek(&self) -> &[u8] {
         &self.dek[..self.key_len()]
+    }
+
+    /// SCP version associated with this key set.
+    pub const fn scp_id(&self) -> ScpId {
+        self.scp_id
     }
 }
 
@@ -349,6 +396,7 @@ impl<const MAX_VERSIONS: usize> KeyStore<MAX_VERSIONS> {
                     mac,
                     dek,
                     key_len,
+                    scp_id: ScpId::Scp02, // default on restore
                 },
             });
         }

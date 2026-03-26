@@ -8,8 +8,10 @@ publish     = false
 
 [dependencies]
 simrs-transport = { workspace = true }
+memfd            = "0.6"
 
 [dev-dependencies]
+insta = { workspace = true }
 
 [lints]
 workspace = true

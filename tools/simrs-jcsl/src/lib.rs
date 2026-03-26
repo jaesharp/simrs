@@ -1,14 +1,17 @@
 //! Oracle Java Card Simulator (jcsl) interface crate.
 //!
-//! Provides three capabilities:
+//! Provides four capabilities:
 //!
-//! 1. **Configurator** -- patches a copy of the `jcsl` binary with SCP keys
+//! 1. **Discovery** -- locates the jcsl binary via environment variable,
+//!    XDG cache, or workspace-relative path. See [`discovery`].
+//!
+//! 2. **Configurator** -- patches a copy of the `jcsl` binary with SCP keys
 //!    and a Global PIN, replacing the Java `Configurator.jar` tool.
 //!
-//! 2. **Process management** -- starts and stops the `jcsl` ELF binary,
+//! 3. **Process management** -- starts and stops the `jcsl` ELF binary,
 //!    managing port allocation and `LD_LIBRARY_PATH`.
 //!
-//! 3. **TCP client** -- implements the Oracle RAW wire protocol and the
+//! 4. **TCP client** -- implements the Oracle RAW wire protocol and the
 //!    [`simrs_transport::Transport`] trait for APDU exchange.
 //!
 //! # Intended use
@@ -48,10 +51,12 @@
 
 pub mod client;
 pub mod configurator;
+pub mod discovery;
 pub mod process;
 pub mod protocol;
 
 // Re-export key types at crate root for convenience.
 pub use client::JcslClient;
-pub use configurator::{ConfigError, GlobalPin, ScpKeyset, configure_binary, is_configured};
+pub use configurator::{ConfigError, GlobalPin, ScpKeyset, configure_binary, configure_to_memfd, is_configured};
+pub use discovery::{JcslInstallation, discover_binary};
 pub use process::{JcslConfig, JcslProcess};

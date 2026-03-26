@@ -27,7 +27,6 @@
 #   69 88  incorrect secure messaging data object
 #   6A 88  referenced data not found
 
-@wip
 Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Traore SSR 2016)
   As a GlobalPlatform card simulator
   I must defend against known protocol-level attacks on SCP02 and SCP01
@@ -68,7 +67,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
   # below must return identical status words.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SCP02 padding oracle defense -- uniform SW for all failure modes
     # Avoine & Ferreira, TCHES 2018, Section 4.2
     # Attack: send EXTERNAL AUTHENTICATE with crafted ciphertext and observe
@@ -92,7 +90,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
   # Within each error CLASS, all failures must be indistinguishable.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Uniform error responses for INITIALIZE UPDATE failures
     # GP 2.1.1 clause 8.1; GP Card Manager APDU oracle analysis
     # All "key not found" failures must return the same SW regardless of which
@@ -104,7 +101,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
     When I send INITIALIZE UPDATE with key version 0xFF and host challenge [01 02 03 04 05 06 07 08]
     Then SW is 6A 88
 
-  @wip
   Scenario: Uniform error responses for EXTERNAL AUTHENTICATE cryptogram failures
     # GP 2.1.1 clause 8.2; Avoine & Ferreira, J. Cryptol. 38(9), 2025
     # All cryptogram verification failures must return the same SW.
@@ -120,7 +116,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
     And I send EXTERNAL AUTHENTICATE with security level 0x01 and cryptogram [C7 3A F1 08 5D B2 E6 49]
     Then SW is 69 88
 
-  @wip
   Scenario: GP command before authentication returns uniform rejection
     # GP 2.1.1 clause 8; defense against state probing
     # Commands requiring authentication must all fail with the same SW,
@@ -143,7 +138,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
   # and breaks the MAC chaining invariant.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SCP02 C-MAC is the left 8 bytes of the full 3DES CBC-MAC
     # Sabt & Traore, SSR 2016, Section 4; GP 2.1.1 Appendix E clause E.4.2
     # Known-vector test: given session C-MAC key and a known command, verify
@@ -166,7 +160,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
   # verify the exact session key bytes.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SCP02 session key derivation with known static keys and counter 0x0000
     # GP 2.1.1 Appendix E, Figure E-2; Sabt & Traore SSR 2016 Section 3
     # Static keys = [40]*16, sequence counter = 0x0000
@@ -191,7 +184,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
   # C-MAC key can forge commands in the new session.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Re-authentication clears previous SCP01 session keys
     # GP 2.1.1 clause 8; defense against session key reuse
     Given I have established an SCP01 session with security level 0x01 (C-MAC) using key version 0x02
@@ -212,7 +204,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
   # (ATR) must invalidate the SCP session -- the terminal must re-authenticate.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SCP session survives snapshot restore but not card reset
     # GP 2.1.1 clause 8; simrs snapshot semantics
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
@@ -235,7 +226,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
   # from a single key recovery.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Card challenge differs between consecutive INITIALIZE UPDATE commands
     # Sabt & Traore, SSR 2016, Section 3.2; IND-CPA failure mitigation
     # Two INITIALIZE UPDATE commands with the same host challenge must return
@@ -257,7 +247,6 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
   # The card must reject a replayed C-MAC from a previous command.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Replayed C-MAC from a previous command is rejected
     # Sabt & Traore, SSR 2016, Section 4.1; GP 2.1.1 Appendix E clause E.4.3
     # After sending command_1 with correct C-MAC, re-sending command_1 with

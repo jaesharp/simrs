@@ -1,0 +1,5 @@
+---
+source: tools/simrs-differential-tests/src/lib.rs
+expression: hex
+---
+40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f

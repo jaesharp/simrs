@@ -70,6 +70,29 @@ extern crate std;
 extern crate alloc;
 
 // ---------------------------------------------------------------------------
+// Response schemas (for semantic comparison)
+// ---------------------------------------------------------------------------
+
+/// Response schema for SELECT: SW-only comparison, data payload ignored.
+///
+/// simrs returns bare SW; some implementations return FCI data. The
+/// semantic comparison checks only that the SWs agree.
+pub static SELECT_SCHEMA: simrs_apdu_schema::ResponseSchema =
+    simrs_apdu_schema::ResponseSchema {
+        name: "SELECT",
+        expected_len: None,
+        fields: &[],
+    };
+
+/// Response schema for error responses: no data expected, SW comparison only.
+pub static ERROR_SCHEMA: simrs_apdu_schema::ResponseSchema =
+    simrs_apdu_schema::ResponseSchema {
+        name: "ERROR",
+        expected_len: Some(0),
+        fields: &[],
+    };
+
+// ---------------------------------------------------------------------------
 // Instruction codes
 // ---------------------------------------------------------------------------
 

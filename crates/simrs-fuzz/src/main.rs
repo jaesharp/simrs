@@ -1,12 +1,21 @@
-//! In-process APDU-aware fuzzer for the simrs SIM simulator.
+//! In-process APDU-aware fuzzer for SIM and GP card simulators.
 //!
 //! Structure-aware APDU mutation + snapshot-based state deduplication.
-//! Runs entirely in-process via simrs-hle (no QEMU required).
+//! Runs entirely in-process (no QEMU required).
 //!
-//! Configurable via `SIMRS_FUZZ_ITERS` env var (default 100,000).
-//! Set `SIMRS_FUZZ_PCAP=path` to write interesting APDU sequences to a PCAP file.
+//! # Configuration
+//!
+//! | Env var | Values | Default |
+//! |---------|--------|---------|
+//! | `SIMRS_FUZZ_ITERS` | iteration count | 100,000 |
+//! | `SIMRS_FUZZ_TARGET` | `sim`, `gp` | `sim` |
+//! | `SIMRS_FUZZ_AUTH` | `milenage`, `tuak` | `milenage` (SIM only) |
+//! | `SIMRS_FUZZ_PCAP` | file path | disabled |
 
+use simrs_card_api::{SimEvent, SimResponse};
 use simrs_fs::{DfDef, EfDef, Fid, FileRef, Sfi};
+use simrs_gp_card::GpCard;
+use simrs_gp_keys::KeySet;
 use simrs_hle::{
     hle_apdu, hle_init, hle_init_tuak, hle_reset, hle_snapshot_restore, hle_snapshot_save,
     hle_snapshot_size, hle_state_hash, hle_tick, GsmSubscriberKey,
@@ -126,8 +135,40 @@ const KNOWN_INS: &[u8] = &[
     0xC2, // ENVELOPE
 ];
 
-/// Known CLA values.
+/// Known CLA values (SIM).
 const KNOWN_CLA: &[u8] = &[0x00, 0x80, 0xA0];
+
+// ---------------------------------------------------------------------------
+// GP APDU corpus
+// ---------------------------------------------------------------------------
+
+/// GP INS values that reach deep code paths.
+const GP_KNOWN_INS: &[u8] = &[
+    0xA4, // SELECT
+    0x70, // MANAGE CHANNEL
+    0x50, // INITIALIZE UPDATE
+    0x82, // EXTERNAL AUTHENTICATE
+    0xCA, // GET DATA
+    0xD8, // PUT KEY
+    0xE2, // STORE DATA
+    0xE4, // DELETE
+    0xE6, // INSTALL
+    0xE8, // LOAD
+    0xF0, // SET STATUS
+    0xF2, // GET STATUS
+];
+
+/// GP CLA values.
+const GP_KNOWN_CLA: &[u8] = &[0x00, 0x80, 0x84];
+
+/// Default GP test key material.
+const GP_KEY_BYTES: [u8; 16] = [
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+    0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+];
+
+/// ISD AID (7 bytes, GP 2.1.1 default).
+const GP_ISD_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
 
 /// Generate a structure-aware APDU.
 fn generate_apdu(rng: &mut Rng, buf: &mut [u8]) -> usize {
@@ -213,6 +254,115 @@ fn mutate_apdu(rng: &mut Rng, buf: &mut [u8], len: usize) -> usize {
         }
     }
 }
+
+/// Generate a structure-aware GP APDU.
+fn generate_gp_apdu(rng: &mut Rng, buf: &mut [u8]) -> usize {
+    let cla = GP_KNOWN_CLA[rng.range(GP_KNOWN_CLA.len())];
+    let ins = if rng.next().is_multiple_of(4) {
+        rng.next_u8()
+    } else {
+        GP_KNOWN_INS[rng.range(GP_KNOWN_INS.len())]
+    };
+    let p1 = if rng.next().is_multiple_of(3) {
+        rng.next_u8()
+    } else {
+        // Common P1 values for GP commands.
+        [0x00, 0x04, 0x80, 0x40, 0x20][rng.range(5)]
+    };
+    let p2 = if rng.next().is_multiple_of(3) {
+        rng.next_u8()
+    } else {
+        [0x00, 0x66, 0xE0, 0x9F][rng.range(4)]
+    };
+
+    buf[0] = cla;
+    buf[1] = ins;
+    buf[2] = p1;
+    buf[3] = p2;
+
+    let has_data = !rng.next().is_multiple_of(3);
+    if has_data {
+        let lc = match ins {
+            0xA4 => {
+                // SELECT by AID: use ISD AID or random length
+                if rng.next().is_multiple_of(2) {
+                    buf[5..5 + GP_ISD_AID.len()].copy_from_slice(&GP_ISD_AID);
+                    GP_ISD_AID.len()
+                } else {
+                    let len = 5 + rng.range(12);
+                    for i in 0..len {
+                        buf[5 + i] = rng.next_u8();
+                    }
+                    len
+                }
+            }
+            0x50 => {
+                // INITIALIZE UPDATE: 8-byte host challenge
+                for i in 0..8 {
+                    buf[5 + i] = rng.next_u8();
+                }
+                8
+            }
+            0x82 => {
+                // EXTERNAL AUTHENTICATE: 16-byte (host cryptogram + C-MAC)
+                for i in 0..16 {
+                    buf[5 + i] = rng.next_u8();
+                }
+                16
+            }
+            0xF2 => {
+                // GET STATUS: 2-byte search criteria (4F 00)
+                buf[5] = 0x4F;
+                buf[6] = 0x00;
+                2
+            }
+            _ => {
+                let len = rng.range(16).min(buf.len().saturating_sub(5));
+                for i in 0..len {
+                    buf[5 + i] = rng.next_u8();
+                }
+                len
+            }
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            buf[4] = lc as u8;
+        }
+        5 + lc
+    } else if rng.next().is_multiple_of(2) {
+        buf[4] = rng.next_u8();
+        5
+    } else {
+        4
+    }
+}
+
+/// Mutate an existing GP APDU in-place.
+fn mutate_gp_apdu(rng: &mut Rng, buf: &mut [u8], len: usize) -> usize {
+    if len < 4 {
+        return generate_gp_apdu(rng, buf);
+    }
+    match rng.range(4) {
+        0 => {
+            let idx = rng.range(len);
+            buf[idx] ^= 1 << rng.range(8);
+            len
+        }
+        1 => {
+            buf[1] = GP_KNOWN_INS[rng.range(GP_KNOWN_INS.len())];
+            len
+        }
+        2 => {
+            buf[0] = GP_KNOWN_CLA[rng.range(GP_KNOWN_CLA.len())];
+            len
+        }
+        _ => generate_gp_apdu(rng, buf),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fuzz target abstraction
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Corpus
@@ -304,6 +454,8 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100_000);
 
+    let target_gp =
+        std::env::var("SIMRS_FUZZ_TARGET").is_ok_and(|s| s.eq_ignore_ascii_case("gp"));
     let use_tuak = std::env::var("SIMRS_FUZZ_AUTH").is_ok_and(|s| s.eq_ignore_ascii_case("tuak"));
 
     let pcap_path = std::env::var("SIMRS_FUZZ_PCAP").ok();
@@ -314,6 +466,29 @@ fn main() {
         })
     });
 
+    if target_gp {
+        fuzz_gp(iters, &mut pcap);
+    } else {
+        fuzz_sim(iters, use_tuak, &mut pcap);
+    }
+
+    if let Some(ref mut pcap) = pcap {
+        let _ = pcap.flush();
+    }
+
+    if pcap_path.is_some() {
+        eprintln!(
+            "[simrs-fuzz] PCAP written to {}",
+            pcap_path.as_deref().unwrap()
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SIM fuzz loop
+// ---------------------------------------------------------------------------
+
+fn fuzz_sim(iters: usize, use_tuak: bool, pcap: &mut Option<PcapWriter>) {
     if use_tuak {
         eprintln!("[simrs-fuzz] initializing SIM (TUAK)...");
         hle_init_tuak(
@@ -343,24 +518,22 @@ fn main() {
 
     let mut rng = Rng::new(0xDEAD_BEEF_CAFE_BABE);
     let mut corpus = Corpus::new();
-    let mut apdu_buf = [0u8; 261]; // 5-byte header + up to 256 data
+    let mut apdu_buf = [0u8; 261];
     let mut rsp_buf = [0u8; 261];
     let seq_len_max = 8;
 
-    eprintln!("[simrs-fuzz] fuzzing {iters} iterations...");
+    eprintln!("[simrs-fuzz] fuzzing SIM: {iters} iterations...");
 
     for i in 0..iters {
-        // Restore snapshot.
         assert!(
             hle_snapshot_restore(&snapshot[..n]),
             "snapshot restore failed at iter {i}"
         );
 
-        // Generate/mutate an APDU sequence.
         let seq_len = 1 + rng.range(seq_len_max);
         let mut combined_hash: u64 = 0;
         let mut last_apdu_len: usize = 0;
-        let mut last_rsp_full = [0u8; 263]; // data + sw1 + sw2
+        let mut last_rsp_full = [0u8; 263];
         let mut last_rsp_full_len: usize = 0;
 
         for _ in 0..seq_len {
@@ -373,7 +546,6 @@ fn main() {
 
             let rsp_result = hle_apdu(&apdu_buf[..apdu_len], &mut rsp_buf);
 
-            // Track the last command and response for PCAP recording.
             last_apdu_len = apdu_len;
             if let Some((data_len, sw1, sw2)) = rsp_result {
                 last_rsp_full[..data_len].copy_from_slice(&rsp_buf[..data_len]);
@@ -384,31 +556,17 @@ fn main() {
                 last_rsp_full_len = 0;
             }
 
-            // Hash the APDU for sequence tracking.
             combined_hash = combined_hash.wrapping_add(fnv1a(&apdu_buf[..apdu_len]));
         }
 
-        // Advance timers by a random interval to exercise timer expiry paths.
         #[allow(clippy::cast_possible_truncation)]
         let tick_secs = rng.range(60) as u32;
         let _ = hle_tick(tick_secs);
 
-        // Collect state hash after the sequence, combined with APDU path hash.
         let state_hash = hle_state_hash();
         if state_hash != 0 && corpus.is_new(state_hash.wrapping_add(combined_hash)) {
-            if let Some(ref mut pcap) = pcap {
-                let _ = pcap.record_apdu(Direction::Command, &apdu_buf[..last_apdu_len]);
-                if last_rsp_full_len > 0 {
-                    let _ =
-                        pcap.record_apdu(Direction::Response, &last_rsp_full[..last_rsp_full_len]);
-                }
-                pcap.advance_time();
-            }
+            record_interesting(pcap, &apdu_buf[..last_apdu_len], &last_rsp_full[..last_rsp_full_len]);
         }
-    }
-
-    if let Some(ref mut pcap) = pcap {
-        let _ = pcap.flush();
     }
 
     eprintln!(
@@ -416,11 +574,92 @@ fn main() {
         corpus.seen.len(),
         corpus.interesting,
     );
-    if pcap_path.is_some() {
-        eprintln!(
-            "[simrs-fuzz] PCAP written to {}",
-            pcap_path.as_deref().unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// GP fuzz loop
+// ---------------------------------------------------------------------------
+
+fn fuzz_gp(iters: usize, pcap: &mut Option<PcapWriter>) {
+    eprintln!("[simrs-fuzz] initializing GP card...");
+
+    let keys = KeySet::des3_2key(GP_KEY_BYTES, GP_KEY_BYTES, GP_KEY_BYTES);
+    let mut card: GpCard<261> = GpCard::with_default_atr(&keys);
+
+    // Power on to enter Ready state.
+    let _ = card.process(SimEvent::PowerOn);
+
+    // Take initial snapshot.
+    let mut snapshot = vec![0u8; GpCard::<261>::SNAPSHOT_SIZE];
+    let snap_n = card.save_state(&mut snapshot);
+    assert!(snap_n > 0, "GP initial snapshot failed");
+
+    let mut rng = Rng::new(0xCAFE_BABE_DEAD_BEEF);
+    let mut corpus = Corpus::new();
+    let mut apdu_buf = [0u8; 261];
+    let seq_len_max = 8;
+
+    eprintln!("[simrs-fuzz] fuzzing GP card: {iters} iterations...");
+
+    for i in 0..iters {
+        assert!(
+            card.restore_state(&snapshot[..snap_n]),
+            "GP snapshot restore failed at iter {i}"
         );
+
+        let seq_len = 1 + rng.range(seq_len_max);
+        let mut combined_hash: u64 = 0;
+        let mut last_apdu_len: usize = 0;
+        let mut last_rsp_full = [0u8; 263];
+        let mut last_rsp_full_len: usize = 0;
+
+        for _ in 0..seq_len {
+            let apdu_len = if rng.next().is_multiple_of(2) {
+                generate_gp_apdu(&mut rng, &mut apdu_buf)
+            } else {
+                let base_len = generate_gp_apdu(&mut rng, &mut apdu_buf);
+                mutate_gp_apdu(&mut rng, &mut apdu_buf, base_len)
+            };
+
+            match card.process(SimEvent::Apdu(&apdu_buf[..apdu_len])) {
+                SimResponse::Apdu { data, sw } => {
+                    let [sw1, sw2] = sw.to_bytes();
+                    let data_len = data.len();
+                    last_rsp_full[..data_len].copy_from_slice(data);
+                    last_rsp_full[data_len] = sw1;
+                    last_rsp_full[data_len + 1] = sw2;
+                    last_rsp_full_len = data_len + 2;
+                }
+                SimResponse::Ignored | SimResponse::Atr(_) => {
+                    last_rsp_full_len = 0;
+                }
+            }
+
+            last_apdu_len = apdu_len;
+            combined_hash = combined_hash.wrapping_add(fnv1a(&apdu_buf[..apdu_len]));
+        }
+
+        let state_hash = card.state_hash();
+        if state_hash != 0 && corpus.is_new(state_hash.wrapping_add(combined_hash)) {
+            record_interesting(pcap, &apdu_buf[..last_apdu_len], &last_rsp_full[..last_rsp_full_len]);
+        }
+    }
+
+    eprintln!(
+        "[simrs-fuzz] done: {iters} iterations, {} unique states, {} corpus entries",
+        corpus.seen.len(),
+        corpus.interesting,
+    );
+}
+
+/// Record an interesting APDU pair to PCAP if enabled.
+fn record_interesting(pcap: &mut Option<PcapWriter>, cmd: &[u8], rsp: &[u8]) {
+    if let Some(ref mut pcap) = pcap {
+        let _ = pcap.record_apdu(Direction::Command, cmd);
+        if !rsp.is_empty() {
+            let _ = pcap.record_apdu(Direction::Response, rsp);
+        }
+        pcap.advance_time();
     }
 }
 
@@ -591,5 +830,89 @@ mod tests {
 
         // Clean up.
         let _ = std::fs::remove_file(&path);
+    }
+
+    // -- GP fuzzer tests --
+
+    #[test]
+    fn generate_gp_apdu_produces_valid_length() {
+        let mut rng = Rng::new(456);
+        let mut buf = [0u8; 261];
+        for _ in 0..100 {
+            let len = generate_gp_apdu(&mut rng, &mut buf);
+            assert!(len >= 4, "GP APDU too short: {len}");
+            assert!(len <= 261, "GP APDU too long: {len}");
+        }
+    }
+
+    #[test]
+    fn mutate_gp_apdu_preserves_min_length() {
+        let mut rng = Rng::new(777);
+        let mut buf = [0u8; 261];
+        let base_len = generate_gp_apdu(&mut rng, &mut buf);
+        for _ in 0..50 {
+            let new_len = mutate_gp_apdu(&mut rng, &mut buf, base_len);
+            assert!(new_len >= 4);
+        }
+    }
+
+    #[test]
+    fn smoke_test_gp_fuzz_run() {
+        let keys = KeySet::des3_2key(GP_KEY_BYTES, GP_KEY_BYTES, GP_KEY_BYTES);
+        let mut card: GpCard<261> = GpCard::with_default_atr(&keys);
+        let _ = card.process(SimEvent::PowerOn);
+
+        let mut snapshot = vec![0u8; GpCard::<261>::SNAPSHOT_SIZE];
+        let snap_n = card.save_state(&mut snapshot);
+        assert!(snap_n > 0);
+
+        let mut corpus = Corpus::new();
+
+        // Known GP sequences that exercise different code paths.
+        let sequences: &[&[u8]] = &[
+            // SELECT ISD
+            &[0x00, 0xA4, 0x04, 0x00, 0x07,
+              0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00],
+            // GET DATA 0066 (Card Recognition Data)
+            &[0x80, 0xCA, 0x00, 0x66],
+            // INITIALIZE UPDATE with host challenge
+            &[0x80, 0x50, 0x00, 0x00, 0x08,
+              0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
+            // Invalid INS
+            &[0x80, 0xFD, 0x00, 0x00],
+            // SELECT unknown AID
+            &[0x00, 0xA4, 0x04, 0x00, 0x05,
+              0xFF, 0xEE, 0xDD, 0xCC, 0xBB],
+            // MANAGE CHANNEL open
+            &[0x00, 0x70, 0x00, 0x00, 0x01],
+        ];
+
+        for seq in sequences {
+            card.restore_state(&snapshot[..snap_n]);
+            let _ = card.process(SimEvent::Apdu(seq));
+            let h = card.state_hash();
+            if h != 0 {
+                corpus.is_new(h);
+            }
+        }
+
+        // Random GP APDUs.
+        let mut rng = Rng::new(0x5678);
+        let mut apdu_buf = [0u8; 261];
+        for _ in 0..100 {
+            card.restore_state(&snapshot[..snap_n]);
+            let apdu_len = generate_gp_apdu(&mut rng, &mut apdu_buf);
+            let _ = card.process(SimEvent::Apdu(&apdu_buf[..apdu_len]));
+            let h = card.state_hash();
+            if h != 0 {
+                corpus.is_new(h);
+            }
+        }
+
+        assert!(
+            corpus.interesting >= 2,
+            "expected diverse GP states, got {}",
+            corpus.interesting
+        );
     }
 }

@@ -43,11 +43,13 @@ pub use commands::{
     INS_INSTALL, INS_LOAD, INS_MANAGE_CHANNEL, INS_PUT_KEY, INS_SET_STATUS, INS_STORE_DATA,
 };
 pub use lifecycle::{AppletLifecycle, CardLifecycle};
-pub use registry::{AppletEntry, SecurityDomain};
+pub use registry::{AppletEntry, LoadFileEntry, SecurityDomain};
 pub use simrs_gp_scp::ScpState;
 
 use simrs_gp_keys::KeyStore;
-use simrs_gp_scp::{process_external_authenticate, process_initialize_update, ScpVersion};
+use simrs_gp_scp::{
+    process_external_authenticate, process_initialize_update, unwrap_command, ScpError, ScpVersion,
+};
 use simrs_iso7816::{ins, write_data_sw, write_sw, Command, StatusWord};
 
 // ---------------------------------------------------------------------------
@@ -61,6 +63,9 @@ const CLA_GP_SM: u8 = 0x84;
 
 /// Default ISD AID per GP 2.1.1: A0 00 00 01 51 00 00.
 const DEFAULT_ISD_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+
+/// Fixed maximum load files (no const generic -- keeps API stable).
+const MAX_LOAD_FILES: usize = 8;
 
 /// Key diversification data (10 bytes) returned during INITIALIZE UPDATE.
 /// For now, static zeroes. Real implementations derive this from card data.
@@ -86,6 +91,7 @@ pub struct GpOpen<const MAX_APPLETS: usize, const MAX_SDS: usize> {
     isd: SecurityDomain,
     sds: [Option<SecurityDomain>; MAX_SDS],
     registry: [Option<AppletEntry>; MAX_APPLETS],
+    load_files: [Option<registry::LoadFileEntry>; MAX_LOAD_FILES],
     channels: [ChannelState; 4],
     scp_state: ScpState,
     key_store: KeyStore<4>,
@@ -109,6 +115,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             isd: SecurityDomain::new(&DEFAULT_ISD_AID, AppletLifecycle::Selectable, 0x00),
             sds: [const { None }; MAX_SDS],
             registry: [const { None }; MAX_APPLETS],
+            load_files: [const { None }; MAX_LOAD_FILES],
             channels: [
                 ChannelState::open_default(), // basic channel always open
                 ChannelState::Closed,
@@ -149,6 +156,28 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         &mut self.registry
     }
 
+    /// Reference to supplementary Security Domains.
+    pub const fn sds(&self) -> &[Option<SecurityDomain>; MAX_SDS] {
+        &self.sds
+    }
+
+    /// Mutable reference to supplementary Security Domains.
+    pub const fn sds_mut(&mut self) -> &mut [Option<SecurityDomain>; MAX_SDS] {
+        &mut self.sds
+    }
+
+    /// Reference to load file entries.
+    pub const fn load_files(&self) -> &[Option<registry::LoadFileEntry>; MAX_LOAD_FILES] {
+        &self.load_files
+    }
+
+    /// Mutable reference to load file entries.
+    pub const fn load_files_mut(
+        &mut self,
+    ) -> &mut [Option<registry::LoadFileEntry>; MAX_LOAD_FILES] {
+        &mut self.load_files
+    }
+
     /// Reference to the channel states.
     pub const fn channels(&self) -> &[ChannelState; 4] {
         &self.channels
@@ -167,9 +196,56 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         self.scp_state = ScpState::NoSession;
     }
 
+    /// Set the SCP state to `Authenticated` for testing.
+    ///
+    /// Bypasses the full SCP handshake. Only available in test builds.
+    #[cfg(test)]
+    pub const fn set_authenticated_for_test(&mut self) {
+        self.scp_state = ScpState::Authenticated {
+            session_enc: [0u8; 16],
+            session_mac: [0u8; 16],
+            session_rmac: [0u8; 16],
+            session_dek: [0u8; 16],
+            security_level: 0x00,
+            icv: [0u8; 8],
+            rmac_active: false,
+            scp_version: ScpVersion::Scp02,
+        };
+    }
+
     /// SCP02 sequence counter.
     pub const fn sequence_counter(&self) -> u16 {
         self.sequence_counter
+    }
+
+    /// Reset the SCP02 sequence counter to zero.
+    ///
+    /// Used to simulate card personalization or test setup where the
+    /// counter needs to start from a known value.
+    pub const fn reset_sequence_counter(&mut self) {
+        self.sequence_counter = 0;
+    }
+
+    /// Add a key set to the key store at the given version.
+    ///
+    /// Used for test setup to add SCP01 keys at a different version.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`simrs_gp_keys::KeyStoreError::StoreFull`] when all slots are occupied.
+    pub fn add_key(
+        &mut self,
+        version: u8,
+        keys: &simrs_gp_keys::KeySet,
+    ) -> Result<(), simrs_gp_keys::KeyStoreError> {
+        self.key_store.put(version, keys)
+    }
+
+    /// Set the SCP02 sequence counter to an arbitrary value.
+    ///
+    /// Used for testing counter boundary conditions (e.g. 0xFFFF wrap).
+    pub const fn set_sequence_counter(&mut self, value: u16) {
+        self.sequence_counter = value;
     }
 
     /// Handle an incoming APDU. Returns a slice of `buf` containing the
@@ -215,12 +291,17 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
 
         // GP management commands: CLA = 0x80 or 0x84.
         if cla_raw == CLA_GP || cla_raw == CLA_GP_SM {
-            return self.handle_gp_command(&cmd, buf);
+            return self.handle_gp_command(cmd_bytes, &cmd, buf);
         }
 
         // Interindustry SELECT by name (P1=0x04): dispatch to registry.
         if cmd.cla().is_interindustry() && cmd.ins() == ins::SELECT && cmd.p1() == 0x04 {
             return self.handle_select_by_aid(&cmd, buf);
+        }
+
+        // Interindustry MANAGE CHANNEL (ISO 7816-4 clause 7.1.2).
+        if cmd.cla().is_interindustry() && cmd.ins() == INS_MANAGE_CHANNEL {
+            return self.handle_manage_channel(&cmd, buf);
         }
 
         // If the card is terminated, reject everything.
@@ -254,7 +335,81 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
 
     // -- GP command routing --
 
-    fn handle_gp_command<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
+    #[allow(clippy::cast_possible_truncation)]
+    fn handle_gp_command<'buf>(
+        &mut self,
+        raw: &[u8],
+        cmd: &Command<'_>,
+        buf: &'buf mut [u8],
+    ) -> &'buf [u8] {
+        // INITIALIZE UPDATE and EXTERNAL AUTHENTICATE have their own SCP
+        // handling and bypass C-MAC unwrapping.
+        match cmd.ins() {
+            INS_INITIALIZE_UPDATE => return self.handle_initialize_update(cmd, buf),
+            INS_EXTERNAL_AUTHENTICATE => return self.handle_external_authenticate(cmd, buf),
+            _ => {}
+        }
+
+        // GP 2.1.1 clause 8: commands that require an authenticated SCP session.
+        // Exempt: SELECT, GET DATA, MANAGE CHANNEL -- these work without auth.
+        let auth_exempt = matches!(
+            cmd.ins(),
+            ins::SELECT | INS_GET_DATA | INS_MANAGE_CHANNEL
+        );
+        if !auth_exempt && !matches!(self.scp_state, ScpState::Authenticated { .. }) {
+            return write_sw(buf, StatusWord::command_not_allowed(0x85));
+        }
+
+        // C-MAC verification: when an authenticated C-MAC session is active,
+        // commands requiring auth must include and pass C-MAC verification.
+        // GP 2.1.1 clause 8.3.1.
+        if !auth_exempt {
+            if let ScpState::Authenticated { security_level, .. } = self.scp_state {
+                if security_level & 0x01 != 0 {
+                    let mut uw_data = [0u8; 256];
+                    match unwrap_command(&mut self.scp_state, raw, &mut uw_data) {
+                        Ok(data_len) => {
+                            // Rebuild APDU without C-MAC for dispatch.
+                            let mut uw_apdu = [0u8; 261];
+                            uw_apdu[..4].copy_from_slice(&raw[..4]);
+                            let uw_len = if data_len > 0 {
+                                uw_apdu[4] = data_len as u8;
+                                uw_apdu[5..5 + data_len]
+                                    .copy_from_slice(&uw_data[..data_len]);
+                                5 + data_len
+                            } else {
+                                4
+                            };
+                            let Ok(uw_cmd) = Command::parse(&uw_apdu[..uw_len]) else {
+                                return write_sw(buf, StatusWord::WrongLength);
+                            };
+                            return self.dispatch_gp(&uw_cmd, buf);
+                        }
+                        Err(ScpError::CmacMismatch) => {
+                            return write_sw(
+                                buf,
+                                StatusWord::command_not_allowed(0x88),
+                            );
+                        }
+                        Err(ScpError::SecureMessagingMissing) => {
+                            return write_sw(
+                                buf,
+                                StatusWord::command_not_allowed(0x87),
+                            );
+                        }
+                        Err(_) => {
+                            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.dispatch_gp(cmd, buf)
+    }
+
+    /// Inner dispatch for GP management commands (after auth and C-MAC checks).
+    fn dispatch_gp<'buf>(&mut self, cmd: &Command<'_>, buf: &'buf mut [u8]) -> &'buf [u8] {
         match cmd.ins() {
             ins::SELECT => {
                 if cmd.p1() == 0x04 {
@@ -263,9 +418,9 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                     write_sw(buf, StatusWord::wrong_params(0x86))
                 }
             }
-            INS_INITIALIZE_UPDATE => self.handle_initialize_update(cmd, buf),
-            INS_EXTERNAL_AUTHENTICATE => self.handle_external_authenticate(cmd, buf),
-            INS_GET_STATUS => commands::get_status(&self.isd, &self.registry, &self.sds, cmd, buf),
+            INS_GET_STATUS => {
+                commands::get_status(&self.isd, &self.registry, &self.sds, &self.load_files, cmd, buf)
+            }
             INS_SET_STATUS => {
                 let n = commands::set_status(
                     &mut self.card_lifecycle,
@@ -279,18 +434,30 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             }
             INS_MANAGE_CHANNEL => self.handle_manage_channel(cmd, buf),
             INS_INSTALL => {
-                let n = commands::install(&mut self.registry, cmd, buf);
+                let n = commands::install(
+                    &mut self.card_lifecycle,
+                    &mut self.registry,
+                    &mut self.load_files,
+                    cmd,
+                    buf,
+                );
                 &buf[..n]
             }
             INS_DELETE => {
-                let n = commands::delete(&mut self.registry, cmd, buf);
+                let n = commands::delete(
+                    &mut self.registry,
+                    &mut self.sds,
+                    &mut self.load_files,
+                    cmd,
+                    buf,
+                );
                 &buf[..n]
             }
             INS_LOAD => {
                 let n = commands::load_stub(buf);
                 &buf[..n]
             }
-            INS_GET_DATA => commands::get_data(self.card_lifecycle, cmd, buf),
+            INS_GET_DATA => commands::get_data(self.card_lifecycle, self.isd.aid(), cmd, buf),
             INS_PUT_KEY => {
                 let n = commands::put_key_stub(buf);
                 &buf[..n]
@@ -313,28 +480,60 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         }
 
         let channel = cmd.cla().channel();
+        let p2 = cmd.p2();
 
-        // Check if selecting the ISD itself.
-        if registry::aid_matches(self.isd.aid(), aid) {
-            // Deselect current applet on this channel.
+        // P2=0x02: next occurrence -- find next match after currently selected.
+        if p2 == 0x02 {
+            let start = self
+                .selected_applet_index(channel)
+                .map_or(0, |i| i as usize);
+            if let Some(idx) = registry::find_by_aid_after(&self.registry, aid, start) {
+                if (channel as usize) < self.channels.len() {
+                    self.channels[channel as usize].select_applet(idx as u8);
+                }
+                let selected_aid = self.registry[idx].as_ref().map(registry::AppletEntry::aid);
+                return Self::select_response(buf, selected_aid.unwrap_or(aid));
+            }
+            return write_sw(buf, StatusWord::wrong_params(0x82));
+        }
+
+        // P2=0x00: first or only occurrence.
+        // Check if selecting the ISD itself (exact or partial match).
+        if registry::aid_exact_match(self.isd.aid(), aid)
+            || registry::partial_aid_matches(self.isd.aid(), aid)
+        {
             if (channel as usize) < self.channels.len() {
                 self.channels[channel as usize].deselect();
             }
-            // ISD is always selected when no applet is selected.
-            return write_sw(buf, StatusWord::Success);
+            return Self::select_response(buf, self.isd.aid());
         }
 
-        // Search registry for matching AID.
+        // Search registry for matching AID (exact, prefix, or partial).
         if let Some(idx) = registry::find_by_aid(&self.registry, aid) {
-            // Deselect current applet on this channel.
             if (channel as usize) < self.channels.len() {
                 self.channels[channel as usize].select_applet(idx as u8);
             }
-            return write_sw(buf, StatusWord::Success);
+            let selected_aid = self.registry[idx].as_ref().map(registry::AppletEntry::aid);
+            return Self::select_response(buf, selected_aid.unwrap_or(aid));
         }
 
         // Not found.
         write_sw(buf, StatusWord::wrong_params(0x82))
+    }
+
+    /// Build FCI response for SELECT: `6F { 84 { AID } }`.
+    #[allow(clippy::cast_possible_truncation)]
+    fn select_response<'buf>(buf: &'buf mut [u8], aid: &[u8]) -> &'buf [u8] {
+        // FCI template: 6F len { 84 aid_len aid }
+        let inner_len = 2 + aid.len(); // tag 84 + aid_len + aid
+        let fci_len = 2 + inner_len; // tag 6F + len + inner
+        let mut fci = [0u8; 36]; // max: 2 + 2 + 16 = 20
+        fci[0] = 0x6F;
+        fci[1] = inner_len as u8;
+        fci[2] = 0x84;
+        fci[3] = aid.len() as u8;
+        fci[4..4 + aid.len()].copy_from_slice(aid);
+        write_data_sw(buf, &fci[..fci_len], StatusWord::Success)
     }
 
     // -- MANAGE CHANNEL --
@@ -378,22 +577,28 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             return write_sw(buf, StatusWord::wrong_params(0x88));
         };
 
-        // Generate card challenge. In a real implementation this would be
-        // random. For deterministic testing, derive from sequence counter.
+        // Select SCP version from the key set.
+        let scp_version = match keys.scp_id() {
+            simrs_gp_keys::ScpId::Scp01 => ScpVersion::Scp01,
+            simrs_gp_keys::ScpId::Scp02 => ScpVersion::Scp02,
+        };
+
+        // Generate card challenge. For deterministic testing, derive from
+        // sequence counter. SCP02 places seq counter in first 2 bytes.
         let mut card_challenge = [0u8; 8];
         #[allow(clippy::cast_possible_truncation)]
         {
             card_challenge[6] = (self.sequence_counter >> 8) as u8;
             card_challenge[7] = self.sequence_counter as u8;
-            // SCP02: bytes 2..8 are the card challenge, bytes 0..2 are
-            // sequence counter. We place seq counter in first 2 bytes.
-            card_challenge[0] = (self.sequence_counter >> 8) as u8;
-            card_challenge[1] = self.sequence_counter as u8;
+            if scp_version == ScpVersion::Scp02 {
+                card_challenge[0] = (self.sequence_counter >> 8) as u8;
+                card_challenge[1] = self.sequence_counter as u8;
+            }
         }
 
         let response = process_initialize_update(
             &mut self.scp_state,
-            ScpVersion::Scp02,
+            scp_version,
             actual_version,
             &host_challenge,
             keys,
@@ -401,6 +606,10 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             &KEY_DIVERSIFICATION,
             Some(self.sequence_counter),
         );
+
+        // GP 2.1.1 Appendix E: increment sequence counter after each
+        // successful INITIALIZE UPDATE.
+        self.sequence_counter = self.sequence_counter.wrapping_add(1);
 
         write_data_sw(buf, &response, StatusWord::Success)
     }
@@ -426,16 +635,14 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             security_level,
             &host_crypto_and_mac,
         ) {
-            Ok(()) => {
-                // Increment sequence counter for next session.
-                self.sequence_counter = self.sequence_counter.wrapping_add(1);
-                write_sw(buf, StatusWord::Success)
-            }
+            Ok(()) => write_sw(buf, StatusWord::Success),
             Err(simrs_gp_scp::ScpError::InvalidState) => {
                 write_sw(buf, StatusWord::command_not_allowed(0x85))
             }
             Err(simrs_gp_scp::ScpError::HostCryptogramMismatch) => {
-                write_sw(buf, StatusWord::command_not_allowed(0x82))
+                // 69 88: uniform error for all authentication failures
+                // (padding oracle defense per Avoine & Ferreira, TCHES 2018).
+                write_sw(buf, StatusWord::command_not_allowed(0x88))
             }
             Err(simrs_gp_scp::ScpError::CmacMismatch) => {
                 // 69 88: Incorrect values in command data (SM related).
@@ -458,6 +665,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             &self.isd,
             &self.sds,
             &self.registry,
+            &self.load_files,
             &self.channels,
             &self.scp_state,
             self.sequence_counter,
@@ -473,6 +681,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             &mut self.isd,
             &mut self.sds,
             &mut self.registry,
+            &mut self.load_files,
             &mut self.channels,
             &mut self.scp_state,
             &mut self.sequence_counter,
@@ -500,6 +709,14 @@ mod tests {
     }
 
     fn make_gp() -> GpOpen<8, 2> {
+        let mut gp = GpOpen::new(&test_keys());
+        gp.set_authenticated_for_test();
+        gp
+    }
+
+    /// Make a GpOpen instance without SCP authentication (for testing auth enforcement).
+    #[allow(dead_code)]
+    fn make_gp_unauthenticated() -> GpOpen<8, 2> {
         GpOpen::new(&test_keys())
     }
 
@@ -540,7 +757,9 @@ mod tests {
         apdu[5..12].copy_from_slice(&DEFAULT_ISD_AID);
 
         let rsp = gp.handle(&apdu, &mut buf);
-        assert_eq!(rsp, &[0x90, 0x00]);
+        // FCI + SW 90 00.
+        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00]);
+        assert!(rsp.len() > 2, "SELECT should return FCI data");
     }
 
     #[test]
@@ -577,7 +796,7 @@ mod tests {
         select_apdu[5..11].copy_from_slice(&app_aid);
 
         let rsp = gp.handle(&select_apdu, &mut buf);
-        assert_eq!(rsp, &[0x90, 0x00], "SELECT by AID should succeed");
+        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "SELECT by AID should succeed");
 
         // Verify the applet is selected on channel 0.
         assert!(gp.selected_applet_index(0).is_some());
@@ -946,7 +1165,7 @@ mod tests {
         select_apdu[5..5 + aid_len].copy_from_slice(aid);
 
         let rsp = gp.handle(&select_apdu[..5 + aid_len], &mut buf);
-        assert_eq!(rsp, &[0x90, 0x00], "SELECT should succeed");
+        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "SELECT should succeed");
 
         gp.selected_applet_index(0)
             .expect("applet should be selected after SELECT")
@@ -1082,7 +1301,7 @@ mod tests {
         );
 
         assert!(!called, "SELECT by AID must NOT be dispatched to applet");
-        assert_eq!(rsp, &[0x90, 0x00]);
+        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00]);
     }
 
     #[test]

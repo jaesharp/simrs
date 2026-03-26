@@ -18,7 +18,7 @@ mod scp02;
 mod snapshot;
 
 // Re-export all public items so the crate API is unchanged.
-pub use cmac::{generate_cmac, unwrap_command, wrap_response};
+pub use cmac::{des_ecb_encrypt_left_half, generate_cmac, unwrap_command, wrap_response};
 pub use scp01::{
     compute_scp01_card_cryptogram, compute_scp01_host_cryptogram, derive_scp01_session_keys,
 };
@@ -34,7 +34,7 @@ use simrs_iso9797::pad_method2;
 use simrs_secret::Secret;
 
 // Internal imports used by process_initialize_update / process_external_authenticate.
-use cmac::{compute_cryptogram, des3_2key_cbc_mac_with_iv, des_ecb_encrypt_left_half};
+use cmac::{compute_cryptogram, des3_2key_cbc_mac_with_iv};
 use scp01::{scp01_derivation_data, scp01_derive_session_key};
 use scp02::scp02_derive_session_key;
 
@@ -116,6 +116,53 @@ pub enum ScpState {
         scp_version: ScpVersion,
     },
 }
+
+// ---------------------------------------------------------------------------
+// Response schemas (for semantic comparison)
+// ---------------------------------------------------------------------------
+
+/// Response schema for INITIALIZE UPDATE (28-byte fixed layout).
+///
+/// Field layout:
+/// ```text
+/// [0..10]   key_diversification   -- Ignore (implementation-specific)
+/// [10]      key_version           -- Exact
+/// [11]      scp_identifier        -- Exact
+/// [12..20]  challenge_region      -- LengthOnly (random/derived)
+/// [20..28]  card_cryptogram       -- LengthOnly (derived from session keys)
+/// ```
+pub static INIT_UPDATE_SCHEMA: simrs_apdu_schema::ResponseSchema =
+    simrs_apdu_schema::ResponseSchema {
+        name: "INIT_UPDATE",
+        expected_len: Some(28),
+        fields: &[
+            simrs_apdu_schema::FieldSpec {
+                name: "key_diversification",
+                span: simrs_apdu_schema::FieldSpan::Bytes { offset: 0, len: 10 },
+                policy: simrs_apdu_schema::FieldPolicy::Ignore,
+            },
+            simrs_apdu_schema::FieldSpec {
+                name: "key_version",
+                span: simrs_apdu_schema::FieldSpan::Bytes { offset: 10, len: 1 },
+                policy: simrs_apdu_schema::FieldPolicy::Exact,
+            },
+            simrs_apdu_schema::FieldSpec {
+                name: "scp_identifier",
+                span: simrs_apdu_schema::FieldSpan::Bytes { offset: 11, len: 1 },
+                policy: simrs_apdu_schema::FieldPolicy::Exact,
+            },
+            simrs_apdu_schema::FieldSpec {
+                name: "challenge_region",
+                span: simrs_apdu_schema::FieldSpan::Bytes { offset: 12, len: 8 },
+                policy: simrs_apdu_schema::FieldPolicy::LengthOnly,
+            },
+            simrs_apdu_schema::FieldSpec {
+                name: "card_cryptogram",
+                span: simrs_apdu_schema::FieldSpan::Bytes { offset: 20, len: 8 },
+                policy: simrs_apdu_schema::FieldPolicy::LengthOnly,
+            },
+        ],
+    };
 
 // ---------------------------------------------------------------------------
 // Public API -- INITIALIZE UPDATE
@@ -308,8 +355,11 @@ pub fn process_external_authenticate(
     };
 
     // Constant-time comparison.
+    // Keep InitUpdateDone on failure: GP 2.1.1 does not mandate session
+    // abandonment before the session is established. Keeping the state
+    // allows terminal retry and ensures uniform error responses for the
+    // padding oracle defense (Avoine & Ferreira, TCHES 2018).
     if !ct_eq(host_cryptogram, &expected_host_cryptogram).into_bool() {
-        *state = ScpState::NoSession;
         return Err(ScpError::HostCryptogramMismatch);
     }
 
@@ -347,7 +397,6 @@ pub fn process_external_authenticate(
         des3_2key_cbc_mac_with_iv(&cmac_key, effective_icv, &cmac_input_buf[..padded_len]);
 
     if !ct_eq(received_cmac, &expected_cmac).into_bool() {
-        *state = ScpState::NoSession;
         return Err(ScpError::CmacMismatch);
     }
 
@@ -610,8 +659,8 @@ mod tests {
         let result = process_external_authenticate(&mut state, 0x00, &bad_crypto_and_mac);
         assert_eq!(result, Err(ScpError::HostCryptogramMismatch));
 
-        // State should be reset to NoSession.
-        assert!(matches!(state, ScpState::NoSession));
+        // State stays in InitUpdateDone (allows retry, uniform error response).
+        assert!(matches!(state, ScpState::InitUpdateDone { .. }));
     }
 
     // ----- Test 5: SCP02 session key derivation with sequence counter -----

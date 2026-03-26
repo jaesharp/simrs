@@ -16,9 +16,16 @@ simrs-des      = { workspace = true }
 simrs-secret   = { workspace = true }
 
 [dev-dependencies]
-cucumber = { workspace = true }
-tokio    = { workspace = true }
-futures  = { workspace = true }
+cucumber    = { workspace = true }
+tokio       = { workspace = true }
+futures     = { workspace = true }
+simrs-gp-card = { workspace = true }
+simrs-gp-keys = { workspace = true }
+simrs-gp-open = { workspace = true }
+simrs-gp-scp  = { workspace = true }
+simrs-card-api = { workspace = true }
+simrs-iso9797 = { workspace = true }
+simrs-secret  = { workspace = true }
 
 [[test]]
 name    = "cucumber"

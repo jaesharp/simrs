@@ -1,0 +1,8 @@
+---
+source: crates/simrs-interposer/src/divergence.rs
+expression: output
+---
+[0] MATCH cmd=00 A4 04 00 07 A0 00 00 01 51 00 00
+[1] SW MISMATCH cmd=00 A4 04 00 07 A0 00 00 01 51 00 00 real=9000 shadow=6A82
+[2] DATA MISMATCH cmd=80 50 00 00 08 01 02 03 04 05 06 07 08 sw=9000 real_len=28 shadow_len=32
+[3] SHADOW IGNORED cmd=80 FD 00 00 real_sw=6D00

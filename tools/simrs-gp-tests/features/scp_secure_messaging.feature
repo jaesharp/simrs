@@ -31,7 +31,6 @@
 #   69 88  incorrect secure messaging data object (wrong C-MAC)
 #   69 87  expected secure messaging data object missing (no C-MAC when required)
 
-@wip
 Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   As a GlobalPlatform card simulator
   I must correctly process C-MAC, C-ENC, and R-MAC secure messaging after
@@ -56,7 +55,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # the session C-MAC key.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: C-MAC on GET STATUS is verified and command succeeds
     # GP 2.1.1 clause 8.3.1
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
@@ -70,7 +68,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # SW 69 88 (incorrect secure messaging data object).
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Wrong C-MAC on command is rejected with 69 88
     # GP 2.1.1 clause 8.3.1
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
@@ -85,7 +82,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # C-MAC must be rejected with SW 69 87.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Command without required C-MAC after auth returns 69 87
     # GP 2.1.1 clause 8.3.1
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
@@ -98,7 +94,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # The Lc in the MAC input must include the 8-byte MAC length.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: C-MAC is computed over modified CLA with secure messaging bit set
     # GP 2.1.1 clause 8.3.1
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
@@ -113,7 +108,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # The IV depends on the SCP variant.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: C-ENC encrypts command data with session S-ENC before C-MAC
     # GP 2.1.1 clause 8.3.2
     Given I have established an SCP02 session with security level 0x03 (C-MAC + C-ENC)
@@ -128,7 +122,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # verification: KCV = first 3 bytes of 3DES_ECB(new_key, 0x00[8]).
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: PUT KEY with DEK-encrypted key data is accepted
     # GP 2.1.1 clause 9.8
     Given I have established an SCP02 session with security level 0x03 (C-MAC + C-ENC)
@@ -143,7 +136,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # computation. The ICV is not reset between commands.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Multiple commands chain ICV correctly
     # GP 2.1.1 Appendix E clause E.4.3
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
@@ -161,7 +153,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # the session R-MAC key.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Response with R-MAC when R-MAC session is active
     # GP 2.1.1 Appendix E clause E.4.4
     Given I have established an SCP02 session with security level 0x01 (C-MAC)
@@ -179,7 +170,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # S-ENC key (left half).
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: C-ENC IV is derived from C-MAC ICV for SCP02
     # GP 2.1.1 clause 8.3.2 / Appendix E
     Given I have established an SCP02 session with security level 0x03 (C-MAC + C-ENC)
@@ -193,7 +183,6 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
   # the MAC input, not the transmitted data.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: C-MAC uses ISO 9797-1 Method 2 padding
     # GP 2.1.1 clause 8.3.1
     Given I have established an SCP02 session with security level 0x01 (C-MAC)

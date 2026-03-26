@@ -23,6 +23,19 @@
 
 use crate::firewall::{self, SecurityException};
 
+/// Error from a heap array or field access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessError {
+    /// Cross-context access denied by the applet firewall.
+    Security(SecurityException),
+    /// Array index out of bounds.
+    OutOfBounds,
+    /// Array type mismatch (e.g. `saload` on a `byte[]`).
+    TypeMismatch,
+    /// Null or invalid object reference.
+    NullRef,
+}
+
 /// Size of the object header in the heap.
 const HEADER_SIZE: usize = 4;
 
@@ -185,175 +198,193 @@ impl<const HEAP_SIZE: usize> ObjectHeap<HEAP_SIZE> {
         }
     }
 
-    /// Read a byte from a byte array at the given index, checking the firewall.
+    /// Read a byte from a byte array at the given index.
+    ///
+    /// Checks firewall (owner context), type tag (`ByteArray`), and bounds.
     ///
     /// # Errors
     ///
-    /// Returns `Err(SecurityException)` if the current context does not own the array.
-    /// Returns `Ok(None)` for null ref, wrong type, or out-of-bounds index.
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or out-of-bounds.
     pub fn baload(
         &self,
         obj: ObjRef,
         index: u16,
         current_context: u8,
-    ) -> Result<Option<u8>, SecurityException> {
-        let Some(owner) = self.owner_of(obj) else {
-            return Ok(None);
-        };
-        firewall::check_access(current_context, owner)?;
-
-        if !matches!(self.kind_of(obj), Some(ObjectKind::ByteArray)) {
-            return Ok(None);
+    ) -> Result<u8, AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::ByteArray) => {}
+            _ => return Err(AccessError::TypeMismatch),
         }
         let length = self.array_length(obj).unwrap_or(0);
         if index >= length {
-            return Ok(None);
+            return Err(AccessError::OutOfBounds);
         }
         let elem_off = obj.0 as usize + HEADER_SIZE + ARRAY_LENGTH_PREFIX + index as usize;
-        Ok(Some(self.data[elem_off]))
+        Ok(self.data[elem_off])
     }
 
-    /// Write a byte to a byte array at the given index, checking the firewall.
+    /// Write a byte to a byte array at the given index.
     ///
     /// # Errors
     ///
-    /// Returns `Err(SecurityException)` for cross-context access.
-    /// Returns `Ok(false)` for null ref, wrong type, or out-of-bounds.
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or out-of-bounds.
     pub fn bastore(
         &mut self,
         obj: ObjRef,
         index: u16,
         value: u8,
         current_context: u8,
-    ) -> Result<bool, SecurityException> {
-        let Some(owner) = self.owner_of(obj) else {
-            return Ok(false);
-        };
-        firewall::check_access(current_context, owner)?;
-
-        if !matches!(self.kind_of(obj), Some(ObjectKind::ByteArray)) {
-            return Ok(false);
+    ) -> Result<(), AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::ByteArray) => {}
+            _ => return Err(AccessError::TypeMismatch),
         }
         let length = self.array_length(obj).unwrap_or(0);
         if index >= length {
-            return Ok(false);
+            return Err(AccessError::OutOfBounds);
         }
         let elem_off = obj.0 as usize + HEADER_SIZE + ARRAY_LENGTH_PREFIX + index as usize;
         self.data[elem_off] = value;
-        Ok(true)
+        Ok(())
     }
 
-    /// Read a short from a short array at the given index, checking the firewall.
+    /// Read a short from a short array at the given index.
     ///
     /// # Errors
     ///
-    /// Returns `Err(SecurityException)` for cross-context access.
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or out-of-bounds.
     pub fn saload(
         &self,
         obj: ObjRef,
         index: u16,
         current_context: u8,
-    ) -> Result<Option<i16>, SecurityException> {
-        let Some(owner) = self.owner_of(obj) else {
-            return Ok(None);
-        };
-        firewall::check_access(current_context, owner)?;
-
-        if !matches!(self.kind_of(obj), Some(ObjectKind::ShortArray)) {
-            return Ok(None);
+    ) -> Result<i16, AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::ShortArray) => {}
+            _ => return Err(AccessError::TypeMismatch),
         }
         let length = self.array_length(obj).unwrap_or(0);
         if index >= length {
-            return Ok(None);
+            return Err(AccessError::OutOfBounds);
         }
         let byte_off = obj.0 as usize + HEADER_SIZE + ARRAY_LENGTH_PREFIX + (index as usize) * 2;
         let val = i16::from_be_bytes([self.data[byte_off], self.data[byte_off + 1]]);
-        Ok(Some(val))
+        Ok(val)
     }
 
-    /// Write a short to a short array at the given index, checking the firewall.
+    /// Write a short to a short array at the given index.
     ///
     /// # Errors
     ///
-    /// Returns `Err(SecurityException)` for cross-context access.
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or out-of-bounds.
     pub fn sastore(
         &mut self,
         obj: ObjRef,
         index: u16,
         value: i16,
         current_context: u8,
-    ) -> Result<bool, SecurityException> {
-        let Some(owner) = self.owner_of(obj) else {
-            return Ok(false);
-        };
-        firewall::check_access(current_context, owner)?;
-
-        if !matches!(self.kind_of(obj), Some(ObjectKind::ShortArray)) {
-            return Ok(false);
+    ) -> Result<(), AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::ShortArray) => {}
+            _ => return Err(AccessError::TypeMismatch),
         }
         let length = self.array_length(obj).unwrap_or(0);
         if index >= length {
-            return Ok(false);
+            return Err(AccessError::OutOfBounds);
         }
         let byte_off = obj.0 as usize + HEADER_SIZE + ARRAY_LENGTH_PREFIX + (index as usize) * 2;
         let bytes = value.to_be_bytes();
         self.data[byte_off] = bytes[0];
         self.data[byte_off + 1] = bytes[1];
-        Ok(true)
+        Ok(())
     }
 
     /// Read a field byte from an instance object.
     ///
     /// # Errors
     ///
-    /// Returns `Err(SecurityException)` for cross-context access.
+    /// Returns [`AccessError`] for null ref, cross-context, or type mismatch.
     pub fn getfield_b(
         &self,
         obj: ObjRef,
         field_offset: u16,
         current_context: u8,
-    ) -> Result<Option<u8>, SecurityException> {
-        let Some(owner) = self.owner_of(obj) else {
-            return Ok(None);
-        };
-        firewall::check_access(current_context, owner)?;
-
-        if !matches!(self.kind_of(obj), Some(ObjectKind::Instance)) {
-            return Ok(None);
+    ) -> Result<u8, AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::Instance) => {}
+            _ => return Err(AccessError::TypeMismatch),
         }
         let off = obj.0 as usize + HEADER_SIZE + field_offset as usize;
         if off >= self.free as usize {
-            return Ok(None);
+            return Err(AccessError::OutOfBounds);
         }
-        Ok(Some(self.data[off]))
+        Ok(self.data[off])
     }
 
     /// Write a field byte to an instance object.
     ///
     /// # Errors
     ///
-    /// Returns `Err(SecurityException)` for cross-context access.
+    /// Returns [`AccessError`] for null ref, cross-context, or type mismatch.
     pub fn putfield_b(
         &mut self,
         obj: ObjRef,
         field_offset: u16,
         value: u8,
         current_context: u8,
-    ) -> Result<bool, SecurityException> {
-        let Some(owner) = self.owner_of(obj) else {
-            return Ok(false);
-        };
-        firewall::check_access(current_context, owner)?;
-
-        if !matches!(self.kind_of(obj), Some(ObjectKind::Instance)) {
-            return Ok(false);
+    ) -> Result<(), AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::Instance) => {}
+            _ => return Err(AccessError::TypeMismatch),
         }
         let off = obj.0 as usize + HEADER_SIZE + field_offset as usize;
         if off >= self.free as usize {
-            return Ok(false);
+            return Err(AccessError::OutOfBounds);
         }
         self.data[off] = value;
-        Ok(true)
+        Ok(())
+    }
+
+    /// Get the byte offset of an array element. Used by transaction journal
+    /// to record the raw heap offset for rollback.
+    pub fn array_element_offset(&self, obj: ObjRef, index: u16, elem_size: usize) -> Option<usize> {
+        if obj.is_null() {
+            return None;
+        }
+        let off = obj.0 as usize + HEADER_SIZE + ARRAY_LENGTH_PREFIX + (index as usize) * elem_size;
+        if off < self.free as usize {
+            Some(off)
+        } else {
+            None
+        }
+    }
+
+    /// Direct byte read at a raw heap offset (for transaction rollback).
+    pub fn raw_read(&self, offset: usize) -> Option<u8> {
+        if offset < self.free as usize {
+            Some(self.data[offset])
+        } else {
+            None
+        }
+    }
+
+    /// Direct byte write at a raw heap offset (for transaction rollback).
+    pub fn raw_write(&mut self, offset: usize, value: u8) {
+        if offset < self.free as usize {
+            self.data[offset] = value;
+        }
     }
 
     /// Total heap capacity in bytes.
@@ -478,12 +509,12 @@ mod tests {
         assert_eq!(heap.kind_of(obj), Some(ObjectKind::Instance));
 
         // Fields are zero-initialized.
-        assert_eq!(heap.getfield_b(obj, 0, 1).unwrap(), Some(0));
-        assert_eq!(heap.getfield_b(obj, 3, 1).unwrap(), Some(0));
+        assert_eq!(heap.getfield_b(obj, 0, 1).unwrap(), 0);
+        assert_eq!(heap.getfield_b(obj, 3, 1).unwrap(), 0);
 
         // Write and read back.
-        assert!(heap.putfield_b(obj, 2, 0xAB, 1).unwrap());
-        assert_eq!(heap.getfield_b(obj, 2, 1).unwrap(), Some(0xAB));
+        assert!(heap.putfield_b(obj, 2, 0xAB, 1).is_ok());
+        assert_eq!(heap.getfield_b(obj, 2, 1).unwrap(), 0xAB);
     }
 
     #[test]
@@ -494,15 +525,15 @@ mod tests {
         assert_eq!(heap.array_length(arr), Some(8));
 
         // Zero-initialized.
-        assert_eq!(heap.baload(arr, 0, 2).unwrap(), Some(0));
+        assert_eq!(heap.baload(arr, 0, 2).unwrap(), 0);
 
         // Write and read.
-        assert!(heap.bastore(arr, 3, 0xFF, 2).unwrap());
-        assert_eq!(heap.baload(arr, 3, 2).unwrap(), Some(0xFF));
+        assert!(heap.bastore(arr, 3, 0xFF, 2).is_ok());
+        assert_eq!(heap.baload(arr, 3, 2).unwrap(), 0xFF);
 
-        // Out of bounds returns None (not panic).
-        assert_eq!(heap.baload(arr, 8, 2).unwrap(), None);
-        assert!(!heap.bastore(arr, 8, 0, 2).unwrap());
+        // Out of bounds.
+        assert_eq!(heap.baload(arr, 8, 2), Err(AccessError::OutOfBounds));
+        assert_eq!(heap.bastore(arr, 8, 0, 2), Err(AccessError::OutOfBounds));
     }
 
     #[test]
@@ -513,11 +544,27 @@ mod tests {
         assert_eq!(heap.array_length(arr), Some(4));
 
         // Write and read.
-        assert!(heap.sastore(arr, 1, -1234, 3).unwrap());
-        assert_eq!(heap.saload(arr, 1, 3).unwrap(), Some(-1234));
+        assert!(heap.sastore(arr, 1, -1234, 3).is_ok());
+        assert_eq!(heap.saload(arr, 1, 3).unwrap(), -1234);
 
         // Out of bounds.
-        assert_eq!(heap.saload(arr, 4, 3).unwrap(), None);
+        assert_eq!(heap.saload(arr, 4, 3), Err(AccessError::OutOfBounds));
+    }
+
+    #[test]
+    fn type_mismatch_byte_as_short() {
+        let mut heap = ObjectHeap::<1024>::new();
+        let byte_arr = heap.alloc_byte_array(1, 8).unwrap();
+        // saload on byte[] -> TypeMismatch
+        assert_eq!(heap.saload(byte_arr, 0, 1), Err(AccessError::TypeMismatch));
+    }
+
+    #[test]
+    fn type_mismatch_short_as_byte() {
+        let mut heap = ObjectHeap::<1024>::new();
+        let short_arr = heap.alloc_short_array(1, 4).unwrap();
+        // baload on short[] -> TypeMismatch
+        assert_eq!(heap.baload(short_arr, 0, 1), Err(AccessError::TypeMismatch));
     }
 
     #[test]
@@ -530,8 +577,14 @@ mod tests {
         assert!(heap.putfield_b(obj, 0, 0xAA, 1).is_ok());
 
         // Different context: SecurityException.
-        assert_eq!(heap.getfield_b(obj, 0, 2), Err(SecurityException));
-        assert_eq!(heap.putfield_b(obj, 0, 0xBB, 2), Err(SecurityException));
+        assert!(matches!(
+            heap.getfield_b(obj, 0, 2),
+            Err(AccessError::Security(_))
+        ));
+        assert!(matches!(
+            heap.putfield_b(obj, 0, 0xBB, 2),
+            Err(AccessError::Security(_))
+        ));
     }
 
     #[test]
@@ -539,8 +592,14 @@ mod tests {
         let mut heap = ObjectHeap::<1024>::new();
         let arr = heap.alloc_byte_array(1, 4).unwrap();
 
-        assert_eq!(heap.baload(arr, 0, 2), Err(SecurityException));
-        assert_eq!(heap.bastore(arr, 0, 0, 2), Err(SecurityException));
+        assert!(matches!(
+            heap.baload(arr, 0, 2),
+            Err(AccessError::Security(_))
+        ));
+        assert!(matches!(
+            heap.bastore(arr, 0, 0, 2),
+            Err(AccessError::Security(_))
+        ));
     }
 
     #[test]
@@ -556,8 +615,8 @@ mod tests {
     fn snapshot_roundtrip() {
         let mut heap = ObjectHeap::<1024>::new();
         let obj = heap.alloc_instance(1, 4).unwrap();
-        heap.putfield_b(obj, 0, 0xDE, 1).unwrap();
-        heap.putfield_b(obj, 1, 0xAD, 1).unwrap();
+        let _ = heap.putfield_b(obj, 0, 0xDE, 1);
+        let _ = heap.putfield_b(obj, 1, 0xAD, 1);
 
         let mut buf = [0u8; ObjectHeap::<1024>::MAX_SNAPSHOT_SIZE];
         let n = heap.save_state(&mut buf);
@@ -566,8 +625,8 @@ mod tests {
         let mut heap2 = ObjectHeap::<1024>::new();
         assert!(heap2.restore_state(&buf[..n]));
         assert_eq!(heap2.used(), heap.used());
-        assert_eq!(heap2.getfield_b(obj, 0, 1).unwrap(), Some(0xDE));
-        assert_eq!(heap2.getfield_b(obj, 1, 1).unwrap(), Some(0xAD));
+        assert_eq!(heap2.getfield_b(obj, 0, 1).unwrap(), 0xDE);
+        assert_eq!(heap2.getfield_b(obj, 1, 1).unwrap(), 0xAD);
     }
 
     #[test]

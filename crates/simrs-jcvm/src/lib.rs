@@ -36,6 +36,7 @@ pub mod firewall;
 pub mod frame;
 pub mod heap;
 pub mod opcodes;
+pub mod transaction;
 
 use cap::Package;
 use frame::{CallFrame, MAX_FRAMES, MAX_LOCALS, MAX_STACK};
@@ -510,6 +511,192 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                             }
                         }
                         None => return ExecResult::HeapFull,
+                    }
+                }
+
+                // --- Array load/store ---
+                opcodes::BALOAD => {
+                    let index = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let arr_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(arr_ref);
+                    match self.heap.baload(obj, index, self.current_context) {
+                        Ok(val) => {
+                            if let Err(e) = self.push(u16::from(val)) {
+                                return e;
+                            }
+                        }
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    }
+                }
+
+                opcodes::BASTORE => {
+                    let value = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let index = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let arr_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(arr_ref);
+                    #[allow(clippy::cast_possible_truncation)]
+                    match self
+                        .heap
+                        .bastore(obj, index, value as u8, self.current_context)
+                    {
+                        Ok(()) => {}
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    }
+                }
+
+                opcodes::SALOAD => {
+                    let index = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let arr_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(arr_ref);
+                    match self.heap.saload(obj, index, self.current_context) {
+                        Ok(val) => {
+                            if let Err(e) = self.push(val.cast_unsigned()) {
+                                return e;
+                            }
+                        }
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    }
+                }
+
+                opcodes::SASTORE => {
+                    let value = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let index = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let arr_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(arr_ref);
+                    match self
+                        .heap
+                        .sastore(obj, index, value, self.current_context)
+                    {
+                        Ok(()) => {}
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    }
+                }
+
+                // --- Field access ---
+                opcodes::GETFIELD_B => {
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    // Consume second byte (class index, reserved).
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let obj_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(obj_ref);
+                    match self
+                        .heap
+                        .getfield_b(obj, u16::from(field_offset), self.current_context)
+                    {
+                        Ok(val) => {
+                            if let Err(e) = self.push(u16::from(val)) {
+                                return e;
+                            }
+                        }
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                        Err(_) => return ExecResult::NullPointerException,
+                    }
+                }
+
+                opcodes::PUTFIELD_B => {
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    // Consume second byte (class index, reserved).
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let value = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(obj_ref);
+                    #[allow(clippy::cast_possible_truncation)]
+                    match self
+                        .heap
+                        .putfield_b(obj, u16::from(field_offset), value as u8, self.current_context)
+                    {
+                        Ok(()) => {}
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                        Err(_) => return ExecResult::NullPointerException,
                     }
                 }
 

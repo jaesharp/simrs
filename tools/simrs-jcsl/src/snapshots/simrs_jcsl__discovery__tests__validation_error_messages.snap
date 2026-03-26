@@ -1,0 +1,8 @@
+---
+source: tools/simrs-jcsl/src/discovery.rs
+expression: output
+---
+  not found: /tmp/missing
+  not a regular file: /tmp/a-directory
+  not an ELF binary: /tmp/plain.txt
+  missing jcsl magic patterns (not a jcsl binary?): /tmp/random-elf

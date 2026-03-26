@@ -1,0 +1,5 @@
+---
+source: tools/simrs-differential-tests/src/lib.rs
+expression: stable
+---
+sw=9000 data_len=28 success=true

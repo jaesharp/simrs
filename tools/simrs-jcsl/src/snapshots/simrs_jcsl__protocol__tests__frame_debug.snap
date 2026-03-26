@@ -1,0 +1,5 @@
+---
+source: tools/simrs-jcsl/src/protocol.rs
+expression: "format!(\"{frame:?}\")"
+---
+Frame { cmd_type: 0, payload: [0, 164, 4, 0, 7, 160, 0, 0, 1, 81, 0, 0] }

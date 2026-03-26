@@ -32,7 +32,6 @@
 #   6A 88  referenced data not found (no matching entries)
 #   6A 86  incorrect parameters P1-P2
 
-@wip
 Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
   As a GlobalPlatform card simulator
   I must correctly implement the GET STATUS command to query the GP Registry,
@@ -53,7 +52,6 @@ Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
   # and privileges.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: GET STATUS for ISD returns ISD entry with lifecycle and privileges
     # GP 2.1.1 clause 9.4
     When I send GET STATUS [80 F2 80 00 02 4F 00 00] with C-MAC
@@ -68,7 +66,6 @@ Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
   # Returns all installed applications and supplementary Security Domains.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: GET STATUS for applications returns all installed entries
     # GP 2.1.1 clause 9.4
     When I send GET STATUS [80 F2 40 00 02 4F 00 00] with C-MAC
@@ -81,7 +78,6 @@ Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
   # Returns all loaded executable load files.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: GET STATUS for executable load files lists loaded packages
     # GP 2.1.1 clause 9.4
     When I send GET STATUS [80 F2 20 00 02 4F 00 00] with C-MAC
@@ -94,7 +90,6 @@ Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
   # results to entries whose AID starts with the given prefix.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: GET STATUS filtered by AID prefix returns only matching entries
     # GP 2.1.1 clause 9.4
     When I send GET STATUS (P1=0x40) with AID filter [A0 00 00 00 62] with C-MAC
@@ -108,7 +103,6 @@ Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
   # lifecycle (9F70), and privileges (C5).
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: GET STATUS response TLV contains required tags
     # GP 2.1.1 clause 9.4
     When I send GET STATUS [80 F2 40 00 02 4F 00 00] with C-MAC
@@ -124,7 +118,6 @@ Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
   # Without an active SCP session, GET STATUS must be rejected.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: GET STATUS without authenticated SCP session returns 69 85
     # GP 2.1.1 clause 9.4
     Given no SCP session is active

@@ -1,0 +1,16 @@
+---
+source: tools/simrs-jcsl/src/process.rs
+expression: "format!(\"{cfg:#?}\")"
+---
+JcslConfig {
+    binary_path: "/home/user/.cache/simrs/jcsl",
+    port: 19200,
+    log_level: "finest",
+    eeprom_in: Some(
+        "/tmp/card.eeprom",
+    ),
+    eeprom_out: Some(
+        "/tmp/card-out.eeprom",
+    ),
+    startup_timeout: 30s,
+}

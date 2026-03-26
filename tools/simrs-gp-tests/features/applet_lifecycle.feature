@@ -29,7 +29,6 @@
 #   69 85  conditions of use not satisfied (invalid transition)
 #   6A 88  referenced data not found (unknown AID)
 
-@wip
 Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   As a GlobalPlatform card simulator
   I must enforce the application lifecycle state transitions defined in
@@ -49,7 +48,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # in the Loaded state.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INSTALL for load creates a Loaded entry in the registry
     # GP 2.1.1 clause 9.5
     Given a load file with AID [A0 00 00 00 62 02 01] is prepared
@@ -62,7 +60,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # The instance AID is created with lifecycle state INSTALLED.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INSTALL for install transitions entry to INSTALLED state
     # GP 2.1.1 clause 5.3, Figure 5-2
     When I send INSTALL [for install] (P1=0x04) with Module AID [A0 00 00 00 62 01 01 01] and Instance AID [A0 00 00 00 62 01 01 02]
@@ -73,7 +70,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # GP 2.1.1 clause 9.5 / clause 5.3: INSTALL [for make selectable] -> SELECTABLE (0x07)
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INSTALL for make selectable transitions to SELECTABLE state
     # GP 2.1.1 clause 5.3, Figure 5-2
     Given an application [A0 00 00 00 62 01 01 02] is in INSTALLED state (0x03)
@@ -87,7 +83,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # PERSONALIZED once personalization is complete.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Application personalization via STORE DATA transitions to PERSONALIZED
     # GP 2.1.1 clause 5.3, clause 9.3
     Given an application [A0 00 00 00 62 01 01 02] is in SELECTABLE state (0x07)
@@ -103,7 +98,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # that the application can transition to via SET STATUS.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Application-specific state in valid range is accepted
     # GP 2.1.1 clause 5.3
     Given an application [A0 00 00 00 62 01 01 02] is in SELECTABLE state (0x07)
@@ -117,7 +111,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # so that unlock can restore the original state.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SET STATUS LOCKED preserves previous state for unlock
     # GP 2.1.1 clause 5.3, clause 9.7
     Given an application [A0 00 00 00 62 01 01 02] is in SELECTABLE state (0x07)
@@ -129,7 +122,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # GP 2.1.1 clause 9.7: unlock restores previous state
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SET STATUS unlock restores previous state
     # GP 2.1.1 clause 5.3, clause 9.7
     Given an application [A0 00 00 00 62 01 01 02] is in LOCKED state (0x87, previously SELECTABLE)
@@ -141,7 +133,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # GP 2.1.1 clause 9.2: DELETE removes application from registry
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: DELETE removes application from registry
     # GP 2.1.1 clause 9.2
     Given an application [A0 00 00 00 62 01 01 02] is installed and selectable
@@ -155,7 +146,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # application instances associated with it.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: DELETE with cascade removes load file and all instances
     # GP 2.1.1 clause 9.2
     Given an application [A0 00 00 00 62 01 01 02] is installed from load file [A0 00 00 00 62 01 01]
@@ -169,7 +159,6 @@ Feature: Applet Lifecycle State Machine (GP 2.1.1 clause 5.3, Figure 5-2)
   # An SD that has associated applications must not be deleted.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: DELETE of Security Domain with associated applications is rejected
     # GP 2.1.1 clause 9.2
     Given a supplementary SD [A0 00 00 00 62 03 01] exists with associated application [A0 00 00 00 62 03 02]

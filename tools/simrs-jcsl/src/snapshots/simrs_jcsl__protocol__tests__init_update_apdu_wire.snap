@@ -1,0 +1,5 @@
+---
+source: tools/simrs-jcsl/src/protocol.rs
+expression: hex_dump(&buf)
+---
+00 00 00 0d 80 50 00 00 08 01 02 03 04 05 06 07 08

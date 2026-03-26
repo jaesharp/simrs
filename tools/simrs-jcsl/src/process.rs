@@ -51,6 +51,8 @@ pub struct JcslProcess {
     port: u16,
     /// Directory containing the jcsl binary (needed for `LD_LIBRARY_PATH`).
     lib_dir: PathBuf,
+    /// Keeps the memfd alive for the process lifetime (if started via memfd).
+    _memfd: Option<memfd::Memfd>,
 }
 
 impl JcslProcess {
@@ -108,6 +110,7 @@ impl JcslProcess {
             child,
             port: config.port,
             lib_dir,
+            _memfd: None,
         };
 
         // Wait for the server to accept connections.
@@ -118,6 +121,95 @@ impl JcslProcess {
         }
 
         Ok(proc)
+    }
+
+    /// Start from a sealed memfd instead of a file path.
+    ///
+    /// The memfd must contain a valid, sealed jcsl binary (created via
+    /// [`configure_to_memfd`](crate::configure_to_memfd)). The process
+    /// is executed via `/proc/self/fd/N`.
+    ///
+    /// `lib_dir` is the directory containing the jcsl shared libraries
+    /// (typically the parent directory of the original unconfigured binary).
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the process cannot be spawned or does not
+    /// become ready within the timeout.
+    pub fn start_memfd(
+        mfd: memfd::Memfd,
+        lib_dir: &Path,
+        port: u16,
+        log_level: &str,
+        startup_timeout: Duration,
+    ) -> io::Result<Self> {
+        use std::os::fd::AsRawFd;
+
+        let exe_path = format!("/proc/self/fd/{}", mfd.as_file().as_raw_fd());
+
+        let mut cmd = Command::new(&exe_path);
+        cmd.arg(format!("-p={port}"));
+        cmd.arg(format!("-log_level={log_level}"));
+        cmd.env("LD_LIBRARY_PATH", lib_dir);
+        cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let child = cmd.spawn().map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("failed to spawn jcsl from memfd: {e}"),
+            )
+        })?;
+
+        let mut proc = Self {
+            child,
+            port,
+            lib_dir: lib_dir.to_path_buf(),
+            _memfd: Some(mfd),
+        };
+
+        if let Err(e) = proc.wait_for_ready(startup_timeout) {
+            let _ = proc.child.kill();
+            return Err(e);
+        }
+
+        Ok(proc)
+    }
+
+    /// Configure a jcsl binary in memory and start it.
+    ///
+    /// Reads the source binary, patches SCP keys and PIN via
+    /// [`configure_to_memfd`](crate::configure_to_memfd), and spawns the
+    /// process from the anonymous memfd. No temporary files are created.
+    ///
+    /// This is the recommended way to start a jcsl instance for testing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if configuration, memfd creation, or process
+    /// startup fails.
+    pub fn start_configured(
+        src: &Path,
+        keyset: Option<&crate::configurator::ScpKeyset>,
+        pin: Option<&crate::configurator::GlobalPin>,
+        port: u16,
+        log_level: &str,
+        startup_timeout: Duration,
+    ) -> io::Result<Self> {
+        let lib_dir = src
+            .parent()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "source binary path has no parent directory",
+                )
+            })?;
+
+        let mfd = crate::configurator::configure_to_memfd(src, keyset, pin)
+            .map_err(|e| io::Error::other(e.to_string()))?;
+
+        Self::start_memfd(mfd, lib_dir, port, log_level, startup_timeout)
     }
 
     /// TCP port this instance is listening on.
@@ -219,5 +311,28 @@ mod tests {
             ..JcslConfig::default()
         };
         assert_eq!(cfg.port, 19999);
+    }
+
+    // -------------------------------------------------------------------
+    // Insta snapshots
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn snap_default_config_debug() {
+        let cfg = JcslConfig::default();
+        insta::assert_snapshot!("default_config_debug", format!("{cfg:#?}"));
+    }
+
+    #[test]
+    fn snap_custom_config_debug() {
+        let cfg = JcslConfig {
+            binary_path: PathBuf::from("/home/user/.cache/simrs/jcsl"),
+            port: 19200,
+            log_level: "finest".to_owned(),
+            eeprom_in: Some(PathBuf::from("/tmp/card.eeprom")),
+            eeprom_out: Some(PathBuf::from("/tmp/card-out.eeprom")),
+            startup_timeout: Duration::from_secs(30),
+        };
+        insta::assert_snapshot!("custom_config_debug", format!("{cfg:#?}"));
     }
 }

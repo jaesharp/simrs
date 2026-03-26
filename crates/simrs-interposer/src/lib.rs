@@ -15,7 +15,9 @@
 #![warn(missing_docs)]
 
 pub mod capture;
+pub mod diff;
 pub mod divergence;
 pub mod mode;
 pub mod proxy;
+pub mod semantic;
 pub mod shadow;

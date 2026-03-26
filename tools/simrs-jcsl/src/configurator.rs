@@ -279,6 +279,55 @@ pub fn configure_binary(
     Ok(())
 }
 
+/// Read the binary file, apply configuration, return as a sealed memfd.
+///
+/// Creates an anonymous in-memory file via `memfd_create`, writes the
+/// patched binary into it, and seals it against modification. The returned
+/// [`Memfd`] must be kept alive for the lifetime of any process spawned
+/// from it (the fd backs the anonymous inode).
+///
+/// This is the preferred alternative to [`configure_binary`] for test
+/// harnesses: no temp files are created, eliminating ETXTBSY races and
+/// cleanup burden.
+///
+/// # Errors
+///
+/// Returns a [`ConfigError`] if the binary cannot be read or injection
+/// fails, or if `memfd_create` / sealing fails (wrapped as I/O error).
+pub fn configure_to_memfd(
+    src: &std::path::Path,
+    keyset: Option<&ScpKeyset>,
+    pin: Option<&GlobalPin>,
+) -> Result<memfd::Memfd, ConfigError> {
+    use std::io::Write;
+
+    let mut data = std::fs::read(src)?;
+
+    if let Some(ks) = keyset {
+        inject_scp_keyset(&mut data, ks, false)?;
+    }
+    if let Some(p) = pin {
+        inject_global_pin(&mut data, p, false)?;
+    }
+
+    let mfd = memfd::MemfdOptions::new()
+        .allow_sealing(true)
+        .close_on_exec(false)
+        .create("jcsl")
+        .map_err(|e| ConfigError::Io(io::Error::other(format!("memfd_create: {e}"))))?;
+
+    mfd.as_file().write_all(&data)?;
+
+    mfd.add_seals(&[
+        memfd::FileSeal::SealWrite,
+        memfd::FileSeal::SealShrink,
+        memfd::FileSeal::SealGrow,
+    ])
+    .map_err(|e| ConfigError::Io(io::Error::other(format!("memfd seal: {e}"))))?;
+
+    Ok(mfd)
+}
+
 /// Check whether the binary has been configured (non-zero data after magic).
 pub fn is_configured(binary: &[u8]) -> (bool, bool) {
     let scp = find_pattern(binary, &SCP_KEYSET_MAGIC)
@@ -542,5 +591,115 @@ mod tests {
     fn scp_magic_no_match_in_empty() {
         let bin = vec![0u8; 256];
         assert!(find_pattern(&bin, &SCP_KEYSET_MAGIC).is_none());
+    }
+
+    // -------------------------------------------------------------------
+    // Insta snapshots
+    // -------------------------------------------------------------------
+
+    /// Hex dump of a byte region for snapshot readability.
+    fn hex_region(bin: &[u8], offset: usize, len: usize) -> String {
+        bin[offset..offset + len]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn snap_scp_injection_16byte() {
+        let mut bin = fake_binary();
+        let ks = ScpKeyset {
+            kvn: 0x01,
+            enc: vec![0x40; 16],
+            mac: vec![0x41; 16],
+            dek: vec![0x42; 16],
+        };
+        inject_scp_keyset(&mut bin, &ks, false).unwrap();
+        // Magic(8) + KVN(1) + total_len(1) + 3*16 keys = 58 bytes from offset 80
+        insta::assert_snapshot!("scp_region_16byte", hex_region(&bin, 80, 58));
+    }
+
+    #[test]
+    fn snap_scp_injection_32byte() {
+        let mut bin = vec![0u8; 512];
+        bin[80..88].copy_from_slice(&SCP_KEYSET_MAGIC);
+        let ks = ScpKeyset {
+            kvn: 0x6F,
+            enc: vec![0x11; 32],
+            mac: vec![0x22; 32],
+            dek: vec![0x33; 32],
+        };
+        inject_scp_keyset(&mut bin, &ks, false).unwrap();
+        // Magic(8) + KVN(1) + total_len(1) + 3*32 keys = 106 bytes from offset 80
+        insta::assert_snapshot!("scp_region_32byte", hex_region(&bin, 80, 106));
+    }
+
+    #[test]
+    fn snap_pin_injection_4digit() {
+        let mut bin = fake_binary();
+        let pin = GlobalPin {
+            pin: vec![0x31, 0x32, 0x33, 0x34],
+            max_retries: 3,
+        };
+        inject_global_pin(&mut bin, &pin, false).unwrap();
+        // Magic(8) + PIN_slot(16) + len(1) + retries(1) = 26 bytes from offset 32
+        insta::assert_snapshot!("pin_region_4digit", hex_region(&bin, 32, 26));
+    }
+
+    #[test]
+    fn snap_pin_injection_16digit() {
+        let mut bin = fake_binary();
+        let pin = GlobalPin {
+            pin: vec![0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+                      0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35],
+            max_retries: 10,
+        };
+        inject_global_pin(&mut bin, &pin, false).unwrap();
+        insta::assert_snapshot!("pin_region_16digit", hex_region(&bin, 32, 26));
+    }
+
+    #[test]
+    fn snap_config_error_messages() {
+        let errors = [
+            ConfigError::ScpMagicNotFound,
+            ConfigError::PinMagicNotFound,
+            ConfigError::InvalidKeyLength(15),
+            ConfigError::KeyLengthMismatch,
+            ConfigError::InvalidKvn(0x00),
+            ConfigError::InvalidKvn(0x70),
+            ConfigError::InvalidPinLength(2),
+            ConfigError::InvalidPinLength(17),
+            ConfigError::NonZeroData { offset: 0x58 },
+        ];
+        let output: String = errors
+            .iter()
+            .map(|e| format!("  {e}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        insta::assert_snapshot!("config_error_messages", output);
+    }
+
+    #[test]
+    fn snap_is_configured_states() {
+        // Unconfigured
+        let bin = fake_binary();
+        let (scp, pin) = is_configured(&bin);
+        let unconfigured = format!("scp={scp}, pin={pin}");
+
+        // SCP only
+        let mut scp_bin = fake_binary();
+        let ks = ScpKeyset { kvn: 1, enc: vec![0x40; 16], mac: vec![0x41; 16], dek: vec![0x42; 16] };
+        inject_scp_keyset(&mut scp_bin, &ks, false).unwrap();
+        let (scp, pin) = is_configured(&scp_bin);
+        let scp_only = format!("scp={scp}, pin={pin}");
+
+        // Both
+        inject_global_pin(&mut scp_bin, &GlobalPin { pin: vec![0x31; 4], max_retries: 3 }, false).unwrap();
+        let (scp, pin) = is_configured(&scp_bin);
+        let both = format!("scp={scp}, pin={pin}");
+
+        let output = format!("unconfigured: {unconfigured}\nscp_only: {scp_only}\nboth: {both}");
+        insta::assert_snapshot!("is_configured_states", output);
     }
 }

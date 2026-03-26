@@ -1,0 +1,8 @@
+---
+source: crates/simrs-interposer/src/divergence.rs
+expression: output
+---
+Match
+SwMismatch { real_sw: (144, 0), shadow_sw: (106, 130) }
+DataMismatch { sw: (144, 0), real_len: 28, shadow_len: 32 }
+ShadowIgnored { real_sw: (97, 16) }

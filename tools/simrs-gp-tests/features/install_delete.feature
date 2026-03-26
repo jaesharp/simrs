@@ -56,7 +56,6 @@
 #   6A 82  referenced data not found (unknown AID)
 #   6A 88  referenced data not found
 
-@wip
 Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   As a GlobalPlatform card simulator
   I must correctly process INSTALL and DELETE commands for loading executable
@@ -74,7 +73,6 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   # specified Security Domain. Returns 90 00 on success.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INSTALL for load registers load file in registry
     # GP 2.1.1 clause 9.5
     When I send INSTALL [for load] (P1=0x02) with:
@@ -92,7 +90,6 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   # P2 bit 0 indicates whether more blocks follow.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: LOAD sequence delivers executable content in blocks
     # GP 2.1.1 clause 9.6
     Given INSTALL [for load] has been sent for load file [A0 00 00 00 62 01 01]
@@ -109,7 +106,6 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   # provided in the command data.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INSTALL for install creates application instance
     # GP 2.1.1 clause 9.5
     Given load file [A0 00 00 00 62 01 01] is loaded with module [A0 00 00 00 62 01 01 01]
@@ -128,7 +124,6 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   # Transitions an INSTALLED application to SELECTABLE state.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INSTALL for make selectable transitions app to SELECTABLE
     # GP 2.1.1 clause 9.5
     Given application [A0 00 00 00 62 01 01 02] is in INSTALLED state
@@ -142,7 +137,6 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   # The application goes directly to SELECTABLE (0x07).
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INSTALL for install and make selectable combined
     # GP 2.1.1 clause 9.5
     Given load file [A0 00 00 00 62 01 01] is loaded with module [A0 00 00 00 62 01 01 01]
@@ -161,7 +155,6 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   # Removes a single application instance from the GP Registry.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: DELETE application by AID removes it from registry
     # GP 2.1.1 clause 9.2
     Given application [A0 00 00 00 62 01 01 02] is installed and selectable
@@ -174,7 +167,6 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   # Deletes the load file and all application instances created from it.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: DELETE with cascade removes load file and all related instances
     # GP 2.1.1 clause 9.2
     Given load file [A0 00 00 00 62 01 01] has instances [A0 00 00 00 62 01 01 02] and [A0 00 00 00 62 01 01 03]
@@ -190,7 +182,6 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   # must reject the INSTALL command.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Duplicate instance AID on INSTALL for install returns 6A 80
     # GP 2.1.1 clause 9.5
     Given application [A0 00 00 00 62 01 01 02] is already installed
@@ -203,14 +194,12 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
   # authenticated SCP session. Without one, they must be rejected.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: INSTALL without authenticated SCP session returns 69 85
     # GP 2.1.1 clause 9.5
     Given no SCP session is active
     When I send INSTALL [for load] (P1=0x02) with Load File AID [A0 00 00 00 62 01 01]
     Then SW is 69 85
 
-  @wip
   Scenario: DELETE without authenticated SCP session returns 69 85
     # GP 2.1.1 clause 9.2
     Given no SCP session is active

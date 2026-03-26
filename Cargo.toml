@@ -5,6 +5,7 @@ members = [
     "crates/simrs-des",
     "crates/simrs-iso7816",
     "crates/simrs-card-api",
+    "crates/simrs-apdu-schema",
     "crates/simrs-bertlv",
     "crates/simrs-rijndael",
     "crates/simrs-comp128",
@@ -56,6 +57,7 @@ members = [
     "tools/simrs-security-tests",
     "tools/simrs-gp-tests",
     "tools/simrs-jcsl",
+    "tools/simrs-differential-tests",
 ]
 resolver = "2"
 
@@ -71,6 +73,7 @@ simrs-consttime-macros    = { path = "crates/simrs-consttime-macros" }
 simrs-consttime           = { path = "crates/simrs-consttime",           default-features = false }
 simrs-iso7816             = { path = "crates/simrs-iso7816",             default-features = false }
 simrs-card-api            = { path = "crates/simrs-card-api",             default-features = false }
+simrs-apdu-schema         = { path = "crates/simrs-apdu-schema" }
 simrs-bertlv              = { path = "crates/simrs-bertlv",              default-features = false }
 simrs-rijndael            = { path = "crates/simrs-rijndael",            default-features = false }
 simrs-comp128             = { path = "crates/simrs-comp128",             default-features = false }
@@ -131,6 +134,7 @@ tacet    = "0.4"
 cucumber = "0.21"
 tokio    = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures  = "0.3"
+insta    = "1"
 
 [workspace.lints.rust]
 unsafe_code      = "forbid"

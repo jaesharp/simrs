@@ -17,6 +17,9 @@ simrs-hle      = { workspace = true }
 simrs-fs       = { workspace = true }
 simrs-pcap     = { workspace = true }
 simrs-secret   = { workspace = true }
+simrs-gp-card  = { workspace = true }
+simrs-gp-keys  = { workspace = true }
+simrs-card-api = { workspace = true }
 
 [dev-dependencies]
 

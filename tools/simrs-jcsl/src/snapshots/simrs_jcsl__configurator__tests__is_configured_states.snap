@@ -1,0 +1,7 @@
+---
+source: tools/simrs-jcsl/src/configurator.rs
+expression: output
+---
+unconfigured: scp=false, pin=false
+scp_only: scp=true, pin=false
+both: scp=true, pin=true

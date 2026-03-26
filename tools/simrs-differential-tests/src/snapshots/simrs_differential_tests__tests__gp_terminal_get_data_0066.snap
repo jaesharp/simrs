@@ -1,0 +1,5 @@
+---
+source: tools/simrs-differential-tests/src/lib.rs
+expression: "format!(\"{parsed:?}\")"
+---
+ApduResponse { data[15]: [66, 0d, 73, 0b, 06, 07, 2a, 86, 48, 86, fc, 6b, 01, 01, 02], sw: 9000 }

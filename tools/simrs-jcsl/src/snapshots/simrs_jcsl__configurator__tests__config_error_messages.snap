@@ -1,0 +1,13 @@
+---
+source: tools/simrs-jcsl/src/configurator.rs
+expression: output
+---
+  SCP keyset magic not found in binary
+  Global PIN magic not found in binary
+  key length 15 invalid (must be 16, 24, or 32)
+  ENC, MAC, DEK keys must all be the same length
+  KVN 0x00 out of range (must be 0x01..0x6F)
+  KVN 0x70 out of range (must be 0x01..0x6F)
+  PIN length 2 invalid (must be 3..=16)
+  PIN length 17 invalid (must be 3..=16)
+  non-zero data at offset 0x58 (use force to overwrite)

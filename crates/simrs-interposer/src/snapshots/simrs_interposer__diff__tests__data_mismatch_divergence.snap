@@ -1,0 +1,8 @@
+---
+source: crates/simrs-interposer/src/diff.rs
+expression: output
+---
+results:
+DataMismatch { sw: (144, 0), real_len: 3, shadow_len: 2 }
+divergences:
+seq=0 cmd=[00, b0, 00, 00] left=0 right=1 result=DataMismatch { sw: (144, 0), real_len: 3, shadow_len: 2 }

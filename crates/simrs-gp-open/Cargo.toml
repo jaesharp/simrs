@@ -10,14 +10,15 @@ default = []
 std     = []
 
 [dependencies]
-simrs-iso7816  = { workspace = true }
-simrs-bertlv   = { workspace = true }
-simrs-gp-scp   = { workspace = true }
-simrs-gp-keys  = { workspace = true }
-simrs-jcre     = { workspace = true }
-simrs-pin      = { workspace = true }
-simrs-consttime = { workspace = true }
-simrs-secret   = { workspace = true }
+simrs-iso7816     = { workspace = true }
+simrs-bertlv      = { workspace = true }
+simrs-gp-scp      = { workspace = true }
+simrs-gp-keys     = { workspace = true }
+simrs-jcre        = { workspace = true }
+simrs-pin         = { workspace = true }
+simrs-consttime   = { workspace = true }
+simrs-secret      = { workspace = true }
+simrs-apdu-schema = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -26,7 +26,6 @@
 #   Dubreuil & Bouffard, "PhiAttack: Rewriting the Java Card Class
 #     Hierarchy," CARDIS 2021
 
-@wip
 Feature: JCVM Security Regressions (CARDIS 2003-2021 Attack Defenses)
   As a JavaCard Virtual Machine implementation
   I must enforce runtime type safety, applet firewall isolation, transaction

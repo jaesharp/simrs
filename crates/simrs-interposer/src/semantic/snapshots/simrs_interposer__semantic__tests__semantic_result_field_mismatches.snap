@@ -1,0 +1,25 @@
+---
+source: crates/simrs-interposer/src/semantic/mod.rs
+expression: "format!(\"{result:#?}\")"
+---
+FieldMismatches(
+    [
+        FieldMismatch {
+            field: "key_version",
+            kind: BytesDiffer {
+                left: [
+                    1,
+                ],
+                right: [
+                    255,
+                ],
+            },
+        },
+        FieldMismatch {
+            field: "inner_tag_73",
+            kind: Missing {
+                side: Right,
+            },
+        },
+    ],
+)

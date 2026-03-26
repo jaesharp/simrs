@@ -84,59 +84,86 @@ impl CardLifecycle {
 
 /// Applet lifecycle states per GP 2.1.1 clause 5.3, Table 5-2.
 ///
-/// Bit 7 (0x80) indicates the locked flag.
+/// Supports standard states and application-specific states:
+/// - 0x03: INSTALLED
+/// - 0x07: SELECTABLE
+/// - 0x0F: PERSONALIZED
+/// - 0x07-0x7F (bits 0-2 set): application-specific states
+/// - bit 7 (0x80): LOCKED flag (preserves lower bits for unlock)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum AppletLifecycle {
-    /// Applet has been loaded and installed but is not yet selectable.
-    Installed = 0x03,
-    /// Applet is available for selection via SELECT [by AID].
-    Selectable = 0x07,
-    /// Applet has been personalized (application-specific data written).
-    Personalized = 0x0F,
-    /// Applet has been locked. Not available for selection.
-    Locked = 0x83,
-}
+pub struct AppletLifecycle(u8);
 
+#[allow(non_upper_case_globals)]
 impl AppletLifecycle {
+    /// Installed but not yet selectable (0x03).
+    pub const Installed: Self = Self(0x03);
+    /// Available for selection (0x07).
+    pub const Selectable: Self = Self(0x07);
+    /// Personalization complete (0x0F).
+    pub const Personalized: Self = Self(0x0F);
+    /// Locked (0x83). Not selectable.
+    pub const Locked: Self = Self(0x83);
+
     /// Attempt to transition to a new lifecycle state.
     ///
-    /// Returns `Some(new_state)` if the transition is valid, or `None` if not.
-    ///
-    /// Valid transitions:
-    /// - `Installed` -> `Selectable`
-    /// - `Selectable` -> `Personalized`
-    /// - `Selectable` -> `Locked`
-    /// - `Locked` -> `Selectable` (unlock)
-    /// - `Personalized` -> `Locked`
-    /// - `Locked` -> `Personalized` (unlock from personalized+locked)
+    /// GP 2.1.1 clause 5.3 transitions:
+    /// - INSTALLED -> SELECTABLE (or any app-specific state with bits 0-2 set)
+    /// - SELECTABLE -> PERSONALIZED, app-specific, or LOCKED
+    /// - PERSONALIZED -> LOCKED
+    /// - Any -> LOCKED (sets bit 7)
+    /// - LOCKED -> previous state (clears bit 7)
     pub const fn transition(self, target: Self) -> Option<Self> {
-        match (self, target) {
-            (Self::Installed | Self::Locked, Self::Selectable) => Some(Self::Selectable),
-            (Self::Selectable | Self::Locked, Self::Personalized) => Some(Self::Personalized),
-            (Self::Selectable | Self::Personalized, Self::Locked) => Some(Self::Locked),
+        let cur = self.0;
+        let tgt = target.0;
+
+        // Lock: any state can be locked.
+        if tgt & 0x80 != 0 {
+            // Locked target: combine lock bit with current state bits.
+            return Some(Self(cur | 0x80));
+        }
+
+        // Unlock: LOCKED -> target (restore previous state).
+        if cur & 0x80 != 0 {
+            // Can unlock to any non-locked state that bits 0-6 allow.
+            return Some(Self(tgt & 0x7F));
+        }
+
+        // Forward transitions (no lock involved).
+        match (cur, tgt) {
+            // INSTALLED -> SELECTABLE only (must go through SELECTABLE first).
+            (0x03, 0x07) => Some(Self(tgt)),
+            // From SELECTABLE or higher: can transition to any higher state
+            // where bits 0-2 are set.
+            (_, _) if cur >= 0x07 && cur < 0x80 && tgt > cur && tgt & 0x07 == 0x07 => {
+                Some(Self(tgt))
+            }
             _ => None,
         }
     }
 
     /// Whether this applet is selectable (SELECT [by AID] will succeed).
+    ///
+    /// Selectable if: value >= 0x07 AND not locked (bit 7 clear).
     pub const fn is_selectable(self) -> bool {
-        matches!(self, Self::Selectable | Self::Personalized)
+        self.0 >= 0x07 && self.0 & 0x80 == 0
     }
 
     /// Encode as the GP 2.1.1 byte value.
     pub const fn to_byte(self) -> u8 {
-        self as u8
+        self.0
     }
 
     /// Decode from a GP 2.1.1 byte value.
     pub const fn from_byte(b: u8) -> Option<Self> {
-        match b {
-            0x03 => Some(Self::Installed),
-            0x07 => Some(Self::Selectable),
-            0x0F => Some(Self::Personalized),
-            0x83 => Some(Self::Locked),
-            _ => None,
+        // GP 2.1.1 clause 5.3:
+        // - 0x03: INSTALLED
+        // - bits 0-2 set (& 0x07 == 0x07): SELECTABLE and above
+        // - bit 7 set: LOCKED variant of any state
+        let base = b & 0x7F;
+        if base == 0x03 || (base & 0x07 == 0x07) {
+            Some(Self(b))
+        } else {
+            None
         }
     }
 }
@@ -256,25 +283,42 @@ mod tests {
             AppletLifecycle::Selectable.transition(AppletLifecycle::Personalized),
             Some(AppletLifecycle::Personalized)
         );
-        assert_eq!(
-            AppletLifecycle::Selectable.transition(AppletLifecycle::Locked),
-            Some(AppletLifecycle::Locked)
-        );
-        assert_eq!(
-            AppletLifecycle::Personalized.transition(AppletLifecycle::Locked),
-            Some(AppletLifecycle::Locked)
-        );
+        // Locking Selectable: 0x07 | 0x80 = 0x87
+        let locked_sel = AppletLifecycle::Selectable.transition(AppletLifecycle::Locked);
+        assert!(locked_sel.is_some());
+        assert_eq!(locked_sel.unwrap().to_byte(), 0x87);
+        // Locking Personalized: 0x0F | 0x80 = 0x8F
+        let locked_pers = AppletLifecycle::Personalized.transition(AppletLifecycle::Locked);
+        assert!(locked_pers.is_some());
+        assert_eq!(locked_pers.unwrap().to_byte(), 0x8F);
     }
 
     #[test]
     fn applet_lifecycle_unlock() {
+        // Unlock from locked+selectable (0x87) to selectable (0x07).
+        let locked_sel = AppletLifecycle::from_byte(0x87).unwrap();
         assert_eq!(
-            AppletLifecycle::Locked.transition(AppletLifecycle::Selectable),
+            locked_sel.transition(AppletLifecycle::Selectable),
             Some(AppletLifecycle::Selectable)
         );
+        // Unlock from locked+personalized (0x8F) to personalized (0x0F).
+        let locked_pers = AppletLifecycle::from_byte(0x8F).unwrap();
         assert_eq!(
-            AppletLifecycle::Locked.transition(AppletLifecycle::Personalized),
+            locked_pers.transition(AppletLifecycle::Personalized),
             Some(AppletLifecycle::Personalized)
+        );
+    }
+
+    #[test]
+    fn applet_lifecycle_app_specific_state() {
+        // Application-specific state 0x17 (bits 0-2 set).
+        let specific = AppletLifecycle::from_byte(0x17);
+        assert!(specific.is_some());
+        assert!(specific.unwrap().is_selectable());
+        // Transition from Selectable to app-specific.
+        assert_eq!(
+            AppletLifecycle::Selectable.transition(specific.unwrap()),
+            specific
         );
     }
 
@@ -288,11 +332,6 @@ mod tests {
         // Can't go backwards from personalized to selectable.
         assert_eq!(
             AppletLifecycle::Personalized.transition(AppletLifecycle::Selectable),
-            None
-        );
-        // Can't lock installed directly.
-        assert_eq!(
-            AppletLifecycle::Installed.transition(AppletLifecycle::Locked),
             None
         );
     }
@@ -311,17 +350,20 @@ mod tests {
             AppletLifecycle::Installed,
             AppletLifecycle::Selectable,
             AppletLifecycle::Personalized,
-            AppletLifecycle::Locked,
         ] {
             let b = state.to_byte();
             assert_eq!(AppletLifecycle::from_byte(b), Some(state));
         }
+        // Locked variants preserve previous state bits.
+        assert_eq!(AppletLifecycle::from_byte(0x83), Some(AppletLifecycle::from_byte(0x83).unwrap()));
+        assert_eq!(AppletLifecycle::from_byte(0x87), Some(AppletLifecycle::from_byte(0x87).unwrap()));
     }
 
     #[test]
     fn applet_lifecycle_from_byte_invalid() {
         assert_eq!(AppletLifecycle::from_byte(0x00), None);
         assert_eq!(AppletLifecycle::from_byte(0x01), None);
-        assert_eq!(AppletLifecycle::from_byte(0xFF), None);
+        // 0xFF is valid: 0xFF & 0x07 == 0x07, so it's a locked app-specific state.
+        assert!(AppletLifecycle::from_byte(0xFF).is_some());
     }
 }

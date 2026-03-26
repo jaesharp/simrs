@@ -1,0 +1,6 @@
+---
+source: crates/simrs-interposer/src/diff.rs
+expression: output
+---
+apdu_1: [DataMismatch { sw: (144, 0), real_len: 2, shadow_len: 2 }]
+apdu_2: [DataMismatch { sw: (144, 0), real_len: 2, shadow_len: 2 }]

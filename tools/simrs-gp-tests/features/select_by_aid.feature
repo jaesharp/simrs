@@ -33,7 +33,6 @@
 #   6A 82  file not found (unknown AID)
 #   69 85  conditions of use not satisfied
 
-@wip
 Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   As a GlobalPlatform card simulator
   I must correctly handle application selection by AID, supporting full AID
@@ -51,7 +50,6 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   # Selecting the ISD returns FCI containing the AID and lifecycle state.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SELECT ISD by full AID returns FCI with lifecycle byte
     # GP 2.1.1 clause 9.9
     When I send SELECT [00 A4 04 00 07 A0 00 00 01 51 00 00 00]
@@ -64,7 +62,6 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   # GP 2.1.1 clause 9.9: SELECT installed applet by full AID
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SELECT installed applet by full AID returns FCI
     # GP 2.1.1 clause 9.9
     When I send SELECT with AID [A0 00 00 00 62 01 01 02]
@@ -78,7 +75,6 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   # must match it as a prefix against all installed applications.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SELECT by partial AID matches first application with that prefix
     # GP 2.1.1 clause 9.6.2.4
     When I send SELECT with partial AID [A0 00 00 00 62] (P1=0x04, P2=0x00)
@@ -91,7 +87,6 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   # currently selected one.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SELECT first then next occurrence iterates matching applications
     # GP 2.1.1 clause 9.6.2.4
     When I send SELECT with partial AID [A0 00 00 00 62] (P1=0x04, P2=0x00)
@@ -106,7 +101,6 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   # If no application matches the provided AID, the card returns 6A 82.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SELECT unknown AID returns 6A 82
     # GP 2.1.1 clause 9.9
     When I send SELECT with AID [FF FF FF FF FF FF FF]
@@ -119,7 +113,6 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   # via MANAGE CHANNEL. Each channel maintains independent selection state.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SELECT on supplementary logical channel after MANAGE CHANNEL open
     # GP 2.1.1 clause 6.3
     When I send MANAGE CHANNEL OPEN [00 70 00 00 01]
@@ -137,7 +130,6 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   # a default selected application has been configured.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: Implicit selection of default selectable app after ATR
     # GP 2.1.1 clause 6.3
     When the card is reset (ATR)
@@ -151,7 +143,6 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   # on the same logical channel.
   # ---------------------------------------------------------------------------
 
-  @wip
   Scenario: SELECT changes current applet context and deselects previous
     # GP 2.1.1 clause 6.3
     When I send SELECT with AID [A0 00 00 00 62 01 01 02]

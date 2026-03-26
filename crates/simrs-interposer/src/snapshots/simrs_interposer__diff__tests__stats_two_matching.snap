@@ -1,0 +1,11 @@
+---
+source: crates/simrs-interposer/src/diff.rs
+expression: "format!(\"{:#?}\", engine.stats)"
+---
+DivergenceStats {
+    total_apdus: 3,
+    matches: 3,
+    sw_mismatches: 0,
+    data_mismatches: 0,
+    shadow_ignored: 0,
+}

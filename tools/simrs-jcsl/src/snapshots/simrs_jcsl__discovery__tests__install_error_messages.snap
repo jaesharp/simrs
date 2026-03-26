@@ -1,0 +1,7 @@
+---
+source: tools/simrs-jcsl/src/discovery.rs
+expression: output
+---
+  SDK directory not found: /opt/oracle/jcdk
+  SDK missing runtime/bin/jcsl: /opt/oracle/jcdk
+  validation failed: not an ELF binary: /tmp/bad

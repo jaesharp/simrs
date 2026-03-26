@@ -1,0 +1,12 @@
+---
+source: tools/simrs-jcsl/src/process.rs
+expression: "format!(\"{cfg:#?}\")"
+---
+JcslConfig {
+    binary_path: "tools/oracle-jcvm-ref/runtime/bin/jcsl",
+    port: 9025,
+    log_level: "info",
+    eeprom_in: None,
+    eeprom_out: None,
+    startup_timeout: 10s,
+}
