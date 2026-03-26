@@ -20,6 +20,7 @@ members = [
     "crates/simrs-gp-scp",
     "crates/simrs-jcre",
     "crates/simrs-jcasm",
+    "crates/simrs-jccompile",
     "crates/simrs-jcvm",
     "crates/simrs-gp-open",
     "crates/simrs-gp-card",
@@ -90,6 +91,7 @@ simrs-gp-keys             = { path = "crates/simrs-gp-keys",             default
 simrs-gp-scp              = { path = "crates/simrs-gp-scp",              default-features = false }
 simrs-jcre                = { path = "crates/simrs-jcre",                default-features = false }
 simrs-jcasm               = { path = "crates/simrs-jcasm" }
+simrs-jccompile           = { path = "crates/simrs-jccompile",           default-features = false }
 simrs-jcvm                = { path = "crates/simrs-jcvm",                default-features = false }
 simrs-gp-open             = { path = "crates/simrs-gp-open",             default-features = false }
 simrs-jcop-profile        = { path = "crates/simrs-jcop-profile",         default-features = false }

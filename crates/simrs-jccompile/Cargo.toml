@@ -1,0 +1,18 @@
+[package]
+name        = "simrs-jccompile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "JVA compiler core: IR, type system, optimizer, and codegen for smartcard applets"
+
+[features]
+default = ["std"]
+std     = []
+
+[dependencies]
+
+[dev-dependencies]
+simrs-jcvm = { workspace = true }
+
+[lints]
+workspace = true

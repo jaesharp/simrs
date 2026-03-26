@@ -1649,6 +1649,7 @@ dependencies = [
  "simrs-gp-scp",
  "simrs-iso7816",
  "simrs-iso9797",
+ "simrs-jcasm",
  "simrs-jcvm",
  "simrs-secret",
  "tokio",
@@ -1728,9 +1729,17 @@ name = "simrs-jcasm"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
+ "proptest",
  "quote",
  "simrs-jcvm",
  "syn",
+]
+
+[[package]]
+name = "simrs-jccompile"
+version = "0.1.0"
+dependencies = [
+ "simrs-jcvm",
 ]
 
 [[package]]
