@@ -30,6 +30,10 @@ pub struct AppletEntry {
     /// Index of the owning Security Domain in `GpOpen.sds[]`, if any.
     /// `None` means ISD-managed (the default).
     owner_sd_index: Option<u8>,
+    /// JCVM package index (if this applet runs on the bytecode interpreter).
+    jcvm_pkg_idx: Option<u8>,
+    /// JCVM process method index within the package.
+    jcvm_process_method: u8,
 }
 
 impl AppletEntry {
@@ -67,6 +71,8 @@ impl AppletEntry {
             lifecycle,
             privileges,
             owner_sd_index,
+            jcvm_pkg_idx: None,
+            jcvm_process_method: 0,
         }
     }
 
@@ -98,6 +104,22 @@ impl AppletEntry {
     /// Index of the owning SD, if any.
     pub const fn owner_sd_index(&self) -> Option<u8> {
         self.owner_sd_index
+    }
+
+    /// JCVM package index, if this applet is a bytecode applet.
+    pub const fn jcvm_pkg_idx(&self) -> Option<u8> {
+        self.jcvm_pkg_idx
+    }
+
+    /// JCVM process method index within the package.
+    pub const fn jcvm_process_method(&self) -> u8 {
+        self.jcvm_process_method
+    }
+
+    /// Link this applet entry to a JCVM package for bytecode dispatch.
+    pub const fn set_jcvm(&mut self, pkg_idx: u8, process_method: u8) {
+        self.jcvm_pkg_idx = Some(pkg_idx);
+        self.jcvm_process_method = process_method;
     }
 }
 

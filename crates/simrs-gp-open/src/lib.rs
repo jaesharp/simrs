@@ -30,6 +30,8 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+extern crate alloc;
+
 pub mod channel;
 pub mod commands;
 pub mod lifecycle;
@@ -102,6 +104,13 @@ pub struct GpOpen<const MAX_APPLETS: usize, const MAX_SDS: usize> {
     default_selected: Option<u8>,
     iin: [u8; 16],
     iin_len: u8,
+    /// JCVM bytecode interpreter for loaded Java Card applets (boxed to
+    /// avoid stack overflow -- `JcVM<4096,4>` is ~50 KB).
+    jcvm: alloc::boxed::Box<simrs_jcvm::JcVM<4096, 4>>,
+    /// Buffer for accumulating LOAD command data blocks.
+    load_buffer: [u8; 4096],
+    /// Current fill level of the load buffer.
+    load_buffer_len: usize,
 }
 
 impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS> {
@@ -133,6 +142,9 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             default_selected: None,
             iin: *b"ISD_IIN\0\0\0\0\0\0\0\0\0",
             iin_len: 7,
+            jcvm: alloc::boxed::Box::new(simrs_jcvm::JcVM::new()),
+            load_buffer: [0u8; 4096],
+            load_buffer_len: 0,
         }
     }
 
@@ -160,6 +172,16 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         } else {
             None
         }
+    }
+
+    /// Reference to the embedded JCVM.
+    pub fn jcvm(&self) -> &simrs_jcvm::JcVM<4096, 4> {
+        &self.jcvm
+    }
+
+    /// Mutable reference to the embedded JCVM.
+    pub fn jcvm_mut(&mut self) -> &mut simrs_jcvm::JcVM<4096, 4> {
+        &mut self.jcvm
     }
 
     /// Reference to the ISD.
@@ -331,10 +353,15 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             return write_sw(buf, StatusWord::command_not_allowed(0x85));
         }
 
-        // Attempt applet dispatch: if an applet is selected on this channel
-        // and a dispatch callback is provided, forward the command.
+        // Attempt applet dispatch: if an applet is selected on this channel,
+        // try JCVM dispatch first, then fall through to external callback.
         let channel = cmd.cla().channel();
         if let Some(applet_idx) = self.selected_applet_index(channel) {
+            // Try JCVM dispatch first (bytecode applets).
+            if let Some(n) = self.dispatch_to_jcvm(applet_idx, cmd_bytes, buf) {
+                return &buf[..n];
+            }
+            // Fall through to external dispatch callback.
             if let Some(ref mut cb) = dispatch {
                 let n = cb(applet_idx, cmd_bytes, buf);
                 return &buf[..n];
@@ -485,6 +512,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                     &mut self.card_lifecycle,
                     &mut self.registry,
                     &mut self.load_files,
+                    &self.jcvm,
                     cmd,
                     buf,
                 );
@@ -501,7 +529,13 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                 &buf[..n]
             }
             INS_LOAD => {
-                let n = commands::load_stub(buf);
+                let n = commands::load(
+                    &mut self.jcvm,
+                    &mut self.load_buffer,
+                    &mut self.load_buffer_len,
+                    cmd,
+                    buf,
+                );
                 &buf[..n]
             }
             INS_GET_DATA => commands::get_data(self.card_lifecycle, self.isd.aid(), self.iin(), cmd, buf),
@@ -515,6 +549,42 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             }
             _ => write_sw(buf, StatusWord::InsNotSupported),
         }
+    }
+
+    // -- JCVM dispatch --
+
+    /// Try to dispatch an APDU to the JCVM for a bytecode applet.
+    ///
+    /// Returns `Some(response_len)` if the applet is a JCVM applet and
+    /// execution completed, `None` if the applet is not a JCVM applet.
+    #[allow(clippy::cast_possible_truncation)]
+    fn dispatch_to_jcvm(&mut self, applet_idx: u8, _cmd_bytes: &[u8], buf: &mut [u8]) -> Option<usize> {
+        let entry = self.registry[applet_idx as usize].as_ref()?;
+        let pkg_idx = entry.jcvm_pkg_idx()?;
+        let method = entry.jcvm_process_method();
+
+        let result = self.jcvm.execute(pkg_idx, method);
+
+        Some(match result {
+            simrs_jcvm::opcodes::ExecResult::ReturnVoid => {
+                buf[0] = 0x90;
+                buf[1] = 0x00;
+                2
+            }
+            simrs_jcvm::opcodes::ExecResult::ReturnShort(val) => {
+                let bytes = val.to_be_bytes();
+                buf[0] = bytes[0];
+                buf[1] = bytes[1];
+                buf[2] = 0x90;
+                buf[3] = 0x00;
+                4
+            }
+            _ => {
+                buf[0] = 0x6F;
+                buf[1] = 0x00;
+                2
+            }
+        })
     }
 
     // -- SELECT by AID --
@@ -1520,5 +1590,142 @@ mod tests {
         let apdu = [0x00, 0xB0, 0x00, 0x00]; // READ BINARY
         let rsp = gp.handle(&apdu, &mut buf);
         assert_eq!(rsp, &[0x6D, 0x00]); // INS not supported (no dispatch)
+    }
+
+    // -- JCVM integration: LOAD -> INSTALL -> SELECT -> APDU --
+
+    /// Build an INSTALL [for load] APDU.
+    fn build_install_for_load(lf_aid: &[u8]) -> [u8; 32] {
+        let isd_aid: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+        let mut data = [0u8; 24];
+        let mut dlen = 0;
+        data[dlen] = lf_aid.len() as u8;
+        dlen += 1;
+        data[dlen..dlen + lf_aid.len()].copy_from_slice(lf_aid);
+        dlen += lf_aid.len();
+        data[dlen] = isd_aid.len() as u8;
+        dlen += 1;
+        data[dlen..dlen + isd_aid.len()].copy_from_slice(&isd_aid);
+        dlen += isd_aid.len();
+        data[dlen] = 0; // hash len
+        dlen += 1;
+        data[dlen] = 0; // params len
+        dlen += 1;
+        data[dlen] = 0; // token len
+        dlen += 1;
+
+        let mut apdu = [0u8; 32];
+        apdu[0] = CLA_GP;
+        apdu[1] = INS_INSTALL;
+        apdu[2] = 0x02; // P1 = for load
+        apdu[3] = 0x00;
+        apdu[4] = dlen as u8;
+        apdu[5..5 + dlen].copy_from_slice(&data[..dlen]);
+        apdu
+    }
+
+    /// Build an INSTALL [for install and make selectable] APDU.
+    fn build_install_for_ims(lf_aid: &[u8], mod_aid: &[u8], app_aid: &[u8]) -> [u8; 64] {
+        let mut data = [0u8; 56];
+        let mut dlen = 0;
+        data[dlen] = lf_aid.len() as u8;
+        dlen += 1;
+        data[dlen..dlen + lf_aid.len()].copy_from_slice(lf_aid);
+        dlen += lf_aid.len();
+        data[dlen] = mod_aid.len() as u8;
+        dlen += 1;
+        data[dlen..dlen + mod_aid.len()].copy_from_slice(mod_aid);
+        dlen += mod_aid.len();
+        data[dlen] = app_aid.len() as u8;
+        dlen += 1;
+        data[dlen..dlen + app_aid.len()].copy_from_slice(app_aid);
+        dlen += app_aid.len();
+        data[dlen] = 0; // privileges len
+        dlen += 1;
+        data[dlen] = 0; // params len
+        dlen += 1;
+        data[dlen] = 0; // token len
+        dlen += 1;
+
+        let mut apdu = [0u8; 64];
+        apdu[0] = CLA_GP;
+        apdu[1] = INS_INSTALL;
+        apdu[2] = 0x0C; // P1 = for install and make selectable
+        apdu[3] = 0x00;
+        apdu[4] = dlen as u8;
+        apdu[5..5 + dlen].copy_from_slice(&data[..dlen]);
+        apdu
+    }
+
+    #[test]
+    #[allow(clippy::large_stack_arrays)]
+    fn load_install_select_execute_jcvm_applet() {
+        use simrs_jcasm::jcasm;
+
+        let keys = test_keys();
+        let mut gp = GpOpen::<16, 4>::new(&keys);
+        gp.set_authenticated_for_test();
+
+        // 1. Build a CAP blob with jcasm (returns 42).
+        let (aid, methods) = jcasm! {
+            applet A0_00_00_00_62_01_01 {
+                fn process() {
+                    bspush(42);
+                    sreturn;
+                }
+            }
+        };
+        let mut cap_blob = [0u8; 256];
+        let cap_len = simrs_jcvm::cap::build_cap_blob(aid, methods, &mut cap_blob);
+
+        // 2. INSTALL [for load].
+        let pkg_aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01, 0x01];
+        let install_load = build_install_for_load(&pkg_aid);
+        let total_load = 5 + install_load[4] as usize;
+        let mut buf = [0u8; 261];
+        let rsp = gp.handle(&install_load[..total_load], &mut buf);
+        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "INSTALL [for load] should succeed");
+
+        // 3. LOAD (single block, P1=0x80 = last block).
+        let mut load_apdu = [0u8; 261];
+        load_apdu[0] = CLA_GP;
+        load_apdu[1] = INS_LOAD;
+        load_apdu[2] = 0x80; // P1: last block
+        load_apdu[3] = 0x00;
+        load_apdu[4] = cap_len as u8;
+        load_apdu[5..5 + cap_len].copy_from_slice(&cap_blob[..cap_len]);
+        let rsp = gp.handle(&load_apdu[..5 + cap_len], &mut buf);
+        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "LOAD should succeed");
+
+        // 4. INSTALL [for install and make selectable].
+        let instance_aid = [0xA0, 0x00, 0x00, 0x00, 0x62, 0x01, 0x01, 0x01];
+        let install_ims = build_install_for_ims(&pkg_aid, &pkg_aid, &instance_aid);
+        let total_ims = 5 + install_ims[4] as usize;
+        let rsp = gp.handle(&install_ims[..total_ims], &mut buf);
+        assert_eq!(
+            &rsp[rsp.len() - 2..],
+            &[0x90, 0x00],
+            "INSTALL [for install and make selectable] should succeed"
+        );
+
+        // 5. SELECT applet.
+        let mut select = [0u8; 13];
+        select[0] = 0x00;
+        select[1] = 0xA4;
+        select[2] = 0x04;
+        select[3] = 0x00;
+        select[4] = instance_aid.len() as u8;
+        select[5..5 + instance_aid.len()].copy_from_slice(&instance_aid);
+        let rsp = gp.handle(&select[..5 + instance_aid.len()], &mut buf);
+        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "SELECT should succeed");
+
+        // 6. Send APDU to applet -> should return 42.
+        // CLA 0x00 = interindustry (NOT 0x80 which is GP management).
+        let apdu = [0x00, 0x01, 0x00, 0x00];
+        let rsp = gp.handle(&apdu, &mut buf);
+        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "APDU dispatch should succeed");
+        assert_eq!(rsp.len(), 4, "expected 2 bytes data + 2 bytes SW");
+        let value = i16::from_be_bytes([rsp[0], rsp[1]]);
+        assert_eq!(value, 42, "JCVM applet should return 42");
     }
 }

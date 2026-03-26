@@ -243,6 +243,7 @@ pub fn install<const N: usize, const L: usize>(
     card_lifecycle: &mut CardLifecycle,
     registry: &mut [Option<AppletEntry>; N],
     load_files: &mut [Option<LoadFileEntry>; L],
+    jcvm: &simrs_jcvm::JcVM<4096, 4>,
     cmd: &Command<'_>,
     buf: &mut [u8],
 ) -> usize {
@@ -315,6 +316,16 @@ pub fn install<const N: usize, const L: usize>(
     };
 
     registry[slot] = Some(AppletEntry::new(app_aid, lifecycle, 0x00));
+
+    // Link to JCVM package if one with matching load file AID is loaded.
+    if load_len > 0 {
+        let lf_aid = &data[1..=load_len];
+        if let Some(pkg_idx) = jcvm.find_package_by_aid(lf_aid) {
+            if let Some(entry) = &mut registry[slot] {
+                entry.set_jcvm(pkg_idx, 0);
+            }
+        }
+    }
 
     // Link instance to its load file, if the load file AID matches.
     if load_len > 0 {
@@ -589,8 +600,46 @@ fn get_data_cplc(buf: &mut [u8]) -> &[u8] {
 // Stubs
 // ---------------------------------------------------------------------------
 
-/// LOAD command stub -- accepts and returns 90 00.
-pub fn load_stub(buf: &mut [u8]) -> usize { write_sw_raw(buf, StatusWord::Success) }
+/// LOAD command: accumulate CAP data blocks and parse on last block.
+///
+/// P1 bit 7 (0x80) signals the last (or only) block. Data is accumulated
+/// in the load buffer until the final block, then parsed as a CAP blob
+/// and loaded into the JCVM.
+pub fn load(
+    jcvm: &mut simrs_jcvm::JcVM<4096, 4>,
+    load_buf: &mut [u8; 4096],
+    load_buf_len: &mut usize,
+    cmd: &Command<'_>,
+    buf: &mut [u8],
+) -> usize {
+    let p1 = cmd.p1();
+    let data = cmd.data();
+    let is_last = p1 & 0x80 != 0;
+
+    let end = *load_buf_len + data.len();
+    if end > load_buf.len() {
+        return write_sw_raw(buf, StatusWord::WrongLength);
+    }
+    load_buf[*load_buf_len..end].copy_from_slice(data);
+    *load_buf_len = end;
+
+    if is_last {
+        let result = simrs_jcvm::cap::parse_cap(&load_buf[..*load_buf_len]);
+        *load_buf_len = 0;
+        match result {
+            Ok(pkg) => {
+                if jcvm.load_package(pkg).is_some() {
+                    write_sw_raw(buf, StatusWord::Success)
+                } else {
+                    write_sw_raw(buf, StatusWord::command_not_allowed(0x84))
+                }
+            }
+            Err(_) => write_sw_raw(buf, StatusWord::wrong_params(0x80)),
+        }
+    } else {
+        write_sw_raw(buf, StatusWord::Success)
+    }
+}
 
 /// PUT KEY command stub -- accepts and returns 90 00.
 pub fn put_key_stub(buf: &mut [u8]) -> usize { write_sw_raw(buf, StatusWord::Success) }

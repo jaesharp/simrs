@@ -15,13 +15,15 @@ simrs-bertlv      = { workspace = true }
 simrs-gp-scp      = { workspace = true }
 simrs-gp-keys     = { workspace = true }
 simrs-jcre        = { workspace = true }
+simrs-jcvm        = { workspace = true }
 simrs-pin         = { workspace = true }
 simrs-consttime   = { workspace = true }
 simrs-secret      = { workspace = true }
 simrs-apdu-schema = { workspace = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest  = { workspace = true }
+simrs-jcasm = { workspace = true }
 
 [lints]
 workspace = true

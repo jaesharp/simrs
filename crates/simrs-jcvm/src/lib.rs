@@ -129,6 +129,20 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
         None
     }
 
+    /// Find a loaded package by AID. Returns the package index.
+    pub fn find_package_by_aid(&self, aid: &[u8]) -> Option<u8> {
+        for (i, slot) in self.packages.iter().enumerate() {
+            if let Some(pkg) = slot {
+                let pkg_aid = &pkg.aid[..pkg.aid_len as usize];
+                if pkg_aid == aid {
+                    #[allow(clippy::cast_possible_truncation)]
+                    return Some(i as u8);
+                }
+            }
+        }
+        None
+    }
+
     /// Mutable reference to the transaction journal.
     pub fn journal_mut(&mut self) -> &mut TransactionJournal<JOURNAL_CAP> {
         &mut self.journal
@@ -1183,6 +1197,32 @@ mod tests {
         let mut vm = JcVM::<4096, 4>::new();
         vm.load_package(pkg).unwrap();
         vm
+    }
+
+    // -----------------------------------------------------------------------
+    // find_package_by_aid
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn find_package_by_aid_returns_index() {
+        let aid1 = [0xA0, 0x00, 0x00, 0x00, 0x01];
+        let aid2 = [0xA0, 0x00, 0x00, 0x00, 0x02];
+        let bytecode: &[u8] = &[SCONST_0, SRETURN];
+
+        let mut vm = JcVM::<4096, 4>::new();
+
+        let mut blob = [0u8; 512];
+        let len = build_cap_blob(&aid1, &[bytecode], &mut blob);
+        let pkg1 = cap::parse_cap(&blob[..len]).unwrap();
+        vm.load_package(pkg1).unwrap();
+
+        let len = build_cap_blob(&aid2, &[bytecode], &mut blob);
+        let pkg2 = cap::parse_cap(&blob[..len]).unwrap();
+        vm.load_package(pkg2).unwrap();
+
+        assert_eq!(vm.find_package_by_aid(&aid1), Some(0));
+        assert_eq!(vm.find_package_by_aid(&aid2), Some(1));
+        assert_eq!(vm.find_package_by_aid(&[0xFF]), None);
     }
 
     // -----------------------------------------------------------------------

@@ -15,6 +15,11 @@
 //! | sequence_counter | 2 | SCP02 persistent counter |
 //! | default_selected | 1 | 0xFF = none, else registry index |
 
+// TODO: JCVM snapshot integration is deferred -- the JCVM itself (packages,
+// heap, static fields) is not yet persisted in the GpOpen snapshot. Only the
+// per-AppletEntry JCVM linkage (pkg_idx, process_method) is saved here.
+// The load_buffer is transient and never snapshotted.
+
 use crate::channel::ChannelState;
 use crate::lifecycle::{AppletLifecycle, CardLifecycle};
 use crate::registry::{AppletEntry, LoadFileEntry, SecurityDomain, MAX_AID_LEN};
@@ -63,8 +68,8 @@ fn restore_aid_entry(buf: &[u8], off: usize) -> Option<(u8, [u8; MAX_AID_LEN], u
 /// Per SD/ISD entry: 1 (aid_len) + 16 (aid) + 1 (lifecycle) + 1 (privileges).
 const ENTRY_SIZE: usize = 1 + MAX_AID_LEN + 1 + 1;
 
-/// Per applet entry: ENTRY_SIZE + 1 (owner_sd_index).
-const APP_ENTRY_SIZE: usize = ENTRY_SIZE + 1;
+/// Per applet entry: ENTRY_SIZE + 1 (owner_sd_index) + 1 (has_jcvm) + 1 (pkg_idx) + 1 (process_method).
+const APP_ENTRY_SIZE: usize = ENTRY_SIZE + 1 + 3;
 
 /// Per load file entry: 1 (aid_len) + 16 (aid) + 1 (instance_count) + 4 (slots).
 const LF_ENTRY_SIZE: usize = 1 + MAX_AID_LEN + 1 + 4;
@@ -86,7 +91,7 @@ pub const fn snapshot_size(max_applets: usize, max_sds: usize) -> usize {
 }
 
 /// Save the entire `GpOpen` state into `buf`. Returns bytes written.
-#[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
+#[allow(clippy::cast_possible_truncation, clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     card_lifecycle: CardLifecycle,
     isd: &SecurityDomain,
@@ -153,6 +158,17 @@ pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
         );
         buf[off] = entry.owner_sd_index().unwrap_or(0xFF);
         off += 1;
+        // JCVM fields: has_jcvm(1) + pkg_idx(1) + process_method(1).
+        if let Some(pkg_idx) = entry.jcvm_pkg_idx() {
+            buf[off] = 1;
+            buf[off + 1] = pkg_idx;
+            buf[off + 2] = entry.jcvm_process_method();
+        } else {
+            buf[off] = 0;
+            buf[off + 1] = 0;
+            buf[off + 2] = 0;
+        }
+        off += 3;
     }
     for _ in app_count..MAX_APPLETS {
         buf[off..off + APP_ENTRY_SIZE].fill(0);
@@ -300,13 +316,22 @@ pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
         };
         let sd_byte = buf[new_off];
         let sd_idx = if sd_byte == 0xFF { None } else { Some(sd_byte) };
-        registry[i] = Some(AppletEntry::new_with_sd(
+        let mut entry = AppletEntry::new_with_sd(
             &aid[..aid_len as usize],
             lc,
             privs,
             sd_idx,
-        ));
-        off = new_off + 1;
+        );
+        // Restore JCVM fields: has_jcvm(1) + pkg_idx(1) + process_method(1).
+        let jcvm_off = new_off + 1;
+        if jcvm_off + 3 > buf.len() {
+            return false;
+        }
+        if buf[jcvm_off] == 1 {
+            entry.set_jcvm(buf[jcvm_off + 1], buf[jcvm_off + 2]);
+        }
+        registry[i] = Some(entry);
+        off = jcvm_off + 3;
     }
     off += (MAX_APPLETS - app_count) * APP_ENTRY_SIZE;
 
