@@ -1,0 +1,24 @@
+[package]
+name = "jvac"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "JVA smartcard applet compiler -- accepts .java/.jva source and .class/.jvc classfiles, produces .cap output"
+
+[[bin]]
+name = "jvac"
+path = "src/main.rs"
+
+[lib]
+name = "jvac"
+path = "src/lib.rs"
+
+[dependencies]
+simrs-jccompile = { workspace = true, features = ["std"] }
+simrs-jcvm       = { workspace = true }
+
+[dev-dependencies]
+simrs-jcvm = { workspace = true }
+
+[lints]
+workspace = true
