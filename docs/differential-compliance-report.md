@@ -1,7 +1,8 @@
 # Differential Compliance Report: simrs vs Oracle jcsl
 
-Generated from 61 differential tests against Oracle jcsl reference implementation.
-simrs targets GP 2.1.1 (SCP01/SCP02). Oracle implements GP 2.3 (SCP03).
+Generated from 23 differential tests + 22 replay tests against Oracle jcsl.
+simrs targets GP 2.1.1 (SCP01/SCP02) and GP 2.3.1 (SCP03).
+Oracle implements GP 2.3 (SCP03).
 
 ## Divergence Catalog
 
@@ -28,18 +29,21 @@ simrs targets GP 2.1.1 (SCP01/SCP02). Oracle implements GP 2.3 (SCP03).
 simrs ISD AID = 7 bytes `A0 00 00 01 51 00 00` (GP 2.1.1 default).
 Oracle ISD AID = 8 bytes `A0 00 00 01 51 00 00 00` (GP 2.3 default).
 
-**Category: B (GP version difference)** -- expected. simrs uses the 7-byte AID per 2.1.1.
+**Category: C (configurable)** -- simrs supports `with_isd_aid()` for custom AID.
+Both implementations respond to each other's AID via prefix matching on SELECT.
 
 ---
 
-### D3: INITIALIZE UPDATE Response Length
+### D3: INITIALIZE UPDATE Response Length -- RESOLVED
 
-| | simrs | Oracle |
-|-|-------|--------|
-| **Length** | 28 bytes | 32 bytes |
-| **SCP ID** | 0x02 (SCP02) | 0x03 (SCP03) |
+| | simrs (SCP02) | simrs (SCP03) | Oracle (SCP03) |
+|-|---------------|---------------|----------------|
+| **Length** | 28 bytes | 29 bytes | 32 bytes |
+| **SCP ID** | 0x02 | 0x03 | 0x03 |
 
-**Category: B (GP version difference)** -- different SCP versions produce different formats.
+**Status: RESOLVED** -- simrs now supports SCP03 (29-byte response with SCP ID 0x03).
+Oracle returns 32 bytes (3 extra for pseudo-random sequence counter, i=0x70).
+simrs uses explicit challenge mode (i=0x00), producing 29 bytes per spec.
 
 ---
 
@@ -69,7 +73,7 @@ Oracle ISD AID = 8 bytes `A0 00 00 01 51 00 00 00` (GP 2.3 default).
 
 | | simrs | Oracle |
 |-|-------|--------|
-| **SW** | 6988 (SM data objects incorrect) | 6982 (security status not satisfied) |
+| **SW** | 6988 (SM data objects incorrect) | 6985 (conditions not satisfied) |
 
 **Category: B (spec ambiguity)** -- both implementations choose valid but different SWs.
 simrs's 6988 is defensible for the padding oracle defense (Avoine & Ferreira TCHES 2018).
@@ -81,6 +85,7 @@ simrs's 6988 is defensible for the padding oracle defense (Avoine & Ferreira TCH
 | | simrs | Oracle |
 |-|-------|--------|
 | **SW** | 9000 (45 bytes) | 9000 (45 bytes) |
+| **Data** | Identical (`9F 7F 2A` + 42 zero bytes) | Identical |
 
 **Status: FIXED** -- simrs now returns a default CPLC structure (tag 9F7F, 42 zero bytes).
 
@@ -137,22 +142,30 @@ of incorrectly returning the ISD AID.
 | ID | Category | Status | Description |
 |----|----------|--------|-------------|
 | D1 | A: simrs bug | **FIXED** | SELECT FCI proprietary template |
-| D2 | B: GP version | -- | ISD AID length (7 vs 8) |
-| D3 | B: GP version | -- | INIT UPDATE response length (SCP02 vs SCP03) |
+| D2 | C: configurable | **RESOLVED** | ISD AID length (configurable via `with_isd_aid()`) |
+| D3 | B: GP version | **RESOLVED** | INIT UPDATE length (simrs now supports SCP03) |
 | D4 | A: simrs bug | **FIXED** | Invalid INS SW (6985 -> 6D00) |
 | D5 | A: simrs bug | **FIXED** | Wrong KV SW (6A88 -> 6A86) |
-| D6 | B: spec ambiguity | -- | EXT AUTH failure SW (6988 vs 6982) |
+| D6 | B: spec ambiguity | -- | EXT AUTH failure SW (6988 vs 6985) |
 | D7 | C: missing feature | **FIXED** | CPLC tag 9F7F |
 | D8 | C: missing feature | **FIXED** | Extended card recognition data |
 | D9 | A: simrs bug | **FIXED** | GET DATA 0042 returns wrong data |
 | D10 | A: simrs bug | **FIXED** | ISD privileges 0x80 -> 0x9E |
 | D11 | A: simrs bug | **FIXED** | GET STATUS E3 TLV format |
 
-### Remaining divergences (3, all GP version differences):
+### Remaining divergence (1, spec ambiguity):
 
-- **D2**: ISD AID length (7 vs 8 bytes) -- GP 2.1.1 vs 2.3
-- **D3**: INIT UPDATE format (28 vs 32 bytes) -- SCP02 vs SCP03
-- **D6**: EXT AUTH failure SW -- spec allows both values
+- **D6**: EXT AUTH failure SW (6988 vs 6985) -- spec allows both values
+
+### SCP03 validation:
+
+| Test | Result |
+|------|--------|
+| SCP03 INIT UPDATE (KV=0x03) | 29 bytes, SCP ID=0x03, i=0x00 |
+| SCP03 card cryptogram verification | Matches AES-CMAC KDF derivation |
+| SCP03 full mutual auth | INIT UPDATE -> EXT AUTH -> Authenticated |
+| SCP03 authenticated GET STATUS | 9000 with E3 TLV ISD data |
+| SCP03 C-MAC chaining | 16-byte AES-CMAC chaining value |
 
 ### Matching behaviors (no divergence):
 
@@ -166,9 +179,11 @@ of incorrectly returning the ISD AID.
 | GET STATUS without auth | 6985 |
 | MANAGE CHANNEL open | 9000, channel=01 |
 | MANAGE CHANNEL close | 9000 |
-| CPLC (GET DATA 9F7F) | 9000 |
+| CPLC (GET DATA 9F7F) | 9000 (identical 45 bytes) |
+| Wrong key version (KV=0xFF) | 6A86 |
 
-### Fixes applied: 2025-03-26
+### Changelog
 
-8 divergences fixed (6 Category A bugs, 2 Category C features).
-All unit tests (70/70), BDD scenarios (97/97), and snapshot tests (18/18) pass.
+- **2026-03-26**: 8 divergences fixed (6 Category A bugs, 2 Category C features).
+- **2026-03-26**: SCP03 (GP 2.3.1 Amendment D) implemented. D2 and D3 resolved.
+  23 differential tests, 22 replay tests, 102 BDD scenarios, 147 unit tests pass.

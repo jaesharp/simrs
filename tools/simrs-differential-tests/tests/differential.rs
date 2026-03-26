@@ -865,6 +865,116 @@ fn diff_authenticated_get_status() {
 }
 
 // -----------------------------------------------------------------------
+// SCP03 on BOTH sides (now that simrs supports SCP03)
+// -----------------------------------------------------------------------
+
+/// SCP03 INITIALIZE UPDATE on simrs: verifies 29-byte response with SCP ID 0x03.
+#[test]
+fn diff_scp03_init_update_simrs() {
+    let mut dc = dual_card!("diff-scp03-iu");
+    dc.power_on();
+
+    let sel_s = select_aid(&SIMRS_ISD_AID);
+    let _ = dc.simrs.process(SimEvent::Apdu(&sel_s));
+
+    // INIT UPDATE with KV=0x03 (AES keys) on simrs.
+    let hc: [u8; 8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let mut iu = vec![0x80, 0x50, 0x03, 0x00, 0x08]; // KV=0x03
+    iu.extend_from_slice(&hc);
+    let simrs_iu = match dc.simrs.process(SimEvent::Apdu(&iu)) {
+        SimResponse::Apdu { data, sw } => {
+            assert_eq!(sw.to_bytes(), [0x90, 0x00], "simrs SCP03 INIT UPDATE failed");
+            data.to_vec()
+        }
+        other => panic!("unexpected simrs response: {other:?}"),
+    };
+
+    // SCP03 INIT UPDATE response is 29 bytes.
+    assert_eq!(simrs_iu.len(), 29, "SCP03 INIT UPDATE should be 29 bytes, got {}", simrs_iu.len());
+    assert_eq!(simrs_iu[11], 0x03, "SCP ID should be 0x03");
+    assert_eq!(simrs_iu[10], 0x03, "key version should be 0x03");
+    assert_eq!(simrs_iu[12], 0x00, "i parameter should be 0x00 (explicit)");
+
+    eprintln!("simrs SCP03 INIT UPDATE: {} bytes, SCP={:02X}, KV={:02X}, i={:02X}",
+        simrs_iu.len(), simrs_iu[11], simrs_iu[10], simrs_iu[12]);
+}
+
+/// SCP03 full mutual auth on simrs with authenticated GET STATUS.
+#[test]
+fn diff_scp03_full_auth_simrs() {
+    let mut dc = dual_card!("diff-scp03-auth");
+    dc.power_on();
+
+    let sel_s = select_aid(&SIMRS_ISD_AID);
+    let _ = dc.simrs.process(SimEvent::Apdu(&sel_s));
+
+    let hc: [u8; 8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let mut iu = vec![0x80, 0x50, 0x03, 0x00, 0x08]; // KV=0x03 for SCP03
+    iu.extend_from_slice(&hc);
+    let simrs_iu = match dc.simrs.process(SimEvent::Apdu(&iu)) {
+        SimResponse::Apdu { data, sw } => {
+            assert_eq!(sw.to_bytes(), [0x90, 0x00]);
+            data.to_vec()
+        }
+        other => panic!("unexpected: {other:?}"),
+    };
+
+    assert_eq!(simrs_iu[11], 0x03, "simrs should report SCP03");
+
+    // Parse SCP03 INIT UPDATE response.
+    let mut cc = [0u8; 8];
+    cc.copy_from_slice(&simrs_iu[13..21]);
+
+    // Derive SCP03 session keys using the same function as the card.
+    let (_s_enc, s_mac, _s_rmac) = simrs_gp_scp::derive_scp03_session_keys(
+        &simrs_differential_tests::KEY_BYTES,
+        &simrs_differential_tests::KEY_BYTES,
+        &hc, &cc,
+    );
+
+    // Verify card cryptogram.
+    let expected_card_crypto = simrs_gp_scp::compute_scp03_card_cryptogram(&s_mac, &hc, &cc);
+    assert_eq!(&simrs_iu[21..29], &expected_card_crypto, "card cryptogram mismatch");
+
+    // Compute host cryptogram.
+    let host_crypto = simrs_gp_scp::compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
+
+    // Compute C-MAC for EXT AUTH.
+    let (ea_cmac, new_cv) = simrs_gp_scp::scp03_generate_cmac(
+        &s_mac, &[0u8; 16], &[0x84, 0x82, 0x01, 0x00], &host_crypto,
+    );
+
+    let mut ea = vec![0x84, 0x82, 0x01, 0x00, 0x10];
+    ea.extend_from_slice(&host_crypto);
+    ea.extend_from_slice(&ea_cmac);
+    let simrs_ea = dc.simrs.process(SimEvent::Apdu(&ea));
+    assert!(
+        matches!(simrs_ea, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]),
+        "simrs SCP03 EXT AUTH failed: {simrs_ea:?}"
+    );
+
+    // Send authenticated GET STATUS with SCP03 C-MAC.
+    let gs_data = [0x4F, 0x00];
+    let (gs_cmac, _) = simrs_gp_scp::scp03_generate_cmac(
+        &s_mac, &new_cv, &[0x80, 0xF2, 0x80, 0x00], &gs_data,
+    );
+    let mut gs_apdu = vec![0x84, 0xF2, 0x80, 0x00, 0x0A, 0x4F, 0x00];
+    gs_apdu.extend_from_slice(&gs_cmac);
+    let simrs_gs = match dc.simrs.process(SimEvent::Apdu(&gs_apdu)) {
+        SimResponse::Apdu { data, sw } => {
+            eprintln!("simrs SCP03 GET STATUS: SW={:02X}{:02X} data_len={}",
+                sw.to_bytes()[0], sw.to_bytes()[1], data.len());
+            (data.to_vec(), sw.to_bytes())
+        }
+        other => panic!("unexpected: {other:?}"),
+    };
+
+    assert_eq!(simrs_gs.1, [0x90, 0x00], "SCP03 authenticated GET STATUS should succeed");
+    assert!(!simrs_gs.0.is_empty(), "GET STATUS should return ISD data");
+    eprintln!("SCP03 authenticated GET STATUS data[{}]: {:02X?}", simrs_gs.0.len(), &simrs_gs.0);
+}
+
+// -----------------------------------------------------------------------
 // APDU sequence: SELECT then GET DATA
 // -----------------------------------------------------------------------
 

@@ -218,7 +218,7 @@ fn replay_get_data_cplc() {
 
     for result in &results {
         match result {
-            CompareResult::SwMatch { .. } | CompareResult::Match => {
+            CompareResult::Match | CompareResult::DataMismatch { .. } => {
                 eprintln!("CPLC: both implementations succeed");
             }
             other => eprintln!("CPLC result: {other:?}"),

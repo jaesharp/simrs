@@ -351,7 +351,10 @@ pub fn try_create_dual_card(_label: &str) -> Option<DualCard> {
         .expect("failed to connect to jcsl");
 
     let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-    let card = GpCard::with_default_atr(&keys);
+    let mut card = GpCard::with_default_atr(&keys);
+    // Add AES-128 keys at version 0x03 for SCP03 testing.
+    let aes_keys = KeySet::aes128(KEY_BYTES, KEY_BYTES, KEY_BYTES);
+    let _ = card.open_mut().add_key(0x03, &aes_keys);
 
     Some(DualCard {
         simrs: card,
