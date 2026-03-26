@@ -133,7 +133,7 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
   Scenario: Implicit selection of default selectable app after ATR
     # GP 2.1.1 clause 6.3
     When the card is reset (ATR)
-    And I send GET DATA [80 CA 00 42 00] for card data on the basic channel
+    And I send GET DATA [80 CA 00 66 00] for card data on the basic channel
     Then SW is 90 00
     And the ISD is the implicitly selected application
 

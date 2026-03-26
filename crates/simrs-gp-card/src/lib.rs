@@ -397,7 +397,7 @@ fn fnv1a(data: &[u8]) -> u64 {
 mod tests {
     use super::*;
     use simrs_gp_keys::KeySet;
-    use simrs_gp_open::{CardLifecycle, INS_GET_STATUS, INS_INITIALIZE_UPDATE};
+    use simrs_gp_open::{CardLifecycle, INS_GET_DATA, INS_INITIALIZE_UPDATE};
 
     fn test_keys() -> KeySet {
         let k = [
@@ -521,22 +521,18 @@ mod tests {
         let mut card = make_card();
         let _ = card.process(SimEvent::PowerOn);
 
-        // GET STATUS P1=0x80 (ISD): 80 F2 80 00
-        let apdu = [0x80, INS_GET_STATUS, 0x80, 0x00];
+        // GET DATA 0066 does not require auth and returns card lifecycle.
+        // GP 2.1.1 clause 9.6: GET DATA is auth-exempt.
+        let apdu = [0x80, INS_GET_DATA, 0x00, 0x66];
         let rsp = card.process(SimEvent::Apdu(&apdu));
         match rsp {
             SimResponse::Apdu { data, sw } => {
-                assert_eq!(sw.to_bytes(), [0x90, 0x00], "GET STATUS should succeed");
-                // Response: AID_len(1) + AID(7) + lifecycle(1) + privileges(1) = 10 bytes
-                assert!(data.len() >= 10, "GET STATUS should return ISD data");
-                assert_eq!(data[0], 7, "ISD AID length should be 7");
-                assert_eq!(
-                    &data[1..8],
-                    &[0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00],
-                    "ISD AID should be default GP AID"
-                );
+                assert_eq!(sw.to_bytes(), [0x90, 0x00], "GET DATA 0066 should succeed");
+                // Card recognition data starts with tag 66.
+                assert!(data.len() >= 15, "should return card recognition data");
+                assert_eq!(data[0], 0x66, "outer tag should be 66");
             }
-            _ => panic!("expected Apdu response for GET STATUS"),
+            _ => panic!("expected Apdu response for GET DATA"),
         }
 
         // Verify card lifecycle from accessor.
@@ -573,15 +569,16 @@ mod tests {
         // Verify restored card is Ready.
         assert!(card2.is_ready());
 
-        // Verify restored card can process APDUs (GET STATUS should work).
-        let get_status = [0x80, INS_GET_STATUS, 0x80, 0x00];
-        let rsp = card2.process(SimEvent::Apdu(&get_status));
+        // Verify restored card can process APDUs. Use GET DATA 0066 which
+        // is auth-exempt (GP 2.1.1 clause 9.6).
+        let get_data = [0x80, INS_GET_DATA, 0x00, 0x66];
+        let rsp = card2.process(SimEvent::Apdu(&get_data));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 assert_eq!(
                     sw.to_bytes(),
                     [0x90, 0x00],
-                    "restored card should handle GET STATUS"
+                    "restored card should handle GET DATA"
                 );
             }
             _ => panic!("restored card should be functional"),

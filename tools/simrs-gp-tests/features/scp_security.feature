@@ -25,7 +25,7 @@
 #   90 00  mutual authentication successful
 #   69 85  conditions of use not satisfied
 #   69 88  incorrect secure messaging data object
-#   6A 88  referenced data not found
+#   6A 86  incorrect parameters P1-P2 (wrong key version)
 
 Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Traore SSR 2016)
   As a GlobalPlatform card simulator
@@ -95,11 +95,11 @@ Feature: SCP Protocol Security Regressions (Avoine/Ferreira TCHES 2018, Sabt/Tra
     # All "key not found" failures must return the same SW regardless of which
     # key version was tried, preventing key version enumeration timing.
     When I send INITIALIZE UPDATE with key version 0x7F and host challenge [01 02 03 04 05 06 07 08]
-    Then SW is 6A 88
+    Then SW is 6A 86
     When I send INITIALIZE UPDATE with key version 0x30 and host challenge [01 02 03 04 05 06 07 08]
-    Then SW is 6A 88
+    Then SW is 6A 86
     When I send INITIALIZE UPDATE with key version 0xFF and host challenge [01 02 03 04 05 06 07 08]
-    Then SW is 6A 88
+    Then SW is 6A 86
 
   Scenario: Uniform error responses for EXTERNAL AUTHENTICATE cryptogram failures
     # GP 2.1.1 clause 8.2; Avoine & Ferreira, J. Cryptol. 38(9), 2025

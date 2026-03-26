@@ -208,7 +208,7 @@ fn replay_get_data_card_recognition() {
 
 /// Mirrors: "GET DATA CPLC"
 ///
-/// Oracle supports CPLC (9F7F), simrs does not. Known divergence.
+/// Both simrs and Oracle support CPLC (9F7F). SW should match.
 #[test]
 fn replay_get_data_cplc() {
     let mut s = diff_session!("replay-gd-cplc");
@@ -218,8 +218,8 @@ fn replay_get_data_cplc() {
 
     for result in &results {
         match result {
-            CompareResult::SwMismatch { real_sw, shadow_sw } => {
-                eprintln!("Known CPLC divergence: simrs={real_sw:02X?} oracle={shadow_sw:02X?}");
+            CompareResult::SwMatch { .. } | CompareResult::Match => {
+                eprintln!("CPLC: both implementations succeed");
             }
             other => eprintln!("CPLC result: {other:?}"),
         }
@@ -230,11 +230,7 @@ fn replay_get_data_cplc() {
 // Error handling scenarios
 // -----------------------------------------------------------------------
 
-/// Invalid GP-class INS byte. Both should reject.
-///
-/// simrs returns 69 85 (SCP auth required before reaching INS dispatch);
-/// Oracle may return 6D 00 (INS not supported). Both reject -- the SW
-/// class (6x) matches even if the exact SW2 differs.
+/// Invalid GP-class INS byte. Both should reject with 6D 00 (INS not supported).
 #[test]
 fn replay_invalid_gp_ins() {
     let mut s = diff_session!("replay-bad-ins-gp");
@@ -369,7 +365,7 @@ fn replay_get_data_multi_tag() {
         vec![0x80, 0xCA, 0x00, 0x66],           // Card Recognition Data
         vec![0x80, 0xCA, 0x00, 0x42, 0x00],     // ISD AID
         vec![0x80, 0xCA, 0xDE, 0xAD],           // Unknown tag
-        vec![0x80, 0xCA, 0x9F, 0x7F, 0x00],     // CPLC (divergence expected)
+        vec![0x80, 0xCA, 0x9F, 0x7F, 0x00],     // CPLC
     ];
 
     let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();

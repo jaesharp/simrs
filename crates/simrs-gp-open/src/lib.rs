@@ -112,7 +112,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
 
         Self {
             card_lifecycle: CardLifecycle::OpReady,
-            isd: SecurityDomain::new(&DEFAULT_ISD_AID, AppletLifecycle::Selectable, 0x00),
+            isd: SecurityDomain::new(&DEFAULT_ISD_AID, AppletLifecycle::Selectable, 0x1E),
             sds: [const { None }; MAX_SDS],
             registry: [const { None }; MAX_APPLETS],
             load_files: [const { None }; MAX_LOAD_FILES],
@@ -132,7 +132,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
     /// Create with a custom ISD AID.
     pub fn with_isd_aid(isd_aid: &[u8], keys: &simrs_gp_keys::KeySet) -> Self {
         let mut gp = Self::new(keys);
-        gp.isd = SecurityDomain::new(isd_aid, AppletLifecycle::Selectable, 0x00);
+        gp.isd = SecurityDomain::new(isd_aid, AppletLifecycle::Selectable, 0x1E);
         gp
     }
 
@@ -350,6 +350,26 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             _ => {}
         }
 
+        // GP 2.1.1 clause 9: reject unknown INS before checking auth state.
+        // This ensures invalid INS returns 6D00 regardless of auth, matching
+        // Oracle behavior and preventing INS enumeration via auth state.
+        let known_ins = matches!(
+            cmd.ins(),
+            ins::SELECT
+                | INS_GET_STATUS
+                | INS_SET_STATUS
+                | INS_GET_DATA
+                | INS_MANAGE_CHANNEL
+                | INS_INSTALL
+                | INS_DELETE
+                | INS_LOAD
+                | INS_PUT_KEY
+                | INS_STORE_DATA
+        );
+        if !known_ins {
+            return write_sw(buf, StatusWord::InsNotSupported);
+        }
+
         // GP 2.1.1 clause 8: commands that require an authenticated SCP session.
         // Exempt: SELECT, GET DATA, MANAGE CHANNEL -- these work without auth.
         let auth_exempt = matches!(
@@ -491,8 +511,10 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                 if (channel as usize) < self.channels.len() {
                     self.channels[channel as usize].select_applet(idx as u8);
                 }
-                let selected_aid = self.registry[idx].as_ref().map(registry::AppletEntry::aid);
-                return Self::select_response(buf, selected_aid.unwrap_or(aid));
+                let entry = self.registry[idx].as_ref();
+                let selected_aid = entry.map_or(aid, registry::AppletEntry::aid);
+                let lc = entry.map_or(0x00, |e| e.lifecycle().to_byte());
+                return Self::select_response(buf, selected_aid, lc);
             }
             return write_sw(buf, StatusWord::wrong_params(0x82));
         }
@@ -505,7 +527,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             if (channel as usize) < self.channels.len() {
                 self.channels[channel as usize].deselect();
             }
-            return Self::select_response(buf, self.isd.aid());
+            return Self::select_response(buf, self.isd.aid(), self.isd.lifecycle().to_byte());
         }
 
         // Search registry for matching AID (exact, prefix, or partial).
@@ -513,26 +535,39 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             if (channel as usize) < self.channels.len() {
                 self.channels[channel as usize].select_applet(idx as u8);
             }
-            let selected_aid = self.registry[idx].as_ref().map(registry::AppletEntry::aid);
-            return Self::select_response(buf, selected_aid.unwrap_or(aid));
+            let entry = self.registry[idx].as_ref();
+            let selected_aid = entry.map_or(aid, registry::AppletEntry::aid);
+            let lc = entry.map_or(0x00, |e| e.lifecycle().to_byte());
+            return Self::select_response(buf, selected_aid, lc);
         }
 
         // Not found.
         write_sw(buf, StatusWord::wrong_params(0x82))
     }
 
-    /// Build FCI response for SELECT: `6F { 84 { AID } }`.
+    /// Build FCI response for SELECT per GP 2.1.1 clause 9.9.3.1 Table 9-13:
+    /// `6F { 84 { AID } A5 { 9F65 { lifecycle } } }`.
     #[allow(clippy::cast_possible_truncation)]
-    fn select_response<'buf>(buf: &'buf mut [u8], aid: &[u8]) -> &'buf [u8] {
-        // FCI template: 6F len { 84 aid_len aid }
-        let inner_len = 2 + aid.len(); // tag 84 + aid_len + aid
+    fn select_response<'buf>(buf: &'buf mut [u8], aid: &[u8], lifecycle: u8) -> &'buf [u8] {
+        // FCI template: 6F len { 84 aid_len aid  A5 len { 9F65 01 lifecycle } }
+        let a5_inner = 4usize; // tag 9F65(2) + len(1) + lifecycle(1)
+        let a5_block = 2 + a5_inner; // tag A5(1) + len(1) + inner
+        let inner_len = 2 + aid.len() + a5_block; // tag 84 + aid_len + aid + A5 block
         let fci_len = 2 + inner_len; // tag 6F + len + inner
-        let mut fci = [0u8; 36]; // max: 2 + 2 + 16 = 20
+        let mut fci = [0u8; 42]; // max: 2 + 2 + 16 + 6 = 26
         fci[0] = 0x6F;
         fci[1] = inner_len as u8;
         fci[2] = 0x84;
         fci[3] = aid.len() as u8;
-        fci[4..4 + aid.len()].copy_from_slice(aid);
+        let mut off = 4;
+        fci[off..off + aid.len()].copy_from_slice(aid);
+        off += aid.len();
+        fci[off] = 0xA5;
+        fci[off + 1] = a5_inner as u8;
+        fci[off + 2] = 0x9F;
+        fci[off + 3] = 0x65;
+        fci[off + 4] = 0x01;
+        fci[off + 5] = lifecycle;
         write_data_sw(buf, &fci[..fci_len], StatusWord::Success)
     }
 
@@ -574,7 +609,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
 
         // Look up key set.
         let Some((keys, actual_version)) = self.key_store.get_or_default(key_version) else {
-            return write_sw(buf, StatusWord::wrong_params(0x88));
+            return write_sw(buf, StatusWord::wrong_params(0x86));
         };
 
         // Select SCP version from the key set.
@@ -855,12 +890,17 @@ mod tests {
         let apdu = [CLA_GP, INS_GET_STATUS, 0x80, 0x00];
         let rsp = gp.handle(&apdu, &mut buf);
 
-        // Response: AID_len(1) + AID(7) + lifecycle(1) + privileges(1) + SW(2) = 12
-        assert_eq!(rsp.len(), 12);
-        assert_eq!(rsp[0], 7); // AID length
-        assert_eq!(&rsp[1..8], &DEFAULT_ISD_AID);
-        assert_eq!(rsp[8], AppletLifecycle::Selectable.to_byte()); // lifecycle
-        assert_eq!(&rsp[10..12], &[0x90, 0x00]); // SW
+        // Response: E3 TLV per GP 2.1.1 Table 9-7 + SW(2)
+        // E3 { 4F { AID(7) } 9F70 01 { lifecycle } C5 01 { privileges } } + SW
+        // = 2 + (2+7) + 4 + 3 + 2 = 20
+        assert_eq!(rsp.len(), 20);
+        assert_eq!(rsp[0], 0xE3); // E3 tag
+        assert_eq!(rsp[2], 0x4F); // 4F tag (AID)
+        assert_eq!(rsp[3], 7);    // AID length
+        assert_eq!(&rsp[4..11], &DEFAULT_ISD_AID);
+        assert_eq!(&rsp[11..15], &[0x9F, 0x70, 0x01, AppletLifecycle::Selectable.to_byte()]);
+        assert_eq!(&rsp[15..18], &[0xC5, 0x01, 0x9E]); // ISD privileges
+        assert_eq!(&rsp[18..20], &[0x90, 0x00]); // SW
     }
 
     #[test]

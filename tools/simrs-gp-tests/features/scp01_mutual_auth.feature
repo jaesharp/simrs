@@ -41,7 +41,7 @@
 #
 # Status words:
 #   90 00  mutual authentication successful
-#   6A 88  referenced data not found (wrong key version/identifier)
+#   6A 86  incorrect parameters P1-P2 (wrong key version)
 #   69 85  conditions of use not satisfied (command not allowed in current state)
 
 Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
@@ -160,9 +160,9 @@ Feature: SCP01 Mutual Authentication (GP 2.1.1 Appendix D)
   # must reject the command.
   # ---------------------------------------------------------------------------
 
-  Scenario: INITIALIZE UPDATE with wrong key version returns 6A 88
+  Scenario: INITIALIZE UPDATE with wrong key version returns 6A 86
     When I send INITIALIZE UPDATE with key version 0xFF and host challenge [01 02 03 04 05 06 07 08]
-    Then SW is 6A 88
+    Then SW is 6A 86
     And no SCP session is established
 
   # ---------------------------------------------------------------------------

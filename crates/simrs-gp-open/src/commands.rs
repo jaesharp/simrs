@@ -52,7 +52,8 @@ const P1_ELF: u8 = 0x20;
 /// - 0x40: Applications and Security Domains
 /// - 0x20: Executable Load Files (stub: empty)
 ///
-/// Response format per entry: AID length (1) || AID || lifecycle (1) || privileges (1).
+/// Response format per entry (GP 2.1.1 Table 9-7):
+/// `E3 { 4F { AID } 9F70 01 { lifecycle } C5 01 { privileges } }`.
 #[allow(clippy::cast_possible_truncation)]
 pub fn get_status<'buf, const N: usize, const M: usize, const L: usize>(
     isd: &SecurityDomain,
@@ -69,70 +70,27 @@ pub fn get_status<'buf, const N: usize, const M: usize, const L: usize>(
 
     match p1 {
         P1_ISD => {
-            // Return the ISD entry.
-            let aid = isd.aid();
-            if off + 1 + aid.len() + 2 > buf.len().saturating_sub(2) {
+            if !write_e3_entry(buf, &mut off, isd.aid(), isd.lifecycle().to_byte(), isd.privileges()) {
                 return write_sw(buf, StatusWord::WrongLength);
             }
-            buf[off] = aid.len() as u8;
-            off += 1;
-            buf[off..off + aid.len()].copy_from_slice(aid);
-            off += aid.len();
-            buf[off] = isd.lifecycle().to_byte();
-            off += 1;
-            buf[off] = isd.privileges();
-            off += 1;
         }
         P1_APPS => {
-            // List all applications and SDs.
             for entry in registry.iter().flatten() {
-                let aid = entry.aid();
-                let needed = 1 + aid.len() + 2;
-                if off + needed > buf.len().saturating_sub(2) {
+                if !write_e3_entry(buf, &mut off, entry.aid(), entry.lifecycle().to_byte(), entry.privileges()) {
                     break;
                 }
-                buf[off] = aid.len() as u8;
-                off += 1;
-                buf[off..off + aid.len()].copy_from_slice(aid);
-                off += aid.len();
-                buf[off] = entry.lifecycle().to_byte();
-                off += 1;
-                buf[off] = entry.privileges();
-                off += 1;
             }
-            // Also list supplementary SDs.
             for sd in sds.iter().flatten() {
-                let aid = sd.aid();
-                let needed = 1 + aid.len() + 2;
-                if off + needed > buf.len().saturating_sub(2) {
+                if !write_e3_entry(buf, &mut off, sd.aid(), sd.lifecycle().to_byte(), sd.privileges()) {
                     break;
                 }
-                buf[off] = aid.len() as u8;
-                off += 1;
-                buf[off..off + aid.len()].copy_from_slice(aid);
-                off += aid.len();
-                buf[off] = sd.lifecycle().to_byte();
-                off += 1;
-                buf[off] = sd.privileges();
-                off += 1;
             }
         }
         P1_ELF => {
-            // Executable Load Files.
             for lf in load_files.iter().flatten() {
-                let aid = lf.aid();
-                let needed = 1 + aid.len() + 2;
-                if off + needed > buf.len().saturating_sub(2) {
+                if !write_e3_entry(buf, &mut off, lf.aid(), 0x01, 0x00) {
                     break;
                 }
-                buf[off] = aid.len() as u8;
-                off += 1;
-                buf[off..off + aid.len()].copy_from_slice(aid);
-                off += aid.len();
-                buf[off] = 0x01; // "Loaded" lifecycle
-                off += 1;
-                buf[off] = 0x00; // no privileges
-                off += 1;
             }
         }
         _ => {
@@ -148,6 +106,35 @@ pub fn get_status<'buf, const N: usize, const M: usize, const L: usize>(
     buf[off] = sw[0];
     buf[off + 1] = sw[1];
     &buf[..off + 2]
+}
+
+/// Write one E3 TLV entry into `buf` at `off`. Returns false if buffer too small.
+#[allow(clippy::cast_possible_truncation)]
+fn write_e3_entry(buf: &mut [u8], off: &mut usize, aid: &[u8], lifecycle: u8, privileges: u8) -> bool {
+    // E3 { 4F { AID } 9F70 01 { lifecycle } C5 01 { privileges } }
+    let inner_len = (2 + aid.len()) + 4 + 3; // 4F{AID} + 9F70{01}{lc} + C5{01}{priv}
+    let total = 2 + inner_len;
+    if *off + total + 2 > buf.len() {
+        return false;
+    }
+    buf[*off] = 0xE3;
+    buf[*off + 1] = inner_len as u8;
+    *off += 2;
+    buf[*off] = 0x4F;
+    buf[*off + 1] = aid.len() as u8;
+    *off += 2;
+    buf[*off..*off + aid.len()].copy_from_slice(aid);
+    *off += aid.len();
+    buf[*off] = 0x9F;
+    buf[*off + 1] = 0x70;
+    buf[*off + 2] = 0x01;
+    buf[*off + 3] = lifecycle;
+    *off += 4;
+    buf[*off] = 0xC5;
+    buf[*off + 1] = 0x01;
+    buf[*off + 2] = privileges;
+    *off += 3;
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -523,10 +510,12 @@ pub fn delete<const N: usize, const M: usize, const L: usize>(
 // GET DATA (GP 2.1.1 clause 9.6)
 // ---------------------------------------------------------------------------
 
-/// Tag 0x0042: ISD AID / Card Data.
-const TAG_ISD_AID: u16 = 0x0042;
+/// Tag 0x0042: Issuer Identification Number (IIN).
+const TAG_IIN: u16 = 0x0042;
 /// Tag 0x0066: Card Data / Card Recognition Data.
 const TAG_CARD_DATA: u16 = 0x0066;
+/// Tag 0x9F7F: Card Production Life Cycle (CPLC) data.
+const TAG_CPLC: u16 = 0x9F7F;
 
 /// Response schema for GET DATA tag 0066 (Card Recognition Data).
 ///
@@ -561,49 +550,64 @@ pub static GET_DATA_0066_SCHEMA: simrs_apdu_schema::ResponseSchema =
 /// Process GET DATA command.
 ///
 /// P1P2 encodes the tag being requested. Supported tags:
-/// - 0x0042: ISD AID
+/// - 0x0042: IIN (not configured -- returns 6A 88)
 /// - 0x0066: Card Recognition Data
+/// - 0x9F7F: CPLC (Card Production Life Cycle)
 pub fn get_data<'buf>(
     card_lifecycle: CardLifecycle,
-    isd_aid: &[u8],
+    _isd_aid: &[u8],
     cmd: &Command<'_>,
     buf: &'buf mut [u8],
 ) -> &'buf [u8] {
     let tag = u16::from_be_bytes([cmd.p1(), cmd.p2()]);
 
     match tag {
-        TAG_ISD_AID => {
-            // Return ISD AID per GP 2.1.1 Table 9-2.
-            write_data_sw(buf, isd_aid, StatusWord::Success)
+        TAG_IIN => {
+            // GP 2.1.1 Table 9-2: IIN is a separate data object, not the ISD AID.
+            // IIN is not configured on this simulator.
+            write_sw(buf, StatusWord::wrong_params(0x88))
         }
-        TAG_CARD_DATA => {
-            // Return Card Recognition Data per GP 2.1.1 Table 9-3.
-            // Minimal: tag 66 + length + OID for GP 2.1.1.
-            // GP 2.1.1 card recognition data OID: 1.2.840.114283.1
-            // Encoded: 06 07 2A 86 48 86 FC 6B 01
-            // Wrapped in tag 73 (card data):
-            //   73 0B 06 07 2A 86 48 86 FC 6B 01 <lifecycle> <scp>
-            let data: [u8; 15] = [
-                0x66,
-                0x0D, // tag 66, length 13
-                0x73,
-                0x0B, // tag 73 (card recognition data), length 11
-                0x06,
-                0x07, // OID tag, length 7
-                0x2A,
-                0x86,
-                0x48,
-                0x86,
-                0xFC,
-                0x6B,
-                0x01,                     // GP 2.1.1 OID
-                card_lifecycle.to_byte(), // card lifecycle
-                0x02,                     // SCP02 identifier
-            ];
-            write_data_sw(buf, &data, StatusWord::Success)
-        }
+        TAG_CARD_DATA => get_data_card_recognition(card_lifecycle, buf),
+        TAG_CPLC => get_data_cplc(buf),
         _ => write_sw(buf, StatusWord::wrong_params(0x88)),
     }
+}
+
+/// Card Recognition Data per GP 2.1.1 Table 9-3 with extended OIDs.
+fn get_data_card_recognition(card_lifecycle: CardLifecycle, buf: &mut [u8]) -> &[u8] {
+    #[rustfmt::skip]
+    let data: [u8; 53] = [
+        0x66, 0x33,                                         // tag 66, length 51
+        0x73, 0x31,                                         // tag 73 (card recognition data), length 49
+        0x06, 0x07,                                         // OID tag, length 7
+        0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x01,         // GP 2.1.1 OID: 1.2.840.114283.1
+        card_lifecycle.to_byte(),                           // card lifecycle
+        0x02,                                               // SCP02 identifier
+        // Tag 60: Card Management Type OID (SSD support)
+        0x60, 0x0C,                                         // tag 60, length 12
+        0x06, 0x0A,                                         // OID tag, length 10
+        0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x02, 0x02, 0x01, 0x01,
+        // Tag 63: Card Identification Scheme OID
+        0x63, 0x09,                                         // tag 63, length 9
+        0x06, 0x07,                                         // OID tag, length 7
+        0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x03,
+        // Tag 64: Secure Channel Protocol OID (SCP02, i=0x15)
+        0x64, 0x0B,                                         // tag 64, length 11
+        0x06, 0x09,                                         // OID tag, length 9
+        0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x04, 0x02, 0x15,
+    ];
+    write_data_sw(buf, &data, StatusWord::Success)
+}
+
+/// CPLC (Card Production Life Cycle) data per GP 2.1.1 clause 9.6.
+/// Returns tag 9F7F with 42 bytes of manufacturing data (all zeros for simulator).
+fn get_data_cplc(buf: &mut [u8]) -> &[u8] {
+    let mut data = [0u8; 45];
+    data[0] = 0x9F;
+    data[1] = 0x7F;
+    data[2] = 0x2A; // 42 bytes of CPLC data
+    // Remaining 42 bytes are zero (simulator defaults).
+    write_data_sw(buf, &data, StatusWord::Success)
 }
 
 // ---------------------------------------------------------------------------

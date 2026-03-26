@@ -30,7 +30,7 @@
 #
 # Status words:
 #   90 00  mutual authentication successful
-#   6A 88  referenced data not found (wrong key version/identifier)
+#   6A 86  incorrect parameters P1-P2 (wrong key version)
 #   69 85  conditions of use not satisfied
 
 Feature: SCP02 Mutual Authentication (GP 2.1.1 Appendix E)

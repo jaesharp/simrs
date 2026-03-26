@@ -224,12 +224,11 @@ fn get_data_cplc_9f7f() {
     eprintln!("GET DATA CPLC simrs:  {:?}", dr.simrs);
     eprintln!("GET DATA CPLC Oracle: {:?}", dr.oracle);
 
-    // Oracle supports CPLC. simrs does not (returns 6A88 = referenced data not found).
-    // This is a known divergence.
-    eprintln!(
-        "CPLC divergence: simrs={:04X}, oracle={:04X}",
-        dr.simrs.sw16(),
-        dr.oracle.sw16()
+    // Both should support CPLC and return 9000.
+    assert!(
+        dr.simrs.is_success(),
+        "simrs should support CPLC: {:04X}",
+        dr.simrs.sw16()
     );
 }
 
@@ -567,8 +566,8 @@ fn diff_scp_wrong_key_version() {
     eprintln!("Bad KV: simrs={:04X}, oracle={:04X}", dr.simrs.sw16(), dr.oracle.sw16());
     assert!(!dr.simrs.is_success());
     assert!(!dr.oracle.is_success());
-    // Both should return 6A88 (referenced data not found).
-    assert_eq!(dr.simrs.sw, [0x6A, 0x88], "simrs should return 6A88");
+    // Both should return 6A86 (incorrect parameters P1-P2).
+    assert_eq!(dr.simrs.sw, [0x6A, 0x86], "simrs should return 6A86");
 }
 
 /// EXTERNAL AUTHENTICATE without INITIALIZE UPDATE: both reject.
@@ -629,7 +628,7 @@ fn diff_error_class_consistency() {
 
     // Test cases: (APDU, expected error class prefix)
     let cases: Vec<(Vec<u8>, u8)> = vec![
-        (vec![0x80, 0xFD, 0x00, 0x00], 0x69), // invalid GP INS -> 69xx (auth) or 6Dxx (INS)
+        (vec![0x80, 0xFD, 0x00, 0x00], 0x6D), // invalid GP INS -> 6Dxx (INS not supported)
         (vec![0x80, 0xF2, 0x80, 0x00], 0x69), // GET STATUS w/o auth -> 69xx
         (select_aid(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF]), 0x6A), // unknown AID -> 6Axx
     ];
@@ -687,14 +686,14 @@ fn diff_full_discovery_sequence() {
         dr2.simrs.sw16(), dr2.oracle.sw16());
     assert!(dr2.simrs.is_success() && dr2.oracle.is_success());
 
-    // 4. GET DATA CPLC (known divergence).
+    // 4. GET DATA CPLC.
     let dr3 = dc.exchange(&[0x80, 0xCA, 0x9F, 0x7F, 0x00]);
     eprintln!("Discovery step 4 (CPLC): simrs={:04X}, oracle={:04X}",
         dr3.simrs.sw16(), dr3.oracle.sw16());
 
     // Summary.
-    let steps_both_success = [&dr1, &dr2].iter().filter(|d| d.simrs.is_success() && d.oracle.is_success()).count();
-    eprintln!("Discovery: {steps_both_success}/2 steps matched (excluding CPLC divergence)");
+    let steps_both_success = [&dr1, &dr2, &dr3].iter().filter(|d| d.simrs.is_success() && d.oracle.is_success()).count();
+    eprintln!("Discovery: {steps_both_success}/3 steps matched");
 }
 
 // -----------------------------------------------------------------------
