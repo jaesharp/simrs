@@ -1736,6 +1736,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-jcasm-jva"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "simrs-jccompile",
+ "simrs-jcvm",
+ "syn",
+]
+
+[[package]]
 name = "simrs-jccompile"
 version = "0.1.0"
 dependencies = [

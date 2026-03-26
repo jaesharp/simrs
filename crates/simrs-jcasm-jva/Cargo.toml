@@ -1,0 +1,21 @@
+[package]
+name        = "simrs-jcasm-jva"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "JVA smartcard applet compiler -- proc-macro frontend for jcapplet!{}"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2    = "1"
+syn            = { version = "2", features = ["full", "extra-traits"] }
+quote          = "1"
+simrs-jccompile = { workspace = true }
+
+[dev-dependencies]
+simrs-jcvm = { workspace = true }
+
+[lints]
+workspace = true
