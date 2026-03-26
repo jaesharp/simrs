@@ -1724,6 +1724,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-jcasm"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "simrs-jcvm",
+ "syn",
+]
+
+[[package]]
 name = "simrs-jcop-profile"
 version = "0.1.0"
 

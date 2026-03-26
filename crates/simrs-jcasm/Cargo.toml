@@ -1,0 +1,20 @@
+[package]
+name        = "simrs-jcasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Java Card assembler, CAP builder, and test DSL for JCVM security testing"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+syn         = { version = "2", features = ["full", "extra-traits"] }
+quote       = "1"
+
+[dev-dependencies]
+simrs-jcvm = { workspace = true }
+
+[lints]
+workspace = true
