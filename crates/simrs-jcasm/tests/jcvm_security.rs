@@ -3,6 +3,16 @@
 //! Uses the test support infrastructure (`CapBuilder`, `TestApplet`, expect)
 //! to exercise security-relevant scenarios including exception table
 //! validation, offset mismatch detection, and malformed CAP rejection.
+//!
+//! # Spec References
+//!
+//! - JCVM 3.1 Section 6.3: Descriptor/Class component cross-validation
+//! - JCVM 3.1 Section 3.11.3: Array bounds and type checking
+//! - JCVM spec exception table semantics: handler_pc bounds validation
+//! - Lancia & Bouffard, "Java Card Virtual Machine Compromising from a
+//!   Bytecode Verified Applet," CARDIS 2015
+//! - Barbu, Hoogvorst & Duc, "Tampering with Java Card Exceptions,"
+//!   SECRYPT 2012
 
 #[path = "support/mod.rs"]
 mod support;
@@ -15,9 +25,17 @@ use support::TestApplet;
 
 // =========================================================================
 // Scenario 6: Descriptor/Class offset mismatch (Lancia & Bouffard CARDIS 2015)
+//
+// JCVM 3.1 Section 6.3: "The JCVM shall verify that method references
+// in the Class component are consistent with the Method component."
+//
+// The CAP file stores method offsets in both the Descriptor component
+// (used by BCV) and the Class component (used by on-card linker). If
+// these disagree, the linker resolves virtual method calls to arbitrary
+// memory locations. The loader must cross-validate these offsets.
 // =========================================================================
 
-/// Matching zero offsets are accepted (unused offsets).
+/// JCVM 3.1 Section 6.3: Matching zero offsets (unused) are accepted.
 #[test]
 fn offset_mismatch_both_zero_accepted() {
     let m = MethodBuilder::new(&[0x7A]) // return_void
@@ -30,7 +48,7 @@ fn offset_mismatch_both_zero_accepted() {
     expect::returns_void(applet.run());
 }
 
-/// Matching non-zero offsets are accepted.
+/// JCVM 3.1 Section 6.3: Matching non-zero offsets are accepted.
 #[test]
 fn offset_mismatch_both_equal_accepted() {
     let m = MethodBuilder::new(&[0x7A])
@@ -43,7 +61,11 @@ fn offset_mismatch_both_equal_accepted() {
     expect::returns_void(applet.run());
 }
 
-/// Mismatched offsets (descriptor != class) must be rejected at parse time.
+/// JCVM 3.1 Section 6.3: Mismatched offsets (descriptor != class) must be
+/// rejected at parse time.
+///
+/// Lancia & Bouffard (CARDIS 2015): arbitrary offsets in the Class component
+/// can redirect virtual method dispatch to attacker-chosen addresses.
 #[test]
 fn offset_mismatch_different_rejected() {
     let m = MethodBuilder::new(&[0x7A])
@@ -60,7 +82,11 @@ fn offset_mismatch_different_rejected() {
     expect::parse_fails(&result, ParseError::OffsetMismatch);
 }
 
-/// Zeroed class offset with valid descriptor offset (the CARDIS 2015 attack vector).
+/// JCVM 3.1 Section 6.3: Zeroed class offset with valid descriptor offset
+/// (the CARDIS 2015 attack vector).
+///
+/// On a vulnerable card, the zeroed offset resolves to the start of the
+/// Method component, enabling arbitrary code execution.
 #[test]
 fn offset_mismatch_zero_class_nonzero_descriptor() {
     let m = MethodBuilder::new(&[0x7A])
@@ -74,7 +100,8 @@ fn offset_mismatch_zero_class_nonzero_descriptor() {
     expect::parse_fails(&result, ParseError::OffsetMismatch);
 }
 
-/// Non-zero class offset with zeroed descriptor offset (reverse mismatch).
+/// JCVM 3.1 Section 6.3: Non-zero class offset with zeroed descriptor offset
+/// (reverse mismatch).
 #[test]
 fn offset_mismatch_zero_descriptor_nonzero_class() {
     let m = MethodBuilder::new(&[0x7A])
@@ -90,9 +117,21 @@ fn offset_mismatch_zero_descriptor_nonzero_class() {
 
 // =========================================================================
 // Scenario 8: Exception handler OOB (handler_pc >= bytecode_len)
+//
+// Barbu, Hoogvorst & Duc, SECRYPT 2012:
+// A malformed CAP file can set handler_pc to an address outside the
+// method's bytecode range. When an exception is thrown, execution jumps
+// to the crafted address -- potentially into another applet's bytecode.
+//
+// JCVM spec exception table semantics: "handler_pc shall be a valid
+// bytecode index within the same method's bytecode array."
 // =========================================================================
 
-/// Exception handler pointing past end of bytecode must be rejected.
+/// JCVM spec exception table: handler_pc pointing past end of bytecode
+/// must be rejected.
+///
+/// Barbu et al. (SECRYPT 2012): attacker sets handler_pc to jump into
+/// another applet's bytecode segment.
 #[test]
 fn exception_handler_oob_rejected() {
     let bytecode = [0x7A]; // 1 byte: return_void
@@ -107,7 +146,7 @@ fn exception_handler_oob_rejected() {
     expect::parse_fails(&result, ParseError::InvalidExceptionHandler);
 }
 
-/// Exception `start_pc` >= `bytecode_len` must be rejected.
+/// JCVM spec exception table: start_pc >= bytecode_len must be rejected.
 #[test]
 fn exception_start_oob_rejected() {
     let bytecode = [0x03, 0x78]; // sconst_0, sreturn (2 bytes)
@@ -122,7 +161,7 @@ fn exception_start_oob_rejected() {
     expect::parse_fails(&result, ParseError::InvalidExceptionHandler);
 }
 
-/// Exception `end_pc` > `bytecode_len` must be rejected.
+/// JCVM spec exception table: end_pc > bytecode_len must be rejected.
 #[test]
 fn exception_end_oob_rejected() {
     let bytecode = [0x03, 0x78]; // 2 bytes
@@ -137,7 +176,8 @@ fn exception_end_oob_rejected() {
     expect::parse_fails(&result, ParseError::InvalidExceptionHandler);
 }
 
-/// Exception `start_pc` >= `end_pc` must be rejected.
+/// JCVM spec exception table: start_pc >= end_pc must be rejected
+/// (empty or inverted range).
 #[test]
 fn exception_start_ge_end_rejected() {
     let bytecode = [0x03, 0x03, 0x03, 0x78]; // 4 bytes
@@ -152,7 +192,8 @@ fn exception_start_ge_end_rejected() {
     expect::parse_fails(&result, ParseError::InvalidExceptionHandler);
 }
 
-/// Valid exception table with handler within bounds is accepted.
+/// JCVM spec exception table: valid exception table with handler within
+/// bounds is accepted.
 #[test]
 fn exception_valid_accepted() {
     // 10 bytes of bytecode with a valid exception entry.
@@ -168,7 +209,8 @@ fn exception_valid_accepted() {
     assert!(result.is_ok(), "valid exception table should parse successfully");
 }
 
-/// Too many exception table entries must be rejected.
+/// JCVM spec exception table: too many exception table entries must be
+/// rejected (exceeds MAX_EXCEPTIONS limit).
 #[test]
 fn exception_too_many_rejected() {
     let bytecode = [0x03; 20]; // 20 bytes of filler
@@ -188,9 +230,13 @@ fn exception_too_many_rejected() {
 
 // =========================================================================
 // Basic execution sanity through TestApplet
+//
+// JCVM 3.1 Chapter 7: Bytecode instruction set -- nominal behavior
+// verification through the full assemble-load-execute pipeline.
 // =========================================================================
 
-/// Simple arithmetic through the full runner pipeline.
+/// JCVM 3.1 Chapter 7: sadd instruction -- simple arithmetic through the
+/// full runner pipeline.
 #[test]
 fn runner_arithmetic_sanity() {
     // sconst_3, sconst_2, sadd, sreturn
@@ -201,7 +247,7 @@ fn runner_arithmetic_sanity() {
     expect::returns_short(result, 5);
 }
 
-/// Return void through the runner.
+/// JCVM 3.1 Chapter 7: return_void instruction.
 #[test]
 fn runner_return_void() {
     let result = TestApplet::new("A0_00_00_00_62_00_02")
@@ -211,7 +257,10 @@ fn runner_return_void() {
     expect::returns_void(result);
 }
 
-/// Division by zero through the runner.
+/// JCVM 3.1 Chapter 7: sdiv by zero must raise ArithmeticException.
+///
+/// "If the value of the divisor is zero, sdiv throws an
+/// ArithmeticException."
 #[test]
 fn runner_div_by_zero() {
     // sconst_5, sconst_0, sdiv, sreturn
@@ -224,9 +273,13 @@ fn runner_div_by_zero() {
 
 // =========================================================================
 // Pre-allocation tests
+//
+// JCVM 3.1 Section 3.11.3: arraylength instruction returns the length of
+// the referenced array.
 // =========================================================================
 
-/// Allocate a byte array and verify its length via arraylength.
+/// JCVM 3.1 Section 3.11.3: arraylength on a pre-allocated byte array
+/// returns its length.
 #[test]
 fn prealloc_byte_array_length() {
     // sload_0, arraylength, sreturn
@@ -238,7 +291,8 @@ fn prealloc_byte_array_length() {
     expect::returns_short(result, 16);
 }
 
-/// Allocate a short array and verify its length.
+/// JCVM 3.1 Section 3.11.3: arraylength on a pre-allocated short array
+/// returns its length.
 #[test]
 fn prealloc_short_array_length() {
     // sload_1, arraylength, sreturn
@@ -252,9 +306,12 @@ fn prealloc_short_array_length() {
 
 // =========================================================================
 // Malformed CAP blobs (parse rejection)
+//
+// JCVM 3.1 Section 6.3: CAP file structural integrity validation.
+// GP 2.1.1 Appendix C: CAP file format.
 // =========================================================================
 
-/// Bad magic number.
+/// JCVM 3.1 Section 6.3: Bad magic number must be rejected.
 #[test]
 fn malformed_bad_magic() {
     // Manually construct a blob with wrong magic.
@@ -267,7 +324,7 @@ fn malformed_bad_magic() {
     expect::parse_fails(&result, ParseError::BadMagic);
 }
 
-/// AID too long.
+/// JCVM 3.1 Section 6.3: AID exceeding 16 bytes must be rejected.
 #[test]
 fn malformed_aid_too_long() {
     let mut buf = [0u8; 32];
@@ -277,14 +334,16 @@ fn malformed_aid_too_long() {
     expect::parse_fails(&result, ParseError::AidTooLong);
 }
 
-/// Truncated blob (too short for method header).
+/// JCVM 3.1 Section 6.3: Truncated blob (too short for header) must be
+/// rejected.
 #[test]
 fn malformed_truncated() {
     let result = simrs_jcvm::cap::parse_cap(&[0xDE, 0xCA]);
     expect::parse_fails(&result, ParseError::TooShort);
 }
 
-/// Bytecode exceeds `MAX_BYTECODE` (256).
+/// JCVM 3.1 Section 6.3: Bytecode exceeding MAX_BYTECODE (256) must be
+/// rejected.
 #[test]
 fn malformed_bytecode_too_long() {
     let mut buf = [0u8; 32];

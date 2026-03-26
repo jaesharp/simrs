@@ -27,6 +27,7 @@ simrs-card-api = { workspace = true }
 simrs-iso9797 = { workspace = true }
 simrs-secret  = { workspace = true }
 simrs-jcvm    = { workspace = true }
+simrs-jcasm   = { workspace = true }
 
 [[test]]
 name    = "cucumber"

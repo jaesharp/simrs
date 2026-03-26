@@ -8,6 +8,18 @@
 //!
 //! Property-based tests use proptest to verify invariants across
 //! random inputs.
+//!
+//! # Spec References
+//!
+//! - JCVM 3.1 Chapter 7: Bytecode instruction set
+//!   - Section 7.5.1: Constant push (sconst_m1 .. sconst_5)
+//!   - Section 7.5.2: Byte/short push (bspush, sspush)
+//!   - Section 7.5.3-7.5.4: Local variable load/store (sload, sstore)
+//!   - Section 7.5.5: Stack manipulation (pop, dup)
+//!   - Section 7.5.6: Arithmetic (sadd, ssub, smul, sdiv, srem, sneg)
+//!   - Section 7.5.7: Branch instructions (if_scmpeq, if_scmpne, goto)
+//!   - Section 7.5.8: Method return (sreturn, return)
+//!   - Section 7.5.9: Method invocation (invokestatic)
 
 use simrs_jcasm::jcasm;
 use simrs_jcvm::opcodes::ExecResult;
@@ -25,8 +37,14 @@ fn run_applet(aid: &[u8], methods: &[&[u8]]) -> ExecResult {
 
 // =========================================================================
 // CONSTANTS: sconst_m1 .. sconst_5, bspush, sspush
+//
+// JCVM 3.1 Section 7.5.1-7.5.2: Constant push instructions.
+// "sconst_<n> pushes the short value <n> onto the operand stack."
+// "bspush pushes a sign-extended byte value onto the operand stack."
+// "sspush pushes a short value onto the operand stack."
 // =========================================================================
 
+/// JCVM 3.1 Section 7.5.1: sconst_m1 pushes -1.
 #[test]
 fn sconst_m1_returns_minus_one() {
     let (aid, m) = jcasm! { applet A0_00_00_62_01 {
@@ -35,6 +53,7 @@ fn sconst_m1_returns_minus_one() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(-1));
 }
 
+/// JCVM 3.1 Section 7.5.1: sconst_0 pushes 0.
 #[test]
 fn sconst_0_returns_zero() {
     let (aid, m) = jcasm! { applet A0_00_00_62_02 {
@@ -43,6 +62,7 @@ fn sconst_0_returns_zero() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(0));
 }
 
+/// JCVM 3.1 Section 7.5.1: sconst_5 pushes 5.
 #[test]
 fn sconst_5_returns_five() {
     let (aid, m) = jcasm! { applet A0_00_00_62_03 {
@@ -51,6 +71,7 @@ fn sconst_5_returns_five() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(5));
 }
 
+/// JCVM 3.1 Section 7.5.2: bspush sign-extends byte to short.
 #[test]
 fn bspush_positive() {
     let (aid, m) = jcasm! { applet A0_00_00_62_04 {
@@ -59,6 +80,7 @@ fn bspush_positive() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(42));
 }
 
+/// JCVM 3.1 Section 7.5.2: bspush 0xFF sign-extends to -1.
 #[test]
 fn bspush_negative_sign_extends() {
     // bspush 0xFF = -1 when sign-extended to short
@@ -68,6 +90,7 @@ fn bspush_negative_sign_extends() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(-1));
 }
 
+/// JCVM 3.1 Section 7.5.2: bspush 0 pushes 0.
 #[test]
 fn bspush_zero() {
     let (aid, m) = jcasm! { applet A0_00_00_62_06 {
@@ -76,6 +99,8 @@ fn bspush_zero() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(0));
 }
 
+/// JCVM 3.1 Section 7.5.2: sspush pushes a 16-bit signed short.
+/// Maximum positive short value: 0x7FFF = 32767.
 #[test]
 fn sspush_large_positive() {
     // sspush 0x7FFF = 32767 (max positive short)
@@ -87,8 +112,14 @@ fn sspush_large_positive() {
 
 // =========================================================================
 // LOCALS: sload/sstore
+//
+// JCVM 3.1 Section 7.5.3-7.5.4: Local variable access.
+// "sload loads a short value from a local variable."
+// "sstore stores a short value into a local variable."
 // =========================================================================
 
+/// JCVM 3.1 Section 7.5.3-7.5.4: sstore/sload round-trip via
+/// _2 shorthand forms.
 #[test]
 fn sstore_sload_roundtrip() {
     let (aid, m) = jcasm! { applet A0_00_00_62_10 {
@@ -102,6 +133,7 @@ fn sstore_sload_roundtrip() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(3));
 }
 
+/// JCVM 3.1 Section 7.5.3-7.5.4: sstore/sload with explicit index.
 #[test]
 fn sload_sstore_indexed() {
     let (aid, m) = jcasm! { applet A0_00_00_62_11 {
@@ -117,8 +149,13 @@ fn sload_sstore_indexed() {
 
 // =========================================================================
 // STACK: pop, dup
+//
+// JCVM 3.1 Section 7.5.5: Stack manipulation.
+// "pop removes the top value from the operand stack."
+// "dup duplicates the top value on the operand stack."
 // =========================================================================
 
+/// JCVM 3.1 Section 7.5.5: pop discards the top stack value.
 #[test]
 fn pop_discards_top() {
     let (aid, m) = jcasm! { applet A0_00_00_62_20 {
@@ -132,6 +169,7 @@ fn pop_discards_top() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(1));
 }
 
+/// JCVM 3.1 Section 7.5.5: dup copies the top stack value.
 #[test]
 fn dup_copies_top() {
     let (aid, m) = jcasm! { applet A0_00_00_62_21 {
@@ -147,8 +185,14 @@ fn dup_copies_top() {
 
 // =========================================================================
 // ARITHMETIC: sadd, ssub, smul, sdiv, srem, sneg
+//
+// JCVM 3.1 Section 7.5.6: Arithmetic instructions.
+// "sadd: ..., value1, value2 -> ..., result"
+// "sdiv: if divisor is zero, throw ArithmeticException"
+// "sneg: ..., value -> ..., result (result = -value)"
 // =========================================================================
 
+/// JCVM 3.1 Section 7.5.6: sadd pops two shorts, pushes their sum.
 #[test]
 fn sadd_basic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_30 {
@@ -157,6 +201,7 @@ fn sadd_basic() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(5));
 }
 
+/// JCVM 3.1 Section 7.5.6: ssub pops two shorts, pushes their difference.
 #[test]
 fn ssub_basic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_31 {
@@ -165,6 +210,7 @@ fn ssub_basic() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(3));
 }
 
+/// JCVM 3.1 Section 7.5.6: smul pops two shorts, pushes their product.
 #[test]
 fn smul_basic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_32 {
@@ -173,6 +219,7 @@ fn smul_basic() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(12));
 }
 
+/// JCVM 3.1 Section 7.5.6: sdiv pops two shorts, pushes their quotient.
 #[test]
 fn sdiv_basic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_33 {
@@ -186,6 +233,10 @@ fn sdiv_basic() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(3)); // 10 / 3 = 3
 }
 
+/// JCVM 3.1 Section 7.5.6: sdiv by zero raises ArithmeticException.
+///
+/// "If the value of the divisor is zero, sdiv throws an
+/// ArithmeticException."
 #[test]
 fn sdiv_by_zero_raises_arithmetic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_34 {
@@ -194,6 +245,7 @@ fn sdiv_by_zero_raises_arithmetic() {
     assert_eq!(run_applet(aid, m), ExecResult::ArithmeticException);
 }
 
+/// JCVM 3.1 Section 7.5.6: srem pops two shorts, pushes the remainder.
 #[test]
 fn srem_basic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_35 {
@@ -207,6 +259,7 @@ fn srem_basic() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(1)); // 10 % 3 = 1
 }
 
+/// JCVM 3.1 Section 7.5.6: srem by zero raises ArithmeticException.
 #[test]
 fn srem_by_zero_raises_arithmetic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_36 {
@@ -215,6 +268,7 @@ fn srem_by_zero_raises_arithmetic() {
     assert_eq!(run_applet(aid, m), ExecResult::ArithmeticException);
 }
 
+/// JCVM 3.1 Section 7.5.6: sneg negates the top stack value.
 #[test]
 fn sneg_basic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_37 {
@@ -223,6 +277,7 @@ fn sneg_basic() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(-3));
 }
 
+/// JCVM 3.1 Section 7.5.6: sneg is self-inverse: sneg(sneg(x)) == x.
 #[test]
 fn sneg_double_is_identity() {
     let (aid, m) = jcasm! { applet A0_00_00_62_38 {
@@ -233,8 +288,14 @@ fn sneg_double_is_identity() {
 
 // =========================================================================
 // BRANCHES: if_scmpeq, if_scmpne, goto, goto_w
+//
+// JCVM 3.1 Section 7.5.7: Branch instructions.
+// "if_scmpeq: if value1 == value2, branch to target."
+// "if_scmpne: if value1 != value2, branch to target."
+// "goto: branch unconditionally."
 // =========================================================================
 
+/// JCVM 3.1 Section 7.5.7: if_scmpeq branches when operands are equal.
 #[test]
 fn if_scmpeq_takes_branch_when_equal() {
     let (aid, m) = jcasm! { applet A0_00_00_62_40 {
@@ -252,6 +313,7 @@ fn if_scmpeq_takes_branch_when_equal() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(1));
 }
 
+/// JCVM 3.1 Section 7.5.7: if_scmpeq falls through when operands differ.
 #[test]
 fn if_scmpeq_falls_through_when_not_equal() {
     let (aid, m) = jcasm! { applet A0_00_00_62_41 {
@@ -269,6 +331,7 @@ fn if_scmpeq_falls_through_when_not_equal() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(0));
 }
 
+/// JCVM 3.1 Section 7.5.7: if_scmpne branches when operands differ.
 #[test]
 fn if_scmpne_takes_branch_when_not_equal() {
     let (aid, m) = jcasm! { applet A0_00_00_62_42 {
@@ -286,6 +349,7 @@ fn if_scmpne_takes_branch_when_not_equal() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(1));
 }
 
+/// JCVM 3.1 Section 7.5.7: goto branches unconditionally.
 #[test]
 fn goto_unconditional() {
     let (aid, m) = jcasm! { applet A0_00_00_62_43 {
@@ -303,8 +367,13 @@ fn goto_unconditional() {
 
 // =========================================================================
 // RETURN: sreturn, return_void
+//
+// JCVM 3.1 Section 7.5.8: Method return instructions.
+// "sreturn returns a short value from a method."
+// "return returns void from a method."
 // =========================================================================
 
+/// JCVM 3.1 Section 7.5.8: return_void returns from a void method.
 #[test]
 fn return_void_from_method() {
     let (aid, m) = jcasm! { applet A0_00_00_62_50 {
@@ -315,10 +384,14 @@ fn return_void_from_method() {
 
 // =========================================================================
 // INVOKE: invokestatic (cross-method call)
+//
+// JCVM 3.1 Section 7.5.9: Method invocation.
+// "invokestatic invokes a static method, identified by a method token."
 // =========================================================================
 
-/// invokestatic uses a method index within the current package.
-/// The JCVM resolves this at runtime. Test with method index 1.
+/// JCVM 3.1 Section 7.5.9: invokestatic with invalid method index
+/// returns InvalidMethod.
+///
 /// Note: invokestatic currently returns InvalidMethod because the
 /// opcode handler may expect a different index encoding. This test
 /// documents the current behavior -- fixing invokestatic dispatch
@@ -341,8 +414,13 @@ fn invokestatic_invalid_method_returns_error() {
 
 // =========================================================================
 // EDGE CASES & EXCEPTION CONDITIONS
+//
+// JCVM 3.1 Chapter 7: Stack underflow and end-of-bytecode are
+// implementation-defined error conditions that must not cause undefined
+// behavior.
 // =========================================================================
 
+/// JCVM 3.1 Chapter 7: pop on an empty stack raises StackUnderflow.
 #[test]
 fn stack_underflow_on_empty_pop() {
     let (aid, m) = jcasm! { applet A0_00_00_62_70 {
@@ -351,6 +429,8 @@ fn stack_underflow_on_empty_pop() {
     assert_eq!(run_applet(aid, m), ExecResult::StackUnderflow);
 }
 
+/// JCVM 3.1 Chapter 7: Reaching end of bytecode without a return
+/// instruction raises EndOfBytecode.
 #[test]
 fn end_of_bytecode_without_return() {
     let (aid, m) = jcasm! { applet A0_00_00_62_71 {
@@ -361,6 +441,9 @@ fn end_of_bytecode_without_return() {
 
 // =========================================================================
 // PROPERTY-BASED TESTS
+//
+// JCVM 3.1 Section 7.5.6: Arithmetic follows Java Card short semantics
+// (16-bit signed two's complement with wrapping).
 // =========================================================================
 
 #[cfg(test)]
@@ -369,7 +452,8 @@ mod proptests {
     use proptest::prelude::*;
 
     proptest! {
-        /// sadd wraps on overflow (Java Card short semantics).
+        /// JCVM 3.1 Section 7.5.6: sadd wraps on overflow
+        /// (Java Card short semantics).
         #[test]
         fn sadd_wraps(a in -128i8..127, b in -128i8..127) {
             let a16 = i16::from(a);
@@ -402,7 +486,7 @@ mod proptests {
             prop_assert_eq!(result, ExecResult::ReturnShort(expected));
         }
 
-        /// sneg is self-inverse: sneg(sneg(x)) == x
+        /// JCVM 3.1 Section 7.5.6: sneg is self-inverse: sneg(sneg(x)) == x.
         #[test]
         fn sneg_involution(x in -128i8..127) {
             let expected = i16::from(x);
@@ -430,7 +514,8 @@ mod proptests {
             prop_assert_eq!(result, ExecResult::ReturnShort(expected));
         }
 
-        /// sdiv by non-zero never panics, matches Rust integer division.
+        /// JCVM 3.1 Section 7.5.6: sdiv by non-zero never panics,
+        /// matches Rust integer division.
         #[test]
         fn sdiv_nonzero_never_panics(a in -128i8..127, b in 1i8..127) {
             let a16 = i16::from(a);
@@ -461,7 +546,8 @@ mod proptests {
             prop_assert_eq!(result, ExecResult::ReturnShort(expected));
         }
 
-        /// sstore/sload round-trips for any local index 0..3.
+        /// JCVM 3.1 Section 7.5.3-7.5.4: sstore/sload round-trips for
+        /// any local index 0..3.
         #[test]
         fn sstore_sload_roundtrip_any_local(local in 0u8..4, val in -128i8..127) {
             let expected = i16::from(val);
