@@ -2,6 +2,9 @@
 //!
 //! Compiles `.java`/`.jva` source files or `.class`/`.jvc` classfiles
 //! into `.cap` bytecode packages for the JCVM.
+//!
+//! Also supports decompilation of `.cap` files back to assembly or
+//! high-level JVA source.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,6 +19,25 @@ fn main() {
 
     if args[1] == "--version" || args[1] == "-V" {
         println!("jvac 0.1.0 (simrs JVA compiler)");
+        return;
+    }
+
+    // Check for decompilation flags.
+    if args[1] == "--disasm" {
+        if args.len() < 3 {
+            eprintln!("error: --disasm requires an input file");
+            std::process::exit(1);
+        }
+        run_disasm(&args[2]);
+        return;
+    }
+
+    if args[1] == "--decompile" {
+        if args.len() < 3 {
+            eprintln!("error: --decompile requires an input file");
+            std::process::exit(1);
+        }
+        run_decompile(&args[2]);
         return;
     }
 
@@ -39,6 +61,42 @@ fn main() {
             fs::write(&output, &cap_bytes).expect("failed to write output");
             eprintln!("wrote {} bytes to {}", cap_bytes.len(), output);
         }
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Disassemble a CAP file to assembly text on stdout.
+fn run_disasm(path: &str) {
+    let data = match fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: failed to read {path}: {e}");
+            std::process::exit(1);
+        }
+    };
+    match jvac::decompile::disassemble(&data) {
+        Ok(asm) => print!("{asm}"),
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Decompile a CAP file to JVA source on stdout.
+fn run_decompile(path: &str) {
+    let data = match fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: failed to read {path}: {e}");
+            std::process::exit(1);
+        }
+    };
+    match jvac::decompile::decompile(&data) {
+        Ok(source) => print!("{source}"),
         Err(e) => {
             eprintln!("error: {e}");
             std::process::exit(1);
@@ -100,9 +158,15 @@ fn default_output(input: &str) -> String {
 /// Print usage information.
 fn print_usage() {
     eprintln!("Usage: jvac <input> [-o <output>]");
+    eprintln!("       jvac --disasm <input.cap>");
+    eprintln!("       jvac --decompile <input.cap>");
     eprintln!();
     eprintln!("Compiles Java Card source (.java/.jva) or classfiles (.class/.jvc)");
     eprintln!("into CAP packages (.cap) for the JCVM.");
+    eprintln!();
+    eprintln!("Decompilation modes:");
+    eprintln!("  --disasm <file>      Disassemble CAP to assembly text");
+    eprintln!("  --decompile <file>   Decompile CAP to JVA source");
     eprintln!();
     eprintln!("Options:");
     eprintln!("  -o, --output <file>  Output file (default: <input>.cap)");

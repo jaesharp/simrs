@@ -18,6 +18,7 @@
 
 pub mod cap;
 pub mod classfile;
+pub mod decompile;
 pub mod java_parser;
 
 pub use simrs_jccompile::{codegen, error, ir, types};

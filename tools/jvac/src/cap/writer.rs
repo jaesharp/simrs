@@ -111,6 +111,7 @@ impl CapWriter {
     ///
     /// The applet AID defaults to the package AID, and the install method
     /// defaults to method 0.
+    #[must_use]
     pub fn new(compiled: &CompiledClass) -> Self {
         Self {
             aid: compiled.aid.clone(),
@@ -147,6 +148,7 @@ impl CapWriter {
     /// Returns a binary blob containing all components concatenated in order,
     /// each prefixed with `tag(1) | size(2 BE) | data(size)`.
     #[allow(clippy::cast_possible_truncation)]
+    #[must_use]
     pub fn write(&self) -> Vec<u8> {
         // Phase 1: Build all component bodies (data without tag+length prefix).
         let header_body = self.build_header_body();
@@ -538,6 +540,7 @@ fn emit_component(out: &mut Vec<u8>, tag: u8, body: &[u8]) {
 ///
 /// This function preserves backward compatibility with the existing
 /// `no_std` runtime loader.
+#[must_use]
 pub fn write_cap(compiled: &CompiledClass) -> Vec<u8> {
     CapWriter::new(compiled).write_blob()
 }
@@ -545,6 +548,7 @@ pub fn write_cap(compiled: &CompiledClass) -> Vec<u8> {
 /// Write a compiled class to the full JCVM 3.1 component-based CAP format.
 ///
 /// Returns the CAP bytes with proper component tag+length framing.
+#[must_use]
 pub fn write_cap_full(compiled: &CompiledClass) -> Vec<u8> {
     CapWriter::new(compiled).write()
 }

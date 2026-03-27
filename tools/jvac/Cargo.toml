@@ -18,7 +18,8 @@ simrs-jccompile = { workspace = true, features = ["std"] }
 simrs-jcvm       = { workspace = true }
 
 [dev-dependencies]
-simrs-jcvm = { workspace = true }
+simrs-jcasm = { workspace = true }
+simrs-jcvm  = { workspace = true }
 
 [lints]
 workspace = true
