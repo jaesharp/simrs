@@ -20,6 +20,7 @@ simrs-jcvm       = { workspace = true }
 [dev-dependencies]
 simrs-jcasm = { workspace = true }
 simrs-jcvm  = { workspace = true }
+proptest    = { workspace = true }
 
 [lints]
 workspace = true

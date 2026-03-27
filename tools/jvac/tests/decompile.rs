@@ -3,6 +3,7 @@
 //! Tests the disassembly and decompilation of CAP bytecodes back to
 //! assembly text and high-level JVA source.
 
+use proptest::prelude::*;
 use simrs_jcasm::jcasm;
 use simrs_jcvm::cap::build_cap_blob;
 
@@ -767,4 +768,144 @@ fn roundtrip_fibonacci() {
     "#);
     // fib(10) = 55
     assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(55));
+}
+
+// =========================================================================
+// PROPERTY-BASED ROUNDTRIP TESTS
+//
+// Generate random programs and verify invariants:
+// - Compile never panics for valid programs
+// - Execute is deterministic (same bytecodes -> same result)
+// - Disassemble never panics on valid bytecodes
+// - Decompile never panics on valid bytecodes
+// - Arithmetic matches Rust i16 semantics
+// =========================================================================
+
+/// Helper: build bytecodes for `bspush(a); bspush(b); OP; sreturn`.
+fn arith_bytecodes(a: i8, b: i8, op: u8) -> Vec<u8> {
+    vec![0x10, a as u8, 0x10, b as u8, op, 0x78]
+}
+
+/// Helper: build a CAP from raw bytecodes.
+fn cap_from_bytecodes(bytecodes: &[u8]) -> Vec<u8> {
+    let aid = &[0xA0, 0x00, 0x00, 0x62, 0xBB];
+    let methods: &[&[u8]] = &[bytecodes];
+    let mut buf = [0u8; 512];
+    let len = build_cap_blob(aid, methods, &mut buf);
+    buf[..len].to_vec()
+}
+
+proptest! {
+    /// sadd matches Rust i16::wrapping_add for all i8 inputs.
+    #[test]
+    fn pbt_sadd_matches_rust(a in -128i8..127, b in -128i8..127) {
+        let expected = (i16::from(a)).wrapping_add(i16::from(b));
+        let cap = cap_from_bytecodes(&arith_bytecodes(a, b, 0x41)); // sadd
+        let result = execute_cap(&cap);
+        prop_assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(expected));
+    }
+
+    /// ssub matches Rust i16::wrapping_sub for all i8 inputs.
+    #[test]
+    fn pbt_ssub_matches_rust(a in -128i8..127, b in -128i8..127) {
+        let expected = (i16::from(a)).wrapping_sub(i16::from(b));
+        let cap = cap_from_bytecodes(&arith_bytecodes(a, b, 0x43)); // ssub
+        let result = execute_cap(&cap);
+        prop_assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(expected));
+    }
+
+    /// smul matches Rust i16::wrapping_mul for all i8 inputs.
+    #[test]
+    fn pbt_smul_matches_rust(a in -128i8..127, b in -128i8..127) {
+        let expected = (i16::from(a)).wrapping_mul(i16::from(b));
+        let cap = cap_from_bytecodes(&arith_bytecodes(a, b, 0x45)); // smul
+        let result = execute_cap(&cap);
+        prop_assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(expected));
+    }
+
+    /// sdiv matches Rust i16 division for non-zero divisor.
+    #[test]
+    fn pbt_sdiv_matches_rust(a in -128i8..127, b in 1i8..127) {
+        let expected = (i16::from(a)) / (i16::from(b));
+        let cap = cap_from_bytecodes(&arith_bytecodes(a, b, 0x47)); // sdiv
+        let result = execute_cap(&cap);
+        prop_assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(expected));
+    }
+
+    /// srem matches Rust i16 remainder for non-zero divisor.
+    #[test]
+    fn pbt_srem_matches_rust(a in -128i8..127, b in 1i8..127) {
+        let expected = (i16::from(a)) % (i16::from(b));
+        let cap = cap_from_bytecodes(&arith_bytecodes(a, b, 0x49)); // srem
+        let result = execute_cap(&cap);
+        prop_assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(expected));
+    }
+
+    /// sneg matches Rust negation: -a == 0 - a.
+    #[test]
+    fn pbt_sneg_matches_rust(a in -128i8..127) {
+        let expected = -(i16::from(a));
+        let cap = cap_from_bytecodes(&[0x10, a as u8, 0x4B, 0x78]); // bspush a, sneg, sreturn
+        let result = execute_cap(&cap);
+        prop_assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(expected));
+    }
+
+    /// Disassemble never panics on valid compiled bytecodes.
+    #[test]
+    fn pbt_disassemble_never_panics(a in -128i8..127, b in -128i8..127, op_idx in 0usize..5) {
+        let ops = [0x41u8, 0x43, 0x45, 0x47, 0x49]; // sadd, ssub, smul, sdiv, srem
+        let op = ops[op_idx];
+        // Skip div/rem by zero
+        if (op == 0x47 || op == 0x49) && b == 0 {
+            return Ok(());
+        }
+        let cap = cap_from_bytecodes(&arith_bytecodes(a, b, op));
+        let result = jvac::decompile::disassemble(&cap);
+        prop_assert!(result.is_ok(), "disassemble failed: {:?}", result.err());
+    }
+
+    /// Decompile never panics on valid compiled bytecodes.
+    #[test]
+    fn pbt_decompile_never_panics(a in -128i8..127, b in -128i8..127, op_idx in 0usize..5) {
+        let ops = [0x41u8, 0x43, 0x45, 0x47, 0x49];
+        let op = ops[op_idx];
+        if (op == 0x47 || op == 0x49) && b == 0 {
+            return Ok(());
+        }
+        let cap = cap_from_bytecodes(&arith_bytecodes(a, b, op));
+        let result = jvac::decompile::decompile(&cap);
+        prop_assert!(result.is_ok(), "decompile failed: {:?}", result.err());
+    }
+
+    /// Execution is deterministic: same bytecodes always produce same result.
+    #[test]
+    fn pbt_execution_deterministic(a in -128i8..127, b in 1i8..127) {
+        let cap = cap_from_bytecodes(&arith_bytecodes(a, b, 0x41)); // sadd
+        let r1 = execute_cap(&cap);
+        let r2 = execute_cap(&cap);
+        prop_assert_eq!(r1, r2, "execution should be deterministic");
+    }
+
+    /// Literal roundtrip: any i16 value compiles, executes, and returns correctly.
+    #[test]
+    fn pbt_literal_roundtrip(val in -32768i16..32767) {
+        // Encode as sspush (always works for full i16 range)
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        let hi = (val >> 8) as u8;
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        let lo = val as u8;
+        let cap = cap_from_bytecodes(&[0x11, hi, lo, 0x78]); // sspush val, sreturn
+        let result = execute_cap(&cap);
+        prop_assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(val));
+    }
+
+    /// sstore/sload roundtrip: store then load any value in any local 0..3.
+    #[test]
+    fn pbt_local_roundtrip(local in 0u8..4, val in -128i8..127) {
+        let sstore_op = 0x2Bu8 + local;
+        let sload_op = 0x1Cu8 + local;
+        let cap = cap_from_bytecodes(&[0x10, val as u8, sstore_op, sload_op, 0x78]);
+        let result = execute_cap(&cap);
+        prop_assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(i16::from(val)));
+    }
 }
