@@ -149,9 +149,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     }
 
     /// Abort the current transaction, rolling back heap writes.
-    pub fn abort_transaction(
-        &mut self,
-    ) -> Result<(), transaction::TransactionError> {
+    pub fn abort_transaction(&mut self) -> Result<(), transaction::TransactionError> {
         self.journal.abort(&mut self.heap)
     }
 
@@ -1534,10 +1532,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     let obj = ObjRef(arr_ref);
-                    match self
-                        .heap
-                        .sastore(obj, index, value, self.current_context)
-                    {
+                    match self.heap.sastore(obj, index, value, self.current_context) {
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
@@ -1601,10 +1596,12 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     };
                     let obj = ObjRef(obj_ref);
                     #[allow(clippy::cast_possible_truncation)]
-                    match self
-                        .heap
-                        .putfield_b(obj, u16::from(field_offset), value as u8, self.current_context)
-                    {
+                    match self.heap.putfield_b(
+                        obj,
+                        u16::from(field_offset),
+                        value as u8,
+                        self.current_context,
+                    ) {
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
@@ -1678,10 +1675,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     let obj = ObjRef(arr_ref);
-                    match self
-                        .heap
-                        .sastore(obj, index, value, self.current_context)
-                    {
+                    match self.heap.sastore(obj, index, value, self.current_context) {
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
@@ -1736,7 +1730,8 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                             return ExecResult::SecurityException
                         }
                     };
-                    let val = ((hi.cast_unsigned() as u32) << 16 | lo.cast_unsigned() as u32) as i32;
+                    let val =
+                        ((hi.cast_unsigned() as u32) << 16 | lo.cast_unsigned() as u32) as i32;
                     if let Err(e) = self.push_int(val) {
                         return e;
                     }
@@ -1835,10 +1830,12 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     let obj = ObjRef(obj_ref);
-                    match self
-                        .heap
-                        .putfield_s(obj, u16::from(field_offset), value, self.current_context)
-                    {
+                    match self.heap.putfield_s(
+                        obj,
+                        u16::from(field_offset),
+                        value,
+                        self.current_context,
+                    ) {
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
@@ -1894,10 +1891,12 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     let obj = ObjRef(obj_ref);
-                    match self
-                        .heap
-                        .putfield_a(obj, u16::from(field_offset), value, self.current_context)
-                    {
+                    match self.heap.putfield_a(
+                        obj,
+                        u16::from(field_offset),
+                        value,
+                        self.current_context,
+                    ) {
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
@@ -1953,10 +1952,12 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     let obj = ObjRef(obj_ref);
-                    match self
-                        .heap
-                        .putfield_i(obj, u16::from(field_offset), val, self.current_context)
-                    {
+                    match self.heap.putfield_i(
+                        obj,
+                        u16::from(field_offset),
+                        val,
+                        self.current_context,
+                    ) {
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
@@ -2187,8 +2188,8 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                                 bytecode[entry_off as usize + 2],
                                 bytecode[entry_off as usize + 3],
                             ]);
-                            self.pc = (i32::from(switch_pc) + i32::from(offset)).cast_unsigned()
-                                as u16;
+                            self.pc =
+                                (i32::from(switch_pc) + i32::from(offset)).cast_unsigned() as u16;
                             found = true;
                             break;
                         }
@@ -2264,8 +2265,8 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                                 bytecode[entry_off as usize + 4],
                                 bytecode[entry_off as usize + 5],
                             ]);
-                            self.pc = (i32::from(switch_pc) + i32::from(offset)).cast_unsigned()
-                                as u16;
+                            self.pc =
+                                (i32::from(switch_pc) + i32::from(offset)).cast_unsigned() as u16;
                             found = true;
                             break;
                         }
@@ -2467,33 +2468,21 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     }
 
     /// Fetch the next 2 bytes as a big-endian i16.
-    fn fetch_i16(
-        &mut self,
-        bytecode: [u8; cap::MAX_BYTECODE],
-        bytecode_len: u16,
-    ) -> Option<i16> {
+    fn fetch_i16(&mut self, bytecode: [u8; cap::MAX_BYTECODE], bytecode_len: u16) -> Option<i16> {
         let hi = self.fetch_u8(bytecode, bytecode_len)?;
         let lo = self.fetch_u8(bytecode, bytecode_len)?;
         Some(i16::from_be_bytes([hi, lo]))
     }
 
     /// Fetch the next 2 bytes as a big-endian u16.
-    fn fetch_u16(
-        &mut self,
-        bytecode: [u8; cap::MAX_BYTECODE],
-        bytecode_len: u16,
-    ) -> Option<u16> {
+    fn fetch_u16(&mut self, bytecode: [u8; cap::MAX_BYTECODE], bytecode_len: u16) -> Option<u16> {
         let hi = self.fetch_u8(bytecode, bytecode_len)?;
         let lo = self.fetch_u8(bytecode, bytecode_len)?;
         Some(u16::from_be_bytes([hi, lo]))
     }
 
     /// Fetch the next 4 bytes as a big-endian i32.
-    fn fetch_i32(
-        &mut self,
-        bytecode: [u8; cap::MAX_BYTECODE],
-        bytecode_len: u16,
-    ) -> Option<i32> {
+    fn fetch_i32(&mut self, bytecode: [u8; cap::MAX_BYTECODE], bytecode_len: u16) -> Option<i32> {
         let b0 = self.fetch_u8(bytecode, bytecode_len)?;
         let b1 = self.fetch_u8(bytecode, bytecode_len)?;
         let b2 = self.fetch_u8(bytecode, bytecode_len)?;
@@ -3395,12 +3384,8 @@ mod tests {
     fn aload_0_through_3() {
         // Store distinct values in locals 0-3, load and add pairs.
         let bc = [
-            BSPUSH, 10, ASTORE_0,
-            BSPUSH, 20, SSTORE, 1,  // use sstore for local 1
-            ALOAD_0,
-            ALOAD_1,
-            SADD,
-            SRETURN,
+            BSPUSH, 10, ASTORE_0, BSPUSH, 20, SSTORE, 1, // use sstore for local 1
+            ALOAD_0, ALOAD_1, SADD, SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(30));
@@ -3409,12 +3394,7 @@ mod tests {
     #[test]
     fn aload_2_and_3() {
         let bc = [
-            BSPUSH, 7, SSTORE, 2,
-            BSPUSH, 3, SSTORE, 3,
-            ALOAD_2,
-            ALOAD_3,
-            SADD,
-            SRETURN,
+            BSPUSH, 7, SSTORE, 2, BSPUSH, 3, SSTORE, 3, ALOAD_2, ALOAD_3, SADD, SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(10));
@@ -3595,12 +3575,7 @@ mod tests {
     #[test]
     fn putstatic_getstatic_roundtrip() {
         // putstatic_b field_offset=0, then getstatic_b field_offset=0.
-        let bc = [
-            BSPUSH, 42,
-            PUTSTATIC_B, 0, 0,
-            GETSTATIC_B, 0, 0,
-            SRETURN,
-        ];
+        let bc = [BSPUSH, 42, PUTSTATIC_B, 0, 0, GETSTATIC_B, 0, 0, SRETURN];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
     }
@@ -3617,9 +3592,15 @@ mod tests {
     fn putstatic_truncates_to_byte() {
         // Write 0x1234 to static field -- only low byte (0x34 = 52) should persist.
         let bc = [
-            SSPUSH, 0x01, 0x34,
-            PUTSTATIC_B, 0, 0,
-            GETSTATIC_B, 0, 0,
+            SSPUSH,
+            0x01,
+            0x34,
+            PUTSTATIC_B,
+            0,
+            0,
+            GETSTATIC_B,
+            0,
+            0,
             SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
@@ -3801,13 +3782,7 @@ mod tests {
     #[test]
     fn sshr_basic() {
         // -16 >> 2 = -4 (arithmetic shift)
-        let bc = [
-            BSPUSH,
-            (-16i8).cast_unsigned(),
-            SCONST_2,
-            SSHR,
-            SRETURN,
-        ];
+        let bc = [BSPUSH, (-16i8).cast_unsigned(), SCONST_2, SSHR, SRETURN];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-4));
     }
@@ -3824,8 +3799,10 @@ mod tests {
     fn sand_basic() {
         // 0xFF & 0x0F = 0x0F = 15
         let bc = [
-            BSPUSH, 0xFF_u8.cast_signed().cast_unsigned(),
-            BSPUSH, 0x0F,
+            BSPUSH,
+            0xFF_u8.cast_signed().cast_unsigned(),
+            BSPUSH,
+            0x0F,
             SAND,
             SRETURN,
         ];
@@ -3924,9 +3901,14 @@ mod tests {
     fn sinc_negative() {
         // Store 10, sinc by -3 -> 7.
         let bc = [
-            BSPUSH, 10, SSTORE_0,
-            SINC, 0, (-3i8).cast_unsigned(),
-            SLOAD_0, SRETURN,
+            BSPUSH,
+            10,
+            SSTORE_0,
+            SINC,
+            0,
+            (-3i8).cast_unsigned(),
+            SLOAD_0,
+            SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(7));
@@ -3936,11 +3918,7 @@ mod tests {
     fn iinc_basic() {
         // Store int 100 in locals 0,1, iinc 0 5 -> 105.
         let bc = [
-            IIPUSH, 0x00, 0x00, 0x00, 100,
-            ISTORE_0,
-            IINC, 0, 5,
-            ILOAD_0,
-            I2S, SRETURN,
+            IIPUSH, 0x00, 0x00, 0x00, 100, ISTORE_0, IINC, 0, 5, ILOAD_0, I2S, SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(105));
@@ -4022,10 +4000,7 @@ mod tests {
     fn istore_iload_roundtrip() {
         // Push int 42, store to locals 0,1, load back, check via i2s.
         let bc = [
-            IIPUSH, 0x00, 0x00, 0x00, 42,
-            ISTORE_0,
-            ILOAD_0,
-            I2S, SRETURN,
+            IIPUSH, 0x00, 0x00, 0x00, 42, ISTORE_0, ILOAD_0, I2S, SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
@@ -4034,10 +4009,7 @@ mod tests {
     #[test]
     fn istore_iload_with_index() {
         let bc = [
-            IIPUSH, 0x00, 0x00, 0x00, 99,
-            ISTORE, 2,
-            ILOAD, 2,
-            I2S, SRETURN,
+            IIPUSH, 0x00, 0x00, 0x00, 99, ISTORE, 2, ILOAD, 2, I2S, SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(99));
@@ -4046,13 +4018,8 @@ mod tests {
     #[test]
     fn iload_2_and_3() {
         let bc = [
-            IIPUSH, 0x00, 0x00, 0x00, 10,
-            ISTORE_2,
-            IIPUSH, 0x00, 0x00, 0x00, 20,
-            ISTORE, 4,
-            ILOAD_2,
-            ILOAD, 4,
-            IADD, I2S, SRETURN,
+            IIPUSH, 0x00, 0x00, 0x00, 10, ISTORE_2, IIPUSH, 0x00, 0x00, 0x00, 20, ISTORE, 4,
+            ILOAD_2, ILOAD, 4, IADD, I2S, SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(30));
@@ -4113,7 +4080,9 @@ mod tests {
     #[test]
     fn if_scmplt_taken() {
         // Push sentinel 1, push 3, push 5, if_scmplt -> 3 < 5 is true, branch.
-        let bc = [SCONST_1, SCONST_3, SCONST_5, IF_SCMPLT, 3, SCONST_0, SRETURN];
+        let bc = [
+            SCONST_1, SCONST_3, SCONST_5, IF_SCMPLT, 3, SCONST_0, SRETURN,
+        ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
@@ -4127,21 +4096,27 @@ mod tests {
 
     #[test]
     fn if_scmpge_taken() {
-        let bc = [SCONST_1, SCONST_5, SCONST_3, IF_SCMPGE, 3, SCONST_0, SRETURN];
+        let bc = [
+            SCONST_1, SCONST_5, SCONST_3, IF_SCMPGE, 3, SCONST_0, SRETURN,
+        ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
     #[test]
     fn if_scmpgt_taken() {
-        let bc = [SCONST_1, SCONST_5, SCONST_3, IF_SCMPGT, 3, SCONST_0, SRETURN];
+        let bc = [
+            SCONST_1, SCONST_5, SCONST_3, IF_SCMPGT, 3, SCONST_0, SRETURN,
+        ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
     #[test]
     fn if_scmple_taken() {
-        let bc = [SCONST_1, SCONST_3, SCONST_5, IF_SCMPLE, 3, SCONST_0, SRETURN];
+        let bc = [
+            SCONST_1, SCONST_3, SCONST_5, IF_SCMPLE, 3, SCONST_0, SRETURN,
+        ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
@@ -4154,7 +4129,13 @@ mod tests {
     fn if_acmpeq_taken() {
         // Push sentinel 1, push null, push null, if_acmpeq -> taken.
         let bc = [
-            SCONST_1, ACONST_NULL, ACONST_NULL, IF_ACMPEQ, 3, SCONST_0, SRETURN,
+            SCONST_1,
+            ACONST_NULL,
+            ACONST_NULL,
+            IF_ACMPEQ,
+            3,
+            SCONST_0,
+            SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
@@ -4184,14 +4165,22 @@ mod tests {
         let bc = [
             SCONST_2,     // PC 0
             STABLESWITCH, // PC 1
-            0x00, 15,     // default_offset = 15 -> PC 16 (dead code area)
-            0x00, 0x01,   // low = 1
-            0x00, 0x03,   // high = 3
-            0x00, 13,     // offset for key=1: -> PC 1+13 = 14
-            0x00, 13,     // offset for key=2: -> PC 1+13 = 14
-            0x00, 13,     // offset for key=3: -> PC 1+13 = 14
-            SCONST_3, SRETURN,  // PC 14, 15 -- all cases land here
-            SCONST_0, SRETURN,  // PC 16, 17 -- default
+            0x00,
+            15, // default_offset = 15 -> PC 16 (dead code area)
+            0x00,
+            0x01, // low = 1
+            0x00,
+            0x03, // high = 3
+            0x00,
+            13, // offset for key=1: -> PC 1+13 = 14
+            0x00,
+            13, // offset for key=2: -> PC 1+13 = 14
+            0x00,
+            13, // offset for key=3: -> PC 1+13 = 14
+            SCONST_3,
+            SRETURN, // PC 14, 15 -- all cases land here
+            SCONST_0,
+            SRETURN, // PC 16, 17 -- default
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
@@ -4203,16 +4192,25 @@ mod tests {
         // BSPUSH at PC 0-1, STABLESWITCH at PC 2.
         // After header: 1+2+2+2+6 = 13 bytes, so cases at PC 15, default at PC 17.
         let bc = [
-            BSPUSH, 10,       // PC 0-1
-            STABLESWITCH,     // PC 2
-            0x00, 15,         // default_offset = 15 -> PC 2+15 = 17
-            0x00, 0x01,       // low = 1
-            0x00, 0x03,       // high = 3
-            0x00, 13,         // offset key=1 -> PC 2+13 = 15
-            0x00, 13,         // offset key=2
-            0x00, 13,         // offset key=3
-            SCONST_3, SRETURN,  // PC 15, 16 -- cases
-            SCONST_5, SRETURN,  // PC 17, 18 -- default
+            BSPUSH,
+            10,           // PC 0-1
+            STABLESWITCH, // PC 2
+            0x00,
+            15, // default_offset = 15 -> PC 2+15 = 17
+            0x00,
+            0x01, // low = 1
+            0x00,
+            0x03, // high = 3
+            0x00,
+            13, // offset key=1 -> PC 2+13 = 15
+            0x00,
+            13, // offset key=2
+            0x00,
+            13, // offset key=3
+            SCONST_3,
+            SRETURN, // PC 15, 16 -- cases
+            SCONST_5,
+            SRETURN, // PC 17, 18 -- default
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
@@ -4223,16 +4221,25 @@ mod tests {
         // lookupswitch: key=5, pairs: {5 -> target, 10 -> other}
         let bc = [
             SCONST_5,
-            SLOOKUPSWITCH,  // PC 1
-            0x00, 15,       // default_offset = 15 -> PC 16
-            0x00, 0x02,     // npairs = 2
-            0x00, 0x05,     // match 5
-            0x00, 11,       // offset -> PC 1+11 = 12
-            0x00, 0x0A,     // match 10
-            0x00, 11,       // offset -> PC 1+11 = 12
-            SCONST_3, SRETURN,  // PC 12, 13 -- match target
-            SCONST_0, SRETURN,  // PC 14, 15 (padding)
-            SCONST_M1, SRETURN, // PC 16, 17 -- default
+            SLOOKUPSWITCH, // PC 1
+            0x00,
+            15, // default_offset = 15 -> PC 16
+            0x00,
+            0x02, // npairs = 2
+            0x00,
+            0x05, // match 5
+            0x00,
+            11, // offset -> PC 1+11 = 12
+            0x00,
+            0x0A, // match 10
+            0x00,
+            11, // offset -> PC 1+11 = 12
+            SCONST_3,
+            SRETURN, // PC 12, 13 -- match target
+            SCONST_0,
+            SRETURN, // PC 14, 15 (padding)
+            SCONST_M1,
+            SRETURN, // PC 16, 17 -- default
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
@@ -4244,14 +4251,21 @@ mod tests {
         // BSPUSH at PC 0-1, SLOOKUPSWITCH at PC 2.
         // Header: 1+2+2 = 5 bytes, pairs: 1*4 = 4 bytes, so match at PC 11, default at PC 13.
         let bc = [
-            BSPUSH, 99,         // PC 0-1
-            SLOOKUPSWITCH,      // PC 2
-            0x00, 11,           // default_offset = 11 -> PC 2+11 = 13
-            0x00, 0x01,         // npairs = 1
-            0x00, 0x05,         // match 5
-            0x00, 9,            // offset -> PC 2+9 = 11
-            SCONST_3, SRETURN,  // PC 11, 12 -- match
-            SCONST_M1, SRETURN, // PC 13, 14 -- default
+            BSPUSH,
+            99,            // PC 0-1
+            SLOOKUPSWITCH, // PC 2
+            0x00,
+            11, // default_offset = 11 -> PC 2+11 = 13
+            0x00,
+            0x01, // npairs = 1
+            0x00,
+            0x05, // match 5
+            0x00,
+            9, // offset -> PC 2+9 = 11
+            SCONST_3,
+            SRETURN, // PC 11, 12 -- match
+            SCONST_M1,
+            SRETURN, // PC 13, 14 -- default
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
@@ -4265,12 +4279,12 @@ mod tests {
     fn putfield_getfield_short_roundtrip() {
         // Allocate object with 4 field bytes, store short 0x1234, read it back.
         let bc = [
-            NEW, 4, 0,              // 0-2: allocate instance
-            DUP,                     // 3: dup objref
-            SSPUSH, 0x12, 0x34,     // 4-6: push 0x1234
-            PUTFIELD_S, 0, 0,       // 7-9: store short at offset 0
+            NEW, 4, 0,   // 0-2: allocate instance
+            DUP, // 3: dup objref
+            SSPUSH, 0x12, 0x34, // 4-6: push 0x1234
+            PUTFIELD_S, 0, 0, // 7-9: store short at offset 0
             GETFIELD_S, 0, 0,       // 10-12: read short at offset 0
-            SRETURN,                 // 13
+            SRETURN, // 13
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0x1234));
@@ -4280,12 +4294,12 @@ mod tests {
     fn putfield_getfield_ref_roundtrip() {
         // Store a reference value in an object field.
         let bc = [
-            NEW, 4, 0,              // 0-2: allocate
-            DUP,                     // 3: dup objref
-            BSPUSH, 42,             // 4-5: push 42
-            PUTFIELD_A, 0, 0,       // 6-8: store ref at offset 0
+            NEW, 4, 0,   // 0-2: allocate
+            DUP, // 3: dup objref
+            BSPUSH, 42, // 4-5: push 42
+            PUTFIELD_A, 0, 0, // 6-8: store ref at offset 0
             GETFIELD_A, 0, 0,       // 9-11: read ref at offset 0
-            SRETURN,                 // 12
+            SRETURN, // 12
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
@@ -4295,12 +4309,12 @@ mod tests {
     fn putfield_getfield_int_roundtrip() {
         // Store int in an object field (needs at least 4 bytes).
         let bc = [
-            NEW, 8, 0,              // 0-2: allocate instance with 8 field bytes
-            DUP,                     // 3: dup objref
+            NEW, 8, 0,   // 0-2: allocate instance with 8 field bytes
+            DUP, // 3: dup objref
             IIPUSH, 0x00, 0x01, 0x23, 0x45, // 4-8: push int
-            PUTFIELD_I, 0, 0,       // 9-11: store int at offset 0
+            PUTFIELD_I, 0, 0, // 9-11: store int at offset 0
             GETFIELD_I, 0, 0,       // 12-14: read int at offset 0
-            IRETURN,                 // 15
+            IRETURN, // 15
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0x00012345));
@@ -4313,9 +4327,15 @@ mod tests {
     #[test]
     fn putstatic_getstatic_short_roundtrip() {
         let bc = [
-            SSPUSH, 0x12, 0x34,
-            PUTSTATIC_S, 0x00, 0x00,
-            GETSTATIC_S, 0x00, 0x00,
+            SSPUSH,
+            0x12,
+            0x34,
+            PUTSTATIC_S,
+            0x00,
+            0x00,
+            GETSTATIC_S,
+            0x00,
+            0x00,
             SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
@@ -4325,9 +4345,17 @@ mod tests {
     #[test]
     fn putstatic_getstatic_int_roundtrip() {
         let bc = [
-            IIPUSH, 0x00, 0x01, 0x23, 0x45,
-            PUTSTATIC_I, 0x00, 0x10,
-            GETSTATIC_I, 0x00, 0x10,
+            IIPUSH,
+            0x00,
+            0x01,
+            0x23,
+            0x45,
+            PUTSTATIC_I,
+            0x00,
+            0x10,
+            GETSTATIC_I,
+            0x00,
+            0x10,
             IRETURN,
         ];
         let mut vm = vm_with_method(&bc);
@@ -4396,5 +4424,1350 @@ mod tests {
         let bc = [SCONST_M1, ANEWARRAY, 0];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::NegativeArraySize);
+    }
+
+    // =======================================================================
+    // PRIORITY 1: Arithmetic exceptions -- div/rem by zero
+    // JCVM 3.1 Ch7 sdiv/srem/idiv/irem: "If the value of the divisor
+    // is zero, sdiv/srem/idiv/irem throws an ArithmeticException."
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 srem: ArithmeticException when divisor is zero.
+    /// (sdiv_by_zero already exists above; this tests srem with an
+    /// explicit non-trivial dividend to avoid identity traps.)
+    #[test]
+    fn srem_by_zero_nontrivial_dividend() {
+        let min_bytes = i16::MIN.cast_unsigned().to_be_bytes();
+        let bc = [SSPUSH, min_bytes[0], min_bytes[1], SCONST_0, SREM];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
+    }
+
+    /// JCVM 3.1 Ch7 idiv: ArithmeticException with i32::MIN dividend and 0 divisor.
+    #[test]
+    fn idiv_by_zero_min_dividend() {
+        let bc = [
+            IIPUSH, 0x80, 0x00, 0x00, 0x00, // i32::MIN
+            ICONST_0, IDIV,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
+    }
+
+    /// JCVM 3.1 Ch7 irem: ArithmeticException with i32::MIN dividend and 0 divisor.
+    #[test]
+    fn irem_by_zero_min_dividend() {
+        let bc = [
+            IIPUSH, 0x80, 0x00, 0x00, 0x00, // i32::MIN
+            ICONST_0, IREM,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
+    }
+
+    /// JCVM 3.1 Ch7 idiv: i32::MIN / -1 = i32::MIN (wrapping, not exception).
+    #[test]
+    fn idiv_min_by_neg1() {
+        let bc = [
+            IIPUSH, 0x80, 0x00, 0x00, 0x00, // i32::MIN
+            ICONST_M1, IDIV, IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
+    }
+
+    /// JCVM 3.1 Ch7 irem: i32::MIN % -1 = 0 (wrapping, not exception).
+    #[test]
+    fn irem_min_by_neg1() {
+        let bc = [
+            IIPUSH, 0x80, 0x00, 0x00, 0x00, // i32::MIN
+            ICONST_M1, IREM, IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0));
+    }
+
+    // =======================================================================
+    // PRIORITY 2: Overflow/wrapping per Java semantics
+    // JCVM 3.1 Ch7: arithmetic wraps modulo 2^16 / 2^32.
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 sadd: i16::MAX + 1 wraps to i16::MIN.
+    #[test]
+    fn sadd_overflow_wraps() {
+        let max_bytes = i16::MAX.cast_unsigned().to_be_bytes();
+        let bc = [SSPUSH, max_bytes[0], max_bytes[1], SCONST_1, SADD, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
+    }
+
+    /// JCVM 3.1 Ch7 ssub: i16::MIN - 1 wraps to i16::MAX.
+    #[test]
+    fn ssub_underflow_wraps() {
+        let min_bytes = i16::MIN.cast_unsigned().to_be_bytes();
+        let bc = [SSPUSH, min_bytes[0], min_bytes[1], SCONST_1, SSUB, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MAX));
+    }
+
+    /// JCVM 3.1 Ch7 smul: 0x7FFF * 2 wraps.
+    #[test]
+    fn smul_overflow_wraps() {
+        let max_bytes = i16::MAX.cast_unsigned().to_be_bytes();
+        let bc = [SSPUSH, max_bytes[0], max_bytes[1], SCONST_2, SMUL, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        let expected = i16::MAX.wrapping_mul(2);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+    }
+
+    /// JCVM 3.1 Ch7 iadd: i32::MAX + 1 wraps to i32::MIN.
+    #[test]
+    fn iadd_overflow_wraps() {
+        let bc = [
+            IIPUSH, 0x7F, 0xFF, 0xFF, 0xFF, // i32::MAX
+            ICONST_1, IADD, IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
+    }
+
+    /// JCVM 3.1 Ch7 isub: i32::MIN - 1 wraps to i32::MAX.
+    #[test]
+    fn isub_underflow_wraps() {
+        let bc = [
+            IIPUSH, 0x80, 0x00, 0x00, 0x00, // i32::MIN
+            ICONST_1, ISUB, IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MAX));
+    }
+
+    /// JCVM 3.1 Ch7 imul: i32::MAX * 2 wraps.
+    #[test]
+    fn imul_overflow_wraps() {
+        let bc = [
+            IIPUSH, 0x7F, 0xFF, 0xFF, 0xFF, // i32::MAX
+            ICONST_2, IMUL, IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(
+            vm.execute(0, 0),
+            ExecResult::ReturnInt(i32::MAX.wrapping_mul(2))
+        );
+    }
+
+    /// JCVM 3.1 Ch7 sneg: sneg(i16::MIN) wraps to i16::MIN.
+    #[test]
+    fn sneg_min_wraps() {
+        let min_bytes = i16::MIN.cast_unsigned().to_be_bytes();
+        let bc = [SSPUSH, min_bytes[0], min_bytes[1], SNEG, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
+    }
+
+    /// JCVM 3.1 Ch7 ineg: ineg(i32::MIN) wraps to i32::MIN.
+    #[test]
+    fn ineg_min_wraps() {
+        let bc = [
+            IIPUSH, 0x80, 0x00, 0x00, 0x00, // i32::MIN
+            INEG, IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
+    }
+
+    // =======================================================================
+    // PRIORITY 3: Bitwise edge cases
+    // JCVM 3.1 Ch7 sshl/sshr/sushr: shift amount masked to low 5 bits.
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 sshl: shift by 0 is identity.
+    #[test]
+    fn sshl_by_zero() {
+        let bc = [SCONST_5, SCONST_0, SSHL, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    /// JCVM 3.1 Ch7 sshl: shift by 15 pushes sign bit into MSB.
+    #[test]
+    fn sshl_by_15() {
+        let bc = [SCONST_1, BSPUSH, 15, SSHL, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
+    }
+
+    /// JCVM 3.1 Ch7 sshl: shift by 16 (masked to 16 & 0x1F = 16) zeroes short.
+    #[test]
+    fn sshl_by_16() {
+        let bc = [SCONST_1, BSPUSH, 16, SSHL, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        // 1 << 16 = 0x10000, masked to 16 bits = 0
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    /// JCVM 3.1 Ch7 sshr: shift by 0 is identity.
+    #[test]
+    fn sshr_by_zero() {
+        let bc = [SCONST_M1, SCONST_0, SSHR, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    /// JCVM 3.1 Ch7 sshr: shift by 15 extracts sign.
+    #[test]
+    fn sshr_by_15() {
+        let min_bytes = i16::MIN.cast_unsigned().to_be_bytes();
+        let bc = [
+            SSPUSH,
+            min_bytes[0],
+            min_bytes[1],
+            BSPUSH,
+            15,
+            SSHR,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    /// JCVM 3.1 Ch7 sushr: shift by 15 extracts unsigned MSB.
+    #[test]
+    fn sushr_by_15() {
+        let bc = [SCONST_M1, BSPUSH, 15, SUSHR, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        // 0xFFFF >>> 15 = 1
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    /// JCVM 3.1 Ch7 sand: AND with 0 is 0.
+    #[test]
+    fn sand_with_zero() {
+        let bc = [SCONST_M1, SCONST_0, SAND, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    /// JCVM 3.1 Ch7 sand: AND with 0xFFFF is identity.
+    #[test]
+    fn sand_with_all_ones() {
+        let bc = [SCONST_5, SCONST_M1, SAND, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    /// JCVM 3.1 Ch7 sor: OR with 0 is identity.
+    #[test]
+    fn sor_with_zero() {
+        let bc = [SCONST_3, SCONST_0, SOR, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    /// JCVM 3.1 Ch7 sor: OR with 0xFFFF is 0xFFFF.
+    #[test]
+    fn sor_with_all_ones() {
+        let bc = [SCONST_0, SCONST_M1, SOR, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    /// JCVM 3.1 Ch7 sxor: XOR with 0 is identity.
+    #[test]
+    fn sxor_with_zero() {
+        let bc = [SCONST_5, SCONST_0, SXOR, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    /// JCVM 3.1 Ch7 sxor: XOR with self is 0.
+    #[test]
+    fn sxor_self_is_zero() {
+        let bc = [SCONST_5, SCONST_5, SXOR, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    /// JCVM 3.1 Ch7 ishl: shift by 31 puts bit 0 into sign position.
+    #[test]
+    fn ishl_by_31() {
+        let bc = [ICONST_1, BSPUSH, 31, ISHL, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
+    }
+
+    /// JCVM 3.1 Ch7 ishr: arithmetic shift of -1 by 31 is still -1.
+    #[test]
+    fn ishr_neg1_by_31() {
+        let bc = [ICONST_M1, BSPUSH, 31, ISHR, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-1));
+    }
+
+    /// JCVM 3.1 Ch7 iushr: unsigned shift of -1 by 31 is 1.
+    #[test]
+    fn iushr_neg1_by_31() {
+        let bc = [ICONST_M1, BSPUSH, 31, IUSHR, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(1));
+    }
+
+    // =======================================================================
+    // PRIORITY 4: Conversion edge cases
+    // JCVM 3.1 Ch7 s2b/i2s: narrowing conversions truncate then sign-extend.
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 s2b: s2b(127) = 127 (fits in byte).
+    #[test]
+    fn s2b_127() {
+        let bc = [BSPUSH, 127, S2B, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(127));
+    }
+
+    /// JCVM 3.1 Ch7 s2b: s2b(128) = -128 (truncate to 0x80 then sign-extend).
+    #[test]
+    fn s2b_128() {
+        let val_bytes = 128u16.to_be_bytes();
+        let bc = [SSPUSH, val_bytes[0], val_bytes[1], S2B, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-128));
+    }
+
+    /// JCVM 3.1 Ch7 s2b: s2b(-128) = -128 (already fits in signed byte).
+    #[test]
+    fn s2b_neg128() {
+        let bc = [BSPUSH, (-128i8).cast_unsigned(), S2B, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-128));
+    }
+
+    /// JCVM 3.1 Ch7 s2b: s2b(-129) = 127 (truncates: 0xFF7F & 0xFF = 0x7F = 127).
+    #[test]
+    fn s2b_neg129() {
+        let val = (-129i16).cast_unsigned().to_be_bytes();
+        let bc = [SSPUSH, val[0], val[1], S2B, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(127));
+    }
+
+    /// JCVM 3.1 Ch7 s2b: s2b(0) = 0.
+    #[test]
+    fn s2b_zero() {
+        let bc = [SCONST_0, S2B, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    /// JCVM 3.1 Ch7 i2s: i2s(32767) = 32767 (fits in short).
+    #[test]
+    fn i2s_max_short() {
+        let bc = [
+            IIPUSH, 0x00, 0x00, 0x7F, 0xFF, // 32767
+            I2S, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(32767));
+    }
+
+    /// JCVM 3.1 Ch7 i2s: i2s(32768) = -32768 (truncate low 16 bits = 0x8000).
+    #[test]
+    fn i2s_32768() {
+        let bc = [
+            IIPUSH, 0x00, 0x00, 0x80, 0x00, // 32768
+            I2S, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-32768));
+    }
+
+    /// JCVM 3.1 Ch7 i2s: i2s(-32768) = -32768 (already fits).
+    #[test]
+    fn i2s_neg32768() {
+        let bc = [
+            IIPUSH, 0xFF, 0xFF, 0x80, 0x00, // -32768
+            I2S, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-32768));
+    }
+
+    /// JCVM 3.1 Ch7 i2s: i2s(0) = 0.
+    #[test]
+    fn i2s_zero() {
+        let bc = [ICONST_0, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    /// JCVM 3.1 Ch7 i2b: i2b(127) = 127.
+    #[test]
+    fn i2b_127() {
+        let bc = [
+            IIPUSH, 0x00, 0x00, 0x00, 127, // 127
+            I2B, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(127));
+    }
+
+    /// JCVM 3.1 Ch7 i2b: i2b(128) = -128.
+    #[test]
+    fn i2b_128() {
+        let bc = [
+            IIPUSH, 0x00, 0x00, 0x00, 0x80, // 128
+            I2B, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-128));
+    }
+
+    // =======================================================================
+    // PRIORITY 5: Branch tests -- true and false for each comparison
+    // Most branches have existing taken/not-taken tests. Adding missing ones.
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 if_scmpge: not taken when a < b.
+    #[test]
+    fn if_scmpge_not_taken() {
+        let bc = [SCONST_3, SCONST_5, IF_SCMPGE, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    /// JCVM 3.1 Ch7 if_scmpge: taken when a == b (edge: equality).
+    #[test]
+    fn if_scmpge_taken_equal() {
+        let bc = [
+            SCONST_1, SCONST_3, SCONST_3, IF_SCMPGE, 3, SCONST_0, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    /// JCVM 3.1 Ch7 if_scmpgt: not taken when a == b.
+    #[test]
+    fn if_scmpgt_not_taken() {
+        let bc = [SCONST_3, SCONST_3, IF_SCMPGT, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    /// JCVM 3.1 Ch7 if_scmpgt: not taken when a < b.
+    #[test]
+    fn if_scmpgt_not_taken_less() {
+        let bc = [SCONST_3, SCONST_5, IF_SCMPGT, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    /// JCVM 3.1 Ch7 if_scmple: not taken when a > b.
+    #[test]
+    fn if_scmple_not_taken() {
+        let bc = [SCONST_5, SCONST_3, IF_SCMPLE, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    /// JCVM 3.1 Ch7 if_scmple: taken when a == b (edge: equality).
+    #[test]
+    fn if_scmple_taken_equal() {
+        let bc = [
+            SCONST_1, SCONST_3, SCONST_3, IF_SCMPLE, 3, SCONST_0, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    /// JCVM 3.1 Ch7 if_scmpeq: with negative values, true case.
+    #[test]
+    fn if_scmpeq_negative_taken() {
+        let bc = [
+            SCONST_1, SCONST_M1, SCONST_M1, IF_SCMPEQ, 3, SCONST_0, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    /// JCVM 3.1 Ch7 if_acmpeq: not taken when references differ.
+    #[test]
+    fn if_acmpeq_not_taken() {
+        let bc = [SCONST_1, SCONST_2, IF_ACMPEQ, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    /// JCVM 3.1 Ch7 if_acmpne: not taken when references are equal.
+    #[test]
+    fn if_acmpne_not_taken() {
+        let bc = [ACONST_NULL, ACONST_NULL, IF_ACMPNE, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    /// JCVM 3.1 Ch7 iflt: not taken when val == 0 (boundary).
+    #[test]
+    fn iflt_not_taken_when_zero() {
+        let bc = [SCONST_0, IFLT, 3, SCONST_3, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    /// JCVM 3.1 Ch7 ifgt: not taken when val == -1 (negative).
+    #[test]
+    fn ifgt_not_taken_when_negative() {
+        let bc = [SCONST_M1, IFGT, 3, SCONST_3, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    /// JCVM 3.1 Ch7 ifle: taken when val == 0 (boundary: equal to zero).
+    #[test]
+    fn ifle_taken_when_zero_boundary() {
+        let bc = [SCONST_1, SCONST_0, IFLE, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    /// JCVM 3.1 Ch7 ifge: taken when val == 0 (boundary: equal to zero).
+    #[test]
+    fn ifge_taken_when_zero_boundary() {
+        let bc = [SCONST_1, SCONST_0, IFGE, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    // =======================================================================
+    // PRIORITY 6: Stack underflow for each category
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 sadd: StackUnderflow on empty stack.
+    #[test]
+    fn sadd_underflow() {
+        let bc = [SCONST_1, SADD];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
+    }
+
+    /// JCVM 3.1 Ch7 sreturn: StackUnderflow when returning with empty stack.
+    #[test]
+    fn sreturn_underflow() {
+        let bc = [SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
+    }
+
+    /// JCVM 3.1 Ch7 ireturn: StackUnderflow on empty stack (needs 2 words).
+    #[test]
+    fn ireturn_underflow() {
+        let bc = [IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
+    }
+
+    /// JCVM 3.1 Ch7 dup2: StackUnderflow when only 1 element.
+    #[test]
+    fn dup2_underflow_one_element() {
+        let bc = [SCONST_1, DUP2];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
+    }
+
+    /// JCVM 3.1 Ch7 dup2: StackUnderflow when stack is empty.
+    #[test]
+    fn dup2_underflow_empty() {
+        let bc = [DUP2];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
+    }
+
+    /// JCVM 3.1 Ch7 pop2: StackUnderflow when only 1 element.
+    #[test]
+    fn pop2_underflow_one_element() {
+        let bc = [SCONST_1, POP2];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
+    }
+
+    /// JCVM 3.1 Ch7 iadd: StackUnderflow with only one int on stack.
+    #[test]
+    fn iadd_underflow() {
+        let bc = [ICONST_1, IADD];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
+    }
+
+    // =======================================================================
+    // PRIORITY 7: Null reference exceptions
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 getfield_b: NullPointerException on null objectref.
+    #[test]
+    fn getfield_b_null_ref() {
+        let bc = [ACONST_NULL, GETFIELD_B, 0, 0];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
+    }
+
+    /// JCVM 3.1 Ch7 getfield_s: NullPointerException on null objectref.
+    #[test]
+    fn getfield_s_null_ref() {
+        let bc = [ACONST_NULL, GETFIELD_S, 0, 0];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
+    }
+
+    /// JCVM 3.1 Ch7 getfield_i: NullPointerException on null objectref.
+    #[test]
+    fn getfield_i_null_ref() {
+        let bc = [ACONST_NULL, GETFIELD_I, 0, 0];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
+    }
+
+    /// JCVM 3.1 Ch7 putfield_b: NullPointerException on null objectref.
+    #[test]
+    fn putfield_b_null_ref() {
+        let bc = [ACONST_NULL, SCONST_1, PUTFIELD_B, 0, 0];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
+    }
+
+    /// JCVM 3.1 Ch7 baload: NullPointerException on null arrayref.
+    #[test]
+    fn baload_null_ref() {
+        let bc = [ACONST_NULL, SCONST_0, BALOAD];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
+    }
+
+    /// JCVM 3.1 Ch7 bastore: NullPointerException on null arrayref.
+    #[test]
+    fn bastore_null_ref() {
+        let bc = [ACONST_NULL, SCONST_0, SCONST_1, BASTORE];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
+    }
+
+    /// JCVM 3.1 Ch7 saload: NullPointerException on null arrayref.
+    #[test]
+    fn saload_null_ref() {
+        let bc = [ACONST_NULL, SCONST_0, SALOAD];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
+    }
+
+    // =======================================================================
+    // PRIORITY 8: Array bounds checking
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 baload: ArrayIndexOutOfBounds when index == length.
+    #[test]
+    fn baload_out_of_bounds() {
+        // Create byte array of length 3, then load index 3 (OOB).
+        let bc = [
+            SCONST_3, NEWARRAY, 10,       // alloc byte[3]
+            SCONST_3, // push index 3 (== length)
+            BALOAD,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ArrayIndexOutOfBounds);
+    }
+
+    /// JCVM 3.1 Ch7 baload: index 0 (first element) succeeds.
+    #[test]
+    fn baload_index_zero() {
+        let bc = [
+            SCONST_3, NEWARRAY, 10, // alloc byte[3]
+            DUP, SCONST_0, // index
+            BSPUSH, 42,       // value
+            BASTORE,  // store 42 at index 0
+            SCONST_0, // index
+            BALOAD,   // load from index 0
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
+    }
+
+    /// JCVM 3.1 Ch7 baload: index length-1 (last element) succeeds.
+    #[test]
+    fn baload_last_index() {
+        let bc = [
+            SCONST_3, NEWARRAY, 10, // alloc byte[3]
+            DUP, SCONST_2, // index = length-1 = 2
+            BSPUSH, 99,       // value
+            BASTORE,  // store
+            SCONST_2, // index
+            BALOAD,   // load
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(99));
+    }
+
+    /// JCVM 3.1 Ch7 bastore: ArrayIndexOutOfBounds when index == length.
+    #[test]
+    fn bastore_out_of_bounds() {
+        let bc = [
+            SCONST_3, NEWARRAY, 10,       // alloc byte[3]
+            SCONST_3, // index 3 (OOB)
+            SCONST_1, // value
+            BASTORE,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ArrayIndexOutOfBounds);
+    }
+
+    // =======================================================================
+    // PRIORITY 9: sinc/iinc edge cases
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 sinc: increment by max positive byte constant (127).
+    #[test]
+    fn sinc_max_positive() {
+        let bc = [SCONST_0, SSTORE_0, SINC, 0, 127, SLOAD_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(127));
+    }
+
+    /// JCVM 3.1 Ch7 sinc: increment overflow wraps (32767 + 1 = -32768).
+    #[test]
+    fn sinc_overflow_wraps() {
+        let max_bytes = i16::MAX.cast_unsigned().to_be_bytes();
+        let bc = [
+            SSPUSH,
+            max_bytes[0],
+            max_bytes[1],
+            SSTORE_0,
+            SINC,
+            0,
+            1,
+            SLOAD_0,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
+    }
+
+    /// JCVM 3.1 Ch7 sinc: increment by min negative byte constant (-128).
+    #[test]
+    fn sinc_min_negative() {
+        let bc = [
+            SCONST_0,
+            SSTORE_0,
+            SINC,
+            0,
+            (-128i8).cast_unsigned(),
+            SLOAD_0,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-128));
+    }
+
+    /// JCVM 3.1 Ch7 iinc: increment by negative constant.
+    #[test]
+    fn iinc_negative() {
+        let bc = [
+            IIPUSH,
+            0x00,
+            0x00,
+            0x00,
+            100,
+            ISTORE_0,
+            IINC,
+            0,
+            (-5i8).cast_unsigned(),
+            ILOAD_0,
+            I2S,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(95));
+    }
+
+    /// JCVM 3.1 Ch7 iinc: int increment overflow wraps.
+    #[test]
+    fn iinc_overflow_wraps() {
+        let bc = [
+            IIPUSH, 0x7F, 0xFF, 0xFF, 0xFF, // i32::MAX
+            ISTORE_0, IINC, 0, 1, ILOAD_0, IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
+    }
+
+    // =======================================================================
+    // PRIORITY 10: Switch tests (additional coverage)
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 stableswitch: key at low boundary (key == low).
+    #[test]
+    fn stableswitch_low_boundary() {
+        let bc = [
+            SCONST_1,     // PC 0: key = 1 (== low)
+            STABLESWITCH, // PC 1
+            0x00,
+            15, // default_offset = 15 -> PC 16
+            0x00,
+            0x01, // low = 1
+            0x00,
+            0x03, // high = 3
+            0x00,
+            13, // offset for key=1: -> PC 1+13 = 14
+            0x00,
+            13, // offset for key=2
+            0x00,
+            13, // offset for key=3
+            SCONST_3,
+            SRETURN, // PC 14, 15 -- case target
+            SCONST_0,
+            SRETURN, // PC 16, 17 -- default
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    /// JCVM 3.1 Ch7 stableswitch: key at high boundary (key == high).
+    #[test]
+    fn stableswitch_high_boundary() {
+        let bc = [
+            SCONST_3,     // PC 0: key = 3 (== high)
+            STABLESWITCH, // PC 1
+            0x00,
+            15, // default_offset -> PC 16
+            0x00,
+            0x01, // low = 1
+            0x00,
+            0x03, // high = 3
+            0x00,
+            13, // offset for key=1
+            0x00,
+            13, // offset for key=2
+            0x00,
+            13, // offset for key=3: -> PC 14
+            SCONST_5,
+            SRETURN, // PC 14, 15 -- case target
+            SCONST_0,
+            SRETURN, // PC 16, 17 -- default
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    /// JCVM 3.1 Ch7 slookupswitch: no pairs, always goes to default.
+    #[test]
+    fn slookupswitch_empty_default() {
+        let bc = [
+            SCONST_5,      // PC 0
+            SLOOKUPSWITCH, // PC 1
+            0x00,
+            5, // default_offset = 5 -> PC 1+5 = 6
+            0x00,
+            0x00, // npairs = 0
+            SCONST_M1,
+            SRETURN, // PC 6, 7 -- default
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    /// JCVM 3.1 Ch7 stableswitch: key below low goes to default.
+    #[test]
+    fn stableswitch_below_low_default() {
+        let bc = [
+            SCONST_0,     // PC 0: key = 0 (< low=1)
+            STABLESWITCH, // PC 1
+            0x00,
+            15, // default_offset -> PC 16
+            0x00,
+            0x01, // low = 1
+            0x00,
+            0x03, // high = 3
+            0x00,
+            13, // offset for key=1
+            0x00,
+            13, // offset for key=2
+            0x00,
+            13, // offset for key=3
+            SCONST_3,
+            SRETURN, // PC 14, 15
+            SCONST_5,
+            SRETURN, // PC 16, 17 -- default
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    // =======================================================================
+    // PRIORITY 11: Field access variants
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 getfield_s/putfield_s: store at non-zero offset.
+    #[test]
+    fn putfield_getfield_short_offset2() {
+        let bc = [
+            NEW, 8, 0, // alloc with 8 field bytes
+            DUP, SSPUSH, 0xAB, 0xCD, // push 0xABCD (as signed i16 = -21555)
+            PUTFIELD_S, 2, 0, // store short at field offset 2
+            GETFIELD_S, 2, 0, // load short at field offset 2
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        let expected = 0xABCDu16 as i16;
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+    }
+
+    /// JCVM 3.1 Ch7 getfield_i/putfield_i: store negative int.
+    #[test]
+    fn putfield_getfield_int_negative() {
+        let bc = [
+            NEW, 8, 0, // alloc with 8 field bytes
+            DUP, IIPUSH, 0xFF, 0xFF, 0xFF, 0xFE, // push -2
+            PUTFIELD_I, 0, 0, GETFIELD_I, 0, 0, IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-2));
+    }
+
+    /// JCVM 3.1 Ch7 getfield_a/putfield_a: store and retrieve null reference.
+    #[test]
+    fn putfield_getfield_ref_null() {
+        let bc = [
+            NEW,
+            4,
+            0,
+            DUP,
+            ACONST_NULL,
+            PUTFIELD_A,
+            0,
+            0,
+            GETFIELD_A,
+            0,
+            0,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    /// JCVM 3.1 Ch7 putfield_s: NullPointerException on null objectref.
+    #[test]
+    fn putfield_s_null_ref() {
+        let bc = [ACONST_NULL, SCONST_1, PUTFIELD_S, 0, 0];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
+    }
+
+    // =======================================================================
+    // PRIORITY 12: Static field variants
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 getstatic_s/putstatic_s: negative value roundtrip.
+    #[test]
+    fn putstatic_getstatic_short_negative() {
+        let val = (-12345i16).cast_unsigned().to_be_bytes();
+        let bc = [
+            SSPUSH,
+            val[0],
+            val[1],
+            PUTSTATIC_S,
+            0x00,
+            0x10,
+            GETSTATIC_S,
+            0x00,
+            0x10,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-12345));
+    }
+
+    /// JCVM 3.1 Ch7 getstatic_i/putstatic_i: negative int roundtrip.
+    #[test]
+    fn putstatic_getstatic_int_negative() {
+        let bc = [
+            IIPUSH,
+            0xFF,
+            0xFF,
+            0xFF,
+            0xFE, // -2
+            PUTSTATIC_I,
+            0x00,
+            0x20,
+            GETSTATIC_I,
+            0x00,
+            0x20,
+            IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-2));
+    }
+
+    /// JCVM 3.1 Ch7 getstatic_a/putstatic_a: reference roundtrip.
+    #[test]
+    fn putstatic_getstatic_ref_roundtrip() {
+        let bc = [
+            BSPUSH,
+            77,
+            PUTSTATIC_A,
+            0x00,
+            0x30,
+            GETSTATIC_A,
+            0x00,
+            0x30,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(77));
+    }
+
+    /// JCVM 3.1 Ch7 getstatic_i: default zero for unwritten int field.
+    #[test]
+    fn getstatic_i_default_zero() {
+        let bc = [GETSTATIC_I, 0x00, 0x40, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0));
+    }
+
+    // =======================================================================
+    // PRIORITY 13: dup2/pop2 detailed tests
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 dup2: duplicates two words, verify both copies.
+    #[test]
+    fn dup2_full_verification() {
+        // Stack: [3, 5], dup2 -> [3, 5, 3, 5].
+        // pop top 5, pop 3, pop 5, return remaining 3.
+        let bc = [
+            SCONST_3, SCONST_5, DUP2, POP,     // remove top 5 -> [3, 5, 3]
+            POP,     // remove 3 -> [3, 5]
+            POP,     // remove 5 -> [3]
+            SRETURN, // return 3
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    /// JCVM 3.1 Ch7 pop2: leaves remaining stack intact.
+    #[test]
+    fn pop2_preserves_lower_stack() {
+        // Stack: [1, 2, 3, 4], pop2 -> [1, 2].
+        let bc = [
+            SCONST_1, SCONST_2, SCONST_3, SCONST_4, POP2, // remove 4 and 3
+            SADD, // 1 + 2 = 3
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    /// JCVM 3.1 Ch7 pop2: removes exactly 2 words (not more).
+    #[test]
+    fn pop2_exactly_two_words() {
+        // Stack: [5, 6, 7], pop2 removes 7 and 6, leaving 5.
+        let bc = [SCONST_5, BSPUSH, 6, BSPUSH, 7, POP2, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    /// JCVM 3.1 Ch7 dup2: with int value (2 words = 1 int).
+    #[test]
+    fn dup2_with_int() {
+        // Push int 42, dup2 (duplicates 2 stack words = the full int).
+        // Stack: [42_hi, 42_lo, 42_hi, 42_lo]. Pop top int, return remaining int.
+        let bc = [
+            IIPUSH, 0x00, 0x00, 0x00, 42, DUP2,
+            // Pop the duplicate int by converting to short and discarding
+            I2S, POP, I2S, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
+    }
+
+    // =======================================================================
+    // PRIORITY 14: areturn/ireturn variants
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 areturn: returns correct ExecResult::ReturnRef variant.
+    #[test]
+    fn areturn_nonzero_ref() {
+        let bc = [SSPUSH, 0x12, 0x34, ARETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnRef(0x1234));
+    }
+
+    /// JCVM 3.1 Ch7 ireturn: returns correct ExecResult::ReturnInt with negative.
+    #[test]
+    fn ireturn_negative() {
+        let bc = [ICONST_M1, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-1));
+    }
+
+    /// JCVM 3.1 Ch7 ireturn: returns large positive value.
+    #[test]
+    fn ireturn_large_positive() {
+        let bc = [
+            IIPUSH, 0x7F, 0xFF, 0xFF, 0xFF, // i32::MAX
+            IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MAX));
+    }
+
+    /// JCVM 3.1 Ch7 areturn: after invokestatic returns ref to caller.
+    #[test]
+    fn areturn_through_invokestatic() {
+        // Method 0: invokestatic(0, 1), areturn
+        // Method 1: push 0x42, areturn
+        let method0 = [INVOKESTATIC, 0, 1, ARETURN];
+        let method1 = [BSPUSH, 0x42, ARETURN];
+        let mut vm = vm_with_methods(&[&method0, &method1]);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnRef(0x42));
+    }
+
+    // =======================================================================
+    // PRIORITY 15: ICMP edge cases
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 icmp: comparison with large negative values.
+    #[test]
+    fn icmp_min_vs_max() {
+        let bc = [
+            IIPUSH, 0x80, 0x00, 0x00, 0x00, // i32::MIN
+            IIPUSH, 0x7F, 0xFF, 0xFF, 0xFF, // i32::MAX
+            ICMP, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    /// JCVM 3.1 Ch7 icmp: max vs min returns 1.
+    #[test]
+    fn icmp_max_vs_min() {
+        let bc = [
+            IIPUSH, 0x7F, 0xFF, 0xFF, 0xFF, // i32::MAX
+            IIPUSH, 0x80, 0x00, 0x00, 0x00, // i32::MIN
+            ICMP, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    // =======================================================================
+    // PRIORITY 16: Byte array store/load roundtrip
+    // =======================================================================
+
+    /// JCVM 3.1 Ch7 bastore/baload: store and retrieve multiple values.
+    #[test]
+    fn bastore_baload_multi() {
+        let bc = [
+            SCONST_3, NEWARRAY, 10, // alloc byte[3]
+            DUP, DUP, DUP, // 3 extra refs on stack
+            SCONST_0, BSPUSH, 10, BASTORE, // [0] = 10
+            SCONST_1, BSPUSH, 20, BASTORE, // [1] = 20
+            SCONST_2, BSPUSH, 30, BASTORE, // [2] = 30
+            // Now load [1] and return it
+            SCONST_1, BALOAD, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(20));
+    }
+
+    // =======================================================================
+    // PRIORITY 17: proptest PBT for short arithmetic
+    // =======================================================================
+
+    mod pbt {
+        extern crate alloc;
+        use super::*;
+        use alloc::vec;
+        use alloc::vec::Vec;
+        use proptest::prelude::*;
+
+        /// Helper: build bytecode that pushes two shorts, applies an opcode, returns.
+        fn short_binop_bc(a: i16, b: i16, opcode: u8) -> Vec<u8> {
+            let a_bytes = a.cast_unsigned().to_be_bytes();
+            let b_bytes = b.cast_unsigned().to_be_bytes();
+            vec![
+                SSPUSH, a_bytes[0], a_bytes[1], SSPUSH, b_bytes[0], b_bytes[1], opcode, SRETURN,
+            ]
+        }
+
+        /// Helper: build bytecode that pushes two ints, applies an opcode, returns.
+        fn int_binop_bc(a: i32, b: i32, opcode: u8) -> Vec<u8> {
+            let a_bytes = a.to_be_bytes();
+            let b_bytes = b.to_be_bytes();
+            vec![
+                IIPUSH, a_bytes[0], a_bytes[1], a_bytes[2], a_bytes[3], IIPUSH, b_bytes[0],
+                b_bytes[1], b_bytes[2], b_bytes[3], opcode, IRETURN,
+            ]
+        }
+
+        proptest! {
+            /// JCVM 3.1 Ch7 sadd: matches i16::wrapping_add for all inputs.
+            #[test]
+            fn sadd_matches_wrapping_add(a in any::<i16>(), b in any::<i16>()) {
+                let bc = short_binop_bc(a, b, SADD);
+                let mut vm = vm_with_method(&bc);
+                let expected = a.wrapping_add(b);
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 ssub: matches i16::wrapping_sub for all inputs.
+            #[test]
+            fn ssub_matches_wrapping_sub(a in any::<i16>(), b in any::<i16>()) {
+                let bc = short_binop_bc(a, b, SSUB);
+                let mut vm = vm_with_method(&bc);
+                let expected = a.wrapping_sub(b);
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 smul: matches i16::wrapping_mul for all inputs.
+            #[test]
+            fn smul_matches_wrapping_mul(a in any::<i16>(), b in any::<i16>()) {
+                let bc = short_binop_bc(a, b, SMUL);
+                let mut vm = vm_with_method(&bc);
+                let expected = a.wrapping_mul(b);
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 sand: matches Rust bitwise AND.
+            #[test]
+            fn sand_matches_bitwise_and(a in any::<u16>(), b in any::<u16>()) {
+                let a_i = a as i16;
+                let b_i = b as i16;
+                let bc = short_binop_bc(a_i, b_i, SAND);
+                let mut vm = vm_with_method(&bc);
+                let expected = (a & b) as i16;
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 sor: matches Rust bitwise OR.
+            #[test]
+            fn sor_matches_bitwise_or(a in any::<u16>(), b in any::<u16>()) {
+                let a_i = a as i16;
+                let b_i = b as i16;
+                let bc = short_binop_bc(a_i, b_i, SOR);
+                let mut vm = vm_with_method(&bc);
+                let expected = (a | b) as i16;
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 sxor: matches Rust bitwise XOR.
+            #[test]
+            fn sxor_matches_bitwise_xor(a in any::<u16>(), b in any::<u16>()) {
+                let a_i = a as i16;
+                let b_i = b as i16;
+                let bc = short_binop_bc(a_i, b_i, SXOR);
+                let mut vm = vm_with_method(&bc);
+                let expected = (a ^ b) as i16;
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 sshl: matches (i32::from(a) << (b & 0x1F)) truncated to i16.
+            #[test]
+            fn sshl_matches_reference(a in any::<i16>(), b in any::<i16>()) {
+                let bc = short_binop_bc(a, b, SSHL);
+                let mut vm = vm_with_method(&bc);
+                let shift = (b as u16) & 0x1F;
+                let expected = ((i32::from(a) << shift) & 0xFFFF) as i16;
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 sshr: matches (i32::from(a) >> (b & 0x1F)) truncated to i16.
+            #[test]
+            fn sshr_matches_reference(a in any::<i16>(), b in any::<i16>()) {
+                let bc = short_binop_bc(a, b, SSHR);
+                let mut vm = vm_with_method(&bc);
+                let shift = (b as u16) & 0x1F;
+                let expected = (i32::from(a) >> shift) as i16;
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 iadd: matches i32::wrapping_add for all inputs.
+            #[test]
+            fn iadd_matches_wrapping_add(a in any::<i32>(), b in any::<i32>()) {
+                let bc = int_binop_bc(a, b, IADD);
+                let mut vm = vm_with_method(&bc);
+                let expected = a.wrapping_add(b);
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
+            }
+
+            /// JCVM 3.1 Ch7 isub: matches i32::wrapping_sub for all inputs.
+            #[test]
+            fn isub_matches_wrapping_sub(a in any::<i32>(), b in any::<i32>()) {
+                let bc = int_binop_bc(a, b, ISUB);
+                let mut vm = vm_with_method(&bc);
+                let expected = a.wrapping_sub(b);
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
+            }
+
+            /// JCVM 3.1 Ch7 imul: matches i32::wrapping_mul for all inputs.
+            #[test]
+            fn imul_matches_wrapping_mul(a in any::<i32>(), b in any::<i32>()) {
+                let bc = int_binop_bc(a, b, IMUL);
+                let mut vm = vm_with_method(&bc);
+                let expected = a.wrapping_mul(b);
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
+            }
+
+            /// JCVM 3.1 Ch7 idiv: non-zero divisor matches Rust truncating division.
+            #[test]
+            fn idiv_matches_truncating_div(
+                a in any::<i32>(),
+                b in any::<i32>().prop_filter("non-zero", |b| *b != 0)
+            ) {
+                let bc = int_binop_bc(a, b, IDIV);
+                let mut vm = vm_with_method(&bc);
+                let expected = if a == i32::MIN && b == -1 {
+                    i32::MIN
+                } else {
+                    a / b
+                };
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
+            }
+
+            /// JCVM 3.1 Ch7 s2b: truncates low 8 bits then sign-extends to i16.
+            #[test]
+            fn s2b_matches_reference(a in any::<i16>()) {
+                let a_bytes = a.cast_unsigned().to_be_bytes();
+                let bc = vec![SSPUSH, a_bytes[0], a_bytes[1], S2B, SRETURN];
+                let mut vm = vm_with_method(&bc);
+                let expected = i16::from(a as i8);
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 i2s: truncates low 16 bits.
+            #[test]
+            fn i2s_matches_reference(a in any::<i32>()) {
+                let a_bytes = a.to_be_bytes();
+                let bc = vec![
+                    IIPUSH, a_bytes[0], a_bytes[1], a_bytes[2], a_bytes[3],
+                    I2S, SRETURN,
+                ];
+                let mut vm = vm_with_method(&bc);
+                let expected = a as i16;
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+
+            /// JCVM 3.1 Ch7 sinc: matches wrapping_add with i8 constant.
+            #[test]
+            fn sinc_matches_wrapping_add(val in any::<i16>(), inc in any::<i8>()) {
+                let val_bytes = val.cast_unsigned().to_be_bytes();
+                let bc = vec![
+                    SSPUSH, val_bytes[0], val_bytes[1],
+                    SSTORE_0,
+                    SINC, 0, inc.cast_unsigned(),
+                    SLOAD_0,
+                    SRETURN,
+                ];
+                let mut vm = vm_with_method(&bc);
+                let expected = val.wrapping_add(i16::from(inc));
+                prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
+            }
+        }
     }
 }
