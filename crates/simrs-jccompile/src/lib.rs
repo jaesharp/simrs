@@ -31,6 +31,7 @@ pub mod check;
 pub mod codegen;
 pub mod error;
 pub mod ir;
+pub mod optimize;
 pub mod sourcemap;
 pub mod types;
 

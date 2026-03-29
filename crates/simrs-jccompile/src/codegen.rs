@@ -246,22 +246,27 @@ pub struct CompiledClass {
 
 /// Compile a class from IR to bytecode.
 ///
-/// 1. Type-checks the class.
-/// 2. Compiles each method body to bytecodes.
-/// 3. Returns AID + method bytecodes.
+/// 1. Runs IR optimization passes (constant folding, DCE, strength reduction).
+/// 2. Type-checks the optimized class.
+/// 3. Compiles each method body to bytecodes.
+/// 4. Runs peephole optimization on each method's bytecodes.
+/// 5. Returns AID + method bytecodes.
 ///
 /// # Errors
 ///
 /// Returns compilation errors from type checking or code generation.
 pub fn compile_class(class: &JcClass) -> Result<CompiledClass, Vec<CompileError>> {
-    let checked = check_class(class)?;
+    let optimized = crate::optimize::optimize_ir(class);
+    let checked = check_class(&optimized)?;
 
     let mut methods = Vec::new();
     let mut errors = Vec::new();
 
     for cm in &checked.methods {
         match compile_method(cm) {
-            Ok(bytecode) => methods.push(bytecode),
+            Ok(bytecode) => {
+                methods.push(bytecode);
+            }
             Err(e) => errors.push(CompileError {
                 method: cm.method.name.clone(),
                 message: e,
@@ -1295,52 +1300,49 @@ mod tests {
 
     #[test]
     fn compile_addition() {
+        // Use a variable operand so the optimizer cannot fold the addition.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("a"), JcType::Short)],
             return_ty: JcType::Short,
-            locals: vec![],
+            locals: vec![(String::from("a"), JcType::Short)],
             body: vec![JcStmt::Return(Some(JcExpr::BinOp {
                 op: BinOp::Add,
-                left: Box::new(JcExpr::Lit(3)),
+                left: Box::new(JcExpr::Var(String::from("a"))),
                 right: Box::new(JcExpr::Lit(2)),
             }))],
             is_static: true,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
-        // sconst_3, sconst_2, sadd, sreturn
+        // sload_0, sconst_2, sadd, sreturn
         assert_eq!(
             compiled.methods[0],
-            vec![0x06, 0x05, SADD, SRETURN]
+            vec![SLOAD_0, 0x05, SADD, SRETURN]
         );
     }
 
     #[test]
     fn compile_negation() {
+        // Use a parameter so the store+load sequence does not appear.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("x"), JcType::Short)],
             return_ty: JcType::Short,
             locals: vec![
                 (String::from("x"), JcType::Short),
             ],
             body: vec![
-                JcStmt::Let {
-                    name: String::from("x"),
-                    ty: JcType::Short,
-                    init: JcExpr::Lit(7),
-                },
                 JcStmt::Return(Some(JcExpr::Neg(Box::new(JcExpr::Var(String::from("x")))))),
             ],
             is_static: true,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
-        // bspush 7, sstore_0, sload_0, sneg, sreturn
+        // sload_0, sneg, sreturn
         assert_eq!(
             compiled.methods[0],
-            vec![BSPUSH, 7, SSTORE_0, SLOAD_0, SNEG, SRETURN]
+            vec![SLOAD_0, SNEG, SRETURN]
         );
     }
 
@@ -1527,42 +1529,44 @@ mod tests {
         let bytes = 100_000_i32.to_be_bytes();
         assert_eq!(
             compiled.methods[0],
-            vec![IIPUSH, bytes[0], bytes[1], bytes[2], bytes[3], IRETURN]
+            vec![0x14, bytes[0], bytes[1], bytes[2], bytes[3], 0x79]
         );
     }
 
     #[test]
     fn compile_int_add() {
+        // Use a variable operand so the optimizer cannot fold the addition.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("a"), JcType::Int)],
             return_ty: JcType::Int,
-            locals: vec![],
+            locals: vec![(String::from("a"), JcType::Int)],
             body: vec![JcStmt::Return(Some(JcExpr::IntBinOp {
                 op: BinOp::Add,
-                left: Box::new(JcExpr::IntLit(3)),
+                left: Box::new(JcExpr::Var(String::from("a"))),
                 right: Box::new(JcExpr::IntLit(2)),
             }))],
             is_static: true,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
-        // iconst_3, iconst_2, iadd, ireturn
+        // iload_0, iconst_2, iadd, ireturn
         assert_eq!(
             compiled.methods[0],
-            vec![ICONST_0 + 3, ICONST_0 + 2, IADD, IRETURN]
+            vec![ILOAD_0, ICONST_0 + 2, IADD, IRETURN]
         );
     }
 
     #[test]
     fn compile_int_negation() {
+        // Use a variable so the optimizer cannot fold the negation.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("x"), JcType::Int)],
             return_ty: JcType::Int,
-            locals: vec![],
+            locals: vec![(String::from("x"), JcType::Int)],
             body: vec![JcStmt::Return(Some(JcExpr::IntNeg(
-                Box::new(JcExpr::IntLit(5)),
+                Box::new(JcExpr::Var(String::from("x"))),
             )))],
             is_static: true,
         };
@@ -1570,20 +1574,21 @@ mod tests {
         let compiled = compile_class(&cls).unwrap();
         assert_eq!(
             compiled.methods[0],
-            vec![ICONST_5, INEG, IRETURN]
+            vec![ILOAD_0, INEG, IRETURN]
         );
     }
 
     #[test]
     fn compile_short_bitwise_and() {
+        // Use a variable operand to prevent constant folding.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("a"), JcType::Short)],
             return_ty: JcType::Short,
-            locals: vec![],
+            locals: vec![(String::from("a"), JcType::Short)],
             body: vec![JcStmt::Return(Some(JcExpr::BinOp {
                 op: BinOp::And,
-                left: Box::new(JcExpr::Lit(5)),
+                left: Box::new(JcExpr::Var(String::from("a"))),
                 right: Box::new(JcExpr::Lit(3)),
             }))],
             is_static: true,
@@ -1595,17 +1600,24 @@ mod tests {
 
     #[test]
     fn compile_short_bitwise_or_xor() {
+        // Use variable operands to prevent constant folding.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![
+                (String::from("a"), JcType::Short),
+                (String::from("b"), JcType::Short),
+            ],
             return_ty: JcType::Short,
-            locals: vec![],
+            locals: vec![
+                (String::from("a"), JcType::Short),
+                (String::from("b"), JcType::Short),
+            ],
             body: vec![JcStmt::Return(Some(JcExpr::BinOp {
                 op: BinOp::Or,
                 left: Box::new(JcExpr::BinOp {
                     op: BinOp::Xor,
-                    left: Box::new(JcExpr::Lit(5)),
-                    right: Box::new(JcExpr::Lit(3)),
+                    left: Box::new(JcExpr::Var(String::from("a"))),
+                    right: Box::new(JcExpr::Var(String::from("b"))),
                 }),
                 right: Box::new(JcExpr::Lit(1)),
             }))],
@@ -1619,14 +1631,15 @@ mod tests {
 
     #[test]
     fn compile_short_shifts() {
+        // Use a variable operand to prevent constant folding.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("a"), JcType::Short)],
             return_ty: JcType::Short,
-            locals: vec![],
+            locals: vec![(String::from("a"), JcType::Short)],
             body: vec![JcStmt::Return(Some(JcExpr::BinOp {
                 op: BinOp::Shl,
-                left: Box::new(JcExpr::Lit(1)),
+                left: Box::new(JcExpr::Var(String::from("a"))),
                 right: Box::new(JcExpr::Lit(3)),
             }))],
             is_static: true,
@@ -1638,15 +1651,16 @@ mod tests {
 
     #[test]
     fn compile_cast_s2b() {
+        // Use a variable operand to prevent the optimizer from folding the cast.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("x"), JcType::Short)],
             return_ty: JcType::Short,
-            locals: vec![],
+            locals: vec![(String::from("x"), JcType::Short)],
             body: vec![JcStmt::Return(Some(JcExpr::Cast {
                 from: JcType::Short,
                 to: JcType::Byte,
-                expr: Box::new(JcExpr::Lit(300)),
+                expr: Box::new(JcExpr::Var(String::from("x"))),
             }))],
             is_static: true,
         };
@@ -1657,15 +1671,16 @@ mod tests {
 
     #[test]
     fn compile_cast_s2i() {
+        // Use a variable operand to prevent the optimizer from folding the cast.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("x"), JcType::Short)],
             return_ty: JcType::Int,
-            locals: vec![],
+            locals: vec![(String::from("x"), JcType::Short)],
             body: vec![JcStmt::Return(Some(JcExpr::Cast {
                 from: JcType::Short,
                 to: JcType::Int,
-                expr: Box::new(JcExpr::Lit(42)),
+                expr: Box::new(JcExpr::Var(String::from("x"))),
             }))],
             is_static: true,
         };
@@ -1677,15 +1692,16 @@ mod tests {
 
     #[test]
     fn compile_cast_i2s() {
+        // Use a variable operand to prevent the optimizer from folding the cast.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("x"), JcType::Int)],
             return_ty: JcType::Short,
-            locals: vec![],
+            locals: vec![(String::from("x"), JcType::Int)],
             body: vec![JcStmt::Return(Some(JcExpr::Cast {
                 from: JcType::Int,
                 to: JcType::Short,
-                expr: Box::new(JcExpr::IntLit(42)),
+                expr: Box::new(JcExpr::Var(String::from("x"))),
             }))],
             is_static: true,
         };
@@ -1696,15 +1712,16 @@ mod tests {
 
     #[test]
     fn compile_cast_i2b() {
+        // Use a variable operand to prevent the optimizer from folding the cast.
         let method = JcMethod {
             name: String::from("f"),
-            params: vec![],
+            params: vec![(String::from("x"), JcType::Int)],
             return_ty: JcType::Short,
-            locals: vec![],
+            locals: vec![(String::from("x"), JcType::Int)],
             body: vec![JcStmt::Return(Some(JcExpr::Cast {
                 from: JcType::Int,
                 to: JcType::Byte,
-                expr: Box::new(JcExpr::IntLit(300)),
+                expr: Box::new(JcExpr::Var(String::from("x"))),
             }))],
             is_static: true,
         };
@@ -1891,6 +1908,7 @@ mod tests {
 
     #[test]
     fn compile_int_binop_all() {
+        // Use variable operands to prevent constant folding.
         for (op, expected) in [
             (BinOp::Add, IADD),
             (BinOp::Sub, ISUB),
@@ -1906,13 +1924,19 @@ mod tests {
         ] {
             let method = JcMethod {
                 name: String::from("f"),
-                params: vec![],
+                params: vec![
+                    (String::from("a"), JcType::Int),
+                    (String::from("b"), JcType::Int),
+                ],
                 return_ty: JcType::Int,
-                locals: vec![],
+                locals: vec![
+                    (String::from("a"), JcType::Int),
+                    (String::from("b"), JcType::Int),
+                ],
                 body: vec![JcStmt::Return(Some(JcExpr::IntBinOp {
                     op,
-                    left: Box::new(JcExpr::IntLit(3)),
-                    right: Box::new(JcExpr::IntLit(2)),
+                    left: Box::new(JcExpr::Var(String::from("a"))),
+                    right: Box::new(JcExpr::Var(String::from("b"))),
                 }))],
                 is_static: true,
             };
@@ -1927,6 +1951,7 @@ mod tests {
 
     #[test]
     fn compile_short_binop_all() {
+        // Use variable operands to prevent constant folding.
         for (op, expected) in [
             (BinOp::Add, SADD),
             (BinOp::Sub, SSUB),
@@ -1942,13 +1967,19 @@ mod tests {
         ] {
             let method = JcMethod {
                 name: String::from("f"),
-                params: vec![],
+                params: vec![
+                    (String::from("a"), JcType::Short),
+                    (String::from("b"), JcType::Short),
+                ],
                 return_ty: JcType::Short,
-                locals: vec![],
+                locals: vec![
+                    (String::from("a"), JcType::Short),
+                    (String::from("b"), JcType::Short),
+                ],
                 body: vec![JcStmt::Return(Some(JcExpr::BinOp {
                     op,
-                    left: Box::new(JcExpr::Lit(3)),
-                    right: Box::new(JcExpr::Lit(2)),
+                    left: Box::new(JcExpr::Var(String::from("a"))),
+                    right: Box::new(JcExpr::Var(String::from("b"))),
                 }))],
                 is_static: true,
             };
