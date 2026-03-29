@@ -149,23 +149,31 @@ fn format_instruction(instr: &Instruction) -> String {
 
     match instr.opcode {
         // 1-byte instructions (no arguments).
-        opcodes::SCONST_M1
+        opcodes::NOP
+        | opcodes::ACONST_NULL
+        | opcodes::SCONST_M1
         | opcodes::SCONST_0
         | opcodes::SCONST_1
         | opcodes::SCONST_2
         | opcodes::SCONST_3
         | opcodes::SCONST_4
         | opcodes::SCONST_5
+        | opcodes::ALOAD_0
+        | opcodes::ALOAD_1
+        | opcodes::ALOAD_2
+        | opcodes::ALOAD_3
         | opcodes::SLOAD_0
         | opcodes::SLOAD_1
         | opcodes::SLOAD_2
         | opcodes::SLOAD_3
+        | opcodes::ASTORE_0
         | opcodes::SSTORE_0
         | opcodes::SSTORE_1
         | opcodes::SSTORE_2
         | opcodes::SSTORE_3
         | opcodes::POP
         | opcodes::DUP
+        | opcodes::SWAP
         | opcodes::SADD
         | opcodes::SSUB
         | opcodes::SMUL
@@ -178,7 +186,8 @@ fn format_instruction(instr: &Instruction) -> String {
         | opcodes::SASTORE
         | opcodes::ARRAYLENGTH
         | opcodes::SRETURN
-        | opcodes::RETURN => {
+        | opcodes::RETURN
+        | opcodes::ATHROW => {
             format!("{pc:04X}: {mnemonic}")
         }
 
@@ -189,8 +198,8 @@ fn format_instruction(instr: &Instruction) -> String {
         }
 
         // 2-byte/3-byte: opcode + single displayed argument
-        // (sload/sstore use local index; new uses type token with reserved 2nd byte)
-        opcodes::SLOAD | opcodes::SSTORE | opcodes::NEW => {
+        // (sload/sstore/aload/astore use local index; new uses type token with reserved 2nd byte)
+        opcodes::ALOAD | opcodes::ASTORE | opcodes::SLOAD | opcodes::SSTORE | opcodes::NEW => {
             let arg = instr.args[0];
             format!("{pc:04X}: {mnemonic} {arg}")
         }
@@ -206,7 +215,17 @@ fn format_instruction(instr: &Instruction) -> String {
         }
 
         // 2-byte: opcode + signed offset (branch)
-        opcodes::IF_SCMPEQ | opcodes::IF_SCMPNE | opcodes::GOTO => {
+        opcodes::IFEQ
+        | opcodes::IFNE
+        | opcodes::IFLT
+        | opcodes::IFGE
+        | opcodes::IFGT
+        | opcodes::IFLE
+        | opcodes::IFNULL
+        | opcodes::IFNONNULL
+        | opcodes::IF_SCMPEQ
+        | opcodes::IF_SCMPNE
+        | opcodes::GOTO => {
             let target = resolve_branch(pc, instr.args[0]);
             format!("{pc:04X}: {mnemonic} 0x{target:04X}")
         }
@@ -218,7 +237,12 @@ fn format_instruction(instr: &Instruction) -> String {
         }
 
         // 3-byte: opcode + two u8 arguments
-        opcodes::INVOKESTATIC | opcodes::GETFIELD_B | opcodes::PUTFIELD_B => {
+        opcodes::INVOKESTATIC
+        | opcodes::INVOKEVIRTUAL
+        | opcodes::GETFIELD_B
+        | opcodes::PUTFIELD_B
+        | opcodes::GETSTATIC_B
+        | opcodes::PUTSTATIC_B => {
             let arg0 = instr.args[0];
             let arg1 = instr.args[1];
             format!("{pc:04X}: {mnemonic} {arg0} {arg1}")
@@ -245,7 +269,11 @@ fn format_instruction(instr: &Instruction) -> String {
 /// and `putfield_b` consume 2 argument bytes in the VM).
 fn decode_opcode(opcode: u8) -> Result<(&'static str, usize), String> {
     match opcode {
+        // Misc (1-byte)
+        opcodes::NOP => Ok(("nop", 0)),
+
         // Constants (1-byte)
+        opcodes::ACONST_NULL => Ok(("aconst_null", 0)),
         opcodes::SCONST_M1 => Ok(("sconst_m1", 0)),
         opcodes::SCONST_0 => Ok(("sconst_0", 0)),
         opcodes::SCONST_1 => Ok(("sconst_1", 0)),
@@ -258,7 +286,16 @@ fn decode_opcode(opcode: u8) -> Result<(&'static str, usize), String> {
         opcodes::BSPUSH => Ok(("bspush", 1)),
         opcodes::SSPUSH => Ok(("sspush", 2)),
 
-        // Locals (1-byte)
+        // Reference locals (1-byte, 2-byte)
+        opcodes::ALOAD => Ok(("aload", 1)),
+        opcodes::ALOAD_0 => Ok(("aload_0", 0)),
+        opcodes::ALOAD_1 => Ok(("aload_1", 0)),
+        opcodes::ALOAD_2 => Ok(("aload_2", 0)),
+        opcodes::ALOAD_3 => Ok(("aload_3", 0)),
+        opcodes::ASTORE => Ok(("astore", 1)),
+        opcodes::ASTORE_0 => Ok(("astore_0", 0)),
+
+        // Short locals (1-byte)
         opcodes::SLOAD_0 => Ok(("sload_0", 0)),
         opcodes::SLOAD_1 => Ok(("sload_1", 0)),
         opcodes::SLOAD_2 => Ok(("sload_2", 0)),
@@ -268,13 +305,14 @@ fn decode_opcode(opcode: u8) -> Result<(&'static str, usize), String> {
         opcodes::SSTORE_2 => Ok(("sstore_2", 0)),
         opcodes::SSTORE_3 => Ok(("sstore_3", 0)),
 
-        // Locals (2-byte)
+        // Short locals (2-byte)
         opcodes::SLOAD => Ok(("sload", 1)),
         opcodes::SSTORE => Ok(("sstore", 1)),
 
         // Stack (1-byte)
         opcodes::POP => Ok(("pop", 0)),
         opcodes::DUP => Ok(("dup", 0)),
+        opcodes::SWAP => Ok(("swap", 0)),
 
         // Arithmetic (1-byte)
         opcodes::SADD => Ok(("sadd", 0)),
@@ -291,7 +329,17 @@ fn decode_opcode(opcode: u8) -> Result<(&'static str, usize), String> {
         opcodes::BASTORE => Ok(("bastore", 0)),
         opcodes::ARRAYLENGTH => Ok(("arraylength", 0)),
 
-        // Branch (2-byte: opcode + signed offset)
+        // Unary comparison branches (2-byte: opcode + signed offset)
+        opcodes::IFEQ => Ok(("ifeq", 1)),
+        opcodes::IFNE => Ok(("ifne", 1)),
+        opcodes::IFLT => Ok(("iflt", 1)),
+        opcodes::IFGE => Ok(("ifge", 1)),
+        opcodes::IFGT => Ok(("ifgt", 1)),
+        opcodes::IFLE => Ok(("ifle", 1)),
+        opcodes::IFNULL => Ok(("ifnull", 1)),
+        opcodes::IFNONNULL => Ok(("ifnonnull", 1)),
+
+        // Binary comparison branches (2-byte: opcode + signed offset)
         opcodes::IF_SCMPEQ => Ok(("if_scmpeq", 1)),
         opcodes::IF_SCMPNE => Ok(("if_scmpne", 1)),
         opcodes::GOTO => Ok(("goto", 1)),
@@ -305,6 +353,7 @@ fn decode_opcode(opcode: u8) -> Result<(&'static str, usize), String> {
 
         // Invoke (3-byte: opcode + pkg_index + method_index)
         opcodes::INVOKESTATIC => Ok(("invokestatic", 2)),
+        opcodes::INVOKEVIRTUAL => Ok(("invokevirtual", 2)),
 
         // Object (3-byte: opcode + type_token + reserved)
         opcodes::NEW => Ok(("new", 2)),
@@ -315,6 +364,11 @@ fn decode_opcode(opcode: u8) -> Result<(&'static str, usize), String> {
         // Field access (3-byte: opcode + field_offset + class_index)
         opcodes::GETFIELD_B => Ok(("getfield_b", 2)),
         opcodes::PUTFIELD_B => Ok(("putfield_b", 2)),
+        opcodes::GETSTATIC_B => Ok(("getstatic_b", 2)),
+        opcodes::PUTSTATIC_B => Ok(("putstatic_b", 2)),
+
+        // Exception (1-byte)
+        opcodes::ATHROW => Ok(("athrow", 0)),
 
         _ => Err(format!("unknown opcode: 0x{opcode:02X}")),
     }

@@ -206,7 +206,16 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
             self.pc += 1;
 
             match opcode {
+                // --- NOP ---
+                opcodes::NOP => {}
+
                 // --- Constants ---
+                opcodes::ACONST_NULL => {
+                    if let Err(e) = self.push(0) {
+                        return e;
+                    }
+                }
+
                 opcodes::SCONST_M1..=opcodes::SCONST_5 => {
                     let val = i16::from(opcode) - i16::from(opcodes::SCONST_0);
                     if let Err(e) = self.push(val.cast_unsigned()) {
@@ -233,6 +242,25 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         return ExecResult::EndOfBytecode;
                     };
                     let val = u16::from_be_bytes([hi, lo]);
+                    if let Err(e) = self.push(val) {
+                        return e;
+                    }
+                }
+
+                // --- Reference loads (same as sload; references are u16) ---
+                opcodes::ALOAD => {
+                    let Some(idx) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = self.get_local(idx);
+                    if let Err(e) = self.push(val) {
+                        return e;
+                    }
+                }
+
+                opcodes::ALOAD_0..=opcodes::ALOAD_3 => {
+                    let idx = opcode - opcodes::ALOAD_0;
+                    let val = self.get_local(idx);
                     if let Err(e) = self.push(val) {
                         return e;
                     }
@@ -278,6 +306,26 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     self.set_local(idx, val);
                 }
 
+                // --- Reference stores (same as sstore; references are u16) ---
+                opcodes::ASTORE => {
+                    let Some(idx) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    self.set_local(idx, val);
+                }
+
+                opcodes::ASTORE_0 => {
+                    let val = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    self.set_local(0, val);
+                }
+
                 // --- Stack manipulation ---
                 opcodes::POP => {
                     if let Err(e) = self.pop() {
@@ -291,6 +339,23 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     if let Err(e) = self.push(val) {
+                        return e;
+                    }
+                }
+
+                opcodes::SWAP => {
+                    let a = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let b = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push(a) {
+                        return e;
+                    }
+                    if let Err(e) = self.push(b) {
                         return e;
                     }
                 }
@@ -457,6 +522,135 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     }
                 }
 
+                // --- Unary comparison branches ---
+                opcodes::IFEQ => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val == 0 {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFNE => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val != 0 {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFLT => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val < 0 {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFGE => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val >= 0 {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFGT => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val > 0 {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFLE => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val <= 0 {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFNULL => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val == 0 {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFNONNULL => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val != 0 {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
                 // --- Return ---
                 opcodes::SRETURN => {
                     let val = match self.pop_i16() {
@@ -498,6 +692,64 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     if let Some(err) = result {
                         return err;
                     }
+                }
+
+                // --- Static field access ---
+                opcodes::GETSTATIC_B => {
+                    // Operand: 2 bytes -- field_offset, reserved.
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    // Consume second byte (reserved/class index).
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let idx = u16::from(field_offset) as usize;
+                    let val = if idx < self.static_fields.len() {
+                        u16::from(self.static_fields[idx])
+                    } else {
+                        0
+                    };
+                    if let Err(e) = self.push(val) {
+                        return e;
+                    }
+                }
+
+                opcodes::PUTSTATIC_B => {
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let val = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let idx = u16::from(field_offset) as usize;
+                    if idx < self.static_fields.len() {
+                        #[allow(clippy::cast_possible_truncation)]
+                        {
+                            self.static_fields[idx] = val as u8;
+                        }
+                    }
+                }
+
+                // --- Virtual dispatch (stub: treated like invokestatic for now) ---
+                opcodes::INVOKEVIRTUAL => {
+                    let result = self.exec_invokestatic(bytecode, bytecode_len);
+                    if let Some(err) = result {
+                        return err;
+                    }
+                }
+
+                // --- Exception ---
+                opcodes::ATHROW => {
+                    let reason = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    return ExecResult::UncaughtException(reason);
                 }
 
                 // --- Object creation ---
@@ -1767,5 +2019,331 @@ mod tests {
         let bc = [GOTO, 0];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ExecutionLimit);
+    }
+
+    // -----------------------------------------------------------------------
+    // NOP
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn nop_does_nothing() {
+        let bc = [NOP, SCONST_3, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    #[test]
+    fn nop_multiple() {
+        let bc = [NOP, NOP, NOP, SCONST_5, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    // -----------------------------------------------------------------------
+    // ACONST_NULL
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn aconst_null_pushes_zero() {
+        let bc = [ACONST_NULL, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    // -----------------------------------------------------------------------
+    // Reference load/store (ALOAD/ASTORE)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn aload_astore_roundtrip() {
+        // Store 42 via astore, load via aload.
+        let bc = [BSPUSH, 42, ASTORE, 0, ALOAD, 0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
+    }
+
+    #[test]
+    fn aload_0_astore_0_roundtrip() {
+        let bc = [SCONST_5, ASTORE_0, ALOAD_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn aload_0_through_3() {
+        // Store distinct values in locals 0-3, load and add pairs.
+        let bc = [
+            BSPUSH, 10, ASTORE_0,
+            BSPUSH, 20, SSTORE, 1,  // use sstore for local 1
+            ALOAD_0,
+            ALOAD_1,
+            SADD,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(30));
+    }
+
+    #[test]
+    fn aload_2_and_3() {
+        let bc = [
+            BSPUSH, 7, SSTORE, 2,
+            BSPUSH, 3, SSTORE, 3,
+            ALOAD_2,
+            ALOAD_3,
+            SADD,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(10));
+    }
+
+    // -----------------------------------------------------------------------
+    // SWAP
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn swap_reverses_top_two() {
+        // Push 3, push 5, swap -> top is 3, second is 5.
+        // Then ssub: second - top = 5 - 3 = 2.
+        let bc = [SCONST_3, SCONST_5, SWAP, SSUB, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        // After swap: stack is [5, 3], ssub pops 3 (b) then 5 (a) -> 5 - 3 = 2.
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(2));
+    }
+
+    #[test]
+    fn swap_empty_stack_underflow() {
+        let bc = [SWAP];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
+    }
+
+    #[test]
+    fn swap_one_element_underflow() {
+        let bc = [SCONST_1, SWAP];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
+    }
+
+    // -----------------------------------------------------------------------
+    // IFEQ / IFNE / IFLT / IFGE / IFGT / IFLE
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ifeq_taken_when_zero() {
+        // Push sentinel 1, push 0, ifeq +4, sconst_0 (skipped), sreturn (skipped), sreturn.
+        // PC layout: 0:sconst_1, 1:sconst_0, 2:ifeq, 3:offset, 4:sconst_0, 5:sreturn, 6:sreturn
+        // ifeq opcode at PC=2, offset=4 -> target = 2+4 = 6 (the final sreturn).
+        let bc = [SCONST_1, SCONST_0, IFEQ, 4, SCONST_0, SRETURN, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifeq_not_taken_when_nonzero() {
+        let bc = [SCONST_5, IFEQ, 3, SCONST_3, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        // 5 != 0, so fall through.
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    #[test]
+    fn ifne_taken_when_nonzero() {
+        let bc = [SCONST_1, SCONST_5, IFNE, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        // 5 != 0, so branch taken.
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifne_not_taken_when_zero() {
+        let bc = [SCONST_0, IFNE, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    #[test]
+    fn iflt_taken_when_negative() {
+        let bc = [SCONST_1, SCONST_M1, IFLT, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        // -1 < 0, branch taken.
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn iflt_not_taken_when_positive() {
+        let bc = [SCONST_5, IFLT, 3, SCONST_3, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    #[test]
+    fn ifge_taken_when_zero() {
+        let bc = [SCONST_1, SCONST_0, IFGE, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifge_taken_when_positive() {
+        let bc = [SCONST_1, SCONST_3, IFGE, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifge_not_taken_when_negative() {
+        let bc = [SCONST_M1, IFGE, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    #[test]
+    fn ifgt_taken_when_positive() {
+        let bc = [SCONST_1, SCONST_3, IFGT, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifgt_not_taken_when_zero() {
+        let bc = [SCONST_0, IFGT, 3, SCONST_2, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(2));
+    }
+
+    #[test]
+    fn ifle_taken_when_zero() {
+        let bc = [SCONST_1, SCONST_0, IFLE, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifle_taken_when_negative() {
+        let bc = [SCONST_1, SCONST_M1, IFLE, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifle_not_taken_when_positive() {
+        let bc = [SCONST_5, IFLE, 3, SCONST_2, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(2));
+    }
+
+    // -----------------------------------------------------------------------
+    // IFNULL / IFNONNULL
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ifnull_taken_when_null() {
+        let bc = [SCONST_1, ACONST_NULL, IFNULL, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifnull_not_taken_when_nonnull() {
+        let bc = [SCONST_5, IFNULL, 3, SCONST_3, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    #[test]
+    fn ifnonnull_taken_when_nonnull() {
+        let bc = [SCONST_1, SCONST_5, IFNONNULL, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifnonnull_not_taken_when_null() {
+        let bc = [ACONST_NULL, IFNONNULL, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    // -----------------------------------------------------------------------
+    // GETSTATIC_B / PUTSTATIC_B
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn putstatic_getstatic_roundtrip() {
+        // putstatic_b field_offset=0, then getstatic_b field_offset=0.
+        let bc = [
+            BSPUSH, 42,
+            PUTSTATIC_B, 0, 0,
+            GETSTATIC_B, 0, 0,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
+    }
+
+    #[test]
+    fn getstatic_default_zero() {
+        // Read a static field that has not been written.
+        let bc = [GETSTATIC_B, 5, 0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    #[test]
+    fn putstatic_truncates_to_byte() {
+        // Write 0x1234 to static field -- only low byte (0x34 = 52) should persist.
+        let bc = [
+            SSPUSH, 0x01, 0x34,
+            PUTSTATIC_B, 0, 0,
+            GETSTATIC_B, 0, 0,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0x34));
+    }
+
+    // -----------------------------------------------------------------------
+    // INVOKEVIRTUAL (stub: same as invokestatic)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn invokevirtual_calls_method() {
+        // Method 0: invokevirtual(0, 1), sreturn.
+        // Method 1: sconst_3, sreturn.
+        let method0 = [INVOKEVIRTUAL, 0, 1, SRETURN];
+        let method1 = [SCONST_3, SRETURN];
+        let mut vm = vm_with_methods(&[&method0, &method1]);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    // -----------------------------------------------------------------------
+    // ATHROW
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn athrow_uncaught() {
+        let bc = [SSPUSH, 0x6F, 0x00, ATHROW];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::UncaughtException(0x6F00));
+    }
+
+    #[test]
+    fn athrow_null() {
+        let bc = [ACONST_NULL, ATHROW];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::UncaughtException(0));
+    }
+
+    // -----------------------------------------------------------------------
+    // SIPUSH (alias for SSPUSH)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn sipush_is_sspush() {
+        let bc = [SIPUSH, 0x00, 0x0A, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(10));
     }
 }

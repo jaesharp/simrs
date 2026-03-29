@@ -27,6 +27,19 @@
 //! | 0x90 | Array | `newarray` |
 //! | 0x92 | Array | `arraylength` |
 //! | 0xA8 | Branch | `goto_w` |
+//! | 0x00 | Misc | `nop` |
+//! | 0x01 | Constants | `aconst_null` |
+//! | 0x15 | Locals | `aload` |
+//! | 0x18-0x1B | Locals | `aload_0` .. `aload_3` |
+//! | 0x29 | Locals | `astore` |
+//! | 0x2A | Locals | `astore_0` |
+//! | 0x3F | Stack | `swap` |
+//! | 0x60-0x65 | Branch | `ifeq`, `ifne`, `iflt`, `ifge`, `ifgt`, `ifle` |
+//! | 0x66-0x67 | Branch | `ifnull`, `ifnonnull` |
+//! | 0x8B | Invoke | `invokevirtual` |
+//! | 0x93 | Exception | `athrow` |
+//! | 0xB3 | Fields | `getstatic_b` |
+//! | 0xB5 | Fields | `putstatic_b` |
 
 // --- Opcode constants ---
 
@@ -130,6 +143,76 @@ pub const PUTFIELD_B: u8 = 0xAF;
 /// `goto_w`: unconditional branch (2-byte signed offset)
 pub const GOTO_W: u8 = 0xA8;
 
+// --- Misc ---
+
+/// `nop`: no operation
+pub const NOP: u8 = 0x00;
+
+// --- Reference handling (aliases for short ops; references are u16 in JCVM) ---
+
+/// `aconst_null`: push null reference (0x0000)
+pub const ACONST_NULL: u8 = 0x01;
+
+/// `aload`: load reference from local variable
+pub const ALOAD: u8 = 0x15;
+/// `aload_0`: load reference from local 0
+pub const ALOAD_0: u8 = 0x18;
+/// `aload_1`: load reference from local 1
+pub const ALOAD_1: u8 = 0x19;
+/// `aload_2`: load reference from local 2
+pub const ALOAD_2: u8 = 0x1A;
+/// `aload_3`: load reference from local 3
+pub const ALOAD_3: u8 = 0x1B;
+
+/// `astore`: store reference to local variable
+pub const ASTORE: u8 = 0x29;
+/// `astore_0`: store reference to local 0
+pub const ASTORE_0: u8 = 0x2A;
+
+// --- Stack manipulation ---
+
+/// `swap`: swap top two stack values
+pub const SWAP: u8 = 0x3F;
+
+// --- Comparison branches (1-byte signed offset) ---
+
+/// `ifeq`: branch if top == 0
+pub const IFEQ: u8 = 0x60;
+/// `ifne`: branch if top != 0
+pub const IFNE: u8 = 0x61;
+/// `iflt`: branch if top < 0
+pub const IFLT: u8 = 0x62;
+/// `ifge`: branch if top >= 0
+pub const IFGE: u8 = 0x63;
+/// `ifgt`: branch if top > 0
+pub const IFGT: u8 = 0x64;
+/// `ifle`: branch if top <= 0
+pub const IFLE: u8 = 0x65;
+/// `ifnull`: branch if top is null (0)
+pub const IFNULL: u8 = 0x66;
+/// `ifnonnull`: branch if top is not null
+pub const IFNONNULL: u8 = 0x67;
+
+// --- Static field access ---
+
+/// `getstatic_b`: get static byte field
+pub const GETSTATIC_B: u8 = 0xB3;
+/// `putstatic_b`: put static byte field
+pub const PUTSTATIC_B: u8 = 0xB5;
+
+// --- Virtual dispatch ---
+
+/// `invokevirtual`: invoke virtual method
+pub const INVOKEVIRTUAL: u8 = 0x8B;
+
+// --- Exception ---
+
+/// `athrow`: throw exception
+pub const ATHROW: u8 = 0x93;
+
+/// `sipush`: alias for `sspush` (push short immediate)
+pub const SIPUSH: u8 = SSPUSH;
+
 /// Result of executing a single step or a full method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecResult {
@@ -165,6 +248,8 @@ pub enum ExecResult {
     InvalidMethod,
     /// Execution limit exceeded (infinite loop guard).
     ExecutionLimit,
+    /// Uncaught exception thrown by `athrow`.
+    UncaughtException(u16),
 }
 
 // ---------------------------------------------------------------------------
@@ -204,5 +289,142 @@ mod tests {
         assert_eq!(SDIV, 0x47);
         assert_eq!(SREM, 0x49);
         assert_eq!(SNEG, 0x4B);
+    }
+
+    #[test]
+    fn nop_opcode() {
+        assert_eq!(NOP, 0x00);
+    }
+
+    #[test]
+    fn reference_opcodes() {
+        assert_eq!(ACONST_NULL, 0x01);
+        assert_eq!(ALOAD, 0x15);
+        assert_eq!(ALOAD_0, 0x18);
+        assert_eq!(ALOAD_1, 0x19);
+        assert_eq!(ALOAD_2, 0x1A);
+        assert_eq!(ALOAD_3, 0x1B);
+        assert_eq!(ASTORE, 0x29);
+        assert_eq!(ASTORE_0, 0x2A);
+    }
+
+    #[test]
+    fn swap_opcode() {
+        assert_eq!(SWAP, 0x3F);
+    }
+
+    #[test]
+    fn comparison_branch_opcodes() {
+        assert_eq!(IFEQ, 0x60);
+        assert_eq!(IFNE, 0x61);
+        assert_eq!(IFLT, 0x62);
+        assert_eq!(IFGE, 0x63);
+        assert_eq!(IFGT, 0x64);
+        assert_eq!(IFLE, 0x65);
+        assert_eq!(IFNULL, 0x66);
+        assert_eq!(IFNONNULL, 0x67);
+    }
+
+    #[test]
+    fn static_field_opcodes() {
+        assert_eq!(GETSTATIC_B, 0xB3);
+        assert_eq!(PUTSTATIC_B, 0xB5);
+    }
+
+    #[test]
+    fn invokevirtual_opcode() {
+        assert_eq!(INVOKEVIRTUAL, 0x8B);
+    }
+
+    #[test]
+    fn athrow_opcode() {
+        assert_eq!(ATHROW, 0x93);
+    }
+
+    #[test]
+    fn sipush_is_sspush_alias() {
+        assert_eq!(SIPUSH, SSPUSH);
+    }
+
+    #[test]
+    fn no_opcode_value_collisions() {
+        // Verify that all distinct opcode constants have unique values.
+        // This catches accidental value reuse between opcodes.
+        let opcodes: &[(u8, &str)] = &[
+            (NOP, "NOP"),
+            (ACONST_NULL, "ACONST_NULL"),
+            (SCONST_M1, "SCONST_M1"),
+            (SCONST_0, "SCONST_0"),
+            (SCONST_1, "SCONST_1"),
+            (SCONST_2, "SCONST_2"),
+            (SCONST_3, "SCONST_3"),
+            (SCONST_4, "SCONST_4"),
+            (SCONST_5, "SCONST_5"),
+            (BSPUSH, "BSPUSH"),
+            (SSPUSH, "SSPUSH"),
+            (ALOAD, "ALOAD"),
+            (SLOAD, "SLOAD"),
+            (ALOAD_0, "ALOAD_0"),
+            (ALOAD_1, "ALOAD_1"),
+            (ALOAD_2, "ALOAD_2"),
+            (ALOAD_3, "ALOAD_3"),
+            (SLOAD_0, "SLOAD_0"),
+            (SLOAD_1, "SLOAD_1"),
+            (SLOAD_2, "SLOAD_2"),
+            (SLOAD_3, "SLOAD_3"),
+            (SALOAD, "SALOAD"),
+            (BALOAD, "BALOAD"),
+            (SASTORE, "SASTORE"),
+            (BASTORE, "BASTORE"),
+            (SSTORE, "SSTORE"),
+            (ASTORE, "ASTORE"),
+            (ASTORE_0, "ASTORE_0"),
+            (SSTORE_0, "SSTORE_0"),
+            (SSTORE_1, "SSTORE_1"),
+            (SSTORE_2, "SSTORE_2"),
+            (SSTORE_3, "SSTORE_3"),
+            (POP, "POP"),
+            (DUP, "DUP"),
+            (SWAP, "SWAP"),
+            (SADD, "SADD"),
+            (SSUB, "SSUB"),
+            (SMUL, "SMUL"),
+            (SDIV, "SDIV"),
+            (SREM, "SREM"),
+            (SNEG, "SNEG"),
+            (IFEQ, "IFEQ"),
+            (IFNE, "IFNE"),
+            (IFLT, "IFLT"),
+            (IFGE, "IFGE"),
+            (IFGT, "IFGT"),
+            (IFLE, "IFLE"),
+            (IFNULL, "IFNULL"),
+            (IFNONNULL, "IFNONNULL"),
+            (IF_SCMPEQ, "IF_SCMPEQ"),
+            (IF_SCMPNE, "IF_SCMPNE"),
+            (GOTO, "GOTO"),
+            (SRETURN, "SRETURN"),
+            (RETURN, "RETURN"),
+            (INVOKEVIRTUAL, "INVOKEVIRTUAL"),
+            (INVOKESTATIC, "INVOKESTATIC"),
+            (NEW, "NEW"),
+            (NEWARRAY, "NEWARRAY"),
+            (ARRAYLENGTH, "ARRAYLENGTH"),
+            (ATHROW, "ATHROW"),
+            (GOTO_W, "GOTO_W"),
+            (GETFIELD_B, "GETFIELD_B"),
+            (PUTFIELD_B, "PUTFIELD_B"),
+            (GETSTATIC_B, "GETSTATIC_B"),
+            (PUTSTATIC_B, "PUTSTATIC_B"),
+        ];
+        for i in 0..opcodes.len() {
+            for j in (i + 1)..opcodes.len() {
+                assert_ne!(
+                    opcodes[i].0, opcodes[j].0,
+                    "opcode collision: {} and {} both have value 0x{:02X}",
+                    opcodes[i].1, opcodes[j].1, opcodes[i].0
+                );
+            }
+        }
     }
 }
