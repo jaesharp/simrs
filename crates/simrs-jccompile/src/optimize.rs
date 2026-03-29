@@ -228,6 +228,19 @@ fn optimize_lvalue(lv: &LValue) -> LValue {
 // Constant folding + strength reduction on expressions
 // =========================================================================
 
+/// Returns `true` if the expression is guaranteed to have no side effects.
+///
+/// In JCVM, many expression forms can throw mandatory exceptions or trigger
+/// firewall checks (JCRE 2.2.1 Section 6). Only local variable references
+/// and compile-time literals are provably side-effect-free. All other forms
+/// -- including field reads (`SelfField`), array operations, method calls,
+/// and allocations -- may throw exceptions or cross applet firewall
+/// boundaries and MUST NOT be eliminated.
+const fn is_side_effect_free(expr: &JcExpr) -> bool {
+    matches!(expr, JcExpr::Lit(_) | JcExpr::IntLit(_) | JcExpr::Var(_))
+}
+
+
 /// Optimize an expression.
 ///
 /// Combines constant folding, identity/annihilator elimination, and strength
@@ -270,11 +283,16 @@ fn optimize_expr(expr: &JcExpr) -> JcExpr {
                     }
                 }
                 BinOp::Mul => {
-                    // x * 0 -> 0
-                    if matches!(&r, JcExpr::Lit(0)) {
+                    // x * 0 -> 0  (ONLY when x is side-effect-free)
+                    // SAFETY: In JCVM, eliminating x would suppress mandatory
+                    // exceptions (NullPointerException, SecurityException from
+                    // firewall checks, etc.) per JCVM 3.1 Section 7.5 and
+                    // JCRE 2.2.1 Section 6. We must evaluate x for its side
+                    // effects even when the result is mathematically zero.
+                    if matches!(&r, JcExpr::Lit(0)) && is_side_effect_free(&l) {
                         return JcExpr::Lit(0);
                     }
-                    if matches!(&l, JcExpr::Lit(0)) {
+                    if matches!(&l, JcExpr::Lit(0)) && is_side_effect_free(&r) {
                         return JcExpr::Lit(0);
                     }
                     // x * 1 -> x
@@ -284,15 +302,19 @@ fn optimize_expr(expr: &JcExpr) -> JcExpr {
                     if matches!(&l, JcExpr::Lit(1)) {
                         return r;
                     }
-                    // Strength reduction: x * 2 -> x + x
-                    if matches!(&r, JcExpr::Lit(2)) {
+                    // Strength reduction: x * 2 -> x + x  (ONLY when x is side-effect-free)
+                    // SAFETY: This transform duplicates evaluation of x. In JCVM,
+                    // if x is a method call, field read, or array access, evaluating
+                    // it twice would duplicate side effects (I/O, persistent writes,
+                    // firewall checks, exceptions) per JCVM 3.1 Section 7.5.
+                    if matches!(&r, JcExpr::Lit(2)) && is_side_effect_free(&l) {
                         return JcExpr::BinOp {
                             op: BinOp::Add,
                             left: Box::new(l.clone()),
                             right: Box::new(l),
                         };
                     }
-                    if matches!(&l, JcExpr::Lit(2)) {
+                    if matches!(&l, JcExpr::Lit(2)) && is_side_effect_free(&r) {
                         return JcExpr::BinOp {
                             op: BinOp::Add,
                             left: Box::new(r.clone()),
@@ -307,8 +329,12 @@ fn optimize_expr(expr: &JcExpr) -> JcExpr {
                     }
                 }
                 BinOp::Rem => {
-                    // x % 1 -> 0
-                    if matches!(&r, JcExpr::Lit(1)) {
+                    // x % 1 -> 0  (ONLY when x is side-effect-free)
+                    // SAFETY: In JCVM, eliminating x would suppress mandatory
+                    // exceptions per JCVM 3.1 Section 7.5 and JCRE 2.2.1
+                    // Section 6. The expression x must still be evaluated
+                    // even though the mathematical result is always zero.
+                    if matches!(&r, JcExpr::Lit(1)) && is_side_effect_free(&l) {
                         return JcExpr::Lit(0);
                     }
                 }
@@ -350,7 +376,15 @@ fn optimize_expr(expr: &JcExpr) -> JcExpr {
                     }
                 }
                 BinOp::Mul => {
-                    if matches!(&r, JcExpr::IntLit(0)) || matches!(&l, JcExpr::IntLit(0)) {
+                    // x * 0 -> 0  (ONLY when the other operand is side-effect-free)
+                    // SAFETY: In JCVM, eliminating an operand would suppress
+                    // mandatory exceptions (NullPointerException, SecurityException
+                    // from firewall checks, etc.) per JCVM 3.1 Section 7.5 and
+                    // JCRE 2.2.1 Section 6.
+                    if matches!(&r, JcExpr::IntLit(0)) && is_side_effect_free(&l) {
+                        return JcExpr::IntLit(0);
+                    }
+                    if matches!(&l, JcExpr::IntLit(0)) && is_side_effect_free(&r) {
                         return JcExpr::IntLit(0);
                     }
                     if matches!(&r, JcExpr::IntLit(1)) {
@@ -359,14 +393,17 @@ fn optimize_expr(expr: &JcExpr) -> JcExpr {
                     if matches!(&l, JcExpr::IntLit(1)) {
                         return r;
                     }
-                    if matches!(&r, JcExpr::IntLit(2)) {
+                    // Strength reduction: x * 2 -> x + x  (ONLY when x is side-effect-free)
+                    // SAFETY: Duplicating evaluation of x would duplicate side
+                    // effects per JCVM 3.1 Section 7.5.
+                    if matches!(&r, JcExpr::IntLit(2)) && is_side_effect_free(&l) {
                         return JcExpr::IntBinOp {
                             op: BinOp::Add,
                             left: Box::new(l.clone()),
                             right: Box::new(l),
                         };
                     }
-                    if matches!(&l, JcExpr::IntLit(2)) {
+                    if matches!(&l, JcExpr::IntLit(2)) && is_side_effect_free(&r) {
                         return JcExpr::IntBinOp {
                             op: BinOp::Add,
                             left: Box::new(r.clone()),
@@ -380,7 +417,11 @@ fn optimize_expr(expr: &JcExpr) -> JcExpr {
                     }
                 }
                 BinOp::Rem => {
-                    if matches!(&r, JcExpr::IntLit(1)) {
+                    // x % 1 -> 0  (ONLY when x is side-effect-free)
+                    // SAFETY: In JCVM, eliminating x would suppress mandatory
+                    // exceptions per JCVM 3.1 Section 7.5 and JCRE 2.2.1
+                    // Section 6.
+                    if matches!(&r, JcExpr::IntLit(1)) && is_side_effect_free(&l) {
                         return JcExpr::IntLit(0);
                     }
                 }
