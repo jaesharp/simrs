@@ -181,6 +181,27 @@ fn assemble_method(
                             bytecode.push(offset as u8);
                         }
                     }
+                    ArgKind::Imm32 => {
+                        let val = extract_int(arg, mnemonic, *span)?;
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        {
+                            bytecode.push((val >> 24) as u8);
+                            bytecode.push((val >> 16) as u8);
+                            bytecode.push((val >> 8) as u8);
+                            bytecode.push(val as u8);
+                        }
+                    }
+                    ArgKind::LocalImm8 => {
+                        // Expects two arguments encoded as a single i64:
+                        // high byte = local index, low byte = constant.
+                        // For now, just encode as two bytes from the int arg.
+                        let val = extract_int(arg, mnemonic, *span)?;
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        {
+                            bytecode.push((val >> 8) as u8);
+                            bytecode.push(val as u8);
+                        }
+                    }
                 }
 
                 pc += instruction_size(entry.arg);
@@ -197,7 +218,8 @@ fn instruction_size(arg: ArgKind) -> usize {
         ArgKind::None => 1,
         ArgKind::Imm8 | ArgKind::Local | ArgKind::FieldOffset
         | ArgKind::TypeToken | ArgKind::Label => 2,
-        ArgKind::Imm16 | ArgKind::WideLabel => 3,
+        ArgKind::Imm16 | ArgKind::WideLabel | ArgKind::LocalImm8 => 3,
+        ArgKind::Imm32 => 5,
     }
 }
 

@@ -357,6 +357,170 @@ impl<const HEAP_SIZE: usize> ObjectHeap<HEAP_SIZE> {
         Ok(())
     }
 
+    /// Read a short (2-byte big-endian) field from an instance object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or OOB.
+    pub fn getfield_s(
+        &self,
+        obj: ObjRef,
+        field_offset: u16,
+        current_context: u8,
+    ) -> Result<i16, AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::Instance) => {}
+            _ => return Err(AccessError::TypeMismatch),
+        }
+        let off = obj.0 as usize + HEADER_SIZE + field_offset as usize;
+        if off + 1 >= self.free as usize {
+            return Err(AccessError::OutOfBounds);
+        }
+        Ok(i16::from_be_bytes([self.data[off], self.data[off + 1]]))
+    }
+
+    /// Write a short (2-byte big-endian) field to an instance object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or OOB.
+    pub fn putfield_s(
+        &mut self,
+        obj: ObjRef,
+        field_offset: u16,
+        value: i16,
+        current_context: u8,
+    ) -> Result<(), AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::Instance) => {}
+            _ => return Err(AccessError::TypeMismatch),
+        }
+        let off = obj.0 as usize + HEADER_SIZE + field_offset as usize;
+        if off + 1 >= self.free as usize {
+            return Err(AccessError::OutOfBounds);
+        }
+        let bytes = value.to_be_bytes();
+        self.data[off] = bytes[0];
+        self.data[off + 1] = bytes[1];
+        Ok(())
+    }
+
+    /// Read a reference (2-byte big-endian) field from an instance object.
+    /// References and shorts are both u16 on the JCVM stack.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or OOB.
+    pub fn getfield_a(
+        &self,
+        obj: ObjRef,
+        field_offset: u16,
+        current_context: u8,
+    ) -> Result<u16, AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::Instance) => {}
+            _ => return Err(AccessError::TypeMismatch),
+        }
+        let off = obj.0 as usize + HEADER_SIZE + field_offset as usize;
+        if off + 1 >= self.free as usize {
+            return Err(AccessError::OutOfBounds);
+        }
+        Ok(u16::from_be_bytes([self.data[off], self.data[off + 1]]))
+    }
+
+    /// Write a reference (2-byte big-endian) field to an instance object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or OOB.
+    pub fn putfield_a(
+        &mut self,
+        obj: ObjRef,
+        field_offset: u16,
+        value: u16,
+        current_context: u8,
+    ) -> Result<(), AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::Instance) => {}
+            _ => return Err(AccessError::TypeMismatch),
+        }
+        let off = obj.0 as usize + HEADER_SIZE + field_offset as usize;
+        if off + 1 >= self.free as usize {
+            return Err(AccessError::OutOfBounds);
+        }
+        let bytes = value.to_be_bytes();
+        self.data[off] = bytes[0];
+        self.data[off + 1] = bytes[1];
+        Ok(())
+    }
+
+    /// Read an int (4-byte big-endian) field from an instance object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or OOB.
+    pub fn getfield_i(
+        &self,
+        obj: ObjRef,
+        field_offset: u16,
+        current_context: u8,
+    ) -> Result<i32, AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::Instance) => {}
+            _ => return Err(AccessError::TypeMismatch),
+        }
+        let off = obj.0 as usize + HEADER_SIZE + field_offset as usize;
+        if off + 3 >= self.free as usize {
+            return Err(AccessError::OutOfBounds);
+        }
+        Ok(i32::from_be_bytes([
+            self.data[off],
+            self.data[off + 1],
+            self.data[off + 2],
+            self.data[off + 3],
+        ]))
+    }
+
+    /// Write an int (4-byte big-endian) field to an instance object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or OOB.
+    pub fn putfield_i(
+        &mut self,
+        obj: ObjRef,
+        field_offset: u16,
+        value: i32,
+        current_context: u8,
+    ) -> Result<(), AccessError> {
+        let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
+        firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
+        match self.kind_of(obj) {
+            Some(ObjectKind::Instance) => {}
+            _ => return Err(AccessError::TypeMismatch),
+        }
+        let off = obj.0 as usize + HEADER_SIZE + field_offset as usize;
+        if off + 3 >= self.free as usize {
+            return Err(AccessError::OutOfBounds);
+        }
+        let bytes = value.to_be_bytes();
+        self.data[off] = bytes[0];
+        self.data[off + 1] = bytes[1];
+        self.data[off + 2] = bytes[2];
+        self.data[off + 3] = bytes[3];
+        Ok(())
+    }
+
     /// Get the byte offset of an array element. Used by transaction journal
     /// to record the raw heap offset for rollback.
     pub fn array_element_offset(&self, obj: ObjRef, index: u16, elem_size: usize) -> Option<usize> {

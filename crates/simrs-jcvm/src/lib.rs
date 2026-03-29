@@ -223,6 +223,13 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     }
                 }
 
+                opcodes::ICONST_M1..=opcodes::ICONST_5 => {
+                    let val = i32::from(opcode) - i32::from(opcodes::ICONST_0);
+                    if let Err(e) = self.push_int(val) {
+                        return e;
+                    }
+                }
+
                 opcodes::BSPUSH => {
                     let Some(b) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
@@ -243,6 +250,15 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     };
                     let val = u16::from_be_bytes([hi, lo]);
                     if let Err(e) = self.push(val) {
+                        return e;
+                    }
+                }
+
+                opcodes::IIPUSH => {
+                    let Some(val) = self.fetch_i32(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    if let Err(e) = self.push_int(val) {
                         return e;
                     }
                 }
@@ -281,6 +297,33 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     let idx = opcode - opcodes::SLOAD_0;
                     let val = self.get_local(idx);
                     if let Err(e) = self.push(val) {
+                        return e;
+                    }
+                }
+
+                // --- Int local loads (two consecutive locals: hi at idx, lo at idx+1) ---
+                opcodes::ILOAD => {
+                    let Some(idx) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let hi = self.get_local(idx);
+                    let lo = self.get_local(idx.wrapping_add(1));
+                    if let Err(e) = self.push(hi) {
+                        return e;
+                    }
+                    if let Err(e) = self.push(lo) {
+                        return e;
+                    }
+                }
+
+                opcodes::ILOAD_0..=opcodes::ILOAD_3 => {
+                    let idx = opcode - opcodes::ILOAD_0;
+                    let hi = self.get_local(idx);
+                    let lo = self.get_local(idx.wrapping_add(1));
+                    if let Err(e) = self.push(hi) {
+                        return e;
+                    }
+                    if let Err(e) = self.push(lo) {
                         return e;
                     }
                 }
@@ -326,6 +369,37 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     self.set_local(0, val);
                 }
 
+                // --- Int local stores (two consecutive locals: hi at idx, lo at idx+1) ---
+                opcodes::ISTORE => {
+                    let Some(idx) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let lo = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let hi = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    self.set_local(idx, hi);
+                    self.set_local(idx.wrapping_add(1), lo);
+                }
+
+                opcodes::ISTORE_0..=opcodes::ISTORE_3 => {
+                    let idx = opcode - opcodes::ISTORE_0;
+                    let lo = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let hi = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    self.set_local(idx, hi);
+                    self.set_local(idx.wrapping_add(1), lo);
+                }
+
                 // --- Stack manipulation ---
                 opcodes::POP => {
                     if let Err(e) = self.pop() {
@@ -339,6 +413,29 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     if let Err(e) = self.push(val) {
+                        return e;
+                    }
+                }
+
+                opcodes::POP2 => {
+                    if let Err(e) = self.pop() {
+                        return e;
+                    }
+                    if let Err(e) = self.pop() {
+                        return e;
+                    }
+                }
+
+                opcodes::DUP2 => {
+                    if self.stack_ptr < 2 {
+                        return ExecResult::StackUnderflow;
+                    }
+                    let w1 = self.stack[self.stack_ptr as usize - 2];
+                    let w2 = self.stack[self.stack_ptr as usize - 1];
+                    if let Err(e) = self.push(w1) {
+                        return e;
+                    }
+                    if let Err(e) = self.push(w2) {
                         return e;
                     }
                 }
@@ -456,6 +553,379 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     }
                 }
 
+                // --- Int arithmetic ---
+                opcodes::IADD => {
+                    let b = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push_int(a.wrapping_add(b)) {
+                        return e;
+                    }
+                }
+
+                opcodes::ISUB => {
+                    let b = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push_int(a.wrapping_sub(b)) {
+                        return e;
+                    }
+                }
+
+                opcodes::IMUL => {
+                    let b = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push_int(a.wrapping_mul(b)) {
+                        return e;
+                    }
+                }
+
+                opcodes::IDIV => {
+                    let b = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if b == 0 {
+                        return ExecResult::ArithmeticException;
+                    }
+                    let result = if a == i32::MIN && b == -1 {
+                        i32::MIN
+                    } else {
+                        a / b
+                    };
+                    if let Err(e) = self.push_int(result) {
+                        return e;
+                    }
+                }
+
+                opcodes::IREM => {
+                    let b = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if b == 0 {
+                        return ExecResult::ArithmeticException;
+                    }
+                    let result = if a == i32::MIN && b == -1 { 0 } else { a % b };
+                    if let Err(e) = self.push_int(result) {
+                        return e;
+                    }
+                }
+
+                opcodes::INEG => {
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push_int(a.wrapping_neg()) {
+                        return e;
+                    }
+                }
+
+                // --- Short bitwise ---
+                opcodes::SSHL => {
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let shift = (b as u16) & 0x1F;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let result = ((i32::from(a) << shift) & 0xFFFF) as i16;
+                    if let Err(e) = self.push(result.cast_unsigned()) {
+                        return e;
+                    }
+                }
+
+                opcodes::SSHR => {
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let shift = (b as u16) & 0x1F;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let result = (i32::from(a) >> shift) as i16;
+                    if let Err(e) = self.push(result.cast_unsigned()) {
+                        return e;
+                    }
+                }
+
+                opcodes::SUSHR => {
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let shift = (b as u16) & 0x1F;
+                    let result = a >> shift;
+                    if let Err(e) = self.push(result) {
+                        return e;
+                    }
+                }
+
+                opcodes::SAND => {
+                    let b = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push(a & b) {
+                        return e;
+                    }
+                }
+
+                opcodes::SOR => {
+                    let b = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push(a | b) {
+                        return e;
+                    }
+                }
+
+                opcodes::SXOR => {
+                    let b = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push(a ^ b) {
+                        return e;
+                    }
+                }
+
+                // --- Int bitwise ---
+                opcodes::ISHL => {
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let shift = (b as u32) & 0x1F;
+                    if let Err(e) = self.push_int(a.wrapping_shl(shift)) {
+                        return e;
+                    }
+                }
+
+                opcodes::ISHR => {
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let shift = (b as u32) & 0x1F;
+                    if let Err(e) = self.push_int(a.wrapping_shr(shift)) {
+                        return e;
+                    }
+                }
+
+                opcodes::IUSHR => {
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let shift = (b as u32) & 0x1F;
+                    let result = (a as u32).wrapping_shr(shift) as i32;
+                    if let Err(e) = self.push_int(result) {
+                        return e;
+                    }
+                }
+
+                opcodes::IAND => {
+                    let b = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push_int(a & b) {
+                        return e;
+                    }
+                }
+
+                opcodes::IOR => {
+                    let b = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push_int(a | b) {
+                        return e;
+                    }
+                }
+
+                opcodes::IXOR => {
+                    let b = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push_int(a ^ b) {
+                        return e;
+                    }
+                }
+
+                // --- Increment ---
+                opcodes::SINC => {
+                    let Some(idx) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(c) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = self.get_local(idx).cast_signed();
+                    let inc = c.cast_signed();
+                    self.set_local(idx, val.wrapping_add(i16::from(inc)).cast_unsigned());
+                }
+
+                opcodes::IINC => {
+                    let Some(idx) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(c) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let hi = self.get_local(idx);
+                    let lo = self.get_local(idx.wrapping_add(1));
+                    let val = ((hi as u32) << 16 | lo as u32) as i32;
+                    let inc = i32::from(c.cast_signed());
+                    let result = val.wrapping_add(inc) as u32;
+                    self.set_local(idx, (result >> 16) as u16);
+                    self.set_local(idx.wrapping_add(1), result as u16);
+                }
+
+                // --- Conversions ---
+                opcodes::S2B => {
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    #[allow(clippy::cast_possible_truncation)]
+                    let result = i16::from(a as i8);
+                    if let Err(e) = self.push(result.cast_unsigned()) {
+                        return e;
+                    }
+                }
+
+                opcodes::S2I => {
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if let Err(e) = self.push_int(i32::from(a)) {
+                        return e;
+                    }
+                }
+
+                opcodes::I2B => {
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    #[allow(clippy::cast_possible_truncation)]
+                    let result = i16::from(a as i8);
+                    if let Err(e) = self.push(result.cast_unsigned()) {
+                        return e;
+                    }
+                }
+
+                opcodes::I2S => {
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    #[allow(clippy::cast_possible_truncation)]
+                    let result = a as i16;
+                    if let Err(e) = self.push(result.cast_unsigned()) {
+                        return e;
+                    }
+                }
+
+                // --- Int comparison ---
+                opcodes::ICMP => {
+                    let b = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let result: i16 = if a > b {
+                        1
+                    } else if a == b {
+                        0
+                    } else {
+                        -1
+                    };
+                    if let Err(e) = self.push(result.cast_unsigned()) {
+                        return e;
+                    }
+                }
+
                 // --- Control flow ---
                 opcodes::GOTO => {
                     let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
@@ -511,6 +981,127 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a != b {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPLT => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a < b {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPGE => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a >= b {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPGT => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a > b {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPLE => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a <= b {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                // --- Reference comparison branches ---
+                opcodes::IF_ACMPEQ => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a == b {
+                        let if_pc = self.pc.wrapping_sub(2);
+                        let signed_offset = offset.cast_signed();
+                        self.pc =
+                            (i32::from(if_pc) + i32::from(signed_offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_ACMPNE => {
+                    let Some(offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop() {
                         Ok(v) => v,
                         Err(e) => return e,
                     };
@@ -670,6 +1261,44 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     self.stack_ptr = f.stack_base;
                     // Push return value onto caller's stack.
                     if let Err(e) = self.push(val.cast_unsigned()) {
+                        return e;
+                    }
+                }
+
+                opcodes::ARETURN => {
+                    let val = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if self.frame_ptr == 0 {
+                        return ExecResult::ReturnRef(val);
+                    }
+                    self.frame_ptr -= 1;
+                    let f = self.frames[self.frame_ptr as usize];
+                    self.current_pkg = f.return_pkg;
+                    self.current_method = f.return_method;
+                    self.pc = f.return_pc;
+                    self.stack_ptr = f.stack_base;
+                    if let Err(e) = self.push(val) {
+                        return e;
+                    }
+                }
+
+                opcodes::IRETURN => {
+                    let val = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if self.frame_ptr == 0 {
+                        return ExecResult::ReturnInt(val);
+                    }
+                    self.frame_ptr -= 1;
+                    let f = self.frames[self.frame_ptr as usize];
+                    self.current_pkg = f.return_pkg;
+                    self.current_method = f.return_method;
+                    self.pc = f.return_pc;
+                    self.stack_ptr = f.stack_base;
+                    if let Err(e) = self.push_int(val) {
                         return e;
                     }
                 }
@@ -1004,6 +1633,649 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     }
                 }
 
+                // --- Reference array load/store ---
+                opcodes::AALOAD => {
+                    let index = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let arr_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(arr_ref);
+                    // aaload uses short array access (references are u16 = short)
+                    match self.heap.saload(obj, index, self.current_context) {
+                        Ok(val) => {
+                            if let Err(e) = self.push(val.cast_unsigned()) {
+                                return e;
+                            }
+                        }
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    }
+                }
+
+                opcodes::AASTORE => {
+                    let value = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let index = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let arr_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(arr_ref);
+                    match self
+                        .heap
+                        .sastore(obj, index, value, self.current_context)
+                    {
+                        Ok(()) => {}
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    }
+                }
+
+                // Int array load: reads 2 consecutive short elements as one int
+                opcodes::IALOAD => {
+                    let index = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let arr_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(arr_ref);
+                    // Read hi and lo as two consecutive short array elements
+                    let hi_idx = index.wrapping_mul(2);
+                    let lo_idx = hi_idx.wrapping_add(1);
+                    let hi = match self.heap.saload(obj, hi_idx, self.current_context) {
+                        Ok(v) => v,
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    };
+                    let lo = match self.heap.saload(obj, lo_idx, self.current_context) {
+                        Ok(v) => v,
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    };
+                    let val = ((hi.cast_unsigned() as u32) << 16 | lo.cast_unsigned() as u32) as i32;
+                    if let Err(e) = self.push_int(val) {
+                        return e;
+                    }
+                }
+
+                opcodes::IASTORE => {
+                    let val = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let index = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let arr_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(arr_ref);
+                    let bits = val as u32;
+                    let hi = (bits >> 16) as i16;
+                    let lo = bits as i16;
+                    let hi_idx = index.wrapping_mul(2);
+                    let lo_idx = hi_idx.wrapping_add(1);
+                    match self.heap.sastore(obj, hi_idx, hi, self.current_context) {
+                        Ok(()) => {}
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    }
+                    match self.heap.sastore(obj, lo_idx, lo, self.current_context) {
+                        Ok(()) => {}
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::OutOfBounds) => {
+                            return ExecResult::ArrayIndexOutOfBounds
+                        }
+                        Err(heap::AccessError::TypeMismatch) => {
+                            return ExecResult::ArrayStoreException
+                        }
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                    }
+                }
+
+                // --- Instance field access: short ---
+                opcodes::GETFIELD_S => {
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let obj_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(obj_ref);
+                    match self
+                        .heap
+                        .getfield_s(obj, u16::from(field_offset), self.current_context)
+                    {
+                        Ok(val) => {
+                            if let Err(e) = self.push(val.cast_unsigned()) {
+                                return e;
+                            }
+                        }
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                        Err(_) => return ExecResult::NullPointerException,
+                    }
+                }
+
+                opcodes::PUTFIELD_S => {
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let value = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(obj_ref);
+                    match self
+                        .heap
+                        .putfield_s(obj, u16::from(field_offset), value, self.current_context)
+                    {
+                        Ok(()) => {}
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                        Err(_) => return ExecResult::NullPointerException,
+                    }
+                }
+
+                // --- Instance field access: reference ---
+                opcodes::GETFIELD_A => {
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let obj_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(obj_ref);
+                    match self
+                        .heap
+                        .getfield_a(obj, u16::from(field_offset), self.current_context)
+                    {
+                        Ok(val) => {
+                            if let Err(e) = self.push(val) {
+                                return e;
+                            }
+                        }
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                        Err(_) => return ExecResult::NullPointerException,
+                    }
+                }
+
+                opcodes::PUTFIELD_A => {
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let value = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(obj_ref);
+                    match self
+                        .heap
+                        .putfield_a(obj, u16::from(field_offset), value, self.current_context)
+                    {
+                        Ok(()) => {}
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                        Err(_) => return ExecResult::NullPointerException,
+                    }
+                }
+
+                // --- Instance field access: int ---
+                opcodes::GETFIELD_I => {
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let obj_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(obj_ref);
+                    match self
+                        .heap
+                        .getfield_i(obj, u16::from(field_offset), self.current_context)
+                    {
+                        Ok(val) => {
+                            if let Err(e) = self.push_int(val) {
+                                return e;
+                            }
+                        }
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                        Err(_) => return ExecResult::NullPointerException,
+                    }
+                }
+
+                opcodes::PUTFIELD_I => {
+                    let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    let val = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let obj = ObjRef(obj_ref);
+                    match self
+                        .heap
+                        .putfield_i(obj, u16::from(field_offset), val, self.current_context)
+                    {
+                        Ok(()) => {}
+                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
+                        Err(heap::AccessError::Security(_)) => {
+                            return ExecResult::SecurityException
+                        }
+                        Err(_) => return ExecResult::NullPointerException,
+                    }
+                }
+
+                // --- Static field access: short (2 bytes) ---
+                opcodes::GETSTATIC_S | opcodes::GETSTATIC_A => {
+                    let Some(hi) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(lo) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let idx = u16::from_be_bytes([hi, lo]) as usize;
+                    let val = if idx + 1 < self.static_fields.len() {
+                        u16::from_be_bytes([self.static_fields[idx], self.static_fields[idx + 1]])
+                    } else {
+                        0
+                    };
+                    if let Err(e) = self.push(val) {
+                        return e;
+                    }
+                }
+
+                opcodes::PUTSTATIC_S | opcodes::PUTSTATIC_A => {
+                    let Some(hi) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(lo) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let idx = u16::from_be_bytes([hi, lo]) as usize;
+                    if idx + 1 < self.static_fields.len() {
+                        let bytes = val.to_be_bytes();
+                        self.static_fields[idx] = bytes[0];
+                        self.static_fields[idx + 1] = bytes[1];
+                    }
+                }
+
+                // --- Static field access: int (4 bytes) ---
+                opcodes::GETSTATIC_I => {
+                    let Some(hi) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(lo) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let idx = u16::from_be_bytes([hi, lo]) as usize;
+                    let val = if idx + 3 < self.static_fields.len() {
+                        i32::from_be_bytes([
+                            self.static_fields[idx],
+                            self.static_fields[idx + 1],
+                            self.static_fields[idx + 2],
+                            self.static_fields[idx + 3],
+                        ])
+                    } else {
+                        0
+                    };
+                    if let Err(e) = self.push_int(val) {
+                        return e;
+                    }
+                }
+
+                opcodes::PUTSTATIC_I => {
+                    let Some(hi) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(lo) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let idx = u16::from_be_bytes([hi, lo]) as usize;
+                    if idx + 3 < self.static_fields.len() {
+                        let bytes = val.to_be_bytes();
+                        self.static_fields[idx] = bytes[0];
+                        self.static_fields[idx + 1] = bytes[1];
+                        self.static_fields[idx + 2] = bytes[2];
+                        self.static_fields[idx + 3] = bytes[3];
+                    }
+                }
+
+                // --- Invoke: invokespecial (stub: same as invokestatic for now) ---
+                opcodes::INVOKESPECIAL => {
+                    let result = self.exec_invokestatic(bytecode, bytecode_len);
+                    if let Some(err) = result {
+                        return err;
+                    }
+                }
+
+                // --- Invoke: invokeinterface ---
+                // Consumes 4 bytes: nargs, method_idx_hi, method_idx_lo, 0
+                // Stub: treat as invokestatic (resolve by pkg+method index).
+                opcodes::INVOKEINTERFACE => {
+                    let result = self.exec_invokestatic(bytecode, bytecode_len);
+                    if let Some(err) = result {
+                        return err;
+                    }
+                }
+
+                // --- Object creation: anewarray ---
+                opcodes::ANEWARRAY => {
+                    let Some(_class_idx) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let length = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if length < 0 {
+                        return ExecResult::NegativeArraySize;
+                    }
+                    match self
+                        .heap
+                        .alloc_short_array(self.current_context, length.cast_unsigned())
+                    {
+                        Some(obj) => {
+                            if let Err(e) = self.push(obj.0) {
+                                return e;
+                            }
+                        }
+                        None => return ExecResult::HeapFull,
+                    }
+                }
+
+                // --- Type checking (stubs) ---
+                opcodes::CHECKCAST => {
+                    // Consume 2-byte class index operand.
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    // Stub: always succeeds. The objectref stays on the stack.
+                }
+
+                opcodes::INSTANCEOF => {
+                    // Consume 2-byte class index operand.
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
+                        return ExecResult::EndOfBytecode;
+                    }
+                    // Pop objectref, push result.
+                    let obj_ref = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    // Stub: null -> 0, non-null -> 1.
+                    let result: u16 = if obj_ref == 0 { 0 } else { 1 };
+                    if let Err(e) = self.push(result) {
+                        return e;
+                    }
+                }
+
+                // --- Switch: stableswitch ---
+                opcodes::STABLESWITCH => {
+                    let switch_pc = self.pc.wrapping_sub(1); // PC of the opcode
+                    let Some(default_offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(low) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(high) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let key = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if key >= low && key <= high {
+                        let table_idx = (key - low) as usize;
+                        // Skip to the correct offset entry.
+                        let entry_pc = self.pc.wrapping_add((table_idx * 2) as u16);
+                        if entry_pc + 1 >= bytecode_len {
+                            return ExecResult::EndOfBytecode;
+                        }
+                        let offset = i16::from_be_bytes([
+                            bytecode[entry_pc as usize],
+                            bytecode[entry_pc as usize + 1],
+                        ]);
+                        self.pc = (i32::from(switch_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    } else {
+                        self.pc = (i32::from(switch_pc) + i32::from(default_offset)).cast_unsigned()
+                            as u16;
+                    }
+                }
+
+                // --- Switch: slookupswitch ---
+                opcodes::SLOOKUPSWITCH => {
+                    let switch_pc = self.pc.wrapping_sub(1);
+                    let Some(default_offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(npairs) = self.fetch_u16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let key = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let pairs_start = self.pc;
+                    let mut found = false;
+                    for i in 0..npairs {
+                        let entry_off = pairs_start.wrapping_add(i.wrapping_mul(4));
+                        if entry_off + 3 >= bytecode_len {
+                            return ExecResult::EndOfBytecode;
+                        }
+                        let match_val = i16::from_be_bytes([
+                            bytecode[entry_off as usize],
+                            bytecode[entry_off as usize + 1],
+                        ]);
+                        if match_val == key {
+                            let offset = i16::from_be_bytes([
+                                bytecode[entry_off as usize + 2],
+                                bytecode[entry_off as usize + 3],
+                            ]);
+                            self.pc = (i32::from(switch_pc) + i32::from(offset)).cast_unsigned()
+                                as u16;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        self.pc = (i32::from(switch_pc) + i32::from(default_offset)).cast_unsigned()
+                            as u16;
+                    }
+                }
+
+                // --- Switch: itableswitch (int key) ---
+                opcodes::ITABLESWITCH => {
+                    let switch_pc = self.pc.wrapping_sub(1);
+                    let Some(default_offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(low) = self.fetch_i32(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(high) = self.fetch_i32(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let key = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if key >= low && key <= high {
+                        let table_idx = (key - low) as usize;
+                        let entry_pc = self.pc.wrapping_add((table_idx * 2) as u16);
+                        if entry_pc + 1 >= bytecode_len {
+                            return ExecResult::EndOfBytecode;
+                        }
+                        let offset = i16::from_be_bytes([
+                            bytecode[entry_pc as usize],
+                            bytecode[entry_pc as usize + 1],
+                        ]);
+                        self.pc = (i32::from(switch_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    } else {
+                        self.pc = (i32::from(switch_pc) + i32::from(default_offset)).cast_unsigned()
+                            as u16;
+                    }
+                }
+
+                // --- Switch: ilookupswitch (int key) ---
+                opcodes::ILOOKUPSWITCH => {
+                    let switch_pc = self.pc.wrapping_sub(1);
+                    let Some(default_offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(npairs) = self.fetch_u16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let key = match self.pop_int() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let pairs_start = self.pc;
+                    let mut found = false;
+                    for i in 0..npairs {
+                        // Each pair: match_value(4) + offset(2) = 6 bytes
+                        let entry_off = pairs_start.wrapping_add(i.wrapping_mul(6));
+                        if entry_off + 5 >= bytecode_len {
+                            return ExecResult::EndOfBytecode;
+                        }
+                        let match_val = i32::from_be_bytes([
+                            bytecode[entry_off as usize],
+                            bytecode[entry_off as usize + 1],
+                            bytecode[entry_off as usize + 2],
+                            bytecode[entry_off as usize + 3],
+                        ]);
+                        if match_val == key {
+                            let offset = i16::from_be_bytes([
+                                bytecode[entry_off as usize + 4],
+                                bytecode[entry_off as usize + 5],
+                            ]);
+                            self.pc = (i32::from(switch_pc) + i32::from(offset)).cast_unsigned()
+                                as u16;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        self.pc = (i32::from(switch_pc) + i32::from(default_offset)).cast_unsigned()
+                            as u16;
+                    }
+                }
+
                 _ => return ExecResult::InvalidOpcode(opcode),
             }
         }
@@ -1122,6 +2394,21 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
         Ok(self.stack[self.stack_ptr as usize - 1])
     }
 
+    /// Pop a 32-bit int from the stack (two u16 words: high pushed first, low on top).
+    fn pop_int(&mut self) -> Result<i32, ExecResult> {
+        let lo = self.pop()?;
+        let hi = self.pop()?;
+        Ok(((hi as u32) << 16 | lo as u32) as i32)
+    }
+
+    /// Push a 32-bit int onto the stack (two u16 words: high first, low second).
+    fn push_int(&mut self, val: i32) -> Result<(), ExecResult> {
+        let bits = val as u32;
+        self.push((bits >> 16) as u16)?; // high word
+        self.push(bits as u16)?; // low word
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Local variable operations
     // -----------------------------------------------------------------------
@@ -1177,6 +2464,41 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
         let val = bytecode[self.pc as usize];
         self.pc += 1;
         Some(val)
+    }
+
+    /// Fetch the next 2 bytes as a big-endian i16.
+    fn fetch_i16(
+        &mut self,
+        bytecode: [u8; cap::MAX_BYTECODE],
+        bytecode_len: u16,
+    ) -> Option<i16> {
+        let hi = self.fetch_u8(bytecode, bytecode_len)?;
+        let lo = self.fetch_u8(bytecode, bytecode_len)?;
+        Some(i16::from_be_bytes([hi, lo]))
+    }
+
+    /// Fetch the next 2 bytes as a big-endian u16.
+    fn fetch_u16(
+        &mut self,
+        bytecode: [u8; cap::MAX_BYTECODE],
+        bytecode_len: u16,
+    ) -> Option<u16> {
+        let hi = self.fetch_u8(bytecode, bytecode_len)?;
+        let lo = self.fetch_u8(bytecode, bytecode_len)?;
+        Some(u16::from_be_bytes([hi, lo]))
+    }
+
+    /// Fetch the next 4 bytes as a big-endian i32.
+    fn fetch_i32(
+        &mut self,
+        bytecode: [u8; cap::MAX_BYTECODE],
+        bytecode_len: u16,
+    ) -> Option<i32> {
+        let b0 = self.fetch_u8(bytecode, bytecode_len)?;
+        let b1 = self.fetch_u8(bytecode, bytecode_len)?;
+        let b2 = self.fetch_u8(bytecode, bytecode_len)?;
+        let b3 = self.fetch_u8(bytecode, bytecode_len)?;
+        Some(i32::from_be_bytes([b0, b1, b2, b3]))
     }
 
     /// Get (nargs, `max_locals`) for a given package/method pair.
@@ -2345,5 +3667,734 @@ mod tests {
         let bc = [SIPUSH, 0x00, 0x0A, SRETURN];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(10));
+    }
+
+    // -----------------------------------------------------------------------
+    // INT CONSTANTS (iconst_m1..iconst_5, iipush)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn iconst_0_pushes_int_zero() {
+        // iconst_0 pushes int 0, i2s truncates to short 0, sreturn.
+        let bc = [ICONST_0, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    #[test]
+    fn iconst_5_pushes_int_five() {
+        let bc = [ICONST_5, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn iconst_m1_pushes_int_negative_one() {
+        let bc = [ICONST_M1, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    #[test]
+    fn iipush_pushes_int() {
+        // iipush 0x00012345, i2s -> 0x2345 = 9029
+        let bc = [IIPUSH, 0x00, 0x01, 0x23, 0x45, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0x2345));
+    }
+
+    #[test]
+    fn iipush_negative() {
+        // iipush -1 (0xFFFFFFFF), ireturn -> ReturnInt(-1)
+        let bc = [IIPUSH, 0xFF, 0xFF, 0xFF, 0xFF, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-1));
+    }
+
+    // -----------------------------------------------------------------------
+    // INT ARITHMETIC (iadd, isub, imul, idiv, irem, ineg)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn iadd_basic() {
+        // iconst_3 + iconst_5 = 8
+        let bc = [ICONST_3, ICONST_5, IADD, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(8));
+    }
+
+    #[test]
+    fn isub_basic() {
+        let bc = [ICONST_5, ICONST_3, ISUB, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(2));
+    }
+
+    #[test]
+    fn imul_basic() {
+        let bc = [ICONST_3, ICONST_4, IMUL, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(12));
+    }
+
+    #[test]
+    fn idiv_basic() {
+        // 5 / 3 = 1
+        let bc = [ICONST_5, ICONST_3, IDIV, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn idiv_by_zero() {
+        let bc = [ICONST_5, ICONST_0, IDIV];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
+    }
+
+    #[test]
+    fn irem_basic() {
+        // 5 % 3 = 2
+        let bc = [ICONST_5, ICONST_3, IREM, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(2));
+    }
+
+    #[test]
+    fn irem_by_zero() {
+        let bc = [ICONST_5, ICONST_0, IREM];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
+    }
+
+    #[test]
+    fn ineg_basic() {
+        let bc = [ICONST_5, INEG, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-5));
+    }
+
+    #[test]
+    fn iadd_large_values() {
+        // 0x10000 + 0x10000 = 0x20000 (crosses 16-bit boundary)
+        let bc = [
+            IIPUSH, 0x00, 0x01, 0x00, 0x00, // push 65536
+            IIPUSH, 0x00, 0x01, 0x00, 0x00, // push 65536
+            IADD, IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(131072));
+    }
+
+    // -----------------------------------------------------------------------
+    // SHORT BITWISE (sshl, sshr, sushr, sand, sor, sxor)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn sshl_basic() {
+        // 3 << 2 = 12
+        let bc = [SCONST_3, SCONST_2, SSHL, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(12));
+    }
+
+    #[test]
+    fn sshr_basic() {
+        // -16 >> 2 = -4 (arithmetic shift)
+        let bc = [
+            BSPUSH,
+            (-16i8).cast_unsigned(),
+            SCONST_2,
+            SSHR,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-4));
+    }
+
+    #[test]
+    fn sushr_basic() {
+        // -1 (0xFFFF) >>> 8 = 0x00FF = 255
+        let bc = [SCONST_M1, BSPUSH, 8, SUSHR, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(255));
+    }
+
+    #[test]
+    fn sand_basic() {
+        // 0xFF & 0x0F = 0x0F = 15
+        let bc = [
+            BSPUSH, 0xFF_u8.cast_signed().cast_unsigned(),
+            BSPUSH, 0x0F,
+            SAND,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(15));
+    }
+
+    #[test]
+    fn sor_basic() {
+        // 0x0F | 0xF0 = 0xFF = -1 (as i16 after sign extension from byte)
+        let bc = [BSPUSH, 0x0F, BSPUSH, 0x70, SOR, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0x7F));
+    }
+
+    #[test]
+    fn sxor_basic() {
+        // 0xFF ^ 0xFF = 0
+        let bc = [SCONST_M1, SCONST_M1, SXOR, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    #[test]
+    fn sshl_shift_mask() {
+        // Shift amount masked to 5 bits: 33 & 0x1F = 1, so 1 << 1 = 2
+        let bc = [SCONST_1, BSPUSH, 33, SSHL, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(2));
+    }
+
+    // -----------------------------------------------------------------------
+    // INT BITWISE (ishl, ishr, iushr, iand, ior, ixor)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ishl_basic() {
+        // 3 << 16 = 196608
+        let bc = [ICONST_3, BSPUSH, 16, ISHL, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(196608));
+    }
+
+    #[test]
+    fn ishr_basic() {
+        // -1 >> 16 = -1 (arithmetic shift preserves sign)
+        let bc = [ICONST_M1, BSPUSH, 16, ISHR, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-1));
+    }
+
+    #[test]
+    fn iushr_basic() {
+        // -1 (0xFFFFFFFF) >>> 16 = 0x0000FFFF = 65535
+        let bc = [ICONST_M1, BSPUSH, 16, IUSHR, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(65535));
+    }
+
+    #[test]
+    fn iand_basic() {
+        // 0xFFFFFFFF & 5 = 5
+        let bc = [ICONST_M1, ICONST_5, IAND, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn ior_basic() {
+        let bc = [ICONST_1, ICONST_2, IOR, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    #[test]
+    fn ixor_basic() {
+        // 5 ^ 3 = 6
+        let bc = [ICONST_5, ICONST_3, IXOR, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(6));
+    }
+
+    // -----------------------------------------------------------------------
+    // INCREMENT (sinc, iinc)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn sinc_basic() {
+        // Store 10 in local 0, sinc 0, 5 -> local 0 becomes 15.
+        let bc = [BSPUSH, 10, SSTORE_0, SINC, 0, 5, SLOAD_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(15));
+    }
+
+    #[test]
+    fn sinc_negative() {
+        // Store 10, sinc by -3 -> 7.
+        let bc = [
+            BSPUSH, 10, SSTORE_0,
+            SINC, 0, (-3i8).cast_unsigned(),
+            SLOAD_0, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(7));
+    }
+
+    #[test]
+    fn iinc_basic() {
+        // Store int 100 in locals 0,1, iinc 0 5 -> 105.
+        let bc = [
+            IIPUSH, 0x00, 0x00, 0x00, 100,
+            ISTORE_0,
+            IINC, 0, 5,
+            ILOAD_0,
+            I2S, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(105));
+    }
+
+    // -----------------------------------------------------------------------
+    // CONVERSIONS (s2b, s2i, i2b, i2s)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn s2b_truncates_to_byte() {
+        // Push 0x1FF (511 as short), s2b -> -1 (sign-extended from 0xFF)
+        let bc = [SSPUSH, 0x01, 0xFF, S2B, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    #[test]
+    fn s2i_sign_extends() {
+        // Push short -1, s2i -> int -1 (0xFFFFFFFF).
+        let bc = [SCONST_M1, S2I, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-1));
+    }
+
+    #[test]
+    fn s2i_positive() {
+        let bc = [SCONST_5, S2I, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(5));
+    }
+
+    #[test]
+    fn i2b_truncates_to_byte() {
+        // Push int 0x12FF, i2b -> -1 (0xFF sign-extended)
+        let bc = [IIPUSH, 0x00, 0x00, 0x12, 0xFF, I2B, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    #[test]
+    fn i2s_truncates() {
+        // Push int 0x00012345, i2s -> 0x2345 = 9029
+        let bc = [IIPUSH, 0x00, 0x01, 0x23, 0x45, I2S, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0x2345));
+    }
+
+    // -----------------------------------------------------------------------
+    // ICMP
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn icmp_greater() {
+        let bc = [ICONST_5, ICONST_3, ICMP, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn icmp_equal() {
+        let bc = [ICONST_3, ICONST_3, ICMP, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    #[test]
+    fn icmp_less() {
+        let bc = [ICONST_1, ICONST_5, ICMP, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    // -----------------------------------------------------------------------
+    // INT LOCALS (iload, iload_0..3, istore, istore_0..3)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn istore_iload_roundtrip() {
+        // Push int 42, store to locals 0,1, load back, check via i2s.
+        let bc = [
+            IIPUSH, 0x00, 0x00, 0x00, 42,
+            ISTORE_0,
+            ILOAD_0,
+            I2S, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
+    }
+
+    #[test]
+    fn istore_iload_with_index() {
+        let bc = [
+            IIPUSH, 0x00, 0x00, 0x00, 99,
+            ISTORE, 2,
+            ILOAD, 2,
+            I2S, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(99));
+    }
+
+    #[test]
+    fn iload_2_and_3() {
+        let bc = [
+            IIPUSH, 0x00, 0x00, 0x00, 10,
+            ISTORE_2,
+            IIPUSH, 0x00, 0x00, 0x00, 20,
+            ISTORE, 4,
+            ILOAD_2,
+            ILOAD, 4,
+            IADD, I2S, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(30));
+    }
+
+    // -----------------------------------------------------------------------
+    // IRETURN / ARETURN
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ireturn_basic() {
+        let bc = [ICONST_3, IRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(3));
+    }
+
+    #[test]
+    fn areturn_basic() {
+        // areturn with a non-null reference (just a number).
+        let bc = [BSPUSH, 42, ARETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnRef(42));
+    }
+
+    #[test]
+    fn areturn_null() {
+        let bc = [ACONST_NULL, ARETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnRef(0));
+    }
+
+    // -----------------------------------------------------------------------
+    // POP2 / DUP2
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn pop2_removes_two_words() {
+        // Push 1, 2, 3, pop2 -> top is 1.
+        let bc = [SCONST_1, SCONST_2, SCONST_3, POP2, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn dup2_duplicates_two_words() {
+        // Push 3, 5, dup2 -> stack is [3, 5, 3, 5], sadd -> 8 on top of [3, 5].
+        // Then sadd -> 13, sadd -> 16... Let's just verify dup2 then add.
+        let bc = [SCONST_3, SCONST_5, DUP2, SADD, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        // dup2: stack = [3, 5, 3, 5]. sadd: 3+5=8, stack = [3, 5, 8].
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(8));
+    }
+
+    // -----------------------------------------------------------------------
+    // SHORT COMPARISON BRANCHES (if_scmplt/ge/gt/le)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn if_scmplt_taken() {
+        // Push sentinel 1, push 3, push 5, if_scmplt -> 3 < 5 is true, branch.
+        let bc = [SCONST_1, SCONST_3, SCONST_5, IF_SCMPLT, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_scmplt_not_taken() {
+        let bc = [SCONST_5, SCONST_3, IF_SCMPLT, 3, SCONST_4, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    #[test]
+    fn if_scmpge_taken() {
+        let bc = [SCONST_1, SCONST_5, SCONST_3, IF_SCMPGE, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_scmpgt_taken() {
+        let bc = [SCONST_1, SCONST_5, SCONST_3, IF_SCMPGT, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_scmple_taken() {
+        let bc = [SCONST_1, SCONST_3, SCONST_5, IF_SCMPLE, 3, SCONST_0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    // -----------------------------------------------------------------------
+    // REFERENCE COMPARISON BRANCHES (if_acmpeq, if_acmpne)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn if_acmpeq_taken() {
+        // Push sentinel 1, push null, push null, if_acmpeq -> taken.
+        let bc = [
+            SCONST_1, ACONST_NULL, ACONST_NULL, IF_ACMPEQ, 3, SCONST_0, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_acmpne_taken() {
+        let bc = [
+            SCONST_1, SCONST_0, SCONST_1, IF_ACMPNE, 3, SCONST_0, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    // -----------------------------------------------------------------------
+    // SWITCH (stableswitch, slookupswitch)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn stableswitch_in_range() {
+        // Switch on value 2, range [1..3], offset table maps to specific PCs.
+        // stableswitch opcode at PC 1 (after sconst_2 at PC 0).
+        // Format: default_offset(2) | low(2) | high(2) | offset[0](2) | offset[1](2) | offset[2](2)
+        // offsets relative to stableswitch opcode (PC 1).
+        // After the instruction: 1 + 1 + 2 + 2 + 2 + 6 = PC 14.
+        // We want case 2 (index 1) to jump to some target.
+        let bc = [
+            SCONST_2,     // PC 0
+            STABLESWITCH, // PC 1
+            0x00, 15,     // default_offset = 15 -> PC 16 (dead code area)
+            0x00, 0x01,   // low = 1
+            0x00, 0x03,   // high = 3
+            0x00, 13,     // offset for key=1: -> PC 1+13 = 14
+            0x00, 13,     // offset for key=2: -> PC 1+13 = 14
+            0x00, 13,     // offset for key=3: -> PC 1+13 = 14
+            SCONST_3, SRETURN,  // PC 14, 15 -- all cases land here
+            SCONST_0, SRETURN,  // PC 16, 17 -- default
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    #[test]
+    fn stableswitch_default() {
+        // Switch on value 10, range [1..3] -> falls to default.
+        // BSPUSH at PC 0-1, STABLESWITCH at PC 2.
+        // After header: 1+2+2+2+6 = 13 bytes, so cases at PC 15, default at PC 17.
+        let bc = [
+            BSPUSH, 10,       // PC 0-1
+            STABLESWITCH,     // PC 2
+            0x00, 15,         // default_offset = 15 -> PC 2+15 = 17
+            0x00, 0x01,       // low = 1
+            0x00, 0x03,       // high = 3
+            0x00, 13,         // offset key=1 -> PC 2+13 = 15
+            0x00, 13,         // offset key=2
+            0x00, 13,         // offset key=3
+            SCONST_3, SRETURN,  // PC 15, 16 -- cases
+            SCONST_5, SRETURN,  // PC 17, 18 -- default
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn slookupswitch_match() {
+        // lookupswitch: key=5, pairs: {5 -> target, 10 -> other}
+        let bc = [
+            SCONST_5,
+            SLOOKUPSWITCH,  // PC 1
+            0x00, 15,       // default_offset = 15 -> PC 16
+            0x00, 0x02,     // npairs = 2
+            0x00, 0x05,     // match 5
+            0x00, 11,       // offset -> PC 1+11 = 12
+            0x00, 0x0A,     // match 10
+            0x00, 11,       // offset -> PC 1+11 = 12
+            SCONST_3, SRETURN,  // PC 12, 13 -- match target
+            SCONST_0, SRETURN,  // PC 14, 15 (padding)
+            SCONST_M1, SRETURN, // PC 16, 17 -- default
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    #[test]
+    fn slookupswitch_default() {
+        // lookupswitch: key=99, no match -> default.
+        // BSPUSH at PC 0-1, SLOOKUPSWITCH at PC 2.
+        // Header: 1+2+2 = 5 bytes, pairs: 1*4 = 4 bytes, so match at PC 11, default at PC 13.
+        let bc = [
+            BSPUSH, 99,         // PC 0-1
+            SLOOKUPSWITCH,      // PC 2
+            0x00, 11,           // default_offset = 11 -> PC 2+11 = 13
+            0x00, 0x01,         // npairs = 1
+            0x00, 0x05,         // match 5
+            0x00, 9,            // offset -> PC 2+9 = 11
+            SCONST_3, SRETURN,  // PC 11, 12 -- match
+            SCONST_M1, SRETURN, // PC 13, 14 -- default
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
+    }
+
+    // -----------------------------------------------------------------------
+    // FIELD ACCESS: SHORT, REFERENCE, INT
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn putfield_getfield_short_roundtrip() {
+        // Allocate object with 4 field bytes, store short 0x1234, read it back.
+        let bc = [
+            NEW, 4, 0,              // 0-2: allocate instance
+            DUP,                     // 3: dup objref
+            SSPUSH, 0x12, 0x34,     // 4-6: push 0x1234
+            PUTFIELD_S, 0, 0,       // 7-9: store short at offset 0
+            GETFIELD_S, 0, 0,       // 10-12: read short at offset 0
+            SRETURN,                 // 13
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0x1234));
+    }
+
+    #[test]
+    fn putfield_getfield_ref_roundtrip() {
+        // Store a reference value in an object field.
+        let bc = [
+            NEW, 4, 0,              // 0-2: allocate
+            DUP,                     // 3: dup objref
+            BSPUSH, 42,             // 4-5: push 42
+            PUTFIELD_A, 0, 0,       // 6-8: store ref at offset 0
+            GETFIELD_A, 0, 0,       // 9-11: read ref at offset 0
+            SRETURN,                 // 12
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
+    }
+
+    #[test]
+    fn putfield_getfield_int_roundtrip() {
+        // Store int in an object field (needs at least 4 bytes).
+        let bc = [
+            NEW, 8, 0,              // 0-2: allocate instance with 8 field bytes
+            DUP,                     // 3: dup objref
+            IIPUSH, 0x00, 0x01, 0x23, 0x45, // 4-8: push int
+            PUTFIELD_I, 0, 0,       // 9-11: store int at offset 0
+            GETFIELD_I, 0, 0,       // 12-14: read int at offset 0
+            IRETURN,                 // 15
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0x00012345));
+    }
+
+    // -----------------------------------------------------------------------
+    // STATIC FIELD ACCESS: SHORT, INT
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn putstatic_getstatic_short_roundtrip() {
+        let bc = [
+            SSPUSH, 0x12, 0x34,
+            PUTSTATIC_S, 0x00, 0x00,
+            GETSTATIC_S, 0x00, 0x00,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0x1234));
+    }
+
+    #[test]
+    fn putstatic_getstatic_int_roundtrip() {
+        let bc = [
+            IIPUSH, 0x00, 0x01, 0x23, 0x45,
+            PUTSTATIC_I, 0x00, 0x10,
+            GETSTATIC_I, 0x00, 0x10,
+            IRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0x00012345));
+    }
+
+    // -----------------------------------------------------------------------
+    // INVOKE: invokespecial / invokeinterface
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn invokespecial_calls_method() {
+        let method0 = [INVOKESPECIAL, 0, 1, SRETURN];
+        let method1 = [SCONST_3, SRETURN];
+        let mut vm = vm_with_methods(&[&method0, &method1]);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    #[test]
+    fn invokeinterface_calls_method() {
+        let method0 = [INVOKEINTERFACE, 0, 1, SRETURN];
+        let method1 = [SCONST_4, SRETURN];
+        let mut vm = vm_with_methods(&[&method0, &method1]);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
+    }
+
+    // -----------------------------------------------------------------------
+    // CHECKCAST / INSTANCEOF (stubs)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn checkcast_noop() {
+        // checkcast always succeeds, objectref stays on stack.
+        let bc = [SCONST_5, CHECKCAST, 0, 0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn instanceof_nonnull() {
+        let bc = [SCONST_5, INSTANCEOF, 0, 0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn instanceof_null() {
+        let bc = [ACONST_NULL, INSTANCEOF, 0, 0, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
+    }
+
+    // -----------------------------------------------------------------------
+    // ANEWARRAY
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn anewarray_and_arraylength() {
+        let bc = [SCONST_3, ANEWARRAY, 0, ARRAYLENGTH, SRETURN];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
+    }
+
+    #[test]
+    fn anewarray_negative_length() {
+        let bc = [SCONST_M1, ANEWARRAY, 0];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::NegativeArraySize);
     }
 }
