@@ -87,15 +87,70 @@ pub enum JcStmt {
     },
     /// Expression statement (result discarded).
     Expr(JcExpr),
+    /// Short switch statement (`stableswitch`/`slookupswitch`).
+    Switch {
+        /// Key expression (short).
+        key: JcExpr,
+        /// Case arms: `(match_value, body)`.
+        cases: Vec<(i16, Vec<JcStmt>)>,
+        /// Default arm body.
+        default: Vec<JcStmt>,
+    },
+    /// Int switch statement (`itableswitch`/`ilookupswitch`).
+    IntSwitch {
+        /// Key expression (int).
+        key: JcExpr,
+        /// Case arms: `(match_value, body)`.
+        cases: Vec<(i32, Vec<JcStmt>)>,
+        /// Default arm body.
+        default: Vec<JcStmt>,
+    },
+    /// Increment a local variable by a signed byte constant.
+    ///
+    /// Emits `sinc` for short locals, `iinc` for int locals.
+    Increment {
+        /// Variable name.
+        var: String,
+        /// Increment amount (signed byte).
+        amount: i8,
+    },
 }
 
 /// A comparison condition for `if` and `while`.
 #[derive(Debug, Clone)]
 pub enum Condition {
-    /// Equality comparison.
+    /// Short equality comparison (`if_scmpeq`).
     Eq(JcExpr, JcExpr),
-    /// Inequality comparison.
+    /// Short inequality comparison (`if_scmpne`).
     Ne(JcExpr, JcExpr),
+    /// Short less-than comparison (`if_scmplt`).
+    Lt(JcExpr, JcExpr),
+    /// Short greater-or-equal comparison (`if_scmpge`).
+    Ge(JcExpr, JcExpr),
+    /// Short greater-than comparison (`if_scmpgt`).
+    Gt(JcExpr, JcExpr),
+    /// Short less-or-equal comparison (`if_scmple`).
+    Le(JcExpr, JcExpr),
+    /// Null reference check (`ifnull`).
+    Null(JcExpr),
+    /// Non-null reference check (`ifnonnull`).
+    NonNull(JcExpr),
+    /// Int equality comparison (`icmp` + `ifeq`).
+    IntEq(JcExpr, JcExpr),
+    /// Int inequality comparison (`icmp` + `ifne`).
+    IntNe(JcExpr, JcExpr),
+    /// Int less-than comparison (`icmp` + `iflt`).
+    IntLt(JcExpr, JcExpr),
+    /// Int greater-or-equal comparison (`icmp` + `ifge`).
+    IntGe(JcExpr, JcExpr),
+    /// Int greater-than comparison (`icmp` + `ifgt`).
+    IntGt(JcExpr, JcExpr),
+    /// Int less-or-equal comparison (`icmp` + `ifle`).
+    IntLe(JcExpr, JcExpr),
+    /// Reference equality comparison (`if_acmpeq`).
+    RefEq(JcExpr, JcExpr),
+    /// Reference inequality comparison (`if_acmpne`).
+    RefNe(JcExpr, JcExpr),
 }
 
 /// An assignment target (l-value).
@@ -120,13 +175,15 @@ pub enum LValue {
 /// An expression that produces a value.
 #[derive(Debug, Clone)]
 pub enum JcExpr {
-    /// Integer literal (fits in i16).
+    /// Short literal (fits in i16).
     Lit(i16),
+    /// Int literal (32-bit).
+    IntLit(i32),
     /// Local variable reference.
     Var(String),
     /// Instance field read (`self.field_name`).
     SelfField(String),
-    /// Binary arithmetic operation.
+    /// Binary arithmetic operation on shorts.
     BinOp {
         /// Operator.
         op: BinOp,
@@ -135,8 +192,19 @@ pub enum JcExpr {
         /// Right operand.
         right: Box<Self>,
     },
-    /// Arithmetic negation.
+    /// Binary arithmetic operation on ints (32-bit).
+    IntBinOp {
+        /// Operator.
+        op: BinOp,
+        /// Left operand.
+        left: Box<Self>,
+        /// Right operand.
+        right: Box<Self>,
+    },
+    /// Short arithmetic negation (`sneg`).
     Neg(Box<Self>),
+    /// Int arithmetic negation (`ineg`).
+    IntNeg(Box<Self>),
     /// Array element read.
     ArrayLoad {
         /// Array expression.
@@ -155,8 +223,35 @@ pub enum JcExpr {
     NewByteArray(Box<Self>),
     /// Allocate a new short array.
     NewShortArray(Box<Self>),
+    /// Allocate a new int array.
+    NewIntArray(Box<Self>),
+    /// Allocate a new reference array (`anewarray`).
+    NewRefArray {
+        /// Length expression.
+        length: Box<Self>,
+        /// Class reference index (2 bytes in the bytecode).
+        class_ref: u16,
+    },
     /// Get array length.
     ArrayLength(Box<Self>),
+    /// Type conversion cast.
+    Cast {
+        /// Source type.
+        from: JcType,
+        /// Target type.
+        to: JcType,
+        /// Expression to convert.
+        expr: Box<Self>,
+    },
+    /// `instanceof` type check (pushes 0 or 1 as a short).
+    InstanceOf {
+        /// Expression to check.
+        expr: Box<Self>,
+        /// Class reference index.
+        class: u16,
+    },
+    /// Int comparison (`icmp`): pushes -1, 0, or 1 as a short.
+    IntCompare(Box<Self>, Box<Self>),
 }
 
 /// Binary arithmetic operator.
@@ -172,6 +267,18 @@ pub enum BinOp {
     Div,
     /// Remainder.
     Rem,
+    /// Bitwise AND.
+    And,
+    /// Bitwise OR.
+    Or,
+    /// Bitwise XOR.
+    Xor,
+    /// Shift left.
+    Shl,
+    /// Arithmetic shift right.
+    Shr,
+    /// Logical (unsigned) shift right.
+    Ushr,
 }
 
 #[cfg(test)]

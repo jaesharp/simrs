@@ -13,44 +13,227 @@ use crate::error::CompileError;
 use crate::ir::{BinOp, Condition, JcClass, JcExpr, JcStmt, LValue};
 use crate::types::JcType;
 
-// ---- JCVM opcode constants (mirrored from simrs-jcvm) ----
+// =========================================================================
+// JCVM opcode constants (mirrored from simrs-jcvm::opcodes)
+// =========================================================================
 
+// --- Misc ---
+#[allow(dead_code)]
+const NOP: u8 = 0x00;
+
+// --- Constants: null ---
+#[allow(dead_code)]
+const ACONST_NULL: u8 = 0x01;
+
+// --- Constants: short ---
 const SCONST_M1: u8 = 0x02;
 const SCONST_0: u8 = 0x03;
 const SCONST_5: u8 = 0x08;
+
+// --- Constants: int ---
+#[allow(dead_code)]
+const ICONST_M1: u8 = 0x09;
+const ICONST_0: u8 = 0x0A;
+#[allow(dead_code)]
+const ICONST_5: u8 = 0x0F;
+
+// --- Constants: push immediates ---
 const BSPUSH: u8 = 0x10;
 const SSPUSH: u8 = 0x11;
+const IIPUSH: u8 = 0x14;
+
+// --- Local loads: reference ---
+const ALOAD: u8 = 0x15;
+const ALOAD_0: u8 = 0x18;
+#[allow(dead_code)]
+const ALOAD_3: u8 = 0x1B;
+
+// --- Local loads: short ---
 const SLOAD: u8 = 0x16;
 const SLOAD_0: u8 = 0x1C;
 const SLOAD_3: u8 = 0x1F;
-const BALOAD: u8 = 0x25;
+
+// --- Local loads: int ---
+const ILOAD: u8 = 0x17;
+const ILOAD_0: u8 = 0x20;
+const ILOAD_3: u8 = 0x23;
+
+// --- Array load/store ---
 const SALOAD: u8 = 0x24;
-const BASTORE: u8 = 0x27;
+const BALOAD: u8 = 0x25;
 const SASTORE: u8 = 0x26;
+const BASTORE: u8 = 0x27;
+const AALOAD: u8 = 0x37;
+const AASTORE: u8 = 0x38;
+const IALOAD: u8 = 0x39;
+const IASTORE: u8 = 0x3A;
+
+// --- Local stores: short ---
 const SSTORE: u8 = 0x28;
 const SSTORE_0: u8 = 0x2B;
 const SSTORE_3: u8 = 0x2E;
+
+// --- Local stores: reference ---
+const ASTORE: u8 = 0x29;
+const ASTORE_0: u8 = 0x2A;
+#[allow(dead_code)]
+const ASTORE_3: u8 = 0x2D; // 0x2A + 3
+
+// --- Local stores: int ---
+const ISTORE: u8 = 0x2F;
+const ISTORE_0: u8 = 0x33;
+const ISTORE_3: u8 = 0x36;
+
+// --- Short arithmetic ---
 const SADD: u8 = 0x41;
 const SSUB: u8 = 0x43;
 const SMUL: u8 = 0x45;
 const SDIV: u8 = 0x47;
 const SREM: u8 = 0x49;
 const SNEG: u8 = 0x4B;
+
+// --- Int arithmetic ---
+const IADD: u8 = 0x42;
+const ISUB: u8 = 0x44;
+const IMUL: u8 = 0x46;
+const IDIV: u8 = 0x48;
+const IREM: u8 = 0x4A;
+const INEG: u8 = 0x4C;
+
+// --- Short bitwise ---
+const SSHL: u8 = 0x4D;
+const SSHR: u8 = 0x4F;
+const SUSHR: u8 = 0x51;
+const SAND: u8 = 0x53;
+const SOR: u8 = 0x55;
+const SXOR: u8 = 0x57;
+
+// --- Int bitwise ---
+const ISHL: u8 = 0x4E;
+const ISHR: u8 = 0x50;
+const IUSHR: u8 = 0x52;
+const IAND: u8 = 0x54;
+const IOR: u8 = 0x56;
+const IXOR: u8 = 0x58;
+
+// --- Increment ---
+const SINC: u8 = 0x59;
+const IINC: u8 = 0x5A;
+
+// --- Type conversion ---
+const S2B: u8 = 0x5B;
+const S2I: u8 = 0x5C;
+const I2B: u8 = 0x5D;
+const I2S: u8 = 0x5E;
+
+// --- Int comparison ---
+const ICMP: u8 = 0x5F;
+
+// --- Comparison branches (1-byte signed offset) ---
+const IFEQ: u8 = 0x60;
+const IFNE: u8 = 0x61;
+const IFLT: u8 = 0x62;
+const IFGE: u8 = 0x63;
+const IFGT: u8 = 0x64;
+const IFLE: u8 = 0x65;
+const IFNULL: u8 = 0x66;
+const IFNONNULL: u8 = 0x67;
+
+// --- Reference comparison branches ---
+const IF_ACMPEQ: u8 = 0x68;
+const IF_ACMPNE: u8 = 0x69;
+
+// --- Short comparison branches ---
 const IF_SCMPEQ: u8 = 0x6A;
 const IF_SCMPNE: u8 = 0x6B;
+const IF_SCMPLT: u8 = 0x6C;
+const IF_SCMPGE: u8 = 0x6D;
+const IF_SCMPGT: u8 = 0x6E;
+const IF_SCMPLE: u8 = 0x6F;
+
+// --- Unconditional branch ---
 const GOTO: u8 = 0x70;
+
+// --- Switch ---
+#[allow(dead_code)]
+const STABLESWITCH: u8 = 0x73;
+#[allow(dead_code)]
+const ITABLESWITCH: u8 = 0x74;
+const SLOOKUPSWITCH: u8 = 0x75;
+const ILOOKUPSWITCH: u8 = 0x76;
+
+// --- Return ---
+const ARETURN: u8 = 0x77;
 const SRETURN: u8 = 0x78;
+const IRETURN: u8 = 0x79;
 const RETURN: u8 = 0x7A;
+
+// --- Static field access ---
+#[allow(dead_code)]
+const GETSTATIC_A: u8 = 0x7B;
+#[allow(dead_code)]
+const GETSTATIC_S: u8 = 0x7D;
+#[allow(dead_code)]
+const GETSTATIC_I: u8 = 0x7E;
+#[allow(dead_code)]
+const PUTSTATIC_A: u8 = 0x7F;
+#[allow(dead_code)]
+const PUTSTATIC_S: u8 = 0x81;
+#[allow(dead_code)]
+const PUTSTATIC_I: u8 = 0x82;
+
+// --- Instance field access (spec-correct) ---
+const GETFIELD_A: u8 = 0x83;
+const GETFIELD_S: u8 = 0x85;
+const GETFIELD_I: u8 = 0x86;
+const PUTFIELD_A: u8 = 0x87;
+const PUTFIELD_S: u8 = 0x89;
+const PUTFIELD_I: u8 = 0x8A;
+
+// --- Method invocation ---
+#[allow(dead_code)]
+const INVOKEVIRTUAL: u8 = 0x8B;
+#[allow(dead_code)]
+const INVOKESPECIAL: u8 = 0x8C;
 const INVOKESTATIC: u8 = 0x8D;
+#[allow(dead_code)]
+const INVOKEINTERFACE: u8 = 0x8E;
+
+// --- Object creation ---
+#[allow(dead_code)]
+const NEW: u8 = 0x8F;
 const NEWARRAY: u8 = 0x90;
+const ANEWARRAY: u8 = 0x91;
 const ARRAYLENGTH: u8 = 0x92;
+
+// --- Exception ---
+#[allow(dead_code)]
+const ATHROW: u8 = 0x93;
+
+// --- Type checking ---
+#[allow(dead_code)]
+const CHECKCAST: u8 = 0x94;
+const INSTANCEOF: u8 = 0x95;
+
+// --- Legacy field access (non-spec values, backward compat) ---
 const GETFIELD_B: u8 = 0xAD;
 const PUTFIELD_B: u8 = 0xAF;
+#[allow(dead_code)]
+const GETSTATIC_B: u8 = 0xB3;
+#[allow(dead_code)]
+const PUTSTATIC_B: u8 = 0xB5;
 
+// --- Newarray type tokens ---
 /// Newarray type token for `byte[]`.
 const ARRAY_TYPE_BYTE: u8 = 0x0A;
 /// Newarray type token for `short[]`.
 const ARRAY_TYPE_SHORT: u8 = 0x0B;
+/// Newarray type token for `int[]`.
+const ARRAY_TYPE_INT: u8 = 0x0D;
+
+// =========================================================================
+// Compiled class
+// =========================================================================
 
 /// A compiled class ready for loading into the JCVM.
 #[derive(Debug, Clone)]
@@ -96,6 +279,10 @@ pub fn compile_class(class: &JcClass) -> Result<CompiledClass, Vec<CompileError>
     }
 }
 
+// =========================================================================
+// Label / forward-ref infrastructure
+// =========================================================================
+
 /// A forward reference to be patched after the first pass.
 struct ForwardRef {
     /// Position of the offset byte(s) in the bytecode buffer.
@@ -104,6 +291,8 @@ struct ForwardRef {
     opcode_pos: usize,
     /// Target label ID.
     label: usize,
+    /// Whether this is a 2-byte (i16) offset (for switch instructions).
+    wide: bool,
 }
 
 /// Code generation context for a single method.
@@ -146,7 +335,29 @@ impl MethodCodegen {
         self.code.push(byte);
     }
 
-    /// Emit a branch instruction with a label reference.
+    /// Emit a 2-byte big-endian value.
+    fn emit_u16(&mut self, val: u16) {
+        let bytes = val.to_be_bytes();
+        self.code.push(bytes[0]);
+        self.code.push(bytes[1]);
+    }
+
+    /// Emit a 2-byte big-endian signed value.
+    fn emit_i16(&mut self, val: i16) {
+        let bytes = val.to_be_bytes();
+        self.code.push(bytes[0]);
+        self.code.push(bytes[1]);
+    }
+
+    /// Emit a 4-byte big-endian signed value.
+    fn emit_i32(&mut self, val: i32) {
+        let bytes = val.to_be_bytes();
+        for b in bytes {
+            self.code.push(b);
+        }
+    }
+
+    /// Emit a branch instruction with a label reference (1-byte offset).
     ///
     /// The offset byte is set to 0 as a placeholder and recorded for patching.
     fn emit_branch(&mut self, opcode: u8, label: usize) {
@@ -158,12 +369,32 @@ impl MethodCodegen {
             patch_pos,
             opcode_pos,
             label,
+            wide: false,
+        });
+    }
+
+    /// Emit a 2-byte wide branch offset placeholder for switch instructions.
+    /// `base_pos` is the position of the switch opcode for offset calculation.
+    fn emit_wide_branch(&mut self, label: usize, base_pos: usize) {
+        let patch_pos = self.code.len();
+        self.emit(0);
+        self.emit(0); // 2-byte placeholder
+        self.forward_refs.push(ForwardRef {
+            patch_pos,
+            opcode_pos: base_pos,
+            label,
+            wide: true,
         });
     }
 
     /// Emit a `goto` instruction with a label reference.
     fn emit_goto(&mut self, label: usize) {
         self.emit_branch(GOTO, label);
+    }
+
+    /// Current bytecode position.
+    fn pos(&self) -> usize {
+        self.code.len()
     }
 
     /// Resolve all forward references.
@@ -177,17 +408,33 @@ impl MethodCodegen {
             };
             // offset = target_pos - opcode_pos (signed)
             let offset = target_pos.cast_signed() - fref.opcode_pos.cast_signed();
-            let Ok(offset_i8) = i8::try_from(offset) else {
-                return Err(format!(
-                    "branch offset {offset} out of i8 range at position {}",
-                    fref.opcode_pos
-                ));
-            };
-            self.code[fref.patch_pos] = offset_i8.cast_unsigned();
+            if fref.wide {
+                let Ok(offset_i16) = i16::try_from(offset) else {
+                    return Err(format!(
+                        "wide branch offset {offset} out of i16 range at position {}",
+                        fref.opcode_pos
+                    ));
+                };
+                let bytes = offset_i16.to_be_bytes();
+                self.code[fref.patch_pos] = bytes[0];
+                self.code[fref.patch_pos + 1] = bytes[1];
+            } else {
+                let Ok(offset_i8) = i8::try_from(offset) else {
+                    return Err(format!(
+                        "branch offset {offset} out of i8 range at position {}",
+                        fref.opcode_pos
+                    ));
+                };
+                self.code[fref.patch_pos] = offset_i8.cast_unsigned();
+            }
         }
         Ok(())
     }
 }
+
+// =========================================================================
+// Method compilation
+// =========================================================================
 
 /// Compile a single method to bytecodes.
 fn compile_method(cm: &CheckedMethod) -> Result<Vec<u8>, String> {
@@ -201,12 +448,16 @@ fn compile_method(cm: &CheckedMethod) -> Result<Vec<u8>, String> {
     Ok(cg.code)
 }
 
+// =========================================================================
+// Statement emission
+// =========================================================================
+
 /// Emit bytecodes for a statement.
 fn emit_stmt(cg: &mut MethodCodegen, stmt: &JcStmt, cm: &CheckedMethod) -> Result<(), String> {
     match stmt {
         JcStmt::Let { name, init, .. } => {
             emit_expr(cg, init, cm)?;
-            emit_sstore(cg, cm, name)?;
+            emit_store_local(cg, cm, name)?;
             Ok(())
         }
         JcStmt::Assign { target, value } => emit_assign(cg, target, value, cm),
@@ -216,7 +467,8 @@ fn emit_stmt(cg: &mut MethodCodegen, stmt: &JcStmt, cm: &CheckedMethod) -> Resul
         }
         JcStmt::Return(Some(expr)) => {
             emit_expr(cg, expr, cm)?;
-            cg.emit(SRETURN);
+            let ret_op = return_opcode_for_type(cm.method.return_ty);
+            cg.emit(ret_op);
             Ok(())
         }
         JcStmt::If {
@@ -270,8 +522,138 @@ fn emit_stmt(cg: &mut MethodCodegen, stmt: &JcStmt, cm: &CheckedMethod) -> Resul
             // A more complete compiler would track stack effects.
             Ok(())
         }
+        JcStmt::Switch { key, cases, default } => {
+            emit_switch_short(cg, key, cases, default, cm)
+        }
+        JcStmt::IntSwitch { key, cases, default } => {
+            emit_switch_int(cg, key, cases, default, cm)
+        }
+        JcStmt::Increment { var, amount } => {
+            let idx = cm.local_index(var).ok_or_else(|| {
+                format!("codegen: undefined local `{var}` in increment")
+            })?;
+            let ty = cm.local_type(var).unwrap_or(JcType::Short);
+            if ty.is_int() {
+                cg.emit(IINC);
+            } else {
+                cg.emit(SINC);
+            }
+            cg.emit(idx);
+            #[allow(clippy::cast_sign_loss)]
+            cg.emit(*amount as u8);
+            Ok(())
+        }
     }
 }
+
+/// Emit a short switch statement using `slookupswitch`.
+fn emit_switch_short(
+    cg: &mut MethodCodegen,
+    key: &JcExpr,
+    cases: &[(i16, Vec<JcStmt>)],
+    default: &[JcStmt],
+    cm: &CheckedMethod,
+) -> Result<(), String> {
+    emit_expr(cg, key, cm)?;
+
+    let switch_pos = cg.pos();
+    cg.emit(SLOOKUPSWITCH);
+
+    // Allocate labels for each case body and default.
+    let default_label = cg.new_label();
+    let end_label = cg.new_label();
+
+    // default offset (2 bytes, patched later)
+    cg.emit_wide_branch(default_label, switch_pos);
+
+    // npairs (2 bytes)
+    #[allow(clippy::cast_possible_truncation)]
+    let npairs = cases.len() as u16;
+    cg.emit_u16(npairs);
+
+    // For each case: match_value(2) + offset(2)
+    let mut case_labels = Vec::new();
+    for (val, _body) in cases {
+        cg.emit_i16(*val);
+        let case_label = cg.new_label();
+        cg.emit_wide_branch(case_label, switch_pos);
+        case_labels.push(case_label);
+    }
+
+    // Emit case bodies.
+    for (i, (_val, body)) in cases.iter().enumerate() {
+        cg.bind_label(case_labels[i]);
+        for s in body {
+            emit_stmt(cg, s, cm)?;
+        }
+        cg.emit_goto(end_label);
+    }
+
+    // Default body.
+    cg.bind_label(default_label);
+    for s in default {
+        emit_stmt(cg, s, cm)?;
+    }
+
+    cg.bind_label(end_label);
+    Ok(())
+}
+
+/// Emit an int switch statement using `ilookupswitch`.
+fn emit_switch_int(
+    cg: &mut MethodCodegen,
+    key: &JcExpr,
+    cases: &[(i32, Vec<JcStmt>)],
+    default: &[JcStmt],
+    cm: &CheckedMethod,
+) -> Result<(), String> {
+    emit_expr(cg, key, cm)?;
+
+    let switch_pos = cg.pos();
+    cg.emit(ILOOKUPSWITCH);
+
+    let default_label = cg.new_label();
+    let end_label = cg.new_label();
+
+    // default offset (2 bytes)
+    cg.emit_wide_branch(default_label, switch_pos);
+
+    // npairs (2 bytes)
+    #[allow(clippy::cast_possible_truncation)]
+    let npairs = cases.len() as u16;
+    cg.emit_u16(npairs);
+
+    // For each case: match_value(4) + offset(2)
+    let mut case_labels = Vec::new();
+    for (val, _body) in cases {
+        cg.emit_i32(*val);
+        let case_label = cg.new_label();
+        cg.emit_wide_branch(case_label, switch_pos);
+        case_labels.push(case_label);
+    }
+
+    // Emit case bodies.
+    for (i, (_val, body)) in cases.iter().enumerate() {
+        cg.bind_label(case_labels[i]);
+        for s in body {
+            emit_stmt(cg, s, cm)?;
+        }
+        cg.emit_goto(end_label);
+    }
+
+    // Default body.
+    cg.bind_label(default_label);
+    for s in default {
+        emit_stmt(cg, s, cm)?;
+    }
+
+    cg.bind_label(end_label);
+    Ok(())
+}
+
+// =========================================================================
+// Condition emission
+// =========================================================================
 
 /// Emit the negated condition (branch to `target` when condition is FALSE).
 fn emit_condition_negate(
@@ -281,21 +663,107 @@ fn emit_condition_negate(
     cm: &CheckedMethod,
 ) -> Result<(), String> {
     match cond {
+        // --- Short comparisons: negate by swapping the branch opcode ---
         Condition::Eq(left, right) => {
-            // Jump if NOT equal.
             emit_expr(cg, left, cm)?;
             emit_expr(cg, right, cm)?;
             cg.emit_branch(IF_SCMPNE, target);
         }
         Condition::Ne(left, right) => {
-            // Jump if equal (negation of not-equal).
             emit_expr(cg, left, cm)?;
             emit_expr(cg, right, cm)?;
             cg.emit_branch(IF_SCMPEQ, target);
         }
+        Condition::Lt(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit_branch(IF_SCMPGE, target); // negate: not-lt = ge
+        }
+        Condition::Ge(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit_branch(IF_SCMPLT, target); // negate: not-ge = lt
+        }
+        Condition::Gt(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit_branch(IF_SCMPLE, target); // negate: not-gt = le
+        }
+        Condition::Le(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit_branch(IF_SCMPGT, target); // negate: not-le = gt
+        }
+
+        // --- Null/NonNull ---
+        Condition::Null(expr) => {
+            emit_expr(cg, expr, cm)?;
+            cg.emit_branch(IFNONNULL, target); // negate: not-null = nonnull
+        }
+        Condition::NonNull(expr) => {
+            emit_expr(cg, expr, cm)?;
+            cg.emit_branch(IFNULL, target); // negate: not-nonnull = null
+        }
+
+        // --- Int comparisons: icmp + if<cond> ---
+        // For int comparisons, we emit both operands, then ICMP (which pushes
+        // -1, 0, or 1 as a short), then branch using the single-operand
+        // ifeq/ifne/iflt/ifge/ifgt/ifle opcodes.
+        Condition::IntEq(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit(ICMP);
+            cg.emit_branch(IFNE, target); // negate: not-eq = ne
+        }
+        Condition::IntNe(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit(ICMP);
+            cg.emit_branch(IFEQ, target); // negate: not-ne = eq
+        }
+        Condition::IntLt(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit(ICMP);
+            cg.emit_branch(IFGE, target); // negate: not-lt = ge
+        }
+        Condition::IntGe(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit(ICMP);
+            cg.emit_branch(IFLT, target); // negate: not-ge = lt
+        }
+        Condition::IntGt(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit(ICMP);
+            cg.emit_branch(IFLE, target); // negate: not-gt = le
+        }
+        Condition::IntLe(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit(ICMP);
+            cg.emit_branch(IFGT, target); // negate: not-le = gt
+        }
+
+        // --- Reference comparisons ---
+        Condition::RefEq(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit_branch(IF_ACMPNE, target); // negate: not-eq = ne
+        }
+        Condition::RefNe(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit_branch(IF_ACMPEQ, target); // negate: not-ne = eq
+        }
     }
     Ok(())
 }
+
+// =========================================================================
+// Assignment emission
+// =========================================================================
 
 /// Emit an assignment.
 fn emit_assign(
@@ -307,17 +775,19 @@ fn emit_assign(
     match target {
         LValue::Var(name) => {
             emit_expr(cg, value, cm)?;
-            emit_sstore(cg, cm, name)?;
+            emit_store_local(cg, cm, name)?;
             Ok(())
         }
         LValue::Field { field_name } => {
-            // Push `this` (local 0), then value, then putfield_b.
-            emit_sload(cg, 0);
+            // Push `this` (local 0), then value, then putfield.
+            emit_aload(cg, 0);
             emit_expr(cg, value, cm)?;
             let offset = cm.field_offset(field_name).ok_or_else(|| {
                 format!("codegen: undefined field `{field_name}`")
             })?;
-            cg.emit(PUTFIELD_B);
+            let field_ty = cm.field_type(field_name).unwrap_or(JcType::Byte);
+            let op = putfield_opcode(field_ty);
+            cg.emit(op);
             cg.emit(offset);
             cg.emit(0); // reserved class index byte
             Ok(())
@@ -326,7 +796,6 @@ fn emit_assign(
             emit_expr(cg, array, cm)?;
             emit_expr(cg, index, cm)?;
             emit_expr(cg, value, cm)?;
-            // Determine array element type for store instruction.
             let store_op = array_store_op(array, cm);
             cg.emit(store_op);
             Ok(())
@@ -334,21 +803,63 @@ fn emit_assign(
     }
 }
 
-/// Emit an sstore instruction for a named local.
-fn emit_sstore(cg: &mut MethodCodegen, cm: &CheckedMethod, name: &str) -> Result<(), String> {
+// =========================================================================
+// Local variable load/store helpers
+// =========================================================================
+
+/// Emit a store instruction for a named local, choosing the opcode based on type.
+fn emit_store_local(
+    cg: &mut MethodCodegen,
+    cm: &CheckedMethod,
+    name: &str,
+) -> Result<(), String> {
     let idx = cm.local_index(name).ok_or_else(|| {
         format!("codegen: undefined local `{name}`")
     })?;
+    let ty = cm.local_type(name).unwrap_or(JcType::Short);
+
+    if ty.is_int() {
+        emit_istore(cg, idx);
+    } else if ty.is_reference() {
+        emit_astore(cg, idx);
+    } else {
+        emit_sstore(cg, idx);
+    }
+    Ok(())
+}
+
+/// Emit a load instruction for a named local, choosing the opcode based on type.
+fn emit_load_local(
+    cg: &mut MethodCodegen,
+    cm: &CheckedMethod,
+    name: &str,
+) -> Result<(), String> {
+    let idx = cm.local_index(name).ok_or_else(|| {
+        format!("codegen: undefined local `{name}`")
+    })?;
+    let ty = cm.local_type(name).unwrap_or(JcType::Short);
+
+    if ty.is_int() {
+        emit_iload(cg, idx);
+    } else if ty.is_reference() {
+        emit_aload(cg, idx);
+    } else {
+        emit_sload(cg, idx);
+    }
+    Ok(())
+}
+
+/// Emit `sstore` for a given slot index.
+fn emit_sstore(cg: &mut MethodCodegen, idx: u8) {
     if idx <= (SSTORE_3 - SSTORE_0) {
         cg.emit(SSTORE_0 + idx);
     } else {
         cg.emit(SSTORE);
         cg.emit(idx);
     }
-    Ok(())
 }
 
-/// Emit an sload instruction for a given slot index.
+/// Emit `sload` for a given slot index.
 fn emit_sload(cg: &mut MethodCodegen, idx: u8) {
     if idx <= (SLOAD_3 - SLOAD_0) {
         cg.emit(SLOAD_0 + idx);
@@ -358,27 +869,75 @@ fn emit_sload(cg: &mut MethodCodegen, idx: u8) {
     }
 }
 
+/// Emit `iload` for a given slot index.
+fn emit_iload(cg: &mut MethodCodegen, idx: u8) {
+    if idx <= (ILOAD_3 - ILOAD_0) {
+        cg.emit(ILOAD_0 + idx);
+    } else {
+        cg.emit(ILOAD);
+        cg.emit(idx);
+    }
+}
+
+/// Emit `istore` for a given slot index.
+fn emit_istore(cg: &mut MethodCodegen, idx: u8) {
+    if idx <= (ISTORE_3 - ISTORE_0) {
+        cg.emit(ISTORE_0 + idx);
+    } else {
+        cg.emit(ISTORE);
+        cg.emit(idx);
+    }
+}
+
+/// Emit `aload` for a given slot index.
+fn emit_aload(cg: &mut MethodCodegen, idx: u8) {
+    if idx <= (ALOAD_0.wrapping_add(3) - ALOAD_0) {
+        cg.emit(ALOAD_0 + idx);
+    } else {
+        cg.emit(ALOAD);
+        cg.emit(idx);
+    }
+}
+
+/// Emit `astore` for a given slot index.
+fn emit_astore(cg: &mut MethodCodegen, idx: u8) {
+    // ASTORE_0 through ASTORE_0+3 (note: only ASTORE_0 is explicitly defined,
+    // but slots 0..3 use the compact form).
+    if idx <= 3 {
+        cg.emit(ASTORE_0 + idx);
+    } else {
+        cg.emit(ASTORE);
+        cg.emit(idx);
+    }
+}
+
+// =========================================================================
+// Expression emission
+// =========================================================================
+
 /// Emit bytecodes for an expression (result pushed onto the stack).
 fn emit_expr(cg: &mut MethodCodegen, expr: &JcExpr, cm: &CheckedMethod) -> Result<(), String> {
     match expr {
         JcExpr::Lit(n) => {
-            emit_lit(cg, *n);
+            emit_short_lit(cg, *n);
+            Ok(())
+        }
+        JcExpr::IntLit(n) => {
+            emit_int_lit(cg, *n);
             Ok(())
         }
         JcExpr::Var(name) => {
-            let idx = cm.local_index(name).ok_or_else(|| {
-                format!("codegen: undefined local `{name}`")
-            })?;
-            emit_sload(cg, idx);
-            Ok(())
+            emit_load_local(cg, cm, name)
         }
         JcExpr::SelfField(name) => {
-            // Push `this` (local 0), then getfield_b.
-            emit_sload(cg, 0);
+            // Push `this` (local 0), then getfield.
+            emit_aload(cg, 0);
             let offset = cm.field_offset(name).ok_or_else(|| {
                 format!("codegen: undefined field `{name}`")
             })?;
-            cg.emit(GETFIELD_B);
+            let field_ty = cm.field_type(name).unwrap_or(JcType::Byte);
+            let op = getfield_opcode(field_ty);
+            cg.emit(op);
             cg.emit(offset);
             cg.emit(0); // reserved class index byte
             Ok(())
@@ -386,19 +945,25 @@ fn emit_expr(cg: &mut MethodCodegen, expr: &JcExpr, cm: &CheckedMethod) -> Resul
         JcExpr::BinOp { op, left, right } => {
             emit_expr(cg, left, cm)?;
             emit_expr(cg, right, cm)?;
-            let opcode = match op {
-                BinOp::Add => SADD,
-                BinOp::Sub => SSUB,
-                BinOp::Mul => SMUL,
-                BinOp::Div => SDIV,
-                BinOp::Rem => SREM,
-            };
+            let opcode = short_binop_opcode(*op);
+            cg.emit(opcode);
+            Ok(())
+        }
+        JcExpr::IntBinOp { op, left, right } => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            let opcode = int_binop_opcode(*op);
             cg.emit(opcode);
             Ok(())
         }
         JcExpr::Neg(inner) => {
             emit_expr(cg, inner, cm)?;
             cg.emit(SNEG);
+            Ok(())
+        }
+        JcExpr::IntNeg(inner) => {
+            emit_expr(cg, inner, cm)?;
+            cg.emit(INEG);
             Ok(())
         }
         JcExpr::ArrayLoad { array, index } => {
@@ -429,18 +994,59 @@ fn emit_expr(cg: &mut MethodCodegen, expr: &JcExpr, cm: &CheckedMethod) -> Resul
             cg.emit(ARRAY_TYPE_SHORT);
             Ok(())
         }
+        JcExpr::NewIntArray(len) => {
+            emit_expr(cg, len, cm)?;
+            cg.emit(NEWARRAY);
+            cg.emit(ARRAY_TYPE_INT);
+            Ok(())
+        }
+        JcExpr::NewRefArray { length, class_ref } => {
+            emit_expr(cg, length, cm)?;
+            cg.emit(ANEWARRAY);
+            cg.emit_u16(*class_ref);
+            Ok(())
+        }
         JcExpr::ArrayLength(arr) => {
             emit_expr(cg, arr, cm)?;
             cg.emit(ARRAYLENGTH);
             Ok(())
         }
+        JcExpr::Cast { from, to, expr } => {
+            emit_expr(cg, expr, cm)?;
+            let op = match (*from, *to) {
+                (JcType::Short, JcType::Byte) => S2B,
+                (JcType::Short, JcType::Int) => S2I,
+                (JcType::Int, JcType::Byte) => I2B,
+                (JcType::Int, JcType::Short) => I2S,
+                _ => return Err(format!("codegen: unsupported cast {from:?} -> {to:?}")),
+            };
+            cg.emit(op);
+            Ok(())
+        }
+        JcExpr::InstanceOf { expr, class } => {
+            emit_expr(cg, expr, cm)?;
+            cg.emit(INSTANCEOF);
+            let bytes = class.to_be_bytes();
+            cg.emit(bytes[0]);
+            cg.emit(bytes[1]);
+            Ok(())
+        }
+        JcExpr::IntCompare(left, right) => {
+            emit_expr(cg, left, cm)?;
+            emit_expr(cg, right, cm)?;
+            cg.emit(ICMP);
+            Ok(())
+        }
     }
 }
 
-/// Emit an integer literal using the most compact encoding.
-fn emit_lit(cg: &mut MethodCodegen, n: i16) {
+// =========================================================================
+// Literal emission
+// =========================================================================
+
+/// Emit a short literal using the most compact encoding.
+fn emit_short_lit(cg: &mut MethodCodegen, n: i16) {
     // sconst_m1 (0x02) through sconst_5 (0x08) cover -1..5.
-    // Range: SCONST_M1 maps to -1, SCONST_5 maps to 5.
     let lo = i16::from(SCONST_M1) - i16::from(SCONST_0); // -1
     let hi = i16::from(SCONST_5) - i16::from(SCONST_0);  // 5
     if n >= lo && n <= hi {
@@ -458,12 +1064,104 @@ fn emit_lit(cg: &mut MethodCodegen, n: i16) {
     }
 }
 
+/// Emit an int literal using the most compact encoding.
+fn emit_int_lit(cg: &mut MethodCodegen, n: i32) {
+    // iconst_m1 (0x09) through iconst_5 (0x0F) cover -1..5.
+    if n >= -1 && n <= 5 {
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        let opcode = ICONST_0.wrapping_add_signed(n as i8);
+        cg.emit(opcode);
+    } else {
+        cg.emit(IIPUSH);
+        let bytes = n.to_be_bytes();
+        for b in bytes {
+            cg.emit(b);
+        }
+    }
+}
+
+// =========================================================================
+// Opcode selection helpers
+// =========================================================================
+
+/// Select the correct short binary operation opcode.
+fn short_binop_opcode(op: BinOp) -> u8 {
+    match op {
+        BinOp::Add => SADD,
+        BinOp::Sub => SSUB,
+        BinOp::Mul => SMUL,
+        BinOp::Div => SDIV,
+        BinOp::Rem => SREM,
+        BinOp::And => SAND,
+        BinOp::Or => SOR,
+        BinOp::Xor => SXOR,
+        BinOp::Shl => SSHL,
+        BinOp::Shr => SSHR,
+        BinOp::Ushr => SUSHR,
+    }
+}
+
+/// Select the correct int binary operation opcode.
+fn int_binop_opcode(op: BinOp) -> u8 {
+    match op {
+        BinOp::Add => IADD,
+        BinOp::Sub => ISUB,
+        BinOp::Mul => IMUL,
+        BinOp::Div => IDIV,
+        BinOp::Rem => IREM,
+        BinOp::And => IAND,
+        BinOp::Or => IOR,
+        BinOp::Xor => IXOR,
+        BinOp::Shl => ISHL,
+        BinOp::Shr => ISHR,
+        BinOp::Ushr => IUSHR,
+    }
+}
+
+/// Select the return opcode for a given return type.
+fn return_opcode_for_type(ty: JcType) -> u8 {
+    match ty {
+        JcType::Void => RETURN,
+        JcType::Int => IRETURN,
+        JcType::Instance | JcType::ByteArray | JcType::ShortArray
+        | JcType::IntArray | JcType::RefArray => ARETURN,
+        JcType::Byte | JcType::Short | JcType::Boolean => SRETURN,
+    }
+}
+
+/// Select the getfield opcode for a given field type.
+fn getfield_opcode(ty: JcType) -> u8 {
+    match ty {
+        JcType::Byte | JcType::Boolean => GETFIELD_B,
+        JcType::Short => GETFIELD_S,
+        JcType::Int => GETFIELD_I,
+        JcType::Instance | JcType::ByteArray | JcType::ShortArray
+        | JcType::IntArray | JcType::RefArray => GETFIELD_A,
+        JcType::Void => GETFIELD_B, // fallback (should never happen)
+    }
+}
+
+/// Select the putfield opcode for a given field type.
+fn putfield_opcode(ty: JcType) -> u8 {
+    match ty {
+        JcType::Byte | JcType::Boolean => PUTFIELD_B,
+        JcType::Short => PUTFIELD_S,
+        JcType::Int => PUTFIELD_I,
+        JcType::Instance | JcType::ByteArray | JcType::ShortArray
+        | JcType::IntArray | JcType::RefArray => PUTFIELD_A,
+        JcType::Void => PUTFIELD_B, // fallback (should never happen)
+    }
+}
+
 /// Determine the array load opcode based on the array expression's type.
 fn array_load_op(array: &JcExpr, cm: &CheckedMethod) -> u8 {
     if let Some(ty) = resolve_expr_type(array, cm) {
-        if ty == JcType::ShortArray {
-            return SALOAD;
-        }
+        return match ty {
+            JcType::ShortArray => SALOAD,
+            JcType::IntArray => IALOAD,
+            JcType::RefArray => AALOAD,
+            _ => BALOAD,
+        };
     }
     BALOAD // default to byte array
 }
@@ -471,9 +1169,12 @@ fn array_load_op(array: &JcExpr, cm: &CheckedMethod) -> u8 {
 /// Determine the array store opcode based on the array expression's type.
 fn array_store_op(array: &JcExpr, cm: &CheckedMethod) -> u8 {
     if let Some(ty) = resolve_expr_type(array, cm) {
-        if ty == JcType::ShortArray {
-            return SASTORE;
-        }
+        return match ty {
+            JcType::ShortArray => SASTORE,
+            JcType::IntArray => IASTORE,
+            JcType::RefArray => AASTORE,
+            _ => BASTORE,
+        };
     }
     BASTORE // default to byte array
 }
@@ -482,8 +1183,11 @@ fn array_store_op(array: &JcExpr, cm: &CheckedMethod) -> u8 {
 fn resolve_expr_type(expr: &JcExpr, cm: &CheckedMethod) -> Option<JcType> {
     match expr {
         JcExpr::Var(name) => cm.local_type(name),
+        JcExpr::SelfField(name) => cm.field_type(name),
         JcExpr::NewByteArray(_) => Some(JcType::ByteArray),
         JcExpr::NewShortArray(_) => Some(JcType::ShortArray),
+        JcExpr::NewIntArray(_) => Some(JcType::IntArray),
+        JcExpr::NewRefArray { .. } => Some(JcType::RefArray),
         _ => None,
     }
 }
@@ -786,5 +1490,517 @@ mod tests {
         // Should contain a goto (backward branch for loop) and if_scmpeq (condition negation of Ne).
         assert!(bc.contains(&GOTO));
         assert!(bc.contains(&IF_SCMPEQ));
+    }
+
+    // --- New tests for extended opcodes ---
+
+    #[test]
+    fn compile_int_literal_small() {
+        // IntLit(3) should emit iconst_3
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Int,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::IntLit(3)))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        // iconst_3 = 0x0D, ireturn = 0x79
+        assert_eq!(compiled.methods[0], vec![ICONST_0 + 3, IRETURN]);
+    }
+
+    #[test]
+    fn compile_int_literal_large() {
+        // IntLit(100_000) should emit iipush + 4 bytes
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Int,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::IntLit(100_000)))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        let bytes = 100_000_i32.to_be_bytes();
+        assert_eq!(
+            compiled.methods[0],
+            vec![IIPUSH, bytes[0], bytes[1], bytes[2], bytes[3], IRETURN]
+        );
+    }
+
+    #[test]
+    fn compile_int_add() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Int,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::IntBinOp {
+                op: BinOp::Add,
+                left: Box::new(JcExpr::IntLit(3)),
+                right: Box::new(JcExpr::IntLit(2)),
+            }))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        // iconst_3, iconst_2, iadd, ireturn
+        assert_eq!(
+            compiled.methods[0],
+            vec![ICONST_0 + 3, ICONST_0 + 2, IADD, IRETURN]
+        );
+    }
+
+    #[test]
+    fn compile_int_negation() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Int,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::IntNeg(
+                Box::new(JcExpr::IntLit(5)),
+            )))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert_eq!(
+            compiled.methods[0],
+            vec![ICONST_5, INEG, IRETURN]
+        );
+    }
+
+    #[test]
+    fn compile_short_bitwise_and() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::BinOp {
+                op: BinOp::And,
+                left: Box::new(JcExpr::Lit(5)),
+                right: Box::new(JcExpr::Lit(3)),
+            }))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&SAND));
+    }
+
+    #[test]
+    fn compile_short_bitwise_or_xor() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::BinOp {
+                op: BinOp::Or,
+                left: Box::new(JcExpr::BinOp {
+                    op: BinOp::Xor,
+                    left: Box::new(JcExpr::Lit(5)),
+                    right: Box::new(JcExpr::Lit(3)),
+                }),
+                right: Box::new(JcExpr::Lit(1)),
+            }))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&SXOR));
+        assert!(compiled.methods[0].contains(&SOR));
+    }
+
+    #[test]
+    fn compile_short_shifts() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::BinOp {
+                op: BinOp::Shl,
+                left: Box::new(JcExpr::Lit(1)),
+                right: Box::new(JcExpr::Lit(3)),
+            }))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&SSHL));
+    }
+
+    #[test]
+    fn compile_cast_s2b() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::Cast {
+                from: JcType::Short,
+                to: JcType::Byte,
+                expr: Box::new(JcExpr::Lit(300)),
+            }))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&S2B));
+    }
+
+    #[test]
+    fn compile_cast_s2i() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Int,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::Cast {
+                from: JcType::Short,
+                to: JcType::Int,
+                expr: Box::new(JcExpr::Lit(42)),
+            }))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&S2I));
+        assert!(compiled.methods[0].contains(&IRETURN));
+    }
+
+    #[test]
+    fn compile_cast_i2s() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::Cast {
+                from: JcType::Int,
+                to: JcType::Short,
+                expr: Box::new(JcExpr::IntLit(42)),
+            }))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&I2S));
+    }
+
+    #[test]
+    fn compile_cast_i2b() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::Cast {
+                from: JcType::Int,
+                to: JcType::Byte,
+                expr: Box::new(JcExpr::IntLit(300)),
+            }))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&I2B));
+    }
+
+    #[test]
+    fn compile_condition_lt() {
+        // if x < 5 { return 1 } else { return 0 }
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![(String::from("x"), JcType::Short)],
+            body: vec![
+                JcStmt::Let {
+                    name: String::from("x"),
+                    ty: JcType::Short,
+                    init: JcExpr::Lit(3),
+                },
+                JcStmt::If {
+                    cond: Condition::Lt(
+                        JcExpr::Var(String::from("x")),
+                        JcExpr::Lit(5),
+                    ),
+                    then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
+                    else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
+                },
+            ],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        // Negation of Lt is Ge
+        assert!(compiled.methods[0].contains(&IF_SCMPGE));
+    }
+
+    #[test]
+    fn compile_condition_gt() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![(String::from("x"), JcType::Short)],
+            body: vec![
+                JcStmt::Let {
+                    name: String::from("x"),
+                    ty: JcType::Short,
+                    init: JcExpr::Lit(3),
+                },
+                JcStmt::If {
+                    cond: Condition::Gt(
+                        JcExpr::Var(String::from("x")),
+                        JcExpr::Lit(5),
+                    ),
+                    then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
+                    else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
+                },
+            ],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        // Negation of Gt is Le
+        assert!(compiled.methods[0].contains(&IF_SCMPLE));
+    }
+
+    #[test]
+    fn compile_sinc() {
+        // x = 0; sinc x, 5; return x
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![(String::from("x"), JcType::Short)],
+            body: vec![
+                JcStmt::Let {
+                    name: String::from("x"),
+                    ty: JcType::Short,
+                    init: JcExpr::Lit(0),
+                },
+                JcStmt::Increment {
+                    var: String::from("x"),
+                    amount: 5,
+                },
+                JcStmt::Return(Some(JcExpr::Var(String::from("x")))),
+            ],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&SINC));
+    }
+
+    #[test]
+    fn compile_int_compare() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::IntCompare(
+                Box::new(JcExpr::IntLit(3)),
+                Box::new(JcExpr::IntLit(5)),
+            )))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&ICMP));
+    }
+
+    #[test]
+    fn compile_instanceof() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![(String::from("obj"), JcType::Instance)],
+            body: vec![
+                JcStmt::Let {
+                    name: String::from("obj"),
+                    ty: JcType::Instance,
+                    init: JcExpr::IntLit(0), // placeholder -- null-ish
+                },
+                JcStmt::Return(Some(JcExpr::InstanceOf {
+                    expr: Box::new(JcExpr::Var(String::from("obj"))),
+                    class: 0x0001,
+                })),
+            ],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&INSTANCEOF));
+    }
+
+    #[test]
+    fn compile_slookupswitch() {
+        // switch(x) { case 1: return 10; case 2: return 20; default: return 0; }
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![(String::from("x"), JcType::Short)],
+            body: vec![
+                JcStmt::Let {
+                    name: String::from("x"),
+                    ty: JcType::Short,
+                    init: JcExpr::Lit(1),
+                },
+                JcStmt::Switch {
+                    key: JcExpr::Var(String::from("x")),
+                    cases: vec![
+                        (1, vec![JcStmt::Return(Some(JcExpr::Lit(10)))]),
+                        (2, vec![JcStmt::Return(Some(JcExpr::Lit(20)))]),
+                    ],
+                    default: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
+                },
+            ],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&SLOOKUPSWITCH));
+    }
+
+    #[test]
+    fn compile_ireturn() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Int,
+            locals: vec![],
+            body: vec![JcStmt::Return(Some(JcExpr::IntLit(42)))],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&IRETURN));
+    }
+
+    #[test]
+    fn compile_int_binop_all() {
+        for (op, expected) in [
+            (BinOp::Add, IADD),
+            (BinOp::Sub, ISUB),
+            (BinOp::Mul, IMUL),
+            (BinOp::Div, IDIV),
+            (BinOp::Rem, IREM),
+            (BinOp::And, IAND),
+            (BinOp::Or, IOR),
+            (BinOp::Xor, IXOR),
+            (BinOp::Shl, ISHL),
+            (BinOp::Shr, ISHR),
+            (BinOp::Ushr, IUSHR),
+        ] {
+            let method = JcMethod {
+                name: String::from("f"),
+                params: vec![],
+                return_ty: JcType::Int,
+                locals: vec![],
+                body: vec![JcStmt::Return(Some(JcExpr::IntBinOp {
+                    op,
+                    left: Box::new(JcExpr::IntLit(3)),
+                    right: Box::new(JcExpr::IntLit(2)),
+                }))],
+                is_static: true,
+            };
+            let cls = make_static_class(method);
+            let compiled = compile_class(&cls).unwrap();
+            assert!(
+                compiled.methods[0].contains(&expected),
+                "expected opcode 0x{expected:02X} for {op:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn compile_short_binop_all() {
+        for (op, expected) in [
+            (BinOp::Add, SADD),
+            (BinOp::Sub, SSUB),
+            (BinOp::Mul, SMUL),
+            (BinOp::Div, SDIV),
+            (BinOp::Rem, SREM),
+            (BinOp::And, SAND),
+            (BinOp::Or, SOR),
+            (BinOp::Xor, SXOR),
+            (BinOp::Shl, SSHL),
+            (BinOp::Shr, SSHR),
+            (BinOp::Ushr, SUSHR),
+        ] {
+            let method = JcMethod {
+                name: String::from("f"),
+                params: vec![],
+                return_ty: JcType::Short,
+                locals: vec![],
+                body: vec![JcStmt::Return(Some(JcExpr::BinOp {
+                    op,
+                    left: Box::new(JcExpr::Lit(3)),
+                    right: Box::new(JcExpr::Lit(2)),
+                }))],
+                is_static: true,
+            };
+            let cls = make_static_class(method);
+            let compiled = compile_class(&cls).unwrap();
+            assert!(
+                compiled.methods[0].contains(&expected),
+                "expected opcode 0x{expected:02X} for {op:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn compile_new_int_array() {
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![],
+            body: vec![
+                JcStmt::Expr(JcExpr::NewIntArray(Box::new(JcExpr::Lit(5)))),
+                JcStmt::Return(Some(JcExpr::Lit(0))),
+            ],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&NEWARRAY));
+        assert!(compiled.methods[0].contains(&ARRAY_TYPE_INT));
+    }
+
+    #[test]
+    fn compile_int_local_store_load() {
+        // Verify int locals use iload/istore
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Int,
+            locals: vec![(String::from("x"), JcType::Int)],
+            body: vec![
+                JcStmt::Let {
+                    name: String::from("x"),
+                    ty: JcType::Int,
+                    init: JcExpr::IntLit(42),
+                },
+                JcStmt::Return(Some(JcExpr::Var(String::from("x")))),
+            ],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls).unwrap();
+        assert!(compiled.methods[0].contains(&ISTORE_0));
+        assert!(compiled.methods[0].contains(&ILOAD_0));
     }
 }

@@ -8,7 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::error::CompileError;
-use crate::ir::{Condition, JcClass, JcExpr, JcMethod, JcStmt, LValue};
+use crate::ir::{BinOp, Condition, JcClass, JcExpr, JcMethod, JcStmt, LValue};
 use crate::types::JcType;
 
 /// A type-checked class ready for code generation.
@@ -27,6 +27,8 @@ pub struct CheckedMethod {
     pub local_map: Vec<(String, u8)>,
     /// Field name to byte-offset mapping.
     pub field_map: Vec<(String, u8)>,
+    /// Field name to type mapping.
+    pub field_types: Vec<(String, JcType)>,
     /// Original method data (kept for codegen).
     pub method: JcMethod,
 }
@@ -50,6 +52,14 @@ impl CheckedMethod {
             .find(|(n, _)| n == name)
             .map(|(_, ty)| *ty)
     }
+
+    /// Look up a field's type by name.
+    pub fn field_type(&self, name: &str) -> Option<JcType> {
+        self.field_types
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, ty)| *ty)
+    }
 }
 
 /// Type-check a class, producing a [`CheckedClass`] or a list of errors.
@@ -60,11 +70,17 @@ impl CheckedMethod {
 pub fn check_class(class: &JcClass) -> Result<CheckedClass, Vec<CompileError>> {
     let mut errors = Vec::new();
 
-    // Build field map (shared across all methods).
+    // Build field map and field type map (shared across all methods).
     let field_map: Vec<(String, u8)> = class
         .fields
         .iter()
         .map(|f| (f.name.clone(), f.offset))
+        .collect();
+
+    let field_types: Vec<(String, JcType)> = class
+        .fields
+        .iter()
+        .map(|f| (f.name.clone(), f.ty))
         .collect();
 
     let mut checked_methods = Vec::new();
@@ -83,9 +99,9 @@ pub fn check_class(class: &JcClass) -> Result<CheckedClass, Vec<CompileError>> {
             slot += 1;
         }
 
-        for (name, _ty) in &method.locals {
+        for (name, ty) in &method.locals {
             local_map.push((name.clone(), slot));
-            slot += 1;
+            slot += ty.stack_size();
         }
 
         // Validate the method body.
@@ -109,6 +125,7 @@ pub fn check_class(class: &JcClass) -> Result<CheckedClass, Vec<CompileError>> {
         checked_methods.push(CheckedMethod {
             local_map,
             field_map: field_map.clone(),
+            field_types: field_types.clone(),
             method: method.clone(),
         });
     }
@@ -190,6 +207,25 @@ fn check_stmt(
         JcStmt::Expr(expr) => {
             check_expr(expr, local_map, field_map, locals, class, errors);
         }
+        JcStmt::Switch { key, cases, default } => {
+            check_expr(key, local_map, field_map, locals, class, errors);
+            for (_val, body) in cases {
+                check_stmts(body, local_map, field_map, locals, method, class, errors);
+            }
+            check_stmts(default, local_map, field_map, locals, method, class, errors);
+        }
+        JcStmt::IntSwitch { key, cases, default } => {
+            check_expr(key, local_map, field_map, locals, class, errors);
+            for (_val, body) in cases {
+                check_stmts(body, local_map, field_map, locals, method, class, errors);
+            }
+            check_stmts(default, local_map, field_map, locals, method, class, errors);
+        }
+        JcStmt::Increment { var, .. } => {
+            if !local_map.iter().any(|(n, _)| n == var) {
+                errors.push(format!("undefined variable `{var}` in increment"));
+            }
+        }
     }
 }
 
@@ -230,7 +266,32 @@ fn check_condition(
     errors: &mut Vec<String>,
 ) {
     match cond {
-        Condition::Eq(l, r) | Condition::Ne(l, r) => {
+        // Short comparisons.
+        Condition::Eq(l, r)
+        | Condition::Ne(l, r)
+        | Condition::Lt(l, r)
+        | Condition::Ge(l, r)
+        | Condition::Gt(l, r)
+        | Condition::Le(l, r) => {
+            check_expr(l, local_map, field_map, locals, class, errors);
+            check_expr(r, local_map, field_map, locals, class, errors);
+        }
+        // Null/non-null reference checks (single operand).
+        Condition::Null(e) | Condition::NonNull(e) => {
+            check_expr(e, local_map, field_map, locals, class, errors);
+        }
+        // Int comparisons.
+        Condition::IntEq(l, r)
+        | Condition::IntNe(l, r)
+        | Condition::IntLt(l, r)
+        | Condition::IntGe(l, r)
+        | Condition::IntGt(l, r)
+        | Condition::IntLe(l, r) => {
+            check_expr(l, local_map, field_map, locals, class, errors);
+            check_expr(r, local_map, field_map, locals, class, errors);
+        }
+        // Reference comparisons.
+        Condition::RefEq(l, r) | Condition::RefNe(l, r) => {
             check_expr(l, local_map, field_map, locals, class, errors);
             check_expr(r, local_map, field_map, locals, class, errors);
         }
@@ -247,7 +308,7 @@ fn check_expr(
     errors: &mut Vec<String>,
 ) {
     match expr {
-        JcExpr::Lit(_) => {}
+        JcExpr::Lit(_) | JcExpr::IntLit(_) => {}
         JcExpr::Var(name) => {
             if !local_map.iter().any(|(n, _)| n == name) {
                 errors.push(format!("undefined variable `{name}`"));
@@ -258,28 +319,64 @@ fn check_expr(
                 errors.push(format!("undefined field `{name}`"));
             }
         }
-        JcExpr::BinOp { op: _, left, right } => {
+        JcExpr::BinOp { op, left, right } => {
             check_expr(left, local_map, field_map, locals, class, errors);
             check_expr(right, local_map, field_map, locals, class, errors);
-            // Type checking: both operands should be numeric.
-            // For MVP, we check what we can resolve statically.
+            // For bitwise ops, both operands must be numeric (short).
+            // For arithmetic ops, same requirement.
             if let (Some(lt), Some(rt)) = (
                 expr_type(left, locals, &class.fields),
                 expr_type(right, locals, &class.fields),
             ) {
-                if !lt.is_numeric() {
+                let need_numeric = matches!(
+                    op,
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+                    | BinOp::And | BinOp::Or | BinOp::Xor
+                    | BinOp::Shl | BinOp::Shr | BinOp::Ushr
+                );
+                if need_numeric {
+                    if !lt.is_numeric() {
+                        errors.push(format!(
+                            "left operand of arithmetic op has non-numeric type {lt:?}"
+                        ));
+                    }
+                    if !rt.is_numeric() {
+                        errors.push(format!(
+                            "right operand of arithmetic op has non-numeric type {rt:?}"
+                        ));
+                    }
+                }
+            }
+        }
+        JcExpr::IntBinOp { op, left, right } => {
+            check_expr(left, local_map, field_map, locals, class, errors);
+            check_expr(right, local_map, field_map, locals, class, errors);
+            // Left operand must be int; for shift ops the right operand
+            // (shift amount) is a short per JCVM spec.
+            let is_shift = matches!(op, BinOp::Shl | BinOp::Shr | BinOp::Ushr);
+            if let Some(lt) = expr_type(left, locals, &class.fields) {
+                if !lt.is_int() {
                     errors.push(format!(
-                        "left operand of arithmetic op has non-numeric type {lt:?}"
+                        "left operand of int arithmetic op has non-int type {lt:?}"
                     ));
                 }
-                if !rt.is_numeric() {
+            }
+            if let Some(rt) = expr_type(right, locals, &class.fields) {
+                if is_shift {
+                    // Shift amount must be numeric (short/byte).
+                    if !rt.is_numeric() && !rt.is_int() {
+                        errors.push(format!(
+                            "right operand of int shift op has non-numeric type {rt:?}"
+                        ));
+                    }
+                } else if !rt.is_int() {
                     errors.push(format!(
-                        "right operand of arithmetic op has non-numeric type {rt:?}"
+                        "right operand of int arithmetic op has non-int type {rt:?}"
                     ));
                 }
             }
         }
-        JcExpr::Neg(inner) => {
+        JcExpr::Neg(inner) | JcExpr::IntNeg(inner) => {
             check_expr(inner, local_map, field_map, locals, class, errors);
         }
         JcExpr::ArrayLoad { array, index } => {
@@ -296,11 +393,37 @@ fn check_expr(
                 check_expr(arg, local_map, field_map, locals, class, errors);
             }
         }
-        JcExpr::NewByteArray(len) | JcExpr::NewShortArray(len) => {
+        JcExpr::NewByteArray(len)
+        | JcExpr::NewShortArray(len)
+        | JcExpr::NewIntArray(len) => {
             check_expr(len, local_map, field_map, locals, class, errors);
+        }
+        JcExpr::NewRefArray { length, .. } => {
+            check_expr(length, local_map, field_map, locals, class, errors);
         }
         JcExpr::ArrayLength(arr) => {
             check_expr(arr, local_map, field_map, locals, class, errors);
+        }
+        JcExpr::Cast { from, to, expr } => {
+            check_expr(expr, local_map, field_map, locals, class, errors);
+            // Validate conversion pair.
+            let valid = matches!(
+                (from, to),
+                (JcType::Short, JcType::Byte)
+                | (JcType::Short, JcType::Int)
+                | (JcType::Int, JcType::Short)
+                | (JcType::Int, JcType::Byte)
+            );
+            if !valid {
+                errors.push(format!("invalid cast from {from:?} to {to:?}"));
+            }
+        }
+        JcExpr::InstanceOf { expr, .. } => {
+            check_expr(expr, local_map, field_map, locals, class, errors);
+        }
+        JcExpr::IntCompare(left, right) => {
+            check_expr(left, local_map, field_map, locals, class, errors);
+            check_expr(right, local_map, field_map, locals, class, errors);
         }
     }
 }
@@ -317,15 +440,25 @@ fn expr_type(
         JcExpr::ArrayLoad { array, .. } => match expr_type(array, locals, fields)? {
             JcType::ByteArray => Some(JcType::Byte),
             JcType::ShortArray => Some(JcType::Short),
+            JcType::IntArray => Some(JcType::Int),
+            JcType::RefArray => Some(JcType::Instance),
             _ => None,
         },
         JcExpr::Call { .. } => None, // Cannot resolve without callee info.
         JcExpr::NewByteArray(_) => Some(JcType::ByteArray),
         JcExpr::NewShortArray(_) => Some(JcType::ShortArray),
+        JcExpr::NewIntArray(_) => Some(JcType::IntArray),
+        JcExpr::NewRefArray { .. } => Some(JcType::RefArray),
+        JcExpr::IntLit(_)
+        | JcExpr::IntBinOp { .. }
+        | JcExpr::IntNeg(_) => Some(JcType::Int),
         JcExpr::Lit(_)
         | JcExpr::BinOp { .. }
         | JcExpr::Neg(_)
-        | JcExpr::ArrayLength(_) => Some(JcType::Short),
+        | JcExpr::ArrayLength(_)
+        | JcExpr::InstanceOf { .. }
+        | JcExpr::IntCompare(_, _) => Some(JcType::Short),
+        JcExpr::Cast { to, .. } => Some(*to),
     }
 }
 
