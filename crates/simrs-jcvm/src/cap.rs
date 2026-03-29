@@ -274,8 +274,10 @@ pub fn parse_cap(data: &[u8]) -> Result<Package, ParseError> {
                 pos += 8;
 
                 // Validate exception handler bounds per JCVM spec.
-                if handler_pc >= bytecode_len || start_pc >= bytecode_len
-                    || end_pc > bytecode_len || start_pc >= end_pc
+                if handler_pc >= bytecode_len
+                    || start_pc >= bytecode_len
+                    || end_pc > bytecode_len
+                    || start_pc >= end_pc
                 {
                     return Err(ParseError::InvalidExceptionHandler);
                 }
@@ -382,9 +384,10 @@ impl Package {
     /// Layout per method: present(1) + flags(1) + max_stack(1) + nargs(1) +
     ///   max_locals(1) + bytecode_len(2) + bytecode(256) +
     ///   exc_count(1) + exceptions(8*8) + offsets(4)
-    pub const MAX_SNAPSHOT_SIZE: usize =
-        1 + MAX_AID_LEN + 1
-            + MAX_METHODS * (1 + 1 + 1 + 1 + 1 + 2 + MAX_BYTECODE + 1 + MAX_EXCEPTIONS * 8 + 4);
+    pub const MAX_SNAPSHOT_SIZE: usize = 1
+        + MAX_AID_LEN
+        + 1
+        + MAX_METHODS * (1 + 1 + 1 + 1 + 1 + 2 + MAX_BYTECODE + 1 + MAX_EXCEPTIONS * 8 + 4);
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
@@ -430,11 +433,7 @@ impl Package {
                     buf[off..off + bc_len].copy_from_slice(&m.bytecode[..bc_len]);
                     off += bc_len;
                     // Exception table.
-                    let exc_count = m
-                        .exception_table
-                        .iter()
-                        .filter(|e| e.is_some())
-                        .count();
+                    let exc_count = m.exception_table.iter().filter(|e| e.is_some()).count();
                     buf[off] = exc_count as u8;
                     off += 1;
                     for exc in m.exception_table.iter().flatten() {
@@ -511,7 +510,10 @@ impl Package {
                 if off < buf.len() {
                     let exc_count = buf[off] as usize;
                     off += 1;
-                    for exc_slot in exception_table.iter_mut().take(exc_count.min(MAX_EXCEPTIONS)) {
+                    for exc_slot in exception_table
+                        .iter_mut()
+                        .take(exc_count.min(MAX_EXCEPTIONS))
+                    {
                         if off + 8 > buf.len() {
                             return false;
                         }

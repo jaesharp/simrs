@@ -205,12 +205,7 @@ impl<const HEAP_SIZE: usize> ObjectHeap<HEAP_SIZE> {
     /// # Errors
     ///
     /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or out-of-bounds.
-    pub fn baload(
-        &self,
-        obj: ObjRef,
-        index: u16,
-        current_context: u8,
-    ) -> Result<u8, AccessError> {
+    pub fn baload(&self, obj: ObjRef, index: u16, current_context: u8) -> Result<u8, AccessError> {
         let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
         firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
         match self.kind_of(obj) {
@@ -257,12 +252,7 @@ impl<const HEAP_SIZE: usize> ObjectHeap<HEAP_SIZE> {
     /// # Errors
     ///
     /// Returns [`AccessError`] for null ref, cross-context, type mismatch, or out-of-bounds.
-    pub fn saload(
-        &self,
-        obj: ObjRef,
-        index: u16,
-        current_context: u8,
-    ) -> Result<i16, AccessError> {
+    pub fn saload(&self, obj: ObjRef, index: u16, current_context: u8) -> Result<i16, AccessError> {
         let owner = self.owner_of(obj).ok_or(AccessError::NullRef)?;
         firewall::check_access(current_context, owner).map_err(AccessError::Security)?;
         match self.kind_of(obj) {

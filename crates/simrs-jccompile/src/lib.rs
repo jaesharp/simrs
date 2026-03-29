@@ -31,6 +31,7 @@ pub mod check;
 pub mod codegen;
 pub mod error;
 pub mod ir;
+pub mod sourcemap;
 pub mod types;
 
 // Re-export primary types for convenience.
@@ -38,4 +39,5 @@ pub use check::{check_class, CheckedClass, CheckedMethod};
 pub use codegen::{compile_class, CompiledClass};
 pub use error::CompileError;
 pub use ir::{BinOp, Condition, JcClass, JcExpr, JcField, JcMethod, JcStmt, LValue};
+pub use sourcemap::SourceMap;
 pub use types::JcType;

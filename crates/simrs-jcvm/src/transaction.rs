@@ -79,11 +79,7 @@ impl<const CAP: usize> TransactionJournal<CAP> {
     ///
     /// Returns [`TransactionError::BufferFull`] if the journal is full.
     /// Returns [`TransactionError::NotActive`] if no transaction is active.
-    pub fn record_write(
-        &mut self,
-        heap_offset: u16,
-        old_byte: u8,
-    ) -> Result<(), TransactionError> {
+    pub fn record_write(&mut self, heap_offset: u16, old_byte: u8) -> Result<(), TransactionError> {
         if !self.active {
             return Err(TransactionError::NotActive);
         }
@@ -264,7 +260,10 @@ mod tests {
         journal.begin().unwrap();
         assert!(journal.record_write(10, 0).is_ok());
         assert!(journal.record_write(11, 0).is_ok());
-        assert_eq!(journal.record_write(12, 0), Err(TransactionError::BufferFull));
+        assert_eq!(
+            journal.record_write(12, 0),
+            Err(TransactionError::BufferFull)
+        );
     }
 
     #[test]

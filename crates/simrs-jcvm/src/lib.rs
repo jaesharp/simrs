@@ -35,6 +35,7 @@ pub mod cap;
 pub mod firewall;
 pub mod frame;
 pub mod heap;
+pub mod native;
 pub mod opcodes;
 pub mod transaction;
 
@@ -1362,11 +1363,48 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     }
                 }
 
-                // --- Virtual dispatch (stub: treated like invokestatic for now) ---
+                // --- Virtual dispatch ---
+                // First check if this is a native framework method call.
+                // The 2-byte operand encodes (class_id, method_id) for native
+                // methods. If dispatch_native returns NotNative, fall through
+                // to normal bytecode dispatch.
                 opcodes::INVOKEVIRTUAL => {
-                    let result = self.exec_invokestatic(bytecode, bytecode_len);
-                    if let Some(err) = result {
-                        return err;
+                    let saved_pc = self.pc;
+                    let Some(byte1) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(byte2) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let native_result =
+                        native::dispatch_native(byte1, byte2, self);
+                    match native_result {
+                        native::NativeResult::Void => {}
+                        native::NativeResult::Short(v) => {
+                            if let Err(e) = self.push(v.cast_unsigned()) {
+                                return e;
+                            }
+                        }
+                        native::NativeResult::Int(v) => {
+                            if let Err(e) = self.push_int(v) {
+                                return e;
+                            }
+                        }
+                        native::NativeResult::Ref(r) => {
+                            if let Err(e) = self.push(r) {
+                                return e;
+                            }
+                        }
+                        native::NativeResult::Exception(e) => return e,
+                        native::NativeResult::NotNative => {
+                            // Rewind PC and fall through to normal dispatch.
+                            self.pc = saved_pc;
+                            let result =
+                                self.exec_invokestatic(bytecode, bytecode_len);
+                            if let Some(err) = result {
+                                return err;
+                            }
+                        }
                     }
                 }
 
@@ -2059,12 +2097,44 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                 }
 
                 // --- Invoke: invokeinterface ---
-                // Consumes 4 bytes: nargs, method_idx_hi, method_idx_lo, 0
-                // Stub: treat as invokestatic (resolve by pkg+method index).
+                // Consumes 2 bytes: pkg/class_id, method_id.
+                // Check native dispatch first, then fall through.
                 opcodes::INVOKEINTERFACE => {
-                    let result = self.exec_invokestatic(bytecode, bytecode_len);
-                    if let Some(err) = result {
-                        return err;
+                    let saved_pc = self.pc;
+                    let Some(byte1) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let Some(byte2) = self.fetch_u8(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let native_result =
+                        native::dispatch_native(byte1, byte2, self);
+                    match native_result {
+                        native::NativeResult::Void => {}
+                        native::NativeResult::Short(v) => {
+                            if let Err(e) = self.push(v.cast_unsigned()) {
+                                return e;
+                            }
+                        }
+                        native::NativeResult::Int(v) => {
+                            if let Err(e) = self.push_int(v) {
+                                return e;
+                            }
+                        }
+                        native::NativeResult::Ref(r) => {
+                            if let Err(e) = self.push(r) {
+                                return e;
+                            }
+                        }
+                        native::NativeResult::Exception(e) => return e,
+                        native::NativeResult::NotNative => {
+                            self.pc = saved_pc;
+                            let result =
+                                self.exec_invokestatic(bytecode, bytecode_len);
+                            if let Some(err) = result {
+                                return err;
+                            }
+                        }
                     }
                 }
 
@@ -2371,7 +2441,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     }
 
     /// Pop a 16-bit value from the operand stack.
-    const fn pop(&mut self) -> Result<u16, ExecResult> {
+    pub(crate) const fn pop(&mut self) -> Result<u16, ExecResult> {
         if self.stack_ptr == 0 {
             return Err(ExecResult::StackUnderflow);
         }
@@ -2645,6 +2715,162 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     /// Access the heap mutably.
     pub const fn heap_mut(&mut self) -> &mut ObjectHeap<HEAP_SIZE> {
         &mut self.heap
+    }
+
+    // -----------------------------------------------------------------------
+    // Public stack/heap accessors for native method dispatch
+    // -----------------------------------------------------------------------
+
+    /// Push a 16-bit value onto the operand stack (public, for native dispatch).
+    pub fn push_pub(&mut self, val: u16) -> Result<(), ExecResult> {
+        self.push(val)
+    }
+
+    /// Pop a 16-bit value and interpret as i16 (public, for native dispatch).
+    pub fn pop_i16_pub(&mut self) -> Result<i16, ExecResult> {
+        self.pop_i16()
+    }
+
+    /// Allocate a 256-byte APDU buffer on the heap.
+    pub fn alloc_apdu_buffer(&mut self) -> Option<ObjRef> {
+        self.heap.alloc_byte_array(self.current_context, 256)
+    }
+
+    /// Allocate a byte array on the heap with the given length.
+    pub fn alloc_byte_array(&mut self, length: u16) -> Option<ObjRef> {
+        self.heap.alloc_byte_array(self.current_context, length)
+    }
+
+    /// Allocate a short array on the heap with the given length.
+    pub fn alloc_short_array(&mut self, length: u16) -> Option<ObjRef> {
+        self.heap.alloc_short_array(self.current_context, length)
+    }
+
+    /// Write a byte to a byte array (convenience for native methods / tests).
+    pub fn heap_bastore(&mut self, obj: ObjRef, index: u16, value: u8) {
+        let _ = self.heap.bastore(obj, index, value, self.current_context);
+    }
+
+    /// Read a byte from a byte array (convenience for native methods / tests).
+    pub fn heap_baload(&self, obj: ObjRef, index: u16) -> Option<u8> {
+        self.heap.baload(obj, index, self.current_context).ok()
+    }
+
+    /// `Util.arrayCopy` implementation: copy bytes between byte arrays on the heap.
+    ///
+    /// Returns `destOff + length` on success.
+    pub fn native_array_copy(
+        &mut self,
+        src: ObjRef,
+        src_off: i16,
+        dest: ObjRef,
+        dest_off: i16,
+        length: i16,
+    ) -> Result<i16, ExecResult> {
+        if length < 0 || src_off < 0 || dest_off < 0 {
+            return Err(ExecResult::ArrayIndexOutOfBounds);
+        }
+        if length == 0 {
+            return Ok(dest_off);
+        }
+        // Read all bytes from src first (to handle overlapping same-array copies).
+        let mut buf = [0u8; 256];
+        let len = length as usize;
+        if len > buf.len() {
+            return Err(ExecResult::ArrayIndexOutOfBounds);
+        }
+        for i in 0..len {
+            let idx = (src_off as usize + i) as u16;
+            match self.heap.baload(src, idx, self.current_context) {
+                Ok(v) => buf[i] = v,
+                Err(_) => return Err(ExecResult::ArrayIndexOutOfBounds),
+            }
+        }
+        // Write to dest.
+        for i in 0..len {
+            let idx = (dest_off as usize + i) as u16;
+            if self
+                .heap
+                .bastore(dest, idx, buf[i], self.current_context)
+                .is_err()
+            {
+                return Err(ExecResult::ArrayIndexOutOfBounds);
+            }
+        }
+        Ok(dest_off.wrapping_add(length))
+    }
+
+    /// `Util.arrayCompare` implementation: compare bytes lexicographically.
+    ///
+    /// Returns -1, 0, or 1.
+    pub fn native_array_compare(
+        &self,
+        src: ObjRef,
+        src_off: i16,
+        dest: ObjRef,
+        dest_off: i16,
+        length: i16,
+    ) -> Result<i8, ExecResult> {
+        if length < 0 || src_off < 0 || dest_off < 0 {
+            return Err(ExecResult::ArrayIndexOutOfBounds);
+        }
+        for i in 0..length as usize {
+            let s_idx = (src_off as usize + i) as u16;
+            let d_idx = (dest_off as usize + i) as u16;
+            let s_val = self
+                .heap
+                .baload(src, s_idx, self.current_context)
+                .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
+            let d_val = self
+                .heap
+                .baload(dest, d_idx, self.current_context)
+                .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
+            if s_val < d_val {
+                return Ok(-1);
+            }
+            if s_val > d_val {
+                return Ok(1);
+            }
+        }
+        Ok(0)
+    }
+
+    /// `Util.getShort` implementation: read a big-endian short from a byte array.
+    pub fn native_get_short(&self, arr: ObjRef, offset: i16) -> Result<i16, ExecResult> {
+        if offset < 0 {
+            return Err(ExecResult::ArrayIndexOutOfBounds);
+        }
+        let hi = self
+            .heap
+            .baload(arr, offset as u16, self.current_context)
+            .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
+        let lo = self
+            .heap
+            .baload(arr, offset as u16 + 1, self.current_context)
+            .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
+        Ok(i16::from_be_bytes([hi, lo]))
+    }
+
+    /// `Util.setShort` implementation: write a big-endian short to a byte array.
+    ///
+    /// Returns `bOff + 2`.
+    pub fn native_set_short(
+        &mut self,
+        arr: ObjRef,
+        offset: i16,
+        value: i16,
+    ) -> Result<i16, ExecResult> {
+        if offset < 0 {
+            return Err(ExecResult::ArrayIndexOutOfBounds);
+        }
+        let bytes = value.to_be_bytes();
+        self.heap
+            .bastore(arr, offset as u16, bytes[0], self.current_context)
+            .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
+        self.heap
+            .bastore(arr, offset as u16 + 1, bytes[1], self.current_context)
+            .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
+        Ok(offset.wrapping_add(2))
     }
 }
 
