@@ -244,6 +244,102 @@ pub struct CompiledClass {
     pub methods: Vec<Vec<u8>>,
 }
 
+// =========================================================================
+// Bytecode metadata for safe peephole optimization
+// =========================================================================
+
+/// Metadata emitted alongside bytecodes for safe peephole optimization.
+///
+/// The peephole optimizer needs to know about branch targets and basic block
+/// boundaries so it can avoid corrupting control flow when replacing or
+/// removing instructions.
+#[derive(Debug, Clone)]
+pub struct BytecodeMetadata {
+    /// PCs that are branch targets (must maintain instruction alignment).
+    pub branch_targets: Vec<u16>,
+    /// Basic blocks: (start_pc, end_pc) ranges where end_pc is exclusive.
+    pub basic_blocks: Vec<(u16, u16)>,
+    /// Branch instructions with offset info for repatching.
+    pub branches: Vec<BranchInfo>,
+}
+
+/// Information about a single branch instruction in the bytecode stream.
+#[derive(Debug, Clone)]
+pub struct BranchInfo {
+    /// PC of the branch opcode.
+    pub opcode_pc: u16,
+    /// PC of the offset byte(s) within the instruction.
+    pub offset_pc: u16,
+    /// Whether this is a wide (2-byte) offset.
+    pub wide: bool,
+    /// Target PC (resolved).
+    pub target_pc: u16,
+}
+
+/// Compute basic block boundaries from branch targets and branch instructions.
+///
+/// A basic block starts:
+///   - at PC 0 (method entry)
+///   - at every branch target
+///   - at the instruction after every branch instruction
+///
+/// A basic block ends:
+///   - just before the next basic block start
+///   - at the end of the bytecode stream
+pub fn compute_basic_blocks(
+    branch_targets: &[u16],
+    branches: &[BranchInfo],
+    code_len: usize,
+) -> Vec<(u16, u16)> {
+    if code_len == 0 {
+        return Vec::new();
+    }
+
+    // Collect all block-start PCs.
+    let mut starts = Vec::new();
+    starts.push(0u16);
+
+    // Every branch target starts a new block.
+    for &target in branch_targets {
+        starts.push(target);
+    }
+
+    // The instruction after each branch starts a new block.
+    for branch in branches {
+        let after_branch = if branch.wide {
+            // opcode + 2-byte offset = 3 bytes
+            branch.opcode_pc + 3
+        } else {
+            // opcode + 1-byte offset = 2 bytes
+            branch.opcode_pc + 2
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        let code_len_u16 = code_len as u16;
+        if after_branch < code_len_u16 {
+            starts.push(after_branch);
+        }
+    }
+
+    starts.sort();
+    starts.dedup();
+
+    // Build (start, end) pairs.
+    let mut blocks = Vec::new();
+    for i in 0..starts.len() {
+        let start = starts[i];
+        #[allow(clippy::cast_possible_truncation)]
+        let end = if i + 1 < starts.len() {
+            starts[i + 1]
+        } else {
+            code_len as u16
+        };
+        if start < end {
+            blocks.push((start, end));
+        }
+    }
+    blocks
+}
+
 /// Compile a class from IR to bytecode.
 ///
 /// 1. Runs IR optimization passes (constant folding, DCE, strength reduction).
@@ -264,7 +360,8 @@ pub fn compile_class(class: &JcClass) -> Result<CompiledClass, Vec<CompileError>
 
     for cm in &checked.methods {
         match compile_method(cm) {
-            Ok(bytecode) => {
+            Ok((mut bytecode, mut metadata)) => {
+                crate::optimize::peephole_optimize(&mut bytecode, &mut metadata);
                 methods.push(bytecode);
             }
             Err(e) => errors.push(CompileError {
@@ -435,14 +532,48 @@ impl MethodCodegen {
         }
         Ok(())
     }
+
+    /// Extract bytecode metadata after `resolve()` has been called.
+    ///
+    /// This captures branch targets, branch instruction info, and basic block
+    /// boundaries that the peephole optimizer needs for safe code patching.
+    fn metadata(&self) -> BytecodeMetadata {
+        let mut branch_targets = Vec::new();
+        let mut branches = Vec::new();
+
+        for fref in &self.forward_refs {
+            let target = self.label_positions[fref.label].unwrap();
+            #[allow(clippy::cast_possible_truncation)]
+            let target_u16 = target as u16;
+            branch_targets.push(target_u16);
+            #[allow(clippy::cast_possible_truncation)]
+            branches.push(BranchInfo {
+                opcode_pc: fref.opcode_pos as u16,
+                offset_pc: fref.patch_pos as u16,
+                wide: fref.wide,
+                target_pc: target_u16,
+            });
+        }
+
+        branch_targets.sort();
+        branch_targets.dedup();
+
+        let basic_blocks = compute_basic_blocks(&branch_targets, &branches, self.code.len());
+
+        BytecodeMetadata {
+            branch_targets,
+            basic_blocks,
+            branches,
+        }
+    }
 }
 
 // =========================================================================
 // Method compilation
 // =========================================================================
 
-/// Compile a single method to bytecodes.
-fn compile_method(cm: &CheckedMethod) -> Result<Vec<u8>, String> {
+/// Compile a single method to bytecodes and emit metadata for the optimizer.
+fn compile_method(cm: &CheckedMethod) -> Result<(Vec<u8>, BytecodeMetadata), String> {
     let mut cg = MethodCodegen::new();
 
     for stmt in &cm.method.body {
@@ -450,7 +581,8 @@ fn compile_method(cm: &CheckedMethod) -> Result<Vec<u8>, String> {
     }
 
     cg.resolve()?;
-    Ok(cg.code)
+    let metadata = cg.metadata();
+    Ok((cg.code, metadata))
 }
 
 // =========================================================================

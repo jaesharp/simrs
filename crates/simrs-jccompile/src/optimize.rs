@@ -667,15 +667,20 @@ fn eval_condition(cond: &Condition) -> Option<bool> {
 // Layer 2: Peephole Bytecode Optimization
 // =========================================================================
 
-/// Run peephole optimization on a bytecode buffer until no more changes
-/// are possible (fixed-point iteration).
+use crate::codegen::BytecodeMetadata;
+
+/// Run peephole optimization on a bytecode buffer with branch metadata,
+/// iterating to a fixed point.
+///
+/// The metadata is updated in place as instructions are removed or replaced,
+/// keeping branch offsets valid throughout the process.
 ///
 /// Returns the total number of changes made.
-pub fn peephole_optimize(bytecodes: &mut Vec<u8>) -> usize {
+pub fn peephole_optimize(bytecodes: &mut Vec<u8>, metadata: &mut BytecodeMetadata) -> usize {
     const MAX_PASSES: usize = 64;
     let mut total_changes = 0;
     for _ in 0..MAX_PASSES {
-        let changes = peephole_pass(bytecodes);
+        let changes = peephole_pass(bytecodes, metadata);
         if changes == 0 {
             break;
         }
@@ -684,18 +689,127 @@ pub fn peephole_optimize(bytecodes: &mut Vec<u8>) -> usize {
     total_changes
 }
 
+/// Check whether the byte range `[pos, pos+len)` is entirely within a
+/// single basic block.
+fn is_within_basic_block(pos: usize, len: usize, basic_blocks: &[(u16, u16)]) -> bool {
+    #[allow(clippy::cast_possible_truncation)]
+    let start = pos as u16;
+    #[allow(clippy::cast_possible_truncation)]
+    let end = (pos + len) as u16;
+    for &(bb_start, bb_end) in basic_blocks {
+        if start >= bb_start && end <= bb_end {
+            return true;
+        }
+    }
+    false
+}
+
+/// Adjust branch offsets and metadata after bytes have been removed.
+///
+/// When `delta` bytes are removed at position `removed_at` (covering
+/// `removed_len` original bytes), all PCs beyond that point shift
+/// backward. Branch offset bytes in the bytecode stream are repatched
+/// to reflect the new positions.
+///
+/// Branches whose opcodes fall inside the removed range are dropped
+/// from the metadata (they no longer exist in the bytecode stream).
+fn adjust_branch_offsets(
+    bytecodes: &mut [u8],
+    metadata: &mut BytecodeMetadata,
+    removed_at: usize,
+    removed_len: usize,
+    delta: i32,
+) {
+    let removed_end = removed_at + removed_len;
+
+    // Update branch_targets.
+    for target in &mut metadata.branch_targets {
+        if *target as usize > removed_at {
+            *target = (*target as i32 + delta) as u16;
+        }
+    }
+
+    // Remove branches whose opcodes were inside the deleted range,
+    // then update and repatch the survivors.
+    metadata.branches.retain(|b| {
+        let pc = b.opcode_pc as usize;
+        pc < removed_at || pc >= removed_end
+    });
+
+    for branch in &mut metadata.branches {
+        // Adjust the branch instruction's own positions.
+        if branch.opcode_pc as usize >= removed_at {
+            branch.opcode_pc = (branch.opcode_pc as i32 + delta) as u16;
+            branch.offset_pc = (branch.offset_pc as i32 + delta) as u16;
+        }
+        // Adjust the target position.
+        if branch.target_pc as usize > removed_at {
+            branch.target_pc = (branch.target_pc as i32 + delta) as u16;
+        }
+
+        // Recalculate and repatch the offset in the bytecode stream.
+        let new_offset = branch.target_pc as i32 - branch.opcode_pc as i32;
+        if branch.wide {
+            #[allow(clippy::cast_possible_truncation)]
+            let offset_i16 = new_offset as i16;
+            let bytes = offset_i16.to_be_bytes();
+            bytecodes[branch.offset_pc as usize] = bytes[0];
+            bytecodes[branch.offset_pc as usize + 1] = bytes[1];
+        } else {
+            #[allow(clippy::cast_possible_truncation)]
+            let offset_i8 = new_offset as i8;
+            bytecodes[branch.offset_pc as usize] = offset_i8 as u8;
+        }
+    }
+
+    // Update basic block boundaries.
+    for (start, end) in &mut metadata.basic_blocks {
+        if *start as usize > removed_at {
+            *start = (*start as i32 + delta) as u16;
+        }
+        if *end as usize > removed_at {
+            *end = (*end as i32 + delta) as u16;
+        }
+    }
+}
+
 /// A single peephole pass over the bytecode buffer.
 /// Returns the number of replacements made.
-fn peephole_pass(bytecodes: &mut Vec<u8>) -> usize {
+fn peephole_pass(bytecodes: &mut Vec<u8>, metadata: &mut BytecodeMetadata) -> usize {
     let mut changes = 0;
     let mut i = 0;
     while i + 1 < bytecodes.len() {
+        // Skip if we are at a branch target -- we must not change
+        // instruction alignment at a position other code jumps to.
+        #[allow(clippy::cast_possible_truncation)]
+        if metadata.branch_targets.contains(&(i as u16)) {
+            i += 1;
+            continue;
+        }
+
         if let Some((old_len, new_bytes)) = match_pattern(&bytecodes[i..]) {
-            let end = i + old_len;
-            // Replace old_len bytes with new_bytes.
-            bytecodes.splice(i..end, new_bytes.iter().copied());
-            changes += 1;
-            // Don't advance -- the replacement might create new opportunities.
+            let size_delta = new_bytes.len() as i32 - old_len as i32;
+
+            // Only apply same-size or shrinking replacements that stay
+            // within a single basic block.
+            if size_delta <= 0 && is_within_basic_block(i, old_len, &metadata.basic_blocks) {
+                let end = i + old_len;
+                bytecodes.splice(i..end, new_bytes.iter().copied());
+
+                if size_delta < 0 {
+                    // Instructions were removed: adjust all branch offsets.
+                    // old_len is the number of original bytes that were
+                    // replaced; branches with opcodes in that region are
+                    // dropped from metadata since they no longer exist.
+                    adjust_branch_offsets(bytecodes, metadata, i, old_len, size_delta);
+                }
+
+                changes += 1;
+                // Don't advance -- the replacement might create new
+                // opportunities.
+            } else {
+                i += 1;
+            }
         } else {
             i += 1;
         }
@@ -1409,11 +1523,27 @@ mod tests {
     // Peephole optimization tests
     // =====================================================================
 
+    /// Build a trivial metadata for straight-line bytecodes (no branches).
+    fn empty_metadata(code_len: usize) -> BytecodeMetadata {
+        #[allow(clippy::cast_possible_truncation)]
+        let basic_blocks = if code_len > 0 {
+            vec![(0, code_len as u16)]
+        } else {
+            vec![]
+        };
+        BytecodeMetadata {
+            branch_targets: vec![],
+            basic_blocks,
+            branches: vec![],
+        }
+    }
+
     #[test]
     fn peephole_store_load_to_dup() {
         // sstore_0; sload_0 -> dup; sstore_0
         let mut bc = vec![SSTORE_0, SLOAD_0];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert_eq!(bc, vec![DUP, SSTORE_0]);
     }
@@ -1421,7 +1551,8 @@ mod tests {
     #[test]
     fn peephole_store_load_slot1() {
         let mut bc = vec![SSTORE_0 + 1, SLOAD_0 + 1];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert_eq!(bc, vec![DUP, SSTORE_0 + 1]);
     }
@@ -1429,7 +1560,8 @@ mod tests {
     #[test]
     fn peephole_store_load_slot2() {
         let mut bc = vec![SSTORE_0 + 2, SLOAD_0 + 2];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert_eq!(bc, vec![DUP, SSTORE_0 + 2]);
     }
@@ -1437,7 +1569,8 @@ mod tests {
     #[test]
     fn peephole_store_load_slot3() {
         let mut bc = vec![SSTORE_3, 0x1F]; // SLOAD_3 = 0x1F
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert_eq!(bc, vec![DUP, SSTORE_3]);
     }
@@ -1445,7 +1578,8 @@ mod tests {
     #[test]
     fn peephole_double_neg_removed() {
         let mut bc = vec![SNEG, SNEG];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert!(bc.is_empty(), "expected empty, got {bc:?}");
     }
@@ -1453,7 +1587,8 @@ mod tests {
     #[test]
     fn peephole_double_ineg_removed() {
         let mut bc = vec![INEG, INEG];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert!(bc.is_empty());
     }
@@ -1462,7 +1597,8 @@ mod tests {
     fn peephole_push_pop_removed() {
         // sconst_0; pop -> removed
         let mut bc = vec![SCONST_0, POP];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert!(bc.is_empty());
     }
@@ -1470,7 +1606,8 @@ mod tests {
     #[test]
     fn peephole_sconst_5_pop_removed() {
         let mut bc = vec![SCONST_5, POP];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert!(bc.is_empty());
     }
@@ -1479,7 +1616,8 @@ mod tests {
     fn peephole_bspush_pop_removed() {
         // bspush + imm + pop -> removed
         let mut bc = vec![BSPUSH, 42, POP];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert!(bc.is_empty());
     }
@@ -1488,7 +1626,8 @@ mod tests {
     fn peephole_sspush_pop_removed() {
         // sspush + hi + lo + pop -> removed
         let mut bc = vec![SSPUSH, 0x01, 0x00, POP];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert!(bc.is_empty());
     }
@@ -1496,8 +1635,23 @@ mod tests {
     #[test]
     fn peephole_goto_next_removed() {
         // goto +2 (noop jump) -> removed
+        // Note: goto is a branch instruction; to test this properly we need
+        // metadata that models it. The goto is at PC 0 with offset 0x02,
+        // meaning it targets PC 2 (the instruction immediately after).
+        // The noop-goto pattern is safe to remove even with metadata because
+        // it targets the next instruction.
         let mut bc = vec![GOTO, 0x02];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = BytecodeMetadata {
+            branch_targets: vec![2],
+            basic_blocks: vec![(0, 2)],
+            branches: vec![crate::codegen::BranchInfo {
+                opcode_pc: 0,
+                offset_pc: 1,
+                wide: false,
+                target_pc: 2,
+            }],
+        };
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert!(bc.is_empty());
     }
@@ -1506,7 +1660,8 @@ mod tests {
     fn peephole_sconst0_sadd_removed() {
         // sconst_0 + sadd = add zero = identity
         let mut bc = vec![SCONST_0, SADD];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert!(bc.is_empty());
     }
@@ -1515,7 +1670,8 @@ mod tests {
     fn peephole_consecutive_stores_same_slot() {
         // sstore_0; sstore_0 -> pop; sstore_0
         let mut bc = vec![SSTORE_0, SSTORE_0];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes > 0);
         assert_eq!(bc, vec![POP, SSTORE_0]);
     }
@@ -1527,7 +1683,8 @@ mod tests {
         // Pass 1: sneg+sneg -> removed, leaving [sconst_0, pop]
         // Pass 2: sconst_0+pop -> removed, leaving []
         let mut bc = vec![SNEG, SNEG, SCONST_0, POP];
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert!(changes >= 2, "expected at least 2 changes, got {changes}");
         assert!(bc.is_empty(), "expected empty bytecodes after fixed-point, got {bc:?}");
     }
@@ -1537,7 +1694,8 @@ mod tests {
         // Normal code that should not be modified.
         let mut bc = vec![SCONST_0, SSTORE_0, SLOAD_0, 0x78]; // sreturn
         let original = bc.clone();
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         // sstore_0 followed by sload_0 SHOULD be optimized to dup + sstore_0
         // So this actually does get modified.
         assert!(changes > 0);
@@ -1549,9 +1707,222 @@ mod tests {
         // Code with no peephole opportunities.
         let mut bc = vec![0x10, 42, 0x78]; // bspush 42, sreturn
         let original = bc.clone();
-        let changes = peephole_optimize(&mut bc);
+        let mut meta = empty_metadata(bc.len());
+        let changes = peephole_optimize(&mut bc, &mut meta);
         assert_eq!(changes, 0);
         assert_eq!(bc, original);
+    }
+
+    // =====================================================================
+    // Branch-aware peephole tests
+    // =====================================================================
+
+    #[test]
+    fn peephole_skips_branch_targets() {
+        // sneg at a branch target should NOT be optimized even though
+        // sneg+sneg would normally be removed.
+        //
+        // Layout: sneg(PC0), sneg(PC1) where PC1 is a branch target.
+        let mut bc = vec![SNEG, SNEG];
+        let mut meta = BytecodeMetadata {
+            branch_targets: vec![1], // PC 1 is a branch target
+            basic_blocks: vec![(0, 1), (1, 2)], // Two blocks
+            branches: vec![],
+        };
+        let changes = peephole_optimize(&mut bc, &mut meta);
+        // The pattern spans two basic blocks, so it should not be applied.
+        assert_eq!(changes, 0, "should not optimize across basic block boundary");
+        assert_eq!(bc, vec![SNEG, SNEG]);
+    }
+
+    #[test]
+    fn peephole_preserves_branch_offsets_after_removal() {
+        // Build bytecodes with a known branch:
+        //   PC 0: sneg
+        //   PC 1: sneg       (these two form a removable pattern)
+        //   PC 2: goto       (offset = +3 -> targets PC 5)
+        //   PC 3: (offset byte = 3)
+        //   PC 4: sreturn
+        //   PC 5: sreturn    (branch target)
+        //
+        // After removing sneg+sneg, the goto moves to PC 0, and the
+        // target moves to PC 3. The offset should be updated to +3 still
+        // (3 - 0 = 3).
+        let mut bc = vec![SNEG, SNEG, GOTO, 0x03, 0x78, 0x78];
+        let mut meta = BytecodeMetadata {
+            branch_targets: vec![5],
+            basic_blocks: vec![(0, 4), (4, 5), (5, 6)],
+            branches: vec![crate::codegen::BranchInfo {
+                opcode_pc: 2,
+                offset_pc: 3,
+                wide: false,
+                target_pc: 5,
+            }],
+        };
+        let changes = peephole_optimize(&mut bc, &mut meta);
+        assert!(changes > 0, "sneg+sneg should be removed");
+        // After removal: [goto, offset, sreturn, sreturn]
+        assert_eq!(bc.len(), 4);
+        assert_eq!(bc[0], GOTO);
+        // The target was at PC 5, now at PC 3 (shifted by -2).
+        // The opcode was at PC 2, now at PC 0 (shifted by -2).
+        // new_offset = 3 - 0 = 3
+        assert_eq!(bc[1], 3_i8 as u8, "branch offset should be 3 after adjustment");
+        assert_eq!(meta.branches[0].target_pc, 3);
+        assert_eq!(meta.branches[0].opcode_pc, 0);
+    }
+
+    #[test]
+    fn peephole_does_not_break_while_loop() {
+        // Compile a while loop and verify execution still works after peephole.
+        use crate::ir::{Condition, JcStmt};
+
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![],
+            return_ty: JcType::Short,
+            locals: vec![
+                (String::from("i"), JcType::Short),
+                (String::from("sum"), JcType::Short),
+            ],
+            body: vec![
+                JcStmt::Let {
+                    name: String::from("i"),
+                    ty: JcType::Short,
+                    init: JcExpr::Lit(1),
+                },
+                JcStmt::Let {
+                    name: String::from("sum"),
+                    ty: JcType::Short,
+                    init: JcExpr::Lit(0),
+                },
+                JcStmt::While {
+                    cond: Condition::Ne(
+                        JcExpr::Var(String::from("i")),
+                        JcExpr::Lit(6),
+                    ),
+                    body: vec![
+                        JcStmt::Assign {
+                            target: LValue::Var(String::from("sum")),
+                            value: JcExpr::BinOp {
+                                op: BinOp::Add,
+                                left: Box::new(JcExpr::Var(String::from("sum"))),
+                                right: Box::new(JcExpr::Var(String::from("i"))),
+                            },
+                        },
+                        JcStmt::Assign {
+                            target: LValue::Var(String::from("i")),
+                            value: JcExpr::BinOp {
+                                op: BinOp::Add,
+                                left: Box::new(JcExpr::Var(String::from("i"))),
+                                right: Box::new(JcExpr::Lit(1)),
+                            },
+                        },
+                    ],
+                },
+                JcStmt::Return(Some(JcExpr::Var(String::from("sum")))),
+            ],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls);
+        // The key assertion: the code compiles successfully (peephole does
+        // not corrupt the branch offsets).
+        assert!(compiled.is_ok(), "while loop should compile with peephole: {:?}", compiled.err());
+        let bc = &compiled.unwrap().methods[0];
+        // Should still contain goto (backward branch) and if_scmpeq (condition).
+        assert!(bc.contains(&GOTO), "should contain goto for loop back-edge");
+        assert!(bc.contains(&0x6A), "should contain if_scmpeq for loop condition");
+    }
+
+    #[test]
+    fn peephole_does_not_break_if_else() {
+        // Compile an if/else and verify both branches survive peephole.
+        use crate::ir::{Condition, JcStmt};
+
+        let method = JcMethod {
+            name: String::from("f"),
+            params: vec![(String::from("x"), JcType::Short)],
+            return_ty: JcType::Short,
+            locals: vec![(String::from("x"), JcType::Short)],
+            body: vec![JcStmt::If {
+                cond: Condition::Eq(
+                    JcExpr::Var(String::from("x")),
+                    JcExpr::Lit(0),
+                ),
+                then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
+                else_body: vec![JcStmt::Return(Some(JcExpr::Lit(2)))],
+            }],
+            is_static: true,
+        };
+        let cls = make_static_class(method);
+        let compiled = compile_class(&cls);
+        assert!(compiled.is_ok(), "if/else should compile with peephole: {:?}", compiled.err());
+        let bc = &compiled.unwrap().methods[0];
+        // Both branch opcodes should be present.
+        assert!(bc.contains(&0x6B), "should contain if_scmpne for negated eq");
+        assert!(bc.contains(&GOTO), "should contain goto to skip else");
+    }
+
+    #[test]
+    fn peephole_offset_adjustment_manual() {
+        // Manually construct bytecodes and metadata, remove bytes, verify
+        // offsets are correctly updated.
+        //
+        // Layout:
+        //   PC 0: sconst_0  (will be part of removed pattern)
+        //   PC 1: sadd      (removed together with sconst_0)
+        //   PC 2: if_scmpeq (opcode)
+        //   PC 3: 0x03      (offset -> targets PC 5)
+        //   PC 4: sreturn
+        //   PC 5: sreturn   (branch target)
+        let mut bc: Vec<u8> = vec![SCONST_0, SADD, 0x6A, 0x03, 0x78, 0x78];
+        let mut meta = BytecodeMetadata {
+            branch_targets: vec![5],
+            basic_blocks: vec![(0, 4), (4, 5), (5, 6)],
+            branches: vec![crate::codegen::BranchInfo {
+                opcode_pc: 2,
+                offset_pc: 3,
+                wide: false,
+                target_pc: 5,
+            }],
+        };
+        let changes = peephole_optimize(&mut bc, &mut meta);
+        assert!(changes > 0, "sconst_0+sadd should be removed");
+        // After removal: [if_scmpeq, offset, sreturn, sreturn]
+        assert_eq!(bc.len(), 4);
+        assert_eq!(bc[0], 0x6A); // if_scmpeq
+        // opcode moved from PC 2 to PC 0, target from PC 5 to PC 3
+        // new_offset = 3 - 0 = 3
+        assert_eq!(bc[1], 3_i8 as u8);
+        assert_eq!(meta.branches[0].opcode_pc, 0);
+        assert_eq!(meta.branches[0].target_pc, 3);
+    }
+
+    #[test]
+    fn metadata_basic_blocks_computed_correctly() {
+        // Verify that compute_basic_blocks produces correct results
+        // for a simple if/else pattern.
+        use crate::codegen::{compute_basic_blocks, BranchInfo};
+
+        let branch_targets = vec![5u16, 10];
+        let branches = vec![
+            BranchInfo {
+                opcode_pc: 3,
+                offset_pc: 4,
+                wide: false,
+                target_pc: 5,
+            },
+            BranchInfo {
+                opcode_pc: 8,
+                offset_pc: 9,
+                wide: false,
+                target_pc: 10,
+            },
+        ];
+        let blocks = compute_basic_blocks(&branch_targets, &branches, 12);
+        // Expected blocks: [0,5), [5,10), [10,12)
+        assert_eq!(blocks, vec![(0, 5), (5, 10), (10, 12)]);
     }
 
     // =====================================================================
