@@ -12,7 +12,7 @@
 //! | `SIMRS_FUZZ_AUTH` | `milenage`, `tuak` | `milenage` (SIM only) |
 //! | `SIMRS_FUZZ_PCAP` | file path | disabled |
 
-use simrs_card_api::{SimEvent, SimResponse};
+use simrs_card_api::{fnv1a, SimEvent, SimResponse};
 use simrs_fs::{DfDef, EfDef, Fid, FileRef, Sfi};
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
@@ -52,22 +52,6 @@ static MF: DfDef = DfDef {
 };
 
 static ATR: [u8; 2] = [0x3B, 0x00];
-
-// ---------------------------------------------------------------------------
-// FNV-1a hash
-// ---------------------------------------------------------------------------
-
-/// Compute FNV-1a 64-bit hash.
-fn fnv1a(data: &[u8]) -> u64 {
-    const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0100_0000_01b3;
-    let mut hash = BASIS;
-    for &b in data {
-        hash ^= u64::from(b);
-        hash = hash.wrapping_mul(PRIME);
-    }
-    hash
-}
 
 // ---------------------------------------------------------------------------
 // Xorshift64 PRNG

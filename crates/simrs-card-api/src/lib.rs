@@ -157,3 +157,24 @@ pub enum SimResponse<'a> {
     /// Event was ignored (malformed APDU, card not powered on, etc.).
     Ignored,
 }
+
+// ---------------------------------------------------------------------------
+// FNV-1a hash
+// ---------------------------------------------------------------------------
+
+/// FNV-1a 64-bit hash for state deduplication.
+///
+/// Not cryptographic. Used by snapshot and fuzzing infrastructure
+/// for fast state fingerprinting.
+pub const fn fnv1a(data: &[u8]) -> u64 {
+    const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0100_0000_01b3;
+    let mut hash = BASIS;
+    let mut i = 0;
+    while i < data.len() {
+        hash ^= data[i] as u64;
+        hash = hash.wrapping_mul(PRIME);
+        i += 1;
+    }
+    hash
+}

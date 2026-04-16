@@ -30,7 +30,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-pub use simrs_card_api::{CardState, SimEvent, SimResponse};
+pub use simrs_card_api::{fnv1a, CardState, SimEvent, SimResponse};
 
 use simrs_gp_keys::KeySet;
 use simrs_gp_open::GpOpen;
@@ -370,24 +370,6 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
 /// This is the most common configuration for a combined GP+USIM card.
 #[cfg(feature = "sim")]
 pub type GpSimCard = GpCard<261>;
-
-// ---------------------------------------------------------------------------
-// FNV-1a hash
-// ---------------------------------------------------------------------------
-
-/// Compute FNV-1a 64-bit hash of a byte slice.
-fn fnv1a(data: &[u8]) -> u64 {
-    const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0100_0000_01b3;
-    let mut hash = BASIS;
-    let mut i = 0;
-    while i < data.len() {
-        hash ^= u64::from(data[i]);
-        hash = hash.wrapping_mul(PRIME);
-        i += 1;
-    }
-    hash
-}
 
 // ---------------------------------------------------------------------------
 // Tests

@@ -70,7 +70,7 @@
 #![allow(clippy::doc_markdown)]
 
 pub use simrs_card_api::{
-    standard_reset_policy, CardState, ResetEffects, ResetKind, SimEvent, SimResponse,
+    fnv1a, standard_reset_policy, CardState, ResetEffects, ResetKind, SimEvent, SimResponse,
 };
 
 #[cfg(not(any(feature = "gsm", feature = "usim")))]
@@ -670,24 +670,6 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
             sw: StatusWord::from_bytes(rsp_slice[sw_offset], rsp_slice[sw_offset + 1]),
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// FNV-1a hash
-// ---------------------------------------------------------------------------
-
-/// Compute FNV-1a 64-bit hash of a byte slice.
-fn fnv1a(data: &[u8]) -> u64 {
-    const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0100_0000_01b3;
-    let mut hash = BASIS;
-    let mut i = 0;
-    while i < data.len() {
-        hash ^= u64::from(data[i]);
-        hash = hash.wrapping_mul(PRIME);
-        i += 1;
-    }
-    hash
 }
 
 #[cfg(feature = "gp-applet")]
