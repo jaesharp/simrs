@@ -154,17 +154,45 @@ jobs:
           - simrs-ecies
     steps:
       - uses: actions/checkout@v6
+
+      - name: Hash crate source
+        id: srchash
+        run: |
+          HASH=$(find crates/${{ matrix.crate }} -name '*.rs' -o -name 'Cargo.toml' | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Check Miri result cache
+        id: miri-cache
+        uses: actions/cache@v4
+        with:
+          path: .miri-pass
+          key: miri-pass-${{ matrix.crate }}-${{ steps.srchash.outputs.hash }}
+
+      - name: Skip (unchanged)
+        if: steps.miri-cache.outputs.cache-hit == 'true'
+        run: echo "Miri already passed for this source -- skipping"
+
       - uses: dtolnay/rust-toolchain@nightly
+        if: steps.miri-cache.outputs.cache-hit != 'true'
         with:
           components: miri
+
       - uses: Swatinem/rust-cache@v2
+        if: steps.miri-cache.outputs.cache-hit != 'true'
         with:
           key: miri-${{ matrix.crate }}
-      - run: >
+
+      - name: Run Miri
+        if: steps.miri-cache.outputs.cache-hit != 'true'
+        run: >
           MIRIFLAGS="-Zmiri-env-forward=PROPTEST_DISABLE_FAILURE_PERSISTENCE -Zmiri-env-forward=PROPTEST_CASES"
           PROPTEST_DISABLE_FAILURE_PERSISTENCE=1
           PROPTEST_CASES=10
           cargo miri test -p ${{ matrix.crate }}
+
+      - name: Mark pass
+        if: steps.miri-cache.outputs.cache-hit != 'true'
+        run: mkdir -p .miri-pass && echo "pass" > .miri-pass/${{ matrix.crate }}
 
   # ---- Layer 2 (parallel): build artifacts ----
 
