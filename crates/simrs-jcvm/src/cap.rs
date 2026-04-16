@@ -1,9 +1,23 @@
 //! CAP file parser for JCVM bytecode packages.
 //!
-//! Parses the binary CAP format per JCVM 2.1.1 Chapter 6. Real CAP files
-//! are ZIP archives containing individual component files; for embedded
+//! Parses the binary CAP format per JCVM 2.1.1 Chapter 6 (p65-116). Real
+//! CAP files are ZIP archives containing 11 component files; for embedded
 //! `no_std` use we parse a simplified binary blob format that concatenates
 //! the essential components.
+//!
+//! # Full CAP Component Model (JCVM 2.1.1 Table 6-1/6-2)
+//!
+//! 1. Header -- magic `0xDECAFFED`, minor/major version, package AID
+//! 2. Directory -- component size table, static field sizes, import count
+//! 3. Applet -- AID to `install_method_offset` mapping, one per applet
+//! 4. Import -- imported packages with AIDs and versions
+//! 5. ConstantPool -- resolved refs: class, field, method
+//! 6. Class -- hierarchy, interfaces, field count, public method table
+//! 7. Method -- bytecode: flags, max_stack, nargs, max_locals, bytecode[]
+//! 8. StaticField -- initial values for static fields
+//! 9. ReferenceLocation -- offsets for runtime token resolution
+//! 10. Export -- published tokens for inter-package linking
+//! 11. Descriptor -- debug info (optional)
 //!
 //! # Binary Blob Format
 //!

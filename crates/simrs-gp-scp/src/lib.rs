@@ -1,9 +1,58 @@
-//! `GlobalPlatform` SCP01 and SCP02 secure channel protocols per
-//! [GP Card Specification v2.1.1](../../../../telecom-standards/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
-//! Appendices D (SCP01) and E (SCP02).
+//! GlobalPlatform SCP01, SCP02, and SCP03 secure channel protocols per
+//! [GP Card Specification v2.1.1](../../../../docs/specs/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
+//! Appendices D (SCP01) and E (SCP02), and
+//! [GP Amendment D v1.1.2](../../../../docs/specs/globalplatform/GPC_2.3_D_SCP03_v1.1.2.pdf)
+//! (SCP03).
 //!
 //! Implements session key derivation, mutual authentication (cryptogram
 //! generation/verification), and secure messaging (C-MAC, C-ENC, R-MAC).
+//!
+//! # SCP01 (GP 2.1.1 Appendix D, p199-212)
+//!
+//! 3 static 3DES keys per key set (Table D-1):
+//! - S-ENC (key ID 1): encryption key
+//! - S-MAC (key ID 2): MAC key
+//! - DEK (key ID 3): data encryption key (PUT KEY wrapping)
+//!
+//! Session key derivation (Fig D-3/D-4/D-5):
+//! ```text
+//! derivation = card_challenge[4..8] || host_challenge[0..4]
+//!           || card_challenge[0..4] || host_challenge[4..8]
+//! session_enc = 3DES_ECB(static_enc, derivation)
+//! session_mac = 3DES_ECB(static_mac, derivation)
+//! ```
+//!
+//! INITIALIZE UPDATE (Table D-4): `80 50 <kv> <kid> 08 <host_challenge[8]>`
+//! - Response (Table D-5): 28 bytes = `key_div[10] || key_info[2] || card_challenge[8] || card_cryptogram[8]`
+//! - Card cryptogram = `MAC(session_enc, host_challenge || card_challenge)`
+//!
+//! EXTERNAL AUTHENTICATE (Table D-7): `84 82 <sec_level> 00 10 <host_crypto[8]> <cmac[8]>`
+//! - Host cryptogram = `MAC(session_enc, card_challenge || host_challenge)`
+//! - Security levels: `0x00` no security, `0x01` C-MAC, `0x03` C-MAC+C-ENC
+//!
+//! # SCP02 (GP 2.1.1 Appendix E, p213-234)
+//!
+//! Key differences from SCP01:
+//! - Session keys derived from static keys AND a 2-byte sequence counter
+//! - Sequence counter is persistent, increments on each INITIALIZE UPDATE
+//! - ICV chaining: MAC ICV from previous command (not always zero)
+//! - R-MAC support (response message authentication)
+//!
+//! Session key derivation (Fig E-2):
+//! ```text
+//! constants: 0x0182 (S-ENC), 0x0101 (C-MAC), 0x0102 (R-MAC), 0x0181 (DEK)
+//! session_key = 3DES_CBC(static_key, [constant || seq_counter || pad_to_16])
+//! IV = 0x0000000000000000
+//! ```
+//!
+//! C-MAC ICV chaining (Fig E-3/E-4): ICV starts at zero for explicit SC;
+//! subsequent commands chain from previous MAC. Each ICV is encrypted with
+//! session S-MAC before use as CBC IV.
+//!
+//! # SCP03 (GP Amendment D v1.1.2)
+//!
+//! AES-128 based (not DES). Key derivation uses AES-CMAC (RFC 4493) with
+//! derivation data encoding the key type and challenge material.
 //!
 //! # `no_std`
 //! This crate is fully `no_std`. No heap allocation.

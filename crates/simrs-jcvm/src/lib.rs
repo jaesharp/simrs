@@ -1,7 +1,7 @@
 //! `JavaCard` Virtual Machine bytecode interpreter.
 //!
 //! Implements a fully deterministic, snapshotable JCVM per
-//! [JCVM 2.1.1](../../../../telecom-standards/javacard/2.1.1/JCVMSpec.pdf).
+//! [JCVM 2.1.1](../../../../docs/specs/javacard/2.1.1/JCVMSpec.pdf).
 //! All mutable state serializes via `save_state`/`restore_state`. `no_std`,
 //! `no_alloc`.
 //!
