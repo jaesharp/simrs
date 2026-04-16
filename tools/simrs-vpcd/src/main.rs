@@ -113,6 +113,7 @@ fn hex(data: &[u8]) -> String {
 /// Run the vpcd event loop on an accepted connection.
 ///
 /// Returns when the peer disconnects or an unrecoverable error occurs.
+#[allow(clippy::too_many_lines)]
 fn serve(stream: &mut TcpStream, sim: &mut Sim<MilenageParams, 256>, verbose: bool) {
     let mut stored_atr: Vec<u8> = Vec::new();
 
@@ -143,7 +144,10 @@ fn serve(stream: &mut TcpStream, sim: &mut Sim<MilenageParams, 256>, verbose: bo
                             eprintln!(">> ATR: {}", hex(&stored_atr));
                         }
                     }
-                    // vpcd does not expect a response to Power On.
+                    if let Err(e) = send_msg(stream, &stored_atr) {
+                        eprintln!("send ATR error: {e}");
+                        return;
+                    }
                 }
 
                 VPCD_CTRL_OFF => {
@@ -165,7 +169,10 @@ fn serve(stream: &mut TcpStream, sim: &mut Sim<MilenageParams, 256>, verbose: bo
                             eprintln!(">> ATR: {}", hex(&stored_atr));
                         }
                     }
-                    // vpcd does not expect a response to Reset.
+                    if let Err(e) = send_msg(stream, &stored_atr) {
+                        eprintln!("send ATR error: {e}");
+                        return;
+                    }
                 }
 
                 VPCD_CTRL_ATR => {
