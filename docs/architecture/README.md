@@ -1110,7 +1110,7 @@ sequenceDiagram
         SIM-->>HLE: SimResponse
         HLE-->>FZ: rsp bytes
         FZ->>HLE: simrs_hle_coverage_bitmap(buf)
-        FZ->>FZ: dedup by state_hash, save interesting to corpus
+        FZ->>FZ: dedup by state_hash + save interesting to corpus
     end
 ```
 
