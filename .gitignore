@@ -2,6 +2,6 @@
 tools/*/target/
 .claude/
 
-# PDF bookmark extraction data (generated from telecom-specs PDFs)
+# PDF bookmark extraction data (generated from spec PDFs)
 *_clause_urls.json
 tools/oracle-jcvm-ref/
