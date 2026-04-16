@@ -19,13 +19,14 @@ available at no cost from Oracle (requires an Oracle account).
 
   2. Download the "Java Card Development Kit Simulator" for Linux x86.
      The file is typically named:
-       java_card_kit-classic-3_2_0-linux-bin-do.zip  (or similar)
+       java_card_devkit_simulator-linux-bin-v25.1.tar.gz  (or similar)
 
-  3. Extract the archive:
-       unzip java_card_kit-classic-*.zip -d /tmp/jcdk
+  3. Install directly from the archive into the simrs cache:
+       cargo run -p simrs-jcsl -- install java_card_devkit_simulator-linux-bin-*.tar.gz
 
-  4. Install into the simrs cache:
-       cargo run -p simrs-jcsl -- install /tmp/jcdk
+     Archives (.tar.gz, .tgz, .zip) are extracted automatically to a
+     temporary directory. You can also pass an extracted SDK directory
+     or a standalone jcsl binary path.
 
      This copies the runtime files to ~/.cache/simrs/ where they are
      automatically discovered by the test harness.

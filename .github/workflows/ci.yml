@@ -129,6 +129,35 @@ jobs:
       - run: cargo clippy --manifest-path tools/simrs-spec-tests/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --manifest-path tools/simrs-spec-tests/Cargo.toml --test cucumber
 
+  differential:
+    name: Differential (Oracle JCVM)
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
+      - name: Install Oracle JCDK from submodule
+        run: |
+          ARCHIVE=$(ls docs/specs/reference-implementations/java_card_devkit_simulator-linux-bin-*.tar.gz 2>/dev/null | head -1)
+          if [ -z "$ARCHIVE" ]; then
+            echo "No simulator archive found in submodule -- skipping"
+            exit 0
+          fi
+          # Install 32-bit compatibility libs for the jcsl binary
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libc6:i386 libstdc++6:i386 zlib1g:i386
+          cargo run -p simrs-jcsl -- install "$ARCHIVE"
+      - name: Run differential tests
+        run: cargo test -p simrs-differential-tests
+      - name: Run replay tests
+        run: cargo test -p simrs-differential-tests --test replay
+
   # ---- Layer 3: Miri (depends on tests passing) ----
 
   miri:
@@ -163,7 +192,7 @@ jobs:
 
       - name: Check Miri result cache
         id: miri-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .miri-pass
           key: miri-pass-${{ matrix.crate }}-${{ steps.srchash.outputs.hash }}

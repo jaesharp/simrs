@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! simrs-jcsl status              Show jcsl installation status
-//! simrs-jcsl install <path>      Install from Oracle SDK directory or binary
+//! simrs-jcsl install <path>      Install from archive, SDK directory, or binary
 //! simrs-jcsl validate <path>     Validate a jcsl binary
 //! simrs-jcsl guide               Print acquisition instructions
 //! simrs-jcsl help                Show this help
@@ -21,7 +21,7 @@ fn main() -> ExitCode {
         Some("status") => cmd_status(),
         Some("install") => {
             let Some(path) = args.get(2) else {
-                eprintln!("usage: simrs-jcsl install <sdk-dir-or-binary>");
+                eprintln!("usage: simrs-jcsl install <archive|sdk-dir|binary>");
                 return ExitCode::from(2);
             };
             cmd_install(Path::new(path))
@@ -52,7 +52,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  status              Show jcsl installation status");
-    eprintln!("  install <path>      Install from Oracle SDK directory or binary");
+    eprintln!("  install <path>      Install from archive, SDK directory, or binary");
     eprintln!("  validate <path>     Validate a jcsl binary");
     eprintln!("  guide               Print acquisition instructions");
     eprintln!("  help                Show this help");
@@ -68,8 +68,11 @@ fn cmd_status() -> ExitCode {
 }
 
 fn cmd_install(path: &Path) -> ExitCode {
-    // Determine whether the path is an SDK directory or a binary.
-    let result = if path.is_dir() {
+    // Determine whether the path is an archive, SDK directory, or binary.
+    let result = if path.is_file() && discovery::is_archive_path(path) {
+        eprintln!("Installing from archive: {}", path.display());
+        discovery::install_from_archive(path)
+    } else if path.is_dir() {
         eprintln!("Installing from SDK directory: {}", path.display());
         discovery::install_from_sdk(path)
     } else if path.is_file() {

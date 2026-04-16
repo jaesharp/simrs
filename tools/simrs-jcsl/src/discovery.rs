@@ -51,13 +51,14 @@ available at no cost from Oracle (requires an Oracle account).
 
   2. Download the \"Java Card Development Kit Simulator\" for Linux x86.
      The file is typically named:
-       java_card_kit-classic-3_2_0-linux-bin-do.zip  (or similar)
+       java_card_devkit_simulator-linux-bin-v25.1.tar.gz  (or similar)
 
-  3. Extract the archive:
-       unzip java_card_kit-classic-*.zip -d /tmp/jcdk
+  3. Install directly from the archive into the simrs cache:
+       cargo run -p simrs-jcsl -- install java_card_devkit_simulator-linux-bin-*.tar.gz
 
-  4. Install into the simrs cache:
-       cargo run -p simrs-jcsl -- install /tmp/jcdk
+     Archives (.tar.gz, .tgz, .zip) are extracted automatically to a
+     temporary directory. You can also pass an extracted SDK directory
+     or a standalone jcsl binary path.
 
      This copies the runtime files to ~/.cache/simrs/ where they are
      automatically discovered by the test harness.
@@ -514,6 +515,138 @@ pub fn install_from_binary(binary_path: &Path) -> Result<JcslInstallation, Insta
     })
 }
 
+/// Install the jcsl runtime from an archive file (.tar.gz, .tgz, or .zip).
+///
+/// Extracts the archive to a temporary directory, locates the SDK root
+/// by searching for `runtime/bin/jcsl`, then delegates to
+/// [`install_from_sdk`].
+///
+/// Requires `tar` (for .tar.gz/.tgz) or `unzip` (for .zip) on `PATH`.
+///
+/// # Errors
+///
+/// Returns an [`InstallError`] if extraction fails, the SDK layout is
+/// not found in the archive contents, or the underlying install fails.
+pub fn install_from_archive(archive: &Path) -> Result<JcslInstallation, InstallError> {
+    use std::time::SystemTime;
+
+    let archive = archive.canonicalize().map_err(|e| {
+        InstallError::Io(io::Error::new(
+            e.kind(),
+            format!("cannot resolve archive path: {e}"),
+        ))
+    })?;
+
+    // Create a unique temp directory under the system temp dir.
+    let ts = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let tmp = std::env::temp_dir().join(format!("simrs-jcsl-extract-{ts}"));
+    fs::create_dir_all(&tmp)?;
+
+    let result = extract_and_install(&archive, &tmp);
+
+    // Always clean up the temp directory, regardless of success or failure.
+    let _ = fs::remove_dir_all(&tmp);
+
+    result
+}
+
+/// Inner extraction + install logic, separated so the caller can clean up
+/// the temp directory in all code paths.
+fn extract_and_install(archive: &Path, tmp: &Path) -> Result<JcslInstallation, InstallError> {
+    let name = archive
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase();
+
+    #[allow(clippy::case_sensitive_file_extension_comparisons)] // name is already lowercased
+    let status = if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+        std::process::Command::new("tar")
+            .args(["xzf"])
+            .arg(archive)
+            .arg("-C")
+            .arg(tmp)
+            .status()
+    } else if name.ends_with(".zip") {
+        std::process::Command::new("unzip")
+            .arg("-q")
+            .arg(archive)
+            .arg("-d")
+            .arg(tmp)
+            .status()
+    } else {
+        return Err(InstallError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsupported archive format: {}", archive.display()),
+        )));
+    };
+
+    let status = status.map_err(|e| {
+        InstallError::Io(io::Error::new(
+            e.kind(),
+            format!("failed to run extraction command: {e}"),
+        ))
+    })?;
+
+    if !status.success() {
+        return Err(InstallError::Io(io::Error::other(format!(
+            "extraction failed with exit code {}",
+            status.code().unwrap_or(-1)
+        ))));
+    }
+
+    // Search for runtime/bin/jcsl in the extracted tree.
+    let sdk_root =
+        find_sdk_root(tmp).ok_or_else(|| InstallError::MissingRuntime(archive.to_path_buf()))?;
+
+    install_from_sdk(&sdk_root)
+}
+
+/// Return `true` if `path` looks like a supported archive file.
+#[allow(clippy::case_sensitive_file_extension_comparisons)] // name is already lowercased
+pub fn is_archive_path(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase();
+    name.ends_with(".tar.gz") || name.ends_with(".tgz") || name.ends_with(".zip")
+}
+
+/// Walk the directory tree to find a directory containing `runtime/bin/jcsl`.
+///
+/// Returns the SDK root (the parent of `runtime/`), or `None`.
+fn find_sdk_root(base: &Path) -> Option<PathBuf> {
+    // Check if the base itself is the SDK root.
+    if base.join(SDK_RUNTIME_BIN).exists() {
+        return Some(base.to_path_buf());
+    }
+    // BFS one level of subdirectories (archives typically have a single
+    // top-level directory).
+    let entries = fs::read_dir(base).ok()?;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            if p.join(SDK_RUNTIME_BIN).exists() {
+                return Some(p);
+            }
+            // Try one more level (e.g. archive/java_card_devkit_simulator/...).
+            if let Ok(inner) = fs::read_dir(&p) {
+                for inner_entry in inner.flatten() {
+                    let ip = inner_entry.path();
+                    if ip.is_dir() && ip.join(SDK_RUNTIME_BIN).exists() {
+                        return Some(ip);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // Status reporting
 // ---------------------------------------------------------------------------
@@ -765,6 +898,96 @@ mod tests {
     fn install_from_sdk_nonexistent() {
         let err = install_from_sdk(Path::new("/nonexistent/sdk")).unwrap_err();
         assert!(matches!(err, InstallError::SdkNotFound(_)));
+    }
+
+    #[test]
+    fn is_archive_path_tar_gz() {
+        assert!(is_archive_path(Path::new("sdk.tar.gz")));
+        assert!(is_archive_path(Path::new(
+            "/tmp/java_card_devkit_simulator-linux-bin-v25.1.tar.gz"
+        )));
+        assert!(is_archive_path(Path::new("sdk.TaR.Gz"))); // case-insensitive
+    }
+
+    #[test]
+    fn is_archive_path_tgz() {
+        assert!(is_archive_path(Path::new("sdk.tgz")));
+        assert!(is_archive_path(Path::new("/opt/downloads/kit.TGZ")));
+    }
+
+    #[test]
+    fn is_archive_path_zip() {
+        assert!(is_archive_path(Path::new("sdk.zip")));
+        assert!(is_archive_path(Path::new(
+            "java_card_kit-classic-3_2_0-linux-bin-do.ZIP"
+        )));
+    }
+
+    #[test]
+    fn is_archive_path_rejects_non_archives() {
+        assert!(!is_archive_path(Path::new("jcsl")));
+        assert!(!is_archive_path(Path::new("/tmp/sdk/")));
+        assert!(!is_archive_path(Path::new("archive.tar")));
+        assert!(!is_archive_path(Path::new("archive.gz")));
+        assert!(!is_archive_path(Path::new("archive.tar.bz2")));
+    }
+
+    #[test]
+    fn find_sdk_root_direct() {
+        let tmp = std::env::temp_dir().join("simrs-test-find-sdk-direct");
+        let runtime_bin = tmp.join("runtime").join("bin");
+        fs::create_dir_all(&runtime_bin).unwrap();
+        fs::write(runtime_bin.join("jcsl"), b"placeholder").unwrap();
+
+        let found = find_sdk_root(&tmp);
+        assert_eq!(found, Some(tmp.clone()));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn find_sdk_root_nested_one_level() {
+        let tmp = std::env::temp_dir().join("simrs-test-find-sdk-nested1");
+        let inner = tmp.join("java_card_devkit_simulator");
+        let runtime_bin = inner.join("runtime").join("bin");
+        fs::create_dir_all(&runtime_bin).unwrap();
+        fs::write(runtime_bin.join("jcsl"), b"placeholder").unwrap();
+
+        let found = find_sdk_root(&tmp);
+        assert_eq!(found, Some(inner));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn find_sdk_root_nested_two_levels() {
+        let tmp = std::env::temp_dir().join("simrs-test-find-sdk-nested2");
+        let inner = tmp.join("outer").join("inner_sdk");
+        let runtime_bin = inner.join("runtime").join("bin");
+        fs::create_dir_all(&runtime_bin).unwrap();
+        fs::write(runtime_bin.join("jcsl"), b"placeholder").unwrap();
+
+        let found = find_sdk_root(&tmp);
+        assert_eq!(found, Some(inner));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn find_sdk_root_not_found() {
+        let tmp = std::env::temp_dir().join("simrs-test-find-sdk-empty");
+        fs::create_dir_all(&tmp).unwrap();
+
+        let found = find_sdk_root(&tmp);
+        assert!(found.is_none());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn install_from_archive_nonexistent() {
+        let err = install_from_archive(Path::new("/nonexistent/sdk.tar.gz")).unwrap_err();
+        assert!(matches!(err, InstallError::Io(_)));
     }
 
     // -------------------------------------------------------------------
