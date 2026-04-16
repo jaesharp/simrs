@@ -2031,6 +2031,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-swicc"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "simrs-fs",
+ "simrs-gsm",
+ "simrs-milenage",
+ "simrs-sim",
+ "simrs-transport",
+ "simrs-transport-tcp",
+ "simrs-usim",
+]
+
+[[package]]
 name = "simrs-t0"
 version = "0.1.0"
 dependencies = [

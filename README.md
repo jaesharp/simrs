@@ -41,6 +41,18 @@ cargo test --workspace           # test
 cargo clippy --workspace         # lint (pedantic, zero warnings)
 ```
 
+### swICC PC/SC virtual reader
+
+```bash
+# Boot a SIM card and expose it over swICC TCP (default port 37324)
+cargo run -p simrs-swicc
+
+# With APDU logging
+cargo run -p simrs-swicc -- -v
+
+# Standard PC/SC tools work: opensc-tool, pkcs15-tool, pcsc_scan, etc.
+```
+
 ### Compile and run a JavaCard-Compatible applet
 
 ```bash
