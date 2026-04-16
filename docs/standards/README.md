@@ -2,7 +2,7 @@
 
 Standards reference for 4G-LTE and 5G-NR (SA and NSA) USIM support, mapped to the simrs crate architecture.
 
-Colours follow the [Diagram Style Guide](../DIAGRAM_STYLE_GUIDE.md).
+Colours follow the [Diagram Style Guide](../style/diagrams.md).
 
 ## Documents
 

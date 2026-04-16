@@ -40,5 +40,5 @@ graph TD
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-fuzz)
+- [Architecture](../../docs/architecture/#simrs-fuzz)
 - [Standards: Crate Impact](../../docs/standards/05-crate-impact.md)

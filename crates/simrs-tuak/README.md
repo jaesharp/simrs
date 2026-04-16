@@ -44,5 +44,5 @@ snapshot round-trip, conformance against 3GPP TS 35.233 test data.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-tuak)
+- [Architecture](../../docs/architecture/#simrs-tuak)
 - [Standards: Authentication](../../docs/standards/02-authentication.md)

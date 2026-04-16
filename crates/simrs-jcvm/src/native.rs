@@ -113,7 +113,7 @@ pub enum NativeResult {
     Ref(u16),
     /// The method threw an exception.
     Exception(ExecResult),
-    /// The (class_id, method_id) pair does not correspond to a native method.
+    /// The (`class_id`, `method_id`) pair does not correspond to a native method.
     NotNative,
 }
 
@@ -129,6 +129,7 @@ pub enum NativeResult {
 /// Returns [`NativeResult::NotNative`] if the pair is not a recognised
 /// native method, in which case the caller should fall through to normal
 /// bytecode dispatch.
+#[allow(clippy::too_many_lines)]
 pub fn dispatch_native<const H: usize, const P: usize>(
     class_id: u8,
     method_id: u8,
@@ -154,10 +155,10 @@ pub fn dispatch_native<const H: usize, const P: usize>(
             // APDU.getBuffer() -> byte[].
             // Allocate a 256-byte APDU buffer on the heap if not already
             // present. For the stub, allocate fresh each time.
-            match vm.alloc_apdu_buffer() {
-                Some(obj_ref) => NativeResult::Ref(obj_ref.0),
-                None => NativeResult::Exception(ExecResult::HeapFull),
-            }
+            vm.alloc_apdu_buffer()
+                .map_or(NativeResult::Exception(ExecResult::HeapFull), |obj_ref| {
+                    NativeResult::Ref(obj_ref.0)
+                })
         }
         (class_id::APDU, method_id::SET_INCOMING_AND_RECEIVE) => {
             // APDU.setIncomingAndReceive() -> short (number of bytes received).
@@ -299,10 +300,12 @@ pub fn dispatch_native<const H: usize, const P: usize>(
         }
         (class_id::UTIL, method_id::MAKE_SHORT) => {
             // Util.makeShort(byte b1, byte b2) -> short.
+            #[allow(clippy::cast_possible_truncation)]
             let b2 = match vm.pop() {
                 Ok(v) => v as u8,
                 Err(e) => return NativeResult::Exception(e),
             };
+            #[allow(clippy::cast_possible_truncation)]
             let b1 = match vm.pop() {
                 Ok(v) => v as u8,
                 Err(e) => return NativeResult::Exception(e),
@@ -349,10 +352,7 @@ pub fn dispatch_native<const H: usize, const P: usize>(
         // -----------------------------------------------------------------
         (class_id::ISO_EXCEPTION, method_id::THROW_IT) => {
             // ISOException.throwIt(short sw) -> never returns.
-            let sw = match vm.pop() {
-                Ok(v) => v,
-                Err(_) => 0x6F00, // internal error SW if stack is empty
-            };
+            let sw = vm.pop().unwrap_or(0x6F00); // internal error SW if stack is empty
             NativeResult::Exception(ExecResult::UncaughtException(sw))
         }
 
@@ -384,10 +384,10 @@ pub fn dispatch_native<const H: usize, const P: usize>(
             if length < 0 {
                 return NativeResult::Exception(ExecResult::NegativeArraySize);
             }
-            match vm.alloc_byte_array(length.cast_unsigned()) {
-                Some(obj) => NativeResult::Ref(obj.0),
-                None => NativeResult::Exception(ExecResult::HeapFull),
-            }
+            vm.alloc_byte_array(length.cast_unsigned())
+                .map_or(NativeResult::Exception(ExecResult::HeapFull), |obj| {
+                    NativeResult::Ref(obj.0)
+                })
         }
         (class_id::JC_SYSTEM, method_id::MAKE_TRANSIENT_SHORT_ARRAY) => {
             // JCSystem.makeTransientShortArray(short length, byte event) -> short[].
@@ -399,10 +399,10 @@ pub fn dispatch_native<const H: usize, const P: usize>(
             if length < 0 {
                 return NativeResult::Exception(ExecResult::NegativeArraySize);
             }
-            match vm.alloc_short_array(length.cast_unsigned()) {
-                Some(obj) => NativeResult::Ref(obj.0),
-                None => NativeResult::Exception(ExecResult::HeapFull),
-            }
+            vm.alloc_short_array(length.cast_unsigned())
+                .map_or(NativeResult::Exception(ExecResult::HeapFull), |obj| {
+                    NativeResult::Ref(obj.0)
+                })
         }
 
         // -----------------------------------------------------------------
@@ -450,7 +450,7 @@ mod tests {
         let result = dispatch_native(class_id::APDU, method_id::GET_BUFFER, &mut vm);
         match result {
             NativeResult::Ref(r) => assert_ne!(r, 0, "should not be null ref"),
-            other => panic!("expected Ref, got {:?}", other),
+            other => panic!("expected Ref, got {other:?}"),
         }
     }
 
@@ -738,7 +738,7 @@ mod tests {
         );
         match result {
             NativeResult::Ref(r) => assert_ne!(r, 0),
-            other => panic!("expected Ref, got {:?}", other),
+            other => panic!("expected Ref, got {other:?}"),
         }
     }
 
@@ -754,7 +754,7 @@ mod tests {
         );
         match result {
             NativeResult::Ref(r) => assert_ne!(r, 0),
-            other => panic!("expected Ref, got {:?}", other),
+            other => panic!("expected Ref, got {other:?}"),
         }
     }
 

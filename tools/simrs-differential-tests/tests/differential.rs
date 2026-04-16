@@ -742,6 +742,7 @@ fn diff_full_discovery_sequence() {
 /// Complete mutual auth on BOTH sides independently, then compare
 /// authenticated GET STATUS responses.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn diff_authenticated_get_status() {
     let mut dc = dual_card!("diff-auth-gs");
     dc.power_on();

@@ -34,5 +34,5 @@ Both functions are `const fn` -- key schedule can run at compile time.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-rijndael)
+- [Architecture](../../docs/architecture/#simrs-rijndael)
 - [Standards: Authentication](../../docs/standards/02-authentication.md)

@@ -51,4 +51,4 @@ stateDiagram-v2
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-pin)
+- [Architecture](../../docs/architecture/#simrs-pin)

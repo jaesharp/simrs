@@ -3,7 +3,7 @@
 //! Provides session key derivation, cryptogram computation, and C-MAC
 //! generation per GP Card Specification Amendment D (SCP03).
 //!
-//! Uses AES-128 via `simrs-rijndael`. This module is NOT no_std -- it's
+//! Uses AES-128 via `simrs-rijndael`. This module is NOT `no_std` -- it's
 //! test infrastructure only.
 
 use simrs_rijndael::Rijndael;
@@ -62,20 +62,19 @@ pub fn aes_cmac(key: &[u8; 16], data: &[u8]) -> [u8; 16] {
     let n_blocks = if data.is_empty() {
         1
     } else {
-        (data.len() + 15) / 16
+        data.len().div_ceil(16)
     };
 
-    let complete = !data.is_empty() && data.len() % 16 == 0;
+    let complete = !data.is_empty() && data.len().is_multiple_of(16);
 
     // Prepare the last block.
     let mut last_block = [0u8; 16];
+    let start = (n_blocks - 1) * 16;
     if complete {
-        let start = (n_blocks - 1) * 16;
         last_block[..16].copy_from_slice(&data[start..start + 16]);
         last_block = xor_block(&last_block, &k1);
     } else {
         // Pad with 10...0
-        let start = (n_blocks - 1) * 16;
         let remaining = data.len() - start;
         last_block[..remaining].copy_from_slice(&data[start..]);
         last_block[remaining] = 0x80;
@@ -108,13 +107,13 @@ const DERIV_S_RMAC: u8 = 0x07;
 
 /// KDF for SCP03: derives a 16-byte key using AES-CMAC.
 ///
-/// derivation_data (32 bytes):
+/// `derivation_data` (32 bytes):
 /// ```text
 /// [0x00]*11 || label(1) || separation_indicator(1) || L(2) || counter(1) || context(16)
 /// ```
 ///
-/// where context = card_challenge(8) || host_challenge(8) for session keys,
-/// or host_challenge(8) || card_challenge(8) for cryptograms.
+/// where context = `card_challenge`(8) || `host_challenge`(8) for session keys,
+/// or `host_challenge`(8) || `card_challenge`(8) for cryptograms.
 fn kdf_scp03(
     static_key: &[u8; 16],
     label: u8,
@@ -127,8 +126,11 @@ fn kdf_scp03(
     // Bytes 0-10: zero (11 bytes)
     dd[11] = label;
     dd[12] = separation;
-    dd[13] = (key_length_bits >> 8) as u8;
-    dd[14] = key_length_bits as u8;
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        dd[13] = (key_length_bits >> 8) as u8;
+        dd[14] = key_length_bits as u8;
+    }
     dd[15] = 0x01; // counter = 1 (we only need 128 bits)
     let ctx_len = context.len().min(16);
     dd[16..16 + ctx_len].copy_from_slice(&context[..ctx_len]);
@@ -149,6 +151,7 @@ pub struct Scp03SessionKeys {
 /// Derive SCP03 session keys from static key material and challenges.
 ///
 /// Per GP Amendment D, Section 6.2.2.
+#[allow(clippy::similar_names)]
 pub fn derive_scp03_session_keys(
     static_enc: &[u8; 16],
     static_mac: &[u8; 16],
@@ -173,7 +176,7 @@ pub fn derive_scp03_session_keys(
 
 /// Compute the SCP03 card cryptogram for verification.
 ///
-/// card_cryptogram = first 8 bytes of AES-CMAC(S-MAC, host_challenge || card_challenge)
+/// `card_cryptogram` = first 8 bytes of AES-CMAC(`S-MAC`, `host_challenge` || `card_challenge`)
 pub fn compute_scp03_card_cryptogram(
     s_mac: &[u8; 16],
     host_challenge: &[u8; 8],
@@ -192,7 +195,7 @@ pub fn compute_scp03_card_cryptogram(
 
 /// Compute the SCP03 host cryptogram.
 ///
-/// host_cryptogram = first 8 bytes of AES-CMAC(S-MAC, card_challenge || host_challenge)
+/// `host_cryptogram` = first 8 bytes of AES-CMAC(`S-MAC`, `card_challenge` || `host_challenge`)
 pub fn compute_scp03_host_cryptogram(
     s_mac: &[u8; 16],
     host_challenge: &[u8; 8],
@@ -224,7 +227,7 @@ fn build_cryptogram_dd(label: u8, context: &[u8; 16]) -> [u8; 32] {
 
 /// Compute SCP03 C-MAC for an APDU command.
 ///
-/// mac_chaining_value is the previous MAC (or zeros for first command after EXT AUTH).
+/// `mac_chaining_value` is the previous MAC (or zeros for first command after EXT AUTH).
 /// Returns (8-byte MAC, 16-byte new chaining value).
 pub fn scp03_cmac(
     s_mac: &[u8; 16],

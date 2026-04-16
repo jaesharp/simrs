@@ -143,6 +143,7 @@ fn resolve_wide_branch(pc: usize, hi: u8, lo: u8) -> usize {
 }
 
 /// Format a single instruction as a string.
+#[allow(clippy::too_many_lines)]
 fn format_instruction(instr: &Instruction) -> String {
     let pc = instr.pc;
     let mnemonic = instr.mnemonic;
@@ -243,13 +244,14 @@ fn format_instruction(instr: &Instruction) -> String {
             format!("{pc:04X}: {mnemonic} {val}")
         }
 
-        // 2-byte: opcode + local_idx
+        // 2-byte: opcode + local_idx (or type_token + reserved for NEW)
         opcodes::ALOAD
         | opcodes::ASTORE
         | opcodes::SLOAD
         | opcodes::SSTORE
         | opcodes::ILOAD
-        | opcodes::ISTORE => {
+        | opcodes::ISTORE
+        | opcodes::NEW => {
             let arg = instr.args[0];
             format!("{pc:04X}: {mnemonic} {arg}")
         }
@@ -259,12 +261,6 @@ fn format_instruction(instr: &Instruction) -> String {
             let idx = instr.args[0];
             let c = instr.args[1].cast_signed();
             format!("{pc:04X}: {mnemonic} {idx} {c}")
-        }
-
-        // 3-byte: opcode + type_token + reserved
-        opcodes::NEW => {
-            let arg = instr.args[0];
-            format!("{pc:04X}: {mnemonic} {arg}")
         }
 
         // 2-byte: opcode + type token
@@ -367,6 +363,7 @@ fn format_instruction(instr: &Instruction) -> String {
 /// The argument byte count reflects the actual VM instruction format,
 /// which may differ from the jcasm macro's encoding (e.g., `getfield_b`
 /// and `putfield_b` consume 2 argument bytes in the VM).
+#[allow(clippy::too_many_lines)]
 fn decode_opcode(opcode: u8) -> Result<(&'static str, usize), String> {
     match opcode {
         // Misc (1-byte)

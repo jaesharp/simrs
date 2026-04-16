@@ -513,7 +513,12 @@ impl<const HEAP_SIZE: usize> ObjectHeap<HEAP_SIZE> {
 
     /// Get the byte offset of an array element. Used by transaction journal
     /// to record the raw heap offset for rollback.
-    pub fn array_element_offset(&self, obj: ObjRef, index: u16, elem_size: usize) -> Option<usize> {
+    pub const fn array_element_offset(
+        &self,
+        obj: ObjRef,
+        index: u16,
+        elem_size: usize,
+    ) -> Option<usize> {
         if obj.is_null() {
             return None;
         }
@@ -526,7 +531,7 @@ impl<const HEAP_SIZE: usize> ObjectHeap<HEAP_SIZE> {
     }
 
     /// Direct byte read at a raw heap offset (for transaction rollback).
-    pub fn raw_read(&self, offset: usize) -> Option<u8> {
+    pub const fn raw_read(&self, offset: usize) -> Option<u8> {
         if offset < self.free as usize {
             Some(self.data[offset])
         } else {
@@ -535,7 +540,7 @@ impl<const HEAP_SIZE: usize> ObjectHeap<HEAP_SIZE> {
     }
 
     /// Direct byte write at a raw heap offset (for transaction rollback).
-    pub fn raw_write(&mut self, offset: usize, value: u8) {
+    pub const fn raw_write(&mut self, offset: usize, value: u8) {
         if offset < self.free as usize {
             self.data[offset] = value;
         }

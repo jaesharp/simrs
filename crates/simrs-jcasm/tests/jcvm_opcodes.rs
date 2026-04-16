@@ -12,12 +12,12 @@
 //! # Spec References
 //!
 //! - JCVM 3.1 Chapter 7: Bytecode instruction set
-//!   - Section 7.5.1: Constant push (sconst_m1 .. sconst_5)
+//!   - Section 7.5.1: Constant push (`sconst_m1` .. `sconst_5`)
 //!   - Section 7.5.2: Byte/short push (bspush, sspush)
 //!   - Section 7.5.3-7.5.4: Local variable load/store (sload, sstore)
 //!   - Section 7.5.5: Stack manipulation (pop, dup)
 //!   - Section 7.5.6: Arithmetic (sadd, ssub, smul, sdiv, srem, sneg)
-//!   - Section 7.5.7: Branch instructions (if_scmpeq, if_scmpne, goto)
+//!   - Section 7.5.7: Branch instructions (`if_scmpeq`, `if_scmpne`, `goto`)
 //!   - Section 7.5.8: Method return (sreturn, return)
 //!   - Section 7.5.9: Method invocation (invokestatic)
 
@@ -44,7 +44,7 @@ fn run_applet(aid: &[u8], methods: &[&[u8]]) -> ExecResult {
 // "sspush pushes a short value onto the operand stack."
 // =========================================================================
 
-/// JCVM 3.1 Section 7.5.1: sconst_m1 pushes -1.
+/// JCVM 3.1 Section 7.5.1: `sconst_m1` pushes -1.
 #[test]
 fn sconst_m1_returns_minus_one() {
     let (aid, m) = jcasm! { applet A0_00_00_62_01 {
@@ -53,7 +53,7 @@ fn sconst_m1_returns_minus_one() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(-1));
 }
 
-/// JCVM 3.1 Section 7.5.1: sconst_0 pushes 0.
+/// JCVM 3.1 Section 7.5.1: `sconst_0` pushes 0.
 #[test]
 fn sconst_0_returns_zero() {
     let (aid, m) = jcasm! { applet A0_00_00_62_02 {
@@ -62,7 +62,7 @@ fn sconst_0_returns_zero() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(0));
 }
 
-/// JCVM 3.1 Section 7.5.1: sconst_5 pushes 5.
+/// JCVM 3.1 Section 7.5.1: `sconst_5` pushes 5.
 #[test]
 fn sconst_5_returns_five() {
     let (aid, m) = jcasm! { applet A0_00_00_62_03 {
@@ -233,10 +233,10 @@ fn sdiv_basic() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(3)); // 10 / 3 = 3
 }
 
-/// JCVM 3.1 Section 7.5.6: sdiv by zero raises ArithmeticException.
+/// JCVM 3.1 Section 7.5.6: `sdiv` by zero raises `ArithmeticException`.
 ///
-/// "If the value of the divisor is zero, sdiv throws an
-/// ArithmeticException."
+/// "If the value of the divisor is zero, `sdiv` throws an
+/// `ArithmeticException`."
 #[test]
 fn sdiv_by_zero_raises_arithmetic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_34 {
@@ -259,7 +259,7 @@ fn srem_basic() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(1)); // 10 % 3 = 1
 }
 
-/// JCVM 3.1 Section 7.5.6: srem by zero raises ArithmeticException.
+/// JCVM 3.1 Section 7.5.6: `srem` by zero raises `ArithmeticException`.
 #[test]
 fn srem_by_zero_raises_arithmetic() {
     let (aid, m) = jcasm! { applet A0_00_00_62_36 {
@@ -295,7 +295,7 @@ fn sneg_double_is_identity() {
 // "goto: branch unconditionally."
 // =========================================================================
 
-/// JCVM 3.1 Section 7.5.7: if_scmpeq branches when operands are equal.
+/// JCVM 3.1 Section 7.5.7: `if_scmpeq` branches when operands are equal.
 #[test]
 fn if_scmpeq_takes_branch_when_equal() {
     let (aid, m) = jcasm! { applet A0_00_00_62_40 {
@@ -313,7 +313,7 @@ fn if_scmpeq_takes_branch_when_equal() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(1));
 }
 
-/// JCVM 3.1 Section 7.5.7: if_scmpeq falls through when operands differ.
+/// JCVM 3.1 Section 7.5.7: `if_scmpeq` falls through when operands differ.
 #[test]
 fn if_scmpeq_falls_through_when_not_equal() {
     let (aid, m) = jcasm! { applet A0_00_00_62_41 {
@@ -331,7 +331,7 @@ fn if_scmpeq_falls_through_when_not_equal() {
     assert_eq!(run_applet(aid, m), ExecResult::ReturnShort(0));
 }
 
-/// JCVM 3.1 Section 7.5.7: if_scmpne branches when operands differ.
+/// JCVM 3.1 Section 7.5.7: `if_scmpne` branches when operands differ.
 #[test]
 fn if_scmpne_takes_branch_when_not_equal() {
     let (aid, m) = jcasm! { applet A0_00_00_62_42 {
@@ -373,7 +373,7 @@ fn goto_unconditional() {
 // "return returns void from a method."
 // =========================================================================
 
-/// JCVM 3.1 Section 7.5.8: return_void returns from a void method.
+/// JCVM 3.1 Section 7.5.8: `return_void` returns from a void method.
 #[test]
 fn return_void_from_method() {
     let (aid, m) = jcasm! { applet A0_00_00_62_50 {
@@ -391,8 +391,8 @@ fn return_void_from_method() {
 
 /// JCVM 3.1 Section 7.5.9: invokestatic calls another method.
 ///
-/// invokestatic takes 2-byte operand: (pkg_idx << 8 | method_idx).
-/// For intra-package calls, pkg_idx=0. So invokestatic(1) encodes
+/// `invokestatic` takes 2-byte operand: (`pkg_idx` << 8 | `method_idx`).
+/// For intra-package calls, `pkg_idx`=0. So `invokestatic(1)` encodes
 /// as 0x8D 0x00 0x01 -- call method 1 in package 0.
 #[test]
 fn invokestatic_calls_method_1() {
@@ -429,7 +429,7 @@ fn invokestatic_invalid_method() {
 // behavior.
 // =========================================================================
 
-/// JCVM 3.1 Chapter 7: pop on an empty stack raises StackUnderflow.
+/// JCVM 3.1 Chapter 7: pop on an empty stack raises `StackUnderflow`.
 #[test]
 fn stack_underflow_on_empty_pop() {
     let (aid, m) = jcasm! { applet A0_00_00_62_70 {
@@ -439,7 +439,7 @@ fn stack_underflow_on_empty_pop() {
 }
 
 /// JCVM 3.1 Chapter 7: Reaching end of bytecode without a return
-/// instruction raises EndOfBytecode.
+/// instruction raises `EndOfBytecode`.
 #[test]
 fn end_of_bytecode_without_return() {
     let (aid, m) = jcasm! { applet A0_00_00_62_71 {
@@ -456,6 +456,7 @@ fn end_of_bytecode_without_return() {
 // =========================================================================
 
 #[cfg(test)]
+#[allow(clippy::cast_sign_loss)]
 mod proptests {
     use super::*;
     use proptest::prelude::*;

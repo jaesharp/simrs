@@ -44,7 +44,7 @@ fn save_aid_entry(buf: &mut [u8], off: usize, aid: &[u8], lifecycle: u8, privile
     o + 1
 }
 
-/// Restore an AID entry from `buf` at `off`. Returns (aid_len, aid, lifecycle_byte, privileges, new_offset).
+/// Restore an AID entry from `buf` at `off`. Returns (`aid_len`, aid, `lifecycle_byte`, privileges, `new_offset`).
 fn restore_aid_entry(buf: &[u8], off: usize) -> Option<(u8, [u8; MAX_AID_LEN], u8, u8, usize)> {
     if off + 1 + MAX_AID_LEN + 2 > buf.len() {
         return None;
@@ -65,13 +65,13 @@ fn restore_aid_entry(buf: &[u8], off: usize) -> Option<(u8, [u8; MAX_AID_LEN], u
     Some((aid_len, aid, lifecycle, privileges, o))
 }
 
-/// Per SD/ISD entry: 1 (aid_len) + 16 (aid) + 1 (lifecycle) + 1 (privileges).
+/// Per SD/ISD entry: 1 (`aid_len`) + 16 (aid) + 1 (lifecycle) + 1 (privileges).
 const ENTRY_SIZE: usize = 1 + MAX_AID_LEN + 1 + 1;
 
-/// Per applet entry: ENTRY_SIZE + 1 (owner_sd_index) + 1 (has_jcvm) + 1 (pkg_idx) + 1 (process_method).
+/// Per applet entry: `ENTRY_SIZE` + 1 (`owner_sd_index`) + 1 (`has_jcvm`) + 1 (`pkg_idx`) + 1 (`process_method`).
 const APP_ENTRY_SIZE: usize = ENTRY_SIZE + 1 + 3;
 
-/// Per load file entry: 1 (aid_len) + 16 (aid) + 1 (instance_count) + 4 (slots).
+/// Per load file entry: 1 (`aid_len`) + 16 (aid) + 1 (`instance_count`) + 4 (slots).
 const LF_ENTRY_SIZE: usize = 1 + MAX_AID_LEN + 1 + 4;
 
 /// Compute the snapshot size for `GpOpen<MAX_APPLETS, MAX_SDS>`.

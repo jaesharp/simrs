@@ -44,5 +44,5 @@ The single public entry point for all external code (transport, fuzzer, HLE).
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-sim)
+- [Architecture](../../docs/architecture/#simrs-sim)
 - [Standards: Crate Impact](../../docs/standards/05-crate-impact.md)

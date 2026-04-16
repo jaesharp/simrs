@@ -61,7 +61,7 @@ impl<const CAP: usize> TransactionJournal<CAP> {
     /// # Errors
     ///
     /// Returns [`TransactionError::AlreadyActive`] if a transaction is in progress.
-    pub fn begin(&mut self) -> Result<(), TransactionError> {
+    pub const fn begin(&mut self) -> Result<(), TransactionError> {
         if self.active {
             return Err(TransactionError::AlreadyActive);
         }
@@ -79,7 +79,11 @@ impl<const CAP: usize> TransactionJournal<CAP> {
     ///
     /// Returns [`TransactionError::BufferFull`] if the journal is full.
     /// Returns [`TransactionError::NotActive`] if no transaction is active.
-    pub fn record_write(&mut self, heap_offset: u16, old_byte: u8) -> Result<(), TransactionError> {
+    pub const fn record_write(
+        &mut self,
+        heap_offset: u16,
+        old_byte: u8,
+    ) -> Result<(), TransactionError> {
         if !self.active {
             return Err(TransactionError::NotActive);
         }
@@ -96,7 +100,7 @@ impl<const CAP: usize> TransactionJournal<CAP> {
     /// # Errors
     ///
     /// Returns [`TransactionError::NotActive`] if no transaction is active.
-    pub fn commit(&mut self) -> Result<(), TransactionError> {
+    pub const fn commit(&mut self) -> Result<(), TransactionError> {
         if !self.active {
             return Err(TransactionError::NotActive);
         }
@@ -235,9 +239,11 @@ mod tests {
         // Record old values before overwriting.
         let off0 = heap.array_element_offset(arr, 0, 1).unwrap();
         let off1 = heap.array_element_offset(arr, 1, 1).unwrap();
+        #[allow(clippy::cast_possible_truncation)]
         journal
             .record_write(off0 as u16, heap.raw_read(off0).unwrap())
             .unwrap();
+        #[allow(clippy::cast_possible_truncation)]
         journal
             .record_write(off1 as u16, heap.raw_read(off1).unwrap())
             .unwrap();

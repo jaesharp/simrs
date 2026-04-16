@@ -1,4 +1,4 @@
-//! GlobalPlatform SCP01, SCP02, and SCP03 secure channel protocols per
+//! `GlobalPlatform` SCP01, SCP02, and SCP03 secure channel protocols per
 //! [GP Card Specification v2.1.1](../../../../docs/specs/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
 //! Appendices D (SCP01) and E (SCP02), and
 //! [GP Amendment D v1.1.2](../../../../docs/specs/globalplatform/GPC_2.3_D_SCP03_v1.1.2.pdf)

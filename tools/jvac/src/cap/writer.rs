@@ -957,7 +957,7 @@ mod tests {
                 assert_eq!(stored, 0);
                 continue;
             }
-            if tag < 1 || tag > 12 {
+            if !(1..=12).contains(&tag) {
                 continue;
             }
             let idx = ((tag - 1) * 2) as usize;

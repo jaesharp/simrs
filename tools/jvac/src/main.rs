@@ -67,7 +67,7 @@ fn main() {
                 let source_map = build_source_map(input, &cap_bytes);
                 let map_text = source_map.to_text();
                 fs::write(&map_path, map_text.as_bytes()).expect("failed to write source map");
-                eprintln!("wrote source map to {}", map_path);
+                eprintln!("wrote source map to {map_path}");
             }
         }
         Err(e) => {
@@ -208,7 +208,7 @@ fn build_source_map(input: &str, cap_bytes: &[u8]) -> simrs_jccompile::SourceMap
 
 /// Extract the AID from a CAP blob (simplified format).
 ///
-/// The format is: magic(4) | aid_len(1) | aid(aid_len) | ...
+/// The format is: magic(4) | `aid_len`(1) | aid(`aid_len`) | ...
 fn extract_aid_from_cap(data: &[u8]) -> Vec<u8> {
     if data.len() < 5 {
         return Vec::new();

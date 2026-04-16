@@ -94,7 +94,7 @@ The old name remains as a `#[deprecated]` alias.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-usim)
+- [Architecture](../../docs/architecture/#simrs-usim)
 - [Standards: Authentication](../../docs/standards/02-authentication.md)
 - [Standards: Filesystem](../../docs/standards/03-filesystem.md)
 - [Standards: Proactive](../../docs/standards/04-proactive.md)

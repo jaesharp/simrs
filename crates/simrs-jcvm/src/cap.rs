@@ -11,11 +11,11 @@
 //! 2. Directory -- component size table, static field sizes, import count
 //! 3. Applet -- AID to `install_method_offset` mapping, one per applet
 //! 4. Import -- imported packages with AIDs and versions
-//! 5. ConstantPool -- resolved refs: class, field, method
+//! 5. `ConstantPool` -- resolved refs: class, field, method
 //! 6. Class -- hierarchy, interfaces, field count, public method table
-//! 7. Method -- bytecode: flags, max_stack, nargs, max_locals, bytecode[]
-//! 8. StaticField -- initial values for static fields
-//! 9. ReferenceLocation -- offsets for runtime token resolution
+//! 7. Method -- bytecode: flags, `max_stack`, nargs, `max_locals`, bytecode\[\]
+//! 8. `StaticField` -- initial values for static fields
+//! 9. `ReferenceLocation` -- offsets for runtime token resolution
 //! 10. Export -- published tokens for inter-package linking
 //! 11. Descriptor -- debug info (optional)
 //!
@@ -193,6 +193,7 @@ pub enum ParseError {
 /// # Errors
 ///
 /// Returns [`ParseError`] if the blob is malformed.
+#[allow(clippy::too_many_lines)]
 pub fn parse_cap(data: &[u8]) -> Result<Package, ParseError> {
     let mut pos = 0;
 
@@ -395,9 +396,9 @@ pub fn build_cap_blob(aid: &[u8], bytecodes: &[&[u8]], buf: &mut [u8]) -> usize 
 impl Package {
     /// Maximum snapshot size for a single package.
     ///
-    /// Layout per method: present(1) + flags(1) + max_stack(1) + nargs(1) +
-    ///   max_locals(1) + bytecode_len(2) + bytecode(256) +
-    ///   exc_count(1) + exceptions(8*8) + offsets(4)
+    /// Layout per method: present(1) + flags(1) + `max_stack`(1) + nargs(1) +
+    ///   `max_locals`(1) + `bytecode_len`(2) + bytecode(256) +
+    ///   `exc_count`(1) + exceptions(8\*8) + offsets(4)
     pub const MAX_SNAPSHOT_SIZE: usize = 1
         + MAX_AID_LEN
         + 1
@@ -448,7 +449,10 @@ impl Package {
                     off += bc_len;
                     // Exception table.
                     let exc_count = m.exception_table.iter().filter(|e| e.is_some()).count();
-                    buf[off] = exc_count as u8;
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        buf[off] = exc_count as u8;
+                    }
                     off += 1;
                     for exc in m.exception_table.iter().flatten() {
                         buf[off..off + 2].copy_from_slice(&exc.start_pc.to_le_bytes());

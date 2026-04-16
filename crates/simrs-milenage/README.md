@@ -66,5 +66,5 @@ remain available as `#[deprecated]` aliases with compiler guidance:
 ## Specs
 
 - [BDD: specs/milenage.feature](../../specs/milenage.feature) -- 16 scenarios, ETSI TS 135 208 Test Set 1
-- [Architecture](../../docs/architecture.md#simrs-milenage)
+- [Architecture](../../docs/architecture/#simrs-milenage)
 - [Standards: Authentication](../../docs/standards/02-authentication.md)

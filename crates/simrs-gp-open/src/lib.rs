@@ -25,7 +25,6 @@
 #![no_std]
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
-#![allow(clippy::doc_markdown)]
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -857,20 +856,24 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             process_external_authenticate(&mut self.scp_state, security_level, &host_crypto_and_mac)
         };
 
+        // All EXTERNAL AUTHENTICATE failures return 69 88 regardless of
+        // whether the host cryptogram, C-MAC, or both are wrong. This is a
+        // deliberate countermeasure against the padding oracle attack
+        // described by Avoine & Ferreira ("Rescuing Mutual Authentication",
+        // TCHES 2018), which exploits distinguishable error responses to
+        // recover session keys offline. GP 2.1.1 Table 9-9 permits both
+        // 69 85 and 69 88; we use 69 88 uniformly to close the oracle.
+        // Oracle jcsl returns 69 85 -- also spec-compliant, but
+        // distinguishable across failure modes.
         match result {
             Ok(()) => write_sw(buf, StatusWord::Success),
             Err(simrs_gp_scp::ScpError::InvalidState) => {
                 write_sw(buf, StatusWord::command_not_allowed(0x85))
             }
-            Err(simrs_gp_scp::ScpError::HostCryptogramMismatch) => {
-                // 69 88: uniform error for all authentication failures
-                // (padding oracle defense per Avoine & Ferreira, TCHES 2018).
-                write_sw(buf, StatusWord::command_not_allowed(0x88))
-            }
-            Err(simrs_gp_scp::ScpError::CmacMismatch) => {
-                // 69 88: Incorrect values in command data (SM related).
-                write_sw(buf, StatusWord::CommandNotAllowed(0x88))
-            }
+            Err(
+                simrs_gp_scp::ScpError::HostCryptogramMismatch
+                | simrs_gp_scp::ScpError::CmacMismatch,
+            ) => write_sw(buf, StatusWord::command_not_allowed(0x88)),
             Err(_) => write_sw(buf, StatusWord::NoPreciseDiagnosis),
         }
     }
@@ -937,7 +940,7 @@ mod tests {
         gp
     }
 
-    /// Make a GpOpen instance without SCP authentication (for testing auth enforcement).
+    /// Make a `GpOpen` instance without SCP authentication (for testing auth enforcement).
     #[allow(dead_code)]
     fn make_gp_unauthenticated() -> GpOpen<8, 2> {
         GpOpen::new(&test_keys())
@@ -1613,6 +1616,7 @@ mod tests {
     // -- JCVM integration: LOAD -> INSTALL -> SELECT -> APDU --
 
     /// Build an INSTALL [for load] APDU.
+    #[allow(clippy::cast_possible_truncation)]
     fn build_install_for_load(lf_aid: &[u8]) -> [u8; 32] {
         let isd_aid: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
         let mut data = [0u8; 24];
@@ -1643,6 +1647,7 @@ mod tests {
     }
 
     /// Build an INSTALL [for install and make selectable] APDU.
+    #[allow(clippy::cast_possible_truncation)]
     fn build_install_for_ims(lf_aid: &[u8], mod_aid: &[u8], app_aid: &[u8]) -> [u8; 64] {
         let mut data = [0u8; 56];
         let mut dlen = 0;
@@ -1676,7 +1681,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::large_stack_arrays)]
+    #[allow(clippy::large_stack_arrays, clippy::cast_possible_truncation)]
     fn load_install_select_execute_jcvm_applet() {
         use simrs_jcasm::jcasm;
 

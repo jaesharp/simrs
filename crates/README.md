@@ -132,7 +132,7 @@ graph TB
     TR --> ISO
     PERI --> ISO
 
-    %% Styles per DIAGRAM_STYLE_GUIDE.md
+    %% Styles per style/diagrams.md
     classDef foundation fill:#0072B2,stroke:#333,color:#fff
     classDef composition fill:#008060,stroke:#333,color:#fff
     classDef application fill:#E69F00,stroke:#333,color:#000
@@ -158,43 +158,43 @@ graph TB
 
 | Crate | Layer | `no_std` | Description | Dependencies | Detail |
 |-------|-------|----------|-------------|--------------|--------|
-| [`simrs-iso7816`](simrs-iso7816/) | Foundation | yes | APDU types, CLA parsing, status words, INS constants | -- | [API](../docs/architecture.md#simrs-iso7816) |
-| [`simrs-bertlv`](simrs-bertlv/) | Foundation | yes | BER-TLV encoder/decoder with dry-run mode | -- | [API](../docs/architecture.md#simrs-bertlv) |
-| [`simrs-rijndael`](simrs-rijndael/) | Foundation | yes | AES-128 block cipher (encrypt only, `const fn` key sched) | -- | [API](../docs/architecture.md#simrs-rijndael) |
-| [`simrs-comp128`](simrs-comp128/) | Foundation | yes | `COMP128v1` GSM A3/A8 authentication | -- | [API](../docs/architecture.md#simrs-comp128) |
-| [`simrs-keccak`](simrs-keccak/) | Foundation | yes | Keccak-f[1600] permutation for TUAK | -- | [API](../docs/architecture.md#simrs-keccak) |
-| [`simrs-pcap`](simrs-pcap/) | Foundation | yes | PCAP file + GSMTAP SIM frame encoding | -- | [API](../docs/architecture.md#simrs-pcap) |
-| [`simrs-consttime-macros`](simrs-consttime-macros/) | Foundation | yes | `#[derive(CtEq)]` proc macro for constant-time equality | -- | [API](../docs/architecture.md#simrs-consttime-macros) |
-| [`simrs-consttime`](simrs-consttime/) | Foundation | yes | Constant-time primitives (table lookup, comparison, GF(2^8)) | [consttime-macros](simrs-consttime-macros/) | [API](../docs/architecture.md#simrs-consttime) |
+| [`simrs-iso7816`](simrs-iso7816/) | Foundation | yes | APDU types, CLA parsing, status words, INS constants | -- | [API](../docs/architecture/#simrs-iso7816) |
+| [`simrs-bertlv`](simrs-bertlv/) | Foundation | yes | BER-TLV encoder/decoder with dry-run mode | -- | [API](../docs/architecture/#simrs-bertlv) |
+| [`simrs-rijndael`](simrs-rijndael/) | Foundation | yes | AES-128 block cipher (encrypt only, `const fn` key sched) | -- | [API](../docs/architecture/#simrs-rijndael) |
+| [`simrs-comp128`](simrs-comp128/) | Foundation | yes | `COMP128v1` GSM A3/A8 authentication | -- | [API](../docs/architecture/#simrs-comp128) |
+| [`simrs-keccak`](simrs-keccak/) | Foundation | yes | Keccak-f[1600] permutation for TUAK | -- | [API](../docs/architecture/#simrs-keccak) |
+| [`simrs-pcap`](simrs-pcap/) | Foundation | yes | PCAP file + GSMTAP SIM frame encoding | -- | [API](../docs/architecture/#simrs-pcap) |
+| [`simrs-consttime-macros`](simrs-consttime-macros/) | Foundation | yes | `#[derive(CtEq)]` proc macro for constant-time equality | -- | [API](../docs/architecture/#simrs-consttime-macros) |
+| [`simrs-consttime`](simrs-consttime/) | Foundation | yes | Constant-time primitives (table lookup, comparison, GF(2^8)) | [consttime-macros](simrs-consttime-macros/) | [API](../docs/architecture/#simrs-consttime) |
 | [`simrs-redact`](simrs-redact/) | Foundation | yes | Feature-gated `Debug`/`Display` redaction for secret byte arrays | -- | -- |
 | [`simrs-sha256`](simrs-sha256/) | Foundation | yes | SHA-256 hash per NIST FIPS 180-4 | -- | -- |
 | [`simrs-secret`](simrs-secret/) | Composition | yes | `Secret<T>` and `CtOption<T>` -- zero-cost compile-time constant-time boundary enforcement | [consttime](simrs-consttime/), [redact](simrs-redact/) | -- |
 | [`simrs-kdf`](simrs-kdf/) | Composition | yes | HMAC-SHA-256 and 3GPP KDFs (TS 33.220/33.401/33.501) | [sha256](simrs-sha256/), [secret](simrs-secret/) | -- |
 | [`simrs-ecies`](simrs-ecies/) | Composition | yes | ECIES Profiles A & B (X25519/P-256 + AES-128-CTR + HMAC-SHA-256) for SUCI per TS 33.501 | [consttime](simrs-consttime/), [kdf](simrs-kdf/), [rijndael](simrs-rijndael/), [secret](simrs-secret/) | -- |
-| [`simrs-milenage`](simrs-milenage/) | Composition | yes | Milenage f1--f5 UMTS authentication | [rijndael](simrs-rijndael/) | [API](../docs/architecture.md#simrs-milenage) |
-| [`simrs-tuak`](simrs-tuak/) | Composition | yes | TUAK f1--f5 3GPP auth (Keccak-based) | [keccak](simrs-keccak/), [milenage](simrs-milenage/) | [API](../docs/architecture.md#simrs-tuak) |
-| [`simrs-fs`](simrs-fs/) | Composition | yes | ICC filesystem model (MF/DF/ADF/EF), `const` trees. Type system: `Fid`/`Sfi` validated newtypes, `EfDef` typed constructors (`transparent`/`linear_fixed`/`cyclic`/`ber_tlv`) with compile-time data length checks, `assert_fids_unique` compile-time FID uniqueness, `EfStructure` method dispatch (10 methods), `FsData<CAP, MAX_EFS>` dual const generics. | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/) | [API](../docs/architecture.md#simrs-fs) |
-| [`simrs-pin`](simrs-pin/) | Composition | yes | PIN/PUK state machine (verify, change, unblock) | [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-pin) |
-| [`simrs-proactive`](simrs-proactive/) | Composition | yes | Proactive UICC / CAT command encoding | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/) | [API](../docs/architecture.md#simrs-proactive) |
-| [`simrs-ota`](simrs-ota/) | Composition | yes | OTA secured packets (TS 102 225/226) | [rijndael](simrs-rijndael/), [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-ota) |
-| [`simrs-gsm`](simrs-gsm/) | Application | yes | GSM 11.11 SIM app (SELECT, RUN GSM ALGO, STATUS). Profile tiers: `profile-minimal` (9 EFs), `profile-standard` (19 EFs, default). | [iso7816](simrs-iso7816/), [comp128](simrs-comp128/), [fs](simrs-fs/), [pin](simrs-pin/) | [API](../docs/architecture.md#simrs-gsm) |
-| [`simrs-usim`](simrs-usim/) | Application | yes | 3GPP USIM app (FCP, AUTH, TERMINAL PROFILE, FETCH). Profile tiers: `profile-minimal` (33 EFs), `profile-standard` (58 EFs, default), `profile-full` (207 EFs). Full profile: 115 ADF.USIM EFs + 19 DF_5GS EFs + 11 sub-DFs (88 child EFs) + 4 MF EFs. Optional ADFs: `isim` (ISIM, 10 EFs, TS 31.103), `hpsim` (HPSIM, 3 EFs, TS 31.104). Optional: `telecom` (DF.TELECOM, 12 EFs). Meta flags: `profile-lte`, `profile-5g`, `profile-ims`, `profile-all`. | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/), [milenage](simrs-milenage/), [fs](simrs-fs/), [pin](simrs-pin/), [proactive](simrs-proactive/) | [API](../docs/architecture.md#simrs-usim) |
-| [`simrs-sim`](simrs-sim/) | Application | yes | Top-level `Sim` state machine, event-driven entry point | [iso7816](simrs-iso7816/), [fs](simrs-fs/), [pin](simrs-pin/), [gsm](simrs-gsm/)^opt^, [usim](simrs-usim/)^opt^ | [API](../docs/architecture.md#simrs-sim) |
-| [`simrs-transport`](simrs-transport/) | Boundary | yes | `Transport` trait (APDU exchange abstraction) | [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-transport) |
-| [`simrs-transport-tcp`](simrs-transport-tcp/) | Boundary | **no** | TCP client for swICC PC/SC server protocol | [transport](simrs-transport/), [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-transport-tcp) |
-| [`simrs-transport-shmem`](simrs-transport-shmem/) | Boundary | yes | Shared-memory lock-free ring buffer transport | [transport](simrs-transport/), [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-transport-shmem) |
-| [`simrs-transport-virtio`](simrs-transport-virtio/) | Boundary | yes | `VirtIO` virtqueue smart card transport | [transport](simrs-transport/), [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-transport-virtio) |
-| [`simrs-peripheral`](simrs-peripheral/) | Boundary | yes | `SimPeripheral` trait (HW SIM slot abstraction) | [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-peripheral) |
-| [`simrs-peripheral-shannon`](simrs-peripheral-shannon/) | Boundary | yes | Shannon baseband SIM controller (MMIO + `VirtIO`) | [peripheral](simrs-peripheral/), [virtio](simrs-transport-virtio/), [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-peripheral-shannon) |
-| [`simrs-peripheral-osembed`](simrs-peripheral-osembed/) | Boundary | **no** | Linux/Android SIM ioctl interface | [peripheral](simrs-peripheral/), [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-peripheral-osembed) |
-| [`simrs-qemu`](simrs-qemu/) | Boundary | **no** | QEMU virtual smart card bridge (shmem + chardev) | [sim](simrs-sim/), [shmem](simrs-transport-shmem/) | [API](../docs/architecture.md#simrs-qemu) |
-| [`simrs-snapshot`](simrs-snapshot/) | Meta | yes | Deterministic state serialization (`Snapshot` trait) | [sim](simrs-sim/) | [API](../docs/architecture.md#simrs-snapshot) |
-| [`simrs-hle`](simrs-hle/) | Meta | **no** | HLE SIM peripheral, C-ABI `cdylib` for QEMU | [sim](simrs-sim/), [snapshot](simrs-snapshot/), [iso7816](simrs-iso7816/) | [API](../docs/architecture.md#simrs-hle) |
-| [`simrs-fuzz`](simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](simrs-hle/), [fs](simrs-fs/), [pcap](simrs-pcap/) | [API](../docs/architecture.md#simrs-fuzz) |
-| [`simrs-interposer`](simrs-interposer/) | Meta | **no** | Shadow SIM proxy, APDU interposer with PCAP capture | [sim](simrs-sim/), [transport-tcp](simrs-transport-tcp/), [pcap](simrs-pcap/) | [API](../docs/architecture.md#simrs-interposer) |
+| [`simrs-milenage`](simrs-milenage/) | Composition | yes | Milenage f1--f5 UMTS authentication | [rijndael](simrs-rijndael/) | [API](../docs/architecture/#simrs-milenage) |
+| [`simrs-tuak`](simrs-tuak/) | Composition | yes | TUAK f1--f5 3GPP auth (Keccak-based) | [keccak](simrs-keccak/), [milenage](simrs-milenage/) | [API](../docs/architecture/#simrs-tuak) |
+| [`simrs-fs`](simrs-fs/) | Composition | yes | ICC filesystem model (MF/DF/ADF/EF), `const` trees. Type system: `Fid`/`Sfi` validated newtypes, `EfDef` typed constructors (`transparent`/`linear_fixed`/`cyclic`/`ber_tlv`) with compile-time data length checks, `assert_fids_unique` compile-time FID uniqueness, `EfStructure` method dispatch (10 methods), `FsData<CAP, MAX_EFS>` dual const generics. | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/) | [API](../docs/architecture/#simrs-fs) |
+| [`simrs-pin`](simrs-pin/) | Composition | yes | PIN/PUK state machine (verify, change, unblock) | [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-pin) |
+| [`simrs-proactive`](simrs-proactive/) | Composition | yes | Proactive UICC / CAT command encoding | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/) | [API](../docs/architecture/#simrs-proactive) |
+| [`simrs-ota`](simrs-ota/) | Composition | yes | OTA secured packets (TS 102 225/226) | [rijndael](simrs-rijndael/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-ota) |
+| [`simrs-gsm`](simrs-gsm/) | Application | yes | GSM 11.11 SIM app (SELECT, RUN GSM ALGO, STATUS). Profile tiers: `profile-minimal` (9 EFs), `profile-standard` (19 EFs, default). | [iso7816](simrs-iso7816/), [comp128](simrs-comp128/), [fs](simrs-fs/), [pin](simrs-pin/) | [API](../docs/architecture/#simrs-gsm) |
+| [`simrs-usim`](simrs-usim/) | Application | yes | 3GPP USIM app (FCP, AUTH, TERMINAL PROFILE, FETCH). Profile tiers: `profile-minimal` (33 EFs), `profile-standard` (58 EFs, default), `profile-full` (207 EFs). Full profile: 115 ADF.USIM EFs + 19 DF_5GS EFs + 11 sub-DFs (88 child EFs) + 4 MF EFs. Optional ADFs: `isim` (ISIM, 10 EFs, TS 31.103), `hpsim` (HPSIM, 3 EFs, TS 31.104). Optional: `telecom` (DF.TELECOM, 12 EFs). Meta flags: `profile-lte`, `profile-5g`, `profile-ims`, `profile-all`. | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/), [milenage](simrs-milenage/), [fs](simrs-fs/), [pin](simrs-pin/), [proactive](simrs-proactive/) | [API](../docs/architecture/#simrs-usim) |
+| [`simrs-sim`](simrs-sim/) | Application | yes | Top-level `Sim` state machine, event-driven entry point | [iso7816](simrs-iso7816/), [fs](simrs-fs/), [pin](simrs-pin/), [gsm](simrs-gsm/)^opt^, [usim](simrs-usim/)^opt^ | [API](../docs/architecture/#simrs-sim) |
+| [`simrs-transport`](simrs-transport/) | Boundary | yes | `Transport` trait (APDU exchange abstraction) | [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-transport) |
+| [`simrs-transport-tcp`](simrs-transport-tcp/) | Boundary | **no** | TCP client for swICC PC/SC server protocol | [transport](simrs-transport/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-transport-tcp) |
+| [`simrs-transport-shmem`](simrs-transport-shmem/) | Boundary | yes | Shared-memory lock-free ring buffer transport | [transport](simrs-transport/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-transport-shmem) |
+| [`simrs-transport-virtio`](simrs-transport-virtio/) | Boundary | yes | `VirtIO` virtqueue smart card transport | [transport](simrs-transport/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-transport-virtio) |
+| [`simrs-peripheral`](simrs-peripheral/) | Boundary | yes | `SimPeripheral` trait (HW SIM slot abstraction) | [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-peripheral) |
+| [`simrs-peripheral-shannon`](simrs-peripheral-shannon/) | Boundary | yes | Shannon baseband SIM controller (MMIO + `VirtIO`) | [peripheral](simrs-peripheral/), [virtio](simrs-transport-virtio/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-peripheral-shannon) |
+| [`simrs-peripheral-osembed`](simrs-peripheral-osembed/) | Boundary | **no** | Linux/Android SIM ioctl interface | [peripheral](simrs-peripheral/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-peripheral-osembed) |
+| [`simrs-qemu`](simrs-qemu/) | Boundary | **no** | QEMU virtual smart card bridge (shmem + chardev) | [sim](simrs-sim/), [shmem](simrs-transport-shmem/) | [API](../docs/architecture/#simrs-qemu) |
+| [`simrs-snapshot`](simrs-snapshot/) | Meta | yes | Deterministic state serialization (`Snapshot` trait) | [sim](simrs-sim/) | [API](../docs/architecture/#simrs-snapshot) |
+| [`simrs-hle`](simrs-hle/) | Meta | **no** | HLE SIM peripheral, C-ABI `cdylib` for QEMU | [sim](simrs-sim/), [snapshot](simrs-snapshot/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-hle) |
+| [`simrs-fuzz`](simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](simrs-hle/), [fs](simrs-fs/), [pcap](simrs-pcap/) | [API](../docs/architecture/#simrs-fuzz) |
+| [`simrs-interposer`](simrs-interposer/) | Meta | **no** | Shadow SIM proxy, APDU interposer with PCAP capture | [sim](simrs-sim/), [transport-tcp](simrs-transport-tcp/), [pcap](simrs-pcap/) | [API](../docs/architecture/#simrs-interposer) |
 | [`simrs-auth-cli`](simrs-auth-cli/) | Meta | **no** | Milenage auth vector CLI for LTE/UMTS test tools | [milenage](simrs-milenage/) | -- |
-| [`simrs-consttime-validation`](simrs-consttime-validation/) | Meta | **no** | DudeCT timing verification for constant-time code | [consttime](simrs-consttime/) | [API](../docs/architecture.md#simrs-consttime-validation) |
-| [`simrs-profile`](simrs-profile/) | Meta | **no** | TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem) | [fs](simrs-fs/) | [API](../docs/architecture.md#simrs-profile) |
+| [`simrs-consttime-validation`](simrs-consttime-validation/) | Meta | **no** | DudeCT timing verification for constant-time code | [consttime](simrs-consttime/) | [API](../docs/architecture/#simrs-consttime-validation) |
+| [`simrs-profile`](simrs-profile/) | Meta | **no** | TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem) | [fs](simrs-fs/) | [API](../docs/architecture/#simrs-profile) |
 | [`simrs-ref`](simrs-ref/) | Meta | **no** | Reference test vectors from 3GPP/ETSI specifications | [milenage](simrs-milenage/), [tuak](simrs-tuak/), [comp128](simrs-comp128/) | -- |
 
 ^opt^ = optional feature gate
@@ -253,7 +253,7 @@ graph TB
 
 ## Further Reading
 
-- **[Architecture & API Reference](../docs/architecture.md)** -- full public API surface, Mermaid sequence diagrams
-- **[Diagram Style Guide](../docs/DIAGRAM_STYLE_GUIDE.md)** -- Okabe-Ito palette, semantic colour mapping, WCAG compliance
+- **[Architecture & API Reference](../docs/architecture/)** -- full public API surface, Mermaid sequence diagrams
+- **[Diagram Style Guide](../docs/style/diagrams.md)** -- Okabe-Ito palette, semantic colour mapping, WCAG compliance
 - **[Standards Map](../docs/standards/README.md)** -- 4G/5G/GSM standards mapped to crates, generation coverage
 - **[Wireshark Lua Dissector](../tools/simrs-apdu.lua)** -- DLT_USER0 APDU dissector for PCAP captures; GSMTAP captures use Wireshark's built-in `gsmtap` dissector

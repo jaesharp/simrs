@@ -695,6 +695,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn no_opcode_value_collisions() {
         // Verify that all distinct opcode constants have unique values.
         let opcodes: &[(u8, &str)] = &[

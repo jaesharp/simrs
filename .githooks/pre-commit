@@ -1,8 +1,13 @@
 #!/bin/sh
-# Abort commit if cargo fmt finds formatting issues.
+# Abort commit if cargo fmt or clippy finds issues.
 # Install: git config core.hooksPath .githooks
 
 if ! cargo fmt --all -- --check 2>/dev/null; then
     echo "pre-commit: formatting issues found. Run 'cargo fmt --all' and re-stage."
+    exit 1
+fi
+
+if ! cargo clippy --workspace --all-targets --all-features -- -D warnings 2>/dev/null; then
+    echo "pre-commit: clippy warnings found. Fix them before committing."
     exit 1
 fi

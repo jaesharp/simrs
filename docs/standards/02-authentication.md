@@ -4,7 +4,7 @@ Complete authentication flow and key derivation reference for 2G/3G/4G/5G, mappe
 
 [Back to Standards Map](README.md) | [Catalog](01-catalog.md) | [Filesystem](03-filesystem.md)
 
-Colours follow the [Diagram Style Guide](../DIAGRAM_STYLE_GUIDE.md).
+Colours follow the [Diagram Style Guide](../style/diagrams.md).
 
 ---
 

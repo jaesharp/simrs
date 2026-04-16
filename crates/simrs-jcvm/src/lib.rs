@@ -145,11 +145,15 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     }
 
     /// Mutable reference to the transaction journal.
-    pub fn journal_mut(&mut self) -> &mut TransactionJournal<JOURNAL_CAP> {
+    pub const fn journal_mut(&mut self) -> &mut TransactionJournal<JOURNAL_CAP> {
         &mut self.journal
     }
 
     /// Abort the current transaction, rolling back heap writes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`transaction::TransactionError::NotActive`] if no transaction is active.
     pub fn abort_transaction(&mut self) -> Result<(), transaction::TransactionError> {
         self.journal.abort(&mut self.heap)
     }
@@ -655,7 +659,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    let shift = (b as u16) & 0x1F;
+                    let shift = b.cast_unsigned() & 0x1F;
                     #[allow(clippy::cast_possible_truncation)]
                     let result = ((i32::from(a) << shift) & 0xFFFF) as i16;
                     if let Err(e) = self.push(result.cast_unsigned()) {
@@ -672,7 +676,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    let shift = (b as u16) & 0x1F;
+                    let shift = b.cast_unsigned() & 0x1F;
                     #[allow(clippy::cast_possible_truncation)]
                     let result = (i32::from(a) >> shift) as i16;
                     if let Err(e) = self.push(result.cast_unsigned()) {
@@ -689,7 +693,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    let shift = (b as u16) & 0x1F;
+                    let shift = b.cast_unsigned() & 0x1F;
                     let result = a >> shift;
                     if let Err(e) = self.push(result) {
                         return e;
@@ -748,7 +752,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    let shift = (b as u32) & 0x1F;
+                    let shift = u32::from(b.cast_unsigned()) & 0x1F;
                     if let Err(e) = self.push_int(a.wrapping_shl(shift)) {
                         return e;
                     }
@@ -763,7 +767,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    let shift = (b as u32) & 0x1F;
+                    let shift = u32::from(b.cast_unsigned()) & 0x1F;
                     if let Err(e) = self.push_int(a.wrapping_shr(shift)) {
                         return e;
                     }
@@ -778,8 +782,8 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    let shift = (b as u32) & 0x1F;
-                    let result = (a as u32).wrapping_shr(shift) as i32;
+                    let shift = u32::from(b.cast_unsigned()) & 0x1F;
+                    let result = a.cast_unsigned().wrapping_shr(shift).cast_signed();
                     if let Err(e) = self.push_int(result) {
                         return e;
                     }
@@ -849,10 +853,12 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     };
                     let hi = self.get_local(idx);
                     let lo = self.get_local(idx.wrapping_add(1));
-                    let val = ((hi as u32) << 16 | lo as u32) as i32;
+                    let val = (u32::from(hi) << 16 | u32::from(lo)).cast_signed();
                     let inc = i32::from(c.cast_signed());
-                    let result = val.wrapping_add(inc) as u32;
+                    let result = val.wrapping_add(inc).cast_unsigned();
+                    #[allow(clippy::cast_possible_truncation)]
                     self.set_local(idx, (result >> 16) as u16);
+                    #[allow(clippy::cast_possible_truncation)]
                     self.set_local(idx.wrapping_add(1), result as u16);
                 }
 
@@ -913,12 +919,10 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    let result: i16 = if a > b {
-                        1
-                    } else if a == b {
-                        0
-                    } else {
-                        -1
+                    let result: i16 = match a.cmp(&b) {
+                        core::cmp::Ordering::Greater => 1,
+                        core::cmp::Ordering::Equal => 0,
+                        core::cmp::Ordering::Less => -1,
                     };
                     if let Err(e) = self.push(result.cast_unsigned()) {
                         return e;
@@ -1315,7 +1319,8 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                 }
 
                 // --- Method invocation ---
-                opcodes::INVOKESTATIC => {
+                // invokespecial is stubbed as invokestatic for now.
+                opcodes::INVOKESTATIC | opcodes::INVOKESPECIAL => {
                     let result = self.exec_invokestatic(bytecode, bytecode_len);
                     if let Some(err) = result {
                         return err;
@@ -1554,7 +1559,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     }
                 }
 
-                opcodes::SASTORE => {
+                opcodes::SASTORE | opcodes::AASTORE => {
                     let value = match self.pop_i16() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -1606,7 +1611,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                                 return e;
                             }
                         }
-                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
                             return ExecResult::SecurityException
                         }
@@ -1639,7 +1643,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         self.current_context,
                     ) {
                         Ok(()) => {}
-                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
                             return ExecResult::SecurityException
                         }
@@ -1697,35 +1700,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     }
                 }
 
-                opcodes::AASTORE => {
-                    let value = match self.pop_i16() {
-                        Ok(v) => v,
-                        Err(e) => return e,
-                    };
-                    let index = match self.pop() {
-                        Ok(v) => v,
-                        Err(e) => return e,
-                    };
-                    let arr_ref = match self.pop() {
-                        Ok(v) => v,
-                        Err(e) => return e,
-                    };
-                    let obj = ObjRef(arr_ref);
-                    match self.heap.sastore(obj, index, value, self.current_context) {
-                        Ok(()) => {}
-                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
-                        Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
-                        }
-                        Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
-                        }
-                        Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
-                        }
-                    }
-                }
-
                 // Int array load: reads 2 consecutive short elements as one int
                 opcodes::IALOAD => {
                     let index = match self.pop() {
@@ -1766,8 +1740,8 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                             return ExecResult::SecurityException
                         }
                     };
-                    let val =
-                        ((hi.cast_unsigned() as u32) << 16 | lo.cast_unsigned() as u32) as i32;
+                    let val = (u32::from(hi.cast_unsigned()) << 16 | u32::from(lo.cast_unsigned()))
+                        .cast_signed();
                     if let Err(e) = self.push_int(val) {
                         return e;
                     }
@@ -1787,8 +1761,10 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     let obj = ObjRef(arr_ref);
-                    let bits = val as u32;
+                    let bits = val.cast_unsigned();
+                    #[allow(clippy::cast_possible_truncation)]
                     let hi = (bits >> 16) as i16;
+                    #[allow(clippy::cast_possible_truncation)]
                     let lo = bits as i16;
                     let hi_idx = index.wrapping_mul(2);
                     let lo_idx = hi_idx.wrapping_add(1);
@@ -1842,7 +1818,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                                 return e;
                             }
                         }
-                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
                             return ExecResult::SecurityException
                         }
@@ -1873,7 +1848,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         self.current_context,
                     ) {
                         Ok(()) => {}
-                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
                             return ExecResult::SecurityException
                         }
@@ -1903,7 +1877,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                                 return e;
                             }
                         }
-                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
                             return ExecResult::SecurityException
                         }
@@ -1934,7 +1907,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         self.current_context,
                     ) {
                         Ok(()) => {}
-                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
                             return ExecResult::SecurityException
                         }
@@ -1964,7 +1936,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                                 return e;
                             }
                         }
-                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
                             return ExecResult::SecurityException
                         }
@@ -1995,7 +1966,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         self.current_context,
                     ) {
                         Ok(()) => {}
-                        Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::Security(_)) => {
                             return ExecResult::SecurityException
                         }
@@ -2083,14 +2053,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         self.static_fields[idx + 1] = bytes[1];
                         self.static_fields[idx + 2] = bytes[2];
                         self.static_fields[idx + 3] = bytes[3];
-                    }
-                }
-
-                // --- Invoke: invokespecial (stub: same as invokestatic for now) ---
-                opcodes::INVOKESPECIAL => {
-                    let result = self.exec_invokestatic(bytecode, bytecode_len);
-                    if let Some(err) = result {
-                        return err;
                     }
                 }
 
@@ -2185,7 +2147,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     // Stub: null -> 0, non-null -> 1.
-                    let result: u16 = if obj_ref == 0 { 0 } else { 1 };
+                    let result: u16 = u16::from(obj_ref != 0);
                     if let Err(e) = self.push(result) {
                         return e;
                     }
@@ -2208,8 +2170,10 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     if key >= low && key <= high {
+                        #[allow(clippy::cast_sign_loss)] // key >= low is checked above
                         let table_idx = (key - low) as usize;
                         // Skip to the correct offset entry.
+                        #[allow(clippy::cast_possible_truncation)]
                         let entry_pc = self.pc.wrapping_add((table_idx * 2) as u16);
                         if entry_pc + 1 >= bytecode_len {
                             return ExecResult::EndOfBytecode;
@@ -2283,7 +2247,9 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Err(e) => return e,
                     };
                     if key >= low && key <= high {
+                        #[allow(clippy::cast_sign_loss)] // key >= low is checked above
                         let table_idx = (key - low) as usize;
+                        #[allow(clippy::cast_possible_truncation)]
                         let entry_pc = self.pc.wrapping_add((table_idx * 2) as u16);
                         if entry_pc + 1 >= bytecode_len {
                             return ExecResult::EndOfBytecode;
@@ -2465,13 +2431,15 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     fn pop_int(&mut self) -> Result<i32, ExecResult> {
         let lo = self.pop()?;
         let hi = self.pop()?;
-        Ok(((hi as u32) << 16 | lo as u32) as i32)
+        Ok((u32::from(hi) << 16 | u32::from(lo)).cast_signed())
     }
 
     /// Push a 32-bit int onto the stack (two u16 words: high first, low second).
     fn push_int(&mut self, val: i32) -> Result<(), ExecResult> {
-        let bits = val as u32;
+        let bits = val.cast_unsigned();
+        #[allow(clippy::cast_possible_truncation)]
         self.push((bits >> 16) as u16)?; // high word
+        #[allow(clippy::cast_possible_truncation)]
         self.push(bits as u16)?; // low word
         Ok(())
     }
@@ -2718,12 +2686,20 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     // -----------------------------------------------------------------------
 
     /// Push a 16-bit value onto the operand stack (public, for native dispatch).
-    pub fn push_pub(&mut self, val: u16) -> Result<(), ExecResult> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecResult::StackOverflow`] if the stack is full.
+    pub const fn push_pub(&mut self, val: u16) -> Result<(), ExecResult> {
         self.push(val)
     }
 
     /// Pop a 16-bit value and interpret as i16 (public, for native dispatch).
-    pub fn pop_i16_pub(&mut self) -> Result<i16, ExecResult> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecResult::StackUnderflow`] if the stack is empty.
+    pub const fn pop_i16_pub(&mut self) -> Result<i16, ExecResult> {
         self.pop_i16()
     }
 
@@ -2755,6 +2731,11 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     /// `Util.arrayCopy` implementation: copy bytes between byte arrays on the heap.
     ///
     /// Returns `destOff + length` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecResult::ArrayIndexOutOfBounds`] for invalid offsets/lengths.
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     pub fn native_array_copy(
         &mut self,
         src: ObjRef,
@@ -2775,19 +2756,19 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
         if len > buf.len() {
             return Err(ExecResult::ArrayIndexOutOfBounds);
         }
-        for i in 0..len {
+        for (i, slot) in buf.iter_mut().enumerate().take(len) {
             let idx = (src_off as usize + i) as u16;
             match self.heap.baload(src, idx, self.current_context) {
-                Ok(v) => buf[i] = v,
+                Ok(v) => *slot = v,
                 Err(_) => return Err(ExecResult::ArrayIndexOutOfBounds),
             }
         }
         // Write to dest.
-        for i in 0..len {
+        for (i, &val) in buf.iter().enumerate().take(len) {
             let idx = (dest_off as usize + i) as u16;
             if self
                 .heap
-                .bastore(dest, idx, buf[i], self.current_context)
+                .bastore(dest, idx, val, self.current_context)
                 .is_err()
             {
                 return Err(ExecResult::ArrayIndexOutOfBounds);
@@ -2799,6 +2780,11 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     /// `Util.arrayCompare` implementation: compare bytes lexicographically.
     ///
     /// Returns -1, 0, or 1.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecResult::ArrayIndexOutOfBounds`] for invalid offsets/lengths.
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     pub fn native_array_compare(
         &self,
         src: ObjRef,
@@ -2832,17 +2818,21 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     }
 
     /// `Util.getShort` implementation: read a big-endian short from a byte array.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecResult::ArrayIndexOutOfBounds`] for invalid offsets.
     pub fn native_get_short(&self, arr: ObjRef, offset: i16) -> Result<i16, ExecResult> {
         if offset < 0 {
             return Err(ExecResult::ArrayIndexOutOfBounds);
         }
         let hi = self
             .heap
-            .baload(arr, offset as u16, self.current_context)
+            .baload(arr, offset.cast_unsigned(), self.current_context)
             .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
         let lo = self
             .heap
-            .baload(arr, offset as u16 + 1, self.current_context)
+            .baload(arr, offset.cast_unsigned() + 1, self.current_context)
             .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
         Ok(i16::from_be_bytes([hi, lo]))
     }
@@ -2850,6 +2840,10 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     /// `Util.setShort` implementation: write a big-endian short to a byte array.
     ///
     /// Returns `bOff + 2`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecResult::ArrayIndexOutOfBounds`] for invalid offsets.
     pub fn native_set_short(
         &mut self,
         arr: ObjRef,
@@ -2861,10 +2855,15 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
         }
         let bytes = value.to_be_bytes();
         self.heap
-            .bastore(arr, offset as u16, bytes[0], self.current_context)
+            .bastore(arr, offset.cast_unsigned(), bytes[0], self.current_context)
             .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
         self.heap
-            .bastore(arr, offset as u16 + 1, bytes[1], self.current_context)
+            .bastore(
+                arr,
+                offset.cast_unsigned() + 1,
+                bytes[1],
+                self.current_context,
+            )
             .map_err(|_| ExecResult::ArrayIndexOutOfBounds)?;
         Ok(offset.wrapping_add(2))
     }
@@ -3986,7 +3985,7 @@ mod tests {
             IADD, IRETURN,
         ];
         let mut vm = vm_with_method(&bc);
-        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(131072));
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(131_072));
     }
 
     // -----------------------------------------------------------------------
@@ -4065,7 +4064,7 @@ mod tests {
         // 3 << 16 = 196608
         let bc = [ICONST_3, BSPUSH, 16, ISHL, IRETURN];
         let mut vm = vm_with_method(&bc);
-        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(196608));
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(196_608));
     }
 
     #[test]
@@ -4539,7 +4538,7 @@ mod tests {
             IRETURN, // 15
         ];
         let mut vm = vm_with_method(&bc);
-        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0x00012345));
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0x0001_2345));
     }
 
     // -----------------------------------------------------------------------
@@ -4581,7 +4580,7 @@ mod tests {
             IRETURN,
         ];
         let mut vm = vm_with_method(&bc);
-        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0x00012345));
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0x0001_2345));
     }
 
     // -----------------------------------------------------------------------
@@ -4654,8 +4653,8 @@ mod tests {
     // is zero, sdiv/srem/idiv/irem throws an ArithmeticException."
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 srem: ArithmeticException when divisor is zero.
-    /// (sdiv_by_zero already exists above; this tests srem with an
+    /// JCVM 3.1 Ch7 srem: `ArithmeticException` when divisor is zero.
+    /// (`sdiv_by_zero` already exists above; this tests srem with an
     /// explicit non-trivial dividend to avoid identity traps.)
     #[test]
     fn srem_by_zero_nontrivial_dividend() {
@@ -4665,7 +4664,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
     }
 
-    /// JCVM 3.1 Ch7 idiv: ArithmeticException with i32::MIN dividend and 0 divisor.
+    /// JCVM 3.1 Ch7 idiv: `ArithmeticException` with `i32::MIN` dividend and 0 divisor.
     #[test]
     fn idiv_by_zero_min_dividend() {
         let bc = [
@@ -4676,7 +4675,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
     }
 
-    /// JCVM 3.1 Ch7 irem: ArithmeticException with i32::MIN dividend and 0 divisor.
+    /// JCVM 3.1 Ch7 irem: `ArithmeticException` with `i32::MIN` dividend and 0 divisor.
     #[test]
     fn irem_by_zero_min_dividend() {
         let bc = [
@@ -4687,7 +4686,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
     }
 
-    /// JCVM 3.1 Ch7 idiv: i32::MIN / -1 = i32::MIN (wrapping, not exception).
+    /// JCVM 3.1 Ch7 idiv: `i32::MIN` / -1 = `i32::MIN` (wrapping, not exception).
     #[test]
     fn idiv_min_by_neg1() {
         let bc = [
@@ -4698,7 +4697,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
     }
 
-    /// JCVM 3.1 Ch7 irem: i32::MIN % -1 = 0 (wrapping, not exception).
+    /// JCVM 3.1 Ch7 irem: `i32::MIN` % -1 = 0 (wrapping, not exception).
     #[test]
     fn irem_min_by_neg1() {
         let bc = [
@@ -4714,7 +4713,7 @@ mod tests {
     // JCVM 3.1 Ch7: arithmetic wraps modulo 2^16 / 2^32.
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 sadd: i16::MAX + 1 wraps to i16::MIN.
+    /// JCVM 3.1 Ch7 sadd: `i16::MAX` + 1 wraps to `i16::MIN`.
     #[test]
     fn sadd_overflow_wraps() {
         let max_bytes = i16::MAX.cast_unsigned().to_be_bytes();
@@ -4723,7 +4722,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
     }
 
-    /// JCVM 3.1 Ch7 ssub: i16::MIN - 1 wraps to i16::MAX.
+    /// JCVM 3.1 Ch7 ssub: `i16::MIN` - 1 wraps to `i16::MAX`.
     #[test]
     fn ssub_underflow_wraps() {
         let min_bytes = i16::MIN.cast_unsigned().to_be_bytes();
@@ -4742,7 +4741,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
     }
 
-    /// JCVM 3.1 Ch7 iadd: i32::MAX + 1 wraps to i32::MIN.
+    /// JCVM 3.1 Ch7 iadd: `i32::MAX` + 1 wraps to `i32::MIN`.
     #[test]
     fn iadd_overflow_wraps() {
         let bc = [
@@ -4753,7 +4752,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
     }
 
-    /// JCVM 3.1 Ch7 isub: i32::MIN - 1 wraps to i32::MAX.
+    /// JCVM 3.1 Ch7 isub: `i32::MIN` - 1 wraps to `i32::MAX`.
     #[test]
     fn isub_underflow_wraps() {
         let bc = [
@@ -4764,7 +4763,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MAX));
     }
 
-    /// JCVM 3.1 Ch7 imul: i32::MAX * 2 wraps.
+    /// JCVM 3.1 Ch7 imul: `i32::MAX` * 2 wraps.
     #[test]
     fn imul_overflow_wraps() {
         let bc = [
@@ -4778,7 +4777,7 @@ mod tests {
         );
     }
 
-    /// JCVM 3.1 Ch7 sneg: sneg(i16::MIN) wraps to i16::MIN.
+    /// JCVM 3.1 Ch7 sneg: `sneg(i16::MIN)` wraps to `i16::MIN`.
     #[test]
     fn sneg_min_wraps() {
         let min_bytes = i16::MIN.cast_unsigned().to_be_bytes();
@@ -4787,7 +4786,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
     }
 
-    /// JCVM 3.1 Ch7 ineg: ineg(i32::MIN) wraps to i32::MIN.
+    /// JCVM 3.1 Ch7 ineg: `ineg(i32::MIN)` wraps to `i32::MIN`.
     #[test]
     fn ineg_min_wraps() {
         let bc = [
@@ -5049,7 +5048,7 @@ mod tests {
     // Most branches have existing taken/not-taken tests. Adding missing ones.
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 if_scmpge: not taken when a < b.
+    /// JCVM 3.1 Ch7 `if_scmpge`: not taken when a < b.
     #[test]
     fn if_scmpge_not_taken() {
         let bc = [SCONST_3, SCONST_5, IF_SCMPGE, 3, SCONST_4, SRETURN];
@@ -5057,7 +5056,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 if_scmpge: taken when a == b (edge: equality).
+    /// JCVM 3.1 Ch7 `if_scmpge`: taken when a == b (edge: equality).
     #[test]
     fn if_scmpge_taken_equal() {
         let bc = [
@@ -5067,7 +5066,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
-    /// JCVM 3.1 Ch7 if_scmpgt: not taken when a == b.
+    /// JCVM 3.1 Ch7 `if_scmpgt`: not taken when a == b.
     #[test]
     fn if_scmpgt_not_taken() {
         let bc = [SCONST_3, SCONST_3, IF_SCMPGT, 3, SCONST_4, SRETURN];
@@ -5075,7 +5074,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 if_scmpgt: not taken when a < b.
+    /// JCVM 3.1 Ch7 `if_scmpgt`: not taken when a < b.
     #[test]
     fn if_scmpgt_not_taken_less() {
         let bc = [SCONST_3, SCONST_5, IF_SCMPGT, 3, SCONST_4, SRETURN];
@@ -5083,7 +5082,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 if_scmple: not taken when a > b.
+    /// JCVM 3.1 Ch7 `if_scmple`: not taken when a > b.
     #[test]
     fn if_scmple_not_taken() {
         let bc = [SCONST_5, SCONST_3, IF_SCMPLE, 3, SCONST_4, SRETURN];
@@ -5091,7 +5090,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 if_scmple: taken when a == b (edge: equality).
+    /// JCVM 3.1 Ch7 `if_scmple`: taken when a == b (edge: equality).
     #[test]
     fn if_scmple_taken_equal() {
         let bc = [
@@ -5101,7 +5100,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
-    /// JCVM 3.1 Ch7 if_scmpeq: with negative values, true case.
+    /// JCVM 3.1 Ch7 `if_scmpeq`: with negative values, true case.
     #[test]
     fn if_scmpeq_negative_taken() {
         let bc = [
@@ -5111,7 +5110,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
-    /// JCVM 3.1 Ch7 if_acmpeq: not taken when references differ.
+    /// JCVM 3.1 Ch7 `if_acmpeq`: not taken when references differ.
     #[test]
     fn if_acmpeq_not_taken() {
         let bc = [SCONST_1, SCONST_2, IF_ACMPEQ, 3, SCONST_4, SRETURN];
@@ -5119,7 +5118,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 if_acmpne: not taken when references are equal.
+    /// JCVM 3.1 Ch7 `if_acmpne`: not taken when references are equal.
     #[test]
     fn if_acmpne_not_taken() {
         let bc = [ACONST_NULL, ACONST_NULL, IF_ACMPNE, 3, SCONST_4, SRETURN];
@@ -5163,7 +5162,7 @@ mod tests {
     // PRIORITY 6: Stack underflow for each category
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 sadd: StackUnderflow on empty stack.
+    /// JCVM 3.1 Ch7 sadd: `StackUnderflow` on empty stack.
     #[test]
     fn sadd_underflow() {
         let bc = [SCONST_1, SADD];
@@ -5171,7 +5170,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 sreturn: StackUnderflow when returning with empty stack.
+    /// JCVM 3.1 Ch7 sreturn: `StackUnderflow` when returning with empty stack.
     #[test]
     fn sreturn_underflow() {
         let bc = [SRETURN];
@@ -5179,7 +5178,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 ireturn: StackUnderflow on empty stack (needs 2 words).
+    /// JCVM 3.1 Ch7 ireturn: `StackUnderflow` on empty stack (needs 2 words).
     #[test]
     fn ireturn_underflow() {
         let bc = [IRETURN];
@@ -5187,7 +5186,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 dup2: StackUnderflow when only 1 element.
+    /// JCVM 3.1 Ch7 dup2: `StackUnderflow` when only 1 element.
     #[test]
     fn dup2_underflow_one_element() {
         let bc = [SCONST_1, DUP2];
@@ -5195,7 +5194,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 dup2: StackUnderflow when stack is empty.
+    /// JCVM 3.1 Ch7 dup2: `StackUnderflow` when stack is empty.
     #[test]
     fn dup2_underflow_empty() {
         let bc = [DUP2];
@@ -5203,7 +5202,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 pop2: StackUnderflow when only 1 element.
+    /// JCVM 3.1 Ch7 pop2: `StackUnderflow` when only 1 element.
     #[test]
     fn pop2_underflow_one_element() {
         let bc = [SCONST_1, POP2];
@@ -5211,7 +5210,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 iadd: StackUnderflow with only one int on stack.
+    /// JCVM 3.1 Ch7 iadd: `StackUnderflow` with only one int on stack.
     #[test]
     fn iadd_underflow() {
         let bc = [ICONST_1, IADD];
@@ -5223,7 +5222,7 @@ mod tests {
     // PRIORITY 7: Null reference exceptions
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 getfield_b: NullPointerException on null objectref.
+    /// JCVM 3.1 Ch7 `getfield_b`: `NullPointerException` on null objectref.
     #[test]
     fn getfield_b_null_ref() {
         let bc = [ACONST_NULL, GETFIELD_B, 0, 0];
@@ -5231,7 +5230,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 getfield_s: NullPointerException on null objectref.
+    /// JCVM 3.1 Ch7 `getfield_s`: `NullPointerException` on null objectref.
     #[test]
     fn getfield_s_null_ref() {
         let bc = [ACONST_NULL, GETFIELD_S, 0, 0];
@@ -5239,7 +5238,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 getfield_i: NullPointerException on null objectref.
+    /// JCVM 3.1 Ch7 `getfield_i`: `NullPointerException` on null objectref.
     #[test]
     fn getfield_i_null_ref() {
         let bc = [ACONST_NULL, GETFIELD_I, 0, 0];
@@ -5247,7 +5246,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 putfield_b: NullPointerException on null objectref.
+    /// JCVM 3.1 Ch7 `putfield_b`: `NullPointerException` on null objectref.
     #[test]
     fn putfield_b_null_ref() {
         let bc = [ACONST_NULL, SCONST_1, PUTFIELD_B, 0, 0];
@@ -5255,7 +5254,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 baload: NullPointerException on null arrayref.
+    /// JCVM 3.1 Ch7 baload: `NullPointerException` on null arrayref.
     #[test]
     fn baload_null_ref() {
         let bc = [ACONST_NULL, SCONST_0, BALOAD];
@@ -5263,7 +5262,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 bastore: NullPointerException on null arrayref.
+    /// JCVM 3.1 Ch7 bastore: `NullPointerException` on null arrayref.
     #[test]
     fn bastore_null_ref() {
         let bc = [ACONST_NULL, SCONST_0, SCONST_1, BASTORE];
@@ -5271,7 +5270,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 saload: NullPointerException on null arrayref.
+    /// JCVM 3.1 Ch7 saload: `NullPointerException` on null arrayref.
     #[test]
     fn saload_null_ref() {
         let bc = [ACONST_NULL, SCONST_0, SALOAD];
@@ -5283,7 +5282,7 @@ mod tests {
     // PRIORITY 8: Array bounds checking
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 baload: ArrayIndexOutOfBounds when index == length.
+    /// JCVM 3.1 Ch7 baload: `ArrayIndexOutOfBounds` when index == length.
     #[test]
     fn baload_out_of_bounds() {
         // Create byte array of length 3, then load index 3 (OOB).
@@ -5328,7 +5327,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(99));
     }
 
-    /// JCVM 3.1 Ch7 bastore: ArrayIndexOutOfBounds when index == length.
+    /// JCVM 3.1 Ch7 bastore: `ArrayIndexOutOfBounds` when index == length.
     #[test]
     fn bastore_out_of_bounds() {
         let bc = [
@@ -5526,7 +5525,7 @@ mod tests {
     // PRIORITY 11: Field access variants
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 getfield_s/putfield_s: store at non-zero offset.
+    /// JCVM 3.1 Ch7 `getfield_s`/`putfield_s`: store at non-zero offset.
     #[test]
     fn putfield_getfield_short_offset2() {
         let bc = [
@@ -5537,11 +5536,11 @@ mod tests {
             SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
-        let expected = 0xABCDu16 as i16;
+        let expected = 0xABCDu16.cast_signed();
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
     }
 
-    /// JCVM 3.1 Ch7 getfield_i/putfield_i: store negative int.
+    /// JCVM 3.1 Ch7 `getfield_i`/`putfield_i`: store negative int.
     #[test]
     fn putfield_getfield_int_negative() {
         let bc = [
@@ -5553,7 +5552,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-2));
     }
 
-    /// JCVM 3.1 Ch7 getfield_a/putfield_a: store and retrieve null reference.
+    /// JCVM 3.1 Ch7 `getfield_a`/`putfield_a`: store and retrieve null reference.
     #[test]
     fn putfield_getfield_ref_null() {
         let bc = [
@@ -5574,7 +5573,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
     }
 
-    /// JCVM 3.1 Ch7 putfield_s: NullPointerException on null objectref.
+    /// JCVM 3.1 Ch7 `putfield_s`: `NullPointerException` on null objectref.
     #[test]
     fn putfield_s_null_ref() {
         let bc = [ACONST_NULL, SCONST_1, PUTFIELD_S, 0, 0];
@@ -5586,7 +5585,7 @@ mod tests {
     // PRIORITY 12: Static field variants
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 getstatic_s/putstatic_s: negative value roundtrip.
+    /// JCVM 3.1 Ch7 `getstatic_s`/`putstatic_s`: negative value roundtrip.
     #[test]
     fn putstatic_getstatic_short_negative() {
         let val = (-12345i16).cast_unsigned().to_be_bytes();
@@ -5606,7 +5605,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-12345));
     }
 
-    /// JCVM 3.1 Ch7 getstatic_i/putstatic_i: negative int roundtrip.
+    /// JCVM 3.1 Ch7 `getstatic_i`/`putstatic_i`: negative int roundtrip.
     #[test]
     fn putstatic_getstatic_int_negative() {
         let bc = [
@@ -5627,7 +5626,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-2));
     }
 
-    /// JCVM 3.1 Ch7 getstatic_a/putstatic_a: reference roundtrip.
+    /// JCVM 3.1 Ch7 `getstatic_a`/`putstatic_a`: reference roundtrip.
     #[test]
     fn putstatic_getstatic_ref_roundtrip() {
         let bc = [
@@ -5645,7 +5644,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(77));
     }
 
-    /// JCVM 3.1 Ch7 getstatic_i: default zero for unwritten int field.
+    /// JCVM 3.1 Ch7 `getstatic_i`: default zero for unwritten int field.
     #[test]
     fn getstatic_i_default_zero() {
         let bc = [GETSTATIC_I, 0x00, 0x40, IRETURN];
@@ -5712,7 +5711,7 @@ mod tests {
     // PRIORITY 14: areturn/ireturn variants
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 areturn: returns correct ExecResult::ReturnRef variant.
+    /// JCVM 3.1 Ch7 areturn: returns correct `ExecResult::ReturnRef` variant.
     #[test]
     fn areturn_nonzero_ref() {
         let bc = [SSPUSH, 0x12, 0x34, ARETURN];
@@ -5720,7 +5719,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnRef(0x1234));
     }
 
-    /// JCVM 3.1 Ch7 ireturn: returns correct ExecResult::ReturnInt with negative.
+    /// JCVM 3.1 Ch7 ireturn: returns correct `ExecResult::ReturnInt` with negative.
     #[test]
     fn ireturn_negative() {
         let bc = [ICONST_M1, IRETURN];
@@ -5829,7 +5828,7 @@ mod tests {
         }
 
         proptest! {
-            /// JCVM 3.1 Ch7 sadd: matches i16::wrapping_add for all inputs.
+            /// JCVM 3.1 Ch7 sadd: matches `i16::wrapping_add` for all inputs.
             #[test]
             fn sadd_matches_wrapping_add(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SADD);
@@ -5838,7 +5837,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 ssub: matches i16::wrapping_sub for all inputs.
+            /// JCVM 3.1 Ch7 ssub: matches `i16::wrapping_sub` for all inputs.
             #[test]
             fn ssub_matches_wrapping_sub(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SSUB);
@@ -5847,7 +5846,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 smul: matches i16::wrapping_mul for all inputs.
+            /// JCVM 3.1 Ch7 smul: matches `i16::wrapping_mul` for all inputs.
             #[test]
             fn smul_matches_wrapping_mul(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SMUL);
@@ -5859,57 +5858,59 @@ mod tests {
             /// JCVM 3.1 Ch7 sand: matches Rust bitwise AND.
             #[test]
             fn sand_matches_bitwise_and(a in any::<u16>(), b in any::<u16>()) {
-                let a_i = a as i16;
-                let b_i = b as i16;
+                let a_i = a.cast_signed();
+                let b_i = b.cast_signed();
                 let bc = short_binop_bc(a_i, b_i, SAND);
                 let mut vm = vm_with_method(&bc);
-                let expected = (a & b) as i16;
+                let expected = (a & b).cast_signed();
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
             /// JCVM 3.1 Ch7 sor: matches Rust bitwise OR.
             #[test]
             fn sor_matches_bitwise_or(a in any::<u16>(), b in any::<u16>()) {
-                let a_i = a as i16;
-                let b_i = b as i16;
+                let a_i = a.cast_signed();
+                let b_i = b.cast_signed();
                 let bc = short_binop_bc(a_i, b_i, SOR);
                 let mut vm = vm_with_method(&bc);
-                let expected = (a | b) as i16;
+                let expected = (a | b).cast_signed();
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
             /// JCVM 3.1 Ch7 sxor: matches Rust bitwise XOR.
             #[test]
             fn sxor_matches_bitwise_xor(a in any::<u16>(), b in any::<u16>()) {
-                let a_i = a as i16;
-                let b_i = b as i16;
+                let a_i = a.cast_signed();
+                let b_i = b.cast_signed();
                 let bc = short_binop_bc(a_i, b_i, SXOR);
                 let mut vm = vm_with_method(&bc);
-                let expected = (a ^ b) as i16;
+                let expected = (a ^ b).cast_signed();
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 sshl: matches (i32::from(a) << (b & 0x1F)) truncated to i16.
+            /// JCVM 3.1 Ch7 sshl: matches `(i32::from(a) << (b & 0x1F))` truncated to i16.
             #[test]
             fn sshl_matches_reference(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SSHL);
                 let mut vm = vm_with_method(&bc);
-                let shift = (b as u16) & 0x1F;
+                let shift = b.cast_unsigned() & 0x1F;
+                #[allow(clippy::cast_possible_truncation)]
                 let expected = ((i32::from(a) << shift) & 0xFFFF) as i16;
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 sshr: matches (i32::from(a) >> (b & 0x1F)) truncated to i16.
+            /// JCVM 3.1 Ch7 sshr: matches `(i32::from(a) >> (b & 0x1F))` truncated to i16.
             #[test]
             fn sshr_matches_reference(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SSHR);
                 let mut vm = vm_with_method(&bc);
-                let shift = (b as u16) & 0x1F;
+                let shift = b.cast_unsigned() & 0x1F;
+                #[allow(clippy::cast_possible_truncation)]
                 let expected = (i32::from(a) >> shift) as i16;
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 iadd: matches i32::wrapping_add for all inputs.
+            /// JCVM 3.1 Ch7 iadd: matches `i32::wrapping_add` for all inputs.
             #[test]
             fn iadd_matches_wrapping_add(a in any::<i32>(), b in any::<i32>()) {
                 let bc = int_binop_bc(a, b, IADD);
@@ -5918,7 +5919,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
             }
 
-            /// JCVM 3.1 Ch7 isub: matches i32::wrapping_sub for all inputs.
+            /// JCVM 3.1 Ch7 isub: matches `i32::wrapping_sub` for all inputs.
             #[test]
             fn isub_matches_wrapping_sub(a in any::<i32>(), b in any::<i32>()) {
                 let bc = int_binop_bc(a, b, ISUB);
@@ -5927,7 +5928,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
             }
 
-            /// JCVM 3.1 Ch7 imul: matches i32::wrapping_mul for all inputs.
+            /// JCVM 3.1 Ch7 imul: matches `i32::wrapping_mul` for all inputs.
             #[test]
             fn imul_matches_wrapping_mul(a in any::<i32>(), b in any::<i32>()) {
                 let bc = int_binop_bc(a, b, IMUL);
@@ -5958,6 +5959,7 @@ mod tests {
                 let a_bytes = a.cast_unsigned().to_be_bytes();
                 let bc = vec![SSPUSH, a_bytes[0], a_bytes[1], S2B, SRETURN];
                 let mut vm = vm_with_method(&bc);
+                #[allow(clippy::cast_possible_truncation)]
                 let expected = i16::from(a as i8);
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
@@ -5971,6 +5973,7 @@ mod tests {
                     I2S, SRETURN,
                 ];
                 let mut vm = vm_with_method(&bc);
+                #[allow(clippy::cast_possible_truncation)]
                 let expected = a as i16;
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }

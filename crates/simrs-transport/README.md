@@ -29,4 +29,4 @@ pub trait Transport {
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-transport)
+- [Architecture](../../docs/architecture/#simrs-transport)

@@ -8,7 +8,7 @@
 //!
 //! - JCVM 3.1 Section 6.3: Descriptor/Class component cross-validation
 //! - JCVM 3.1 Section 3.11.3: Array bounds and type checking
-//! - JCVM spec exception table semantics: handler_pc bounds validation
+//! - JCVM spec exception table semantics: `handler_pc` bounds validation
 //! - Lancia & Bouffard, "Java Card Virtual Machine Compromising from a
 //!   Bytecode Verified Applet," CARDIS 2015
 //! - Barbu, Hoogvorst & Duc, "Tampering with Java Card Exceptions,"
@@ -125,10 +125,10 @@ fn offset_mismatch_zero_descriptor_nonzero_class() {
 // bytecode index within the same method's bytecode array."
 // =========================================================================
 
-/// JCVM spec exception table: handler_pc pointing past end of bytecode
+/// JCVM spec exception table: `handler_pc` pointing past end of bytecode
 /// must be rejected.
 ///
-/// Barbu et al. (SECRYPT 2012): attacker sets handler_pc to jump into
+/// Barbu et al. (SECRYPT 2012): attacker sets `handler_pc` to jump into
 /// another applet's bytecode segment.
 #[test]
 fn exception_handler_oob_rejected() {
@@ -144,7 +144,7 @@ fn exception_handler_oob_rejected() {
     expect::parse_fails(&result, ParseError::InvalidExceptionHandler);
 }
 
-/// JCVM spec exception table: start_pc >= bytecode_len must be rejected.
+/// JCVM spec exception table: `start_pc` >= `bytecode_len` must be rejected.
 #[test]
 fn exception_start_oob_rejected() {
     let bytecode = [0x03, 0x78]; // sconst_0, sreturn (2 bytes)
@@ -159,7 +159,7 @@ fn exception_start_oob_rejected() {
     expect::parse_fails(&result, ParseError::InvalidExceptionHandler);
 }
 
-/// JCVM spec exception table: end_pc > bytecode_len must be rejected.
+/// JCVM spec exception table: `end_pc` > `bytecode_len` must be rejected.
 #[test]
 fn exception_end_oob_rejected() {
     let bytecode = [0x03, 0x78]; // 2 bytes
@@ -174,7 +174,7 @@ fn exception_end_oob_rejected() {
     expect::parse_fails(&result, ParseError::InvalidExceptionHandler);
 }
 
-/// JCVM spec exception table: start_pc >= end_pc must be rejected
+/// JCVM spec exception table: `start_pc` >= `end_pc` must be rejected
 /// (empty or inverted range).
 #[test]
 fn exception_start_ge_end_rejected() {
@@ -211,7 +211,7 @@ fn exception_valid_accepted() {
 }
 
 /// JCVM spec exception table: too many exception table entries must be
-/// rejected (exceeds MAX_EXCEPTIONS limit).
+/// rejected (exceeds `MAX_EXCEPTIONS` limit).
 #[test]
 fn exception_too_many_rejected() {
     let bytecode = [0x03; 20]; // 20 bytes of filler
@@ -248,7 +248,7 @@ fn runner_arithmetic_sanity() {
     expect::returns_short(result, 5);
 }
 
-/// JCVM 3.1 Chapter 7: return_void instruction.
+/// JCVM 3.1 Chapter 7: `return_void` instruction.
 #[test]
 fn runner_return_void() {
     let result = TestApplet::new("A0_00_00_00_62_00_02")
@@ -258,10 +258,10 @@ fn runner_return_void() {
     expect::returns_void(result);
 }
 
-/// JCVM 3.1 Chapter 7: sdiv by zero must raise ArithmeticException.
+/// JCVM 3.1 Chapter 7: `sdiv` by zero must raise `ArithmeticException`.
 ///
-/// "If the value of the divisor is zero, sdiv throws an
-/// ArithmeticException."
+/// "If the value of the divisor is zero, `sdiv` throws an
+/// `ArithmeticException`."
 #[test]
 fn runner_div_by_zero() {
     // sconst_5, sconst_0, sdiv, sreturn
@@ -343,7 +343,7 @@ fn malformed_truncated() {
     expect::parse_fails(&result, ParseError::TooShort);
 }
 
-/// JCVM 3.1 Section 6.3: Bytecode exceeding MAX_BYTECODE (256) must be
+/// JCVM 3.1 Section 6.3: Bytecode exceeding `MAX_BYTECODE` (256) must be
 /// rejected.
 #[test]
 fn malformed_bytecode_too_long() {

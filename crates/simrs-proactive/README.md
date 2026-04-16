@@ -63,5 +63,5 @@ LSI COMMAND, END OF PROACTIVE UICC SESSION.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-proactive)
+- [Architecture](../../docs/architecture/#simrs-proactive)
 - [Standards: Proactive](../../docs/standards/04-proactive.md)

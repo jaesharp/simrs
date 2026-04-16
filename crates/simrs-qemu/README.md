@@ -10,4 +10,4 @@ QEMU virtual smart card bridge (shmem + chardev). Requires `std`.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-qemu)
+- [Architecture](../../docs/architecture/#simrs-qemu)

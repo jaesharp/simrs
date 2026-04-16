@@ -41,5 +41,5 @@ None (leaf crate).
 ## Specs
 
 - [BDD: specs/iso7816.feature](../../specs/iso7816.feature)
-- [Architecture](../../docs/architecture.md#simrs-iso7816)
+- [Architecture](../../docs/architecture/#simrs-iso7816)
 - [Standards map](../../docs/standards/01-catalog.md)

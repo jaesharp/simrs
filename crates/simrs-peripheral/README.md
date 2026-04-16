@@ -30,4 +30,4 @@ pub trait SimPeripheral {
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-peripheral)
+- [Architecture](../../docs/architecture/#simrs-peripheral)

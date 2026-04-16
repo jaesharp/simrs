@@ -1254,14 +1254,14 @@ mod tests {
         compiled.methods[0].clone()
     }
 
-    /// Helper: optimize_expr with default params (no extraction, for simple tests).
+    /// Helper: `optimize_expr` with default params (no extraction, for simple tests).
     fn optimize_expr_simple(expr: &JcExpr) -> JcExpr {
         let mut hoisted = Vec::new();
         let mut fresh = FreshNameGen::new();
         optimize_expr(expr, &mut hoisted, &mut fresh, false)
     }
 
-    /// Helper: optimize_expr with extraction enabled, returning hoisted stmts too.
+    /// Helper: `optimize_expr` with extraction enabled, returning hoisted stmts too.
     fn optimize_expr_extract(expr: &JcExpr) -> (JcExpr, Vec<JcStmt>, Vec<(String, JcType)>) {
         let mut hoisted = Vec::new();
         let mut fresh = FreshNameGen::new();

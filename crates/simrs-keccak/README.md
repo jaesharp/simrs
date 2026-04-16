@@ -28,5 +28,5 @@ byte/lane round-trip equivalence, non-identity, determinism.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-keccak)
+- [Architecture](../../docs/architecture/#simrs-keccak)
 - [Standards: Authentication](../../docs/standards/02-authentication.md)

@@ -29,5 +29,5 @@ None (leaf crate).
 ## Specs
 
 - [BDD: specs/comp128.feature](../../specs/comp128.feature) -- 12 scenarios
-- [Architecture](../../docs/architecture.md#simrs-comp128)
+- [Architecture](../../docs/architecture/#simrs-comp128)
 - [Standards: Authentication](../../docs/standards/02-authentication.md)

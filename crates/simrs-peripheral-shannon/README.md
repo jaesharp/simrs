@@ -24,4 +24,4 @@ graph LR
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-peripheral-shannon)
+- [Architecture](../../docs/architecture/#simrs-peripheral-shannon)

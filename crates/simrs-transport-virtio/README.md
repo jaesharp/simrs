@@ -16,4 +16,4 @@ Guest-side driver for Shannon baseband SIM interface via QEMU `VirtIO`.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-transport-virtio)
+- [Architecture](../../docs/architecture/#simrs-transport-virtio)

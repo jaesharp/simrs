@@ -412,7 +412,7 @@ fn parse_install_aids(data: &[u8]) -> Result<(&[u8], usize), ()> {
     Ok((&data[off..off + app_len], load_len))
 }
 
-/// Helper: write a StatusWord into buf, return 2.
+/// Helper: write a `StatusWord` into buf, return 2.
 fn write_sw_raw(buf: &mut [u8], sw: StatusWord) -> usize {
     let bytes = sw.to_bytes();
     buf[0] = bytes[0];

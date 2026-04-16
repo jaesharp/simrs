@@ -1288,13 +1288,13 @@ mod tests {
     #[test]
     fn parse_class_with_method() {
         let cls = parse_src(
-            r#"
+            r"
             public class Foo extends Applet {
                 public short process() {
                     return 42;
                 }
             }
-            "#,
+            ",
         );
         assert_eq!(cls.methods.len(), 1);
         assert_eq!(cls.methods[0].name, "process");
@@ -1312,7 +1312,7 @@ mod tests {
     #[test]
     fn parse_method_with_locals() {
         let cls = parse_src(
-            r#"
+            r"
             public class Calc extends Applet {
                 public short process() {
                     short a = 10;
@@ -1320,7 +1320,7 @@ mod tests {
                     return (short)(a + b);
                 }
             }
-            "#,
+            ",
         );
         assert_eq!(cls.methods.len(), 1);
         let m = &cls.methods[0];
@@ -1332,7 +1332,7 @@ mod tests {
     #[test]
     fn parse_if_else() {
         let cls = parse_src(
-            r#"
+            r"
             public class Foo extends Applet {
                 public short process() {
                     short x = 5;
@@ -1343,7 +1343,7 @@ mod tests {
                     }
                 }
             }
-            "#,
+            ",
         );
         let body = &cls.methods[0].body;
         assert!(body.len() >= 2);
@@ -1353,7 +1353,7 @@ mod tests {
     #[test]
     fn parse_while_loop() {
         let cls = parse_src(
-            r#"
+            r"
             public class Foo extends Applet {
                 public short process() {
                     short i = 0;
@@ -1363,7 +1363,7 @@ mod tests {
                     return i;
                 }
             }
-            "#,
+            ",
         );
         let body = &cls.methods[0].body;
         assert!(body.iter().any(|s| matches!(s, JcStmt::While { .. })));
@@ -1372,14 +1372,14 @@ mod tests {
     #[test]
     fn parse_cast_expression() {
         let cls = parse_src(
-            r#"
+            r"
             public class Foo extends Applet {
                 public short process() {
                     short a = 5;
                     return (short)(a + 1);
                 }
             }
-            "#,
+            ",
         );
         let body = &cls.methods[0].body;
         assert_eq!(body.len(), 2);
@@ -1388,14 +1388,14 @@ mod tests {
             JcStmt::Return(Some(JcExpr::BinOp { op, .. })) => {
                 assert_eq!(*op, BinOp::Add);
             }
-            other => panic!("expected Return(BinOp), got {:?}", other),
+            other => panic!("expected Return(BinOp), got {other:?}"),
         }
     }
 
     #[test]
     fn parse_field_access() {
         let cls = parse_src(
-            r#"
+            r"
             public class Counter extends Applet {
                 private short count;
 
@@ -1403,7 +1403,7 @@ mod tests {
                     this.count = (short)(this.count + 1);
                 }
             }
-            "#,
+            ",
         );
         assert_eq!(cls.fields.len(), 1);
         assert_eq!(cls.fields[0].name, "count");
@@ -1416,20 +1416,20 @@ mod tests {
             } => {
                 assert_eq!(field_name, "count");
             }
-            other => panic!("expected field assignment, got {:?}", other),
+            other => panic!("expected field assignment, got {other:?}"),
         }
     }
 
     #[test]
     fn parse_static_method() {
         let cls = parse_src(
-            r#"
+            r"
             public class Foo extends Applet {
                 public static short add(short a, short b) {
                     return (short)(a + b);
                 }
             }
-            "#,
+            ",
         );
         assert!(cls.methods[0].is_static);
         assert_eq!(cls.methods[0].params.len(), 2);
@@ -1438,7 +1438,7 @@ mod tests {
     #[test]
     fn parse_package_and_imports() {
         let cls = parse_src(
-            r#"
+            r"
             package com.example;
             import javacard.framework.Applet;
             import javacard.framework.*;
@@ -1448,7 +1448,7 @@ mod tests {
                     return 0;
                 }
             }
-            "#,
+            ",
         );
         assert_eq!(cls.methods.len(), 1);
     }
@@ -1456,7 +1456,7 @@ mod tests {
     #[test]
     fn parse_for_loop() {
         let cls = parse_src(
-            r#"
+            r"
             public class Foo extends Applet {
                 public short process() {
                     short sum = 0;
@@ -1466,7 +1466,7 @@ mod tests {
                     return sum;
                 }
             }
-            "#,
+            ",
         );
         let body = &cls.methods[0].body;
         // Should have: Let(sum), While(desugared for), Return(sum)
@@ -1485,7 +1485,7 @@ mod tests {
     #[test]
     fn parse_constructor() {
         let cls = parse_src(
-            r#"
+            r"
             public class Wallet extends Applet {
                 private short balance;
 
@@ -1493,7 +1493,7 @@ mod tests {
                     balance = 0;
                 }
             }
-            "#,
+            ",
         );
         assert!(cls.methods.iter().any(|m| m.name == "<init>"));
     }

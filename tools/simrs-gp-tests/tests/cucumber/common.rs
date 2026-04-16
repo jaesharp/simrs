@@ -326,7 +326,7 @@ fn given_app_installed_from_lf(world: &mut GpWorld, aid_hex: String, lf_hex: Str
     let lf_aid = parse_hex(&lf_hex);
     // Register load file.
     let lfs = world.card.open_mut().load_files_mut();
-    let lf_slot = lfs.iter().position(|l| l.is_none()).expect("LF slots full");
+    let lf_slot = lfs.iter().position(Option::is_none).expect("LF slots full");
     lfs[lf_slot] = Some(LoadFileEntry::new(&lf_aid));
 
     // Install the app.
@@ -337,7 +337,7 @@ fn given_app_installed_from_lf(world: &mut GpWorld, aid_hex: String, lf_hex: Str
     let reg = world.card.open().registry();
     if let Some(app_slot) = reg.iter().position(|e| {
         e.as_ref()
-            .map_or(false, |entry| entry.aid() == app_aid.as_slice())
+            .is_some_and(|entry| entry.aid() == app_aid.as_slice())
     }) {
         let lfs = world.card.open_mut().load_files_mut();
         if let Some(ref mut lf) = lfs[lf_slot] {
@@ -362,7 +362,7 @@ fn given_load_file_instances(
 
     // Register load file directly.
     let lfs = world.card.open_mut().load_files_mut();
-    let lf_slot = lfs.iter().position(|l| l.is_none()).expect("LF slots full");
+    let lf_slot = lfs.iter().position(Option::is_none).expect("LF slots full");
     lfs[lf_slot] = Some(LoadFileEntry::new(&lf_aid));
 
     // Install instances via temp SCP session and link to load file.
@@ -406,7 +406,7 @@ fn given_supplementary_sd_with_app(world: &mut GpWorld, sd_hex: String, app_hex:
     // Register the SD directly.
     let sd_slot = {
         let sds = world.card.open_mut().sds_mut();
-        let slot = sds.iter().position(|s| s.is_none()).expect("SD slots full");
+        let slot = sds.iter().position(Option::is_none).expect("SD slots full");
         sds[slot] = Some(SecurityDomain::new(
             &sd_aid,
             AppletLifecycle::Selectable,
@@ -1101,10 +1101,10 @@ fn when_send_select_partial_p2(world: &mut GpWorld, aid_hex: String, p2_hex: Str
 fn when_send_select_on_channel(world: &mut GpWorld, aid_hex: String) {
     let aid = parse_hex(&aid_hex);
     // Use the last opened channel number from the MANAGE CHANNEL response.
-    let ch = if world.response_data().len() >= 1 {
-        world.response_data()[0]
-    } else {
+    let ch = if world.response_data().is_empty() {
         1 // default to channel 1
+    } else {
+        world.response_data()[0]
     };
     // CLA for interindustry on logical channel N: 0x00 | (channel & 0x03)
     #[allow(clippy::cast_possible_truncation)]
@@ -1167,7 +1167,7 @@ fn when_send_store_data_encrypted(world: &mut GpWorld, hex: String) {
     let mut padded = vec![0u8; plaintext.len() + 8]; // max padding
     padded[..plaintext.len()].copy_from_slice(&plaintext);
     padded[plaintext.len()] = 0x80;
-    let padded_len = ((plaintext.len() + 1 + 7) / 8) * 8;
+    let padded_len = (plaintext.len() + 1).div_ceil(8) * 8;
     let padded = &padded[..padded_len];
 
     // Encrypt with 3DES CBC using session S-ENC.
@@ -2051,7 +2051,7 @@ fn then_app_lifecycle_hex(world: &mut GpWorld, aid_hex: String, lc_hex: String) 
             return;
         }
     }
-    panic!("application {:02X?} not found in registry", aid);
+    panic!("application {aid:02X?} not found in registry");
 }
 
 #[then(
@@ -2077,8 +2077,7 @@ fn then_sd_present(world: &mut GpWorld, sd_hex: String) {
     let sds = world.card.open().sds();
     assert!(
         sds.iter().flatten().any(|sd| sd.aid() == sd_aid.as_slice()),
-        "SD {:02X?} not found in registry",
-        sd_aid
+        "SD {sd_aid:02X?} not found in registry"
     );
 }
 

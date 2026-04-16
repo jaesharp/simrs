@@ -3,7 +3,7 @@
 Standards reference for GlobalPlatform card management and JavaCard virtual machine
 support, mapped to the simrs crate architecture. Covers JCOP10 through JCOP31bio.
 
-Colours follow the [Diagram Style Guide](../DIAGRAM_STYLE_GUIDE.md).
+Colours follow the [Diagram Style Guide](../style/diagrams.md).
 
 ## Documents
 

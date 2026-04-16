@@ -52,7 +52,7 @@
 
 ---
 
-Diagrams follow the [Diagram Style Guide](DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
+Diagrams follow the [Diagram Style Guide](../style/diagrams.md) (Okabe-Ito, WCAG AA).
 
 ## Design Principles
 
@@ -70,7 +70,7 @@ Diagrams follow the [Diagram Style Guide](DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WC
 
 ## Crate Map
 
-Colours follow the [Diagram Style Guide](DIAGRAM_STYLE_GUIDE.md) (Okabe-Ito, WCAG AA).
+Colours follow the [Diagram Style Guide](../style/diagrams.md) (Okabe-Ito, WCAG AA).
 
 ```mermaid
 graph TD
@@ -175,7 +175,7 @@ graph TD
     PROF    --> FS
     HLE     --> PROF
 
-    %% Per DIAGRAM_STYLE_GUIDE.md
+    %% Per style/diagrams.md
     classDef foundation fill:#0072B2,stroke:#333,color:#fff
     classDef composition fill:#008060,stroke:#333,color:#fff
     classDef application fill:#E69F00,stroke:#333,color:#000

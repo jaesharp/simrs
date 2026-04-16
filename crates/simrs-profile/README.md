@@ -95,4 +95,4 @@ and authentication parameter extraction.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-profile)
+- [Architecture](../../docs/architecture/#simrs-profile)

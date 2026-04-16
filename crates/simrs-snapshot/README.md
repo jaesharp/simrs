@@ -31,5 +31,5 @@ Guarantees: no timestamps, no RNG, no floating point, no hash maps. Identical bl
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-snapshot)
+- [Architecture](../../docs/architecture/#simrs-snapshot)
 - [Standards: Crate Impact](../../docs/standards/05-crate-impact.md)

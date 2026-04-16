@@ -62,4 +62,4 @@ SELECT, GET RESPONSE, READ BINARY, STATUS, RUN GSM ALGORITHM, UPDATE BINARY (CLA
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-gsm)
+- [Architecture](../../docs/architecture/#simrs-gsm)

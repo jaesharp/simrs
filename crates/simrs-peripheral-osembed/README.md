@@ -10,4 +10,4 @@ Linux/Android OS-embedded SIM peripheral (ioctl interface). Requires `std`.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-peripheral-osembed)
+- [Architecture](../../docs/architecture/#simrs-peripheral-osembed)

@@ -12,4 +12,4 @@ Used by [simrs-qemu](../simrs-qemu/) for low-latency APDU exchange.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-transport-shmem)
+- [Architecture](../../docs/architecture/#simrs-transport-shmem)

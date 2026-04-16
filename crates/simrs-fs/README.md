@@ -152,5 +152,5 @@ const _: () = assert_fids_unique(&[0x6F07, 0x6FAD, 0x6F38]); // ok
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-fs)
+- [Architecture](../../docs/architecture/#simrs-fs)
 - [Standards: Filesystem](../../docs/standards/03-filesystem.md)

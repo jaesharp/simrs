@@ -36,4 +36,4 @@ Total maximum message size: 271 bytes.
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-transport-tcp)
+- [Architecture](../../docs/architecture/#simrs-transport-tcp)

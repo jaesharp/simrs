@@ -34,5 +34,5 @@ int    simrs_hle_snapshot_restore(const uint8_t *buf, size_t len);
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-hle)
+- [Architecture](../../docs/architecture/#simrs-hle)
 - [Standards: Crate Impact](../../docs/standards/05-crate-impact.md)

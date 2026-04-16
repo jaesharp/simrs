@@ -33,5 +33,5 @@ None (leaf crate).
 
 ## Specs
 
-- [Architecture](../../docs/architecture.md#simrs-bertlv)
+- [Architecture](../../docs/architecture/#simrs-bertlv)
 - [Standards map](../../docs/standards/01-catalog.md)

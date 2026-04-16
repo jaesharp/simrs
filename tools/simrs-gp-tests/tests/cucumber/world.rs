@@ -22,6 +22,7 @@ pub trait ScpSessionHost {
     fn security_level(&self) -> u8;
     /// Compute C-MAC for a command and advance chaining state.
     /// Returns `(8-byte MAC, new chaining state is updated internally)`.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn generate_cmac(&mut self, header: &[u8; 4], data: &[u8]) -> [u8; 8];
     /// Get the 8-byte ICV for C-ENC IV derivation (SCP01/02 only).
     fn icv_for_cenc(&self) -> [u8; 8];
@@ -144,7 +145,7 @@ pub struct GpWorld {
     /// Card challenge extracted from INIT UPDATE response.
     pub card_challenge: [u8; 8],
     /// Active SCP session (None before EXT AUTH succeeds).
-    pub scp_session: Option<Box<dyn ScpSessionHost>>,
+    pub scp_session: Option<Box<dyn ScpSessionHost + Send>>,
     /// Last APDU bytes sent (for replay tests).
     pub last_sent_apdu: Vec<u8>,
     /// Saved old session MAC key (for re-auth tests).
@@ -326,11 +327,12 @@ impl GpWorld {
 
     /// Send a GP management command, automatically wrapping with C-MAC
     /// if a C-MAC session is active.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn send_gp_command(&mut self, header: &[u8; 4], data: &[u8]) {
         if self
             .scp_session
             .as_ref()
-            .map_or(false, |s| s.security_level() & 0x01 != 0)
+            .is_some_and(|s| s.security_level() & 0x01 != 0)
         {
             self.send_apdu_with_cmac(header, data);
         } else {
@@ -357,6 +359,7 @@ impl GpWorld {
     /// # Panics
     ///
     /// Panics if any step of the handshake fails.
+    #[allow(clippy::too_many_lines)]
     pub fn establish_scp02_session(&mut self, security_level: u8) {
         self.ensure_powered();
         // Key type depends on key version: 0x03 = AES (SCP03), else 3DES.
@@ -515,7 +518,7 @@ impl GpWorld {
     /// Computes C-MAC over the modified header + data, appends the 8-byte
     /// MAC to the data field, sets CLA secure messaging bit, adjusts Lc,
     /// and sends the wrapped APDU.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::trivially_copy_pass_by_ref)]
     pub fn send_apdu_with_cmac(&mut self, header: &[u8; 4], data: &[u8]) {
         let session = self.scp_session.as_mut().expect("no SCP session for C-MAC");
         let cmac = session.generate_cmac(header, data);
@@ -532,7 +535,7 @@ impl GpWorld {
         apdu[5..5 + data.len()].copy_from_slice(data);
         apdu[5 + data.len()..total].copy_from_slice(&cmac);
 
-        self.last_sent_apdu = apdu.clone();
+        self.last_sent_apdu.clone_from(&apdu);
         self.send_apdu(&apdu);
     }
 
