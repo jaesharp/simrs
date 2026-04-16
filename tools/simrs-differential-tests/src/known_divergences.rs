@@ -27,15 +27,28 @@ pub struct KnownDivergence {
 }
 
 /// Static catalog of all known and accepted divergences.
-pub static KNOWN_DIVERGENCES: &[KnownDivergence] = &[KnownDivergence {
-    id: "D6",
-    description: "EXTERNAL AUTHENTICATE failure status word",
-    simrs_sw: 0x6988,
-    oracle_sw: 0x6985,
-    reason: "Uniform error response for all authentication failures \
-             (padding oracle defense per Avoine & Ferreira, TCHES 2018)",
-    spec_ref: "GP 2.1.1 Table 9-9 (both 6985 and 6988 are valid)",
-}];
+pub static KNOWN_DIVERGENCES: &[KnownDivergence] = &[
+    KnownDivergence {
+        id: "D2",
+        description: "SELECT with 8-byte ISD AID (Oracle GP 2.3 default)",
+        simrs_sw: 0x6A82,
+        oracle_sw: 0x9000,
+        reason: "simrs ISD AID is 7 bytes (GP 2.1.1 default A0000001510000); \
+                 Oracle uses 8 bytes (GP 2.3 default A000000151000000). \
+                 simrs supports custom AID via with_isd_aid() but the \
+                 default configuration uses the shorter GP 2.1.1 AID.",
+        spec_ref: "GP 2.1.1 clause 6.1 (ISD AID is card-specific)",
+    },
+    KnownDivergence {
+        id: "D6",
+        description: "EXTERNAL AUTHENTICATE failure status word",
+        simrs_sw: 0x6988,
+        oracle_sw: 0x6985,
+        reason: "Uniform error response for all authentication failures \
+                 (padding oracle defense per Avoine & Ferreira, TCHES 2018)",
+        spec_ref: "GP 2.1.1 Table 9-9 (both 6985 and 6988 are valid)",
+    },
+];
 
 /// Look up a known divergence by the (simrs, oracle) status word pair.
 ///

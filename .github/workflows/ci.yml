@@ -156,14 +156,25 @@ jobs:
           sudo apt-get install -y -qq libc6:i386 libstdc++6:i386 zlib1g:i386
           cargo run -p simrs-jcsl -- install "$ARCHIVE"
       - name: Run differential tests
-        run: cargo test -p simrs-differential-tests -- --nocapture 2>&1 | tee differential-report.txt
+        run: cargo test -p simrs-differential-tests -- --nocapture
       - name: Run replay tests
-        run: cargo test -p simrs-differential-tests --test replay -- --nocapture 2>&1 | tee -a differential-report.txt
-      - uses: actions/upload-artifact@v4
+        run: cargo test -p simrs-differential-tests --test replay -- --nocapture
+      - name: Generate differential report
+        run: cargo test -p simrs-differential-tests --test report_gen -- --nocapture
+      - name: Publish JUnit report
+        uses: mikepenz/action-junit-report@v6
+        if: always()
+        with:
+          report_paths: differential-report.xml
+          check_name: Differential Compliance
+          include_passed: true
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: differential-report
-          path: differential-report.txt
+          path: |
+            differential-report.xml
+            differential-report.md
           retention-days: 90
 
   # ---- Layer 3: Miri (depends on tests passing) ----
