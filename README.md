@@ -87,15 +87,6 @@ cargo build -p simrs-hle --release
 # => target/release/libsimrs_hle.so
 ```
 
-## Documentation
-
-| Doc | Contents |
-|-----|----------|
-| **[crates/README.md](crates/README.md)** | Crate map, dependency graph, standards coverage |
-| **[docs/architecture.md](docs/architecture.md)** | API surface, data flow diagrams |
-| **[docs/DIAGRAM_STYLE_GUIDE.md](docs/DIAGRAM_STYLE_GUIDE.md)** | Okabe-Ito colour palette, WCAG AA compliance |
-| **[docs/standards/](docs/standards/README.md)** | 4G-LTE / 5G-NR standards map, auth flows, key hierarchies, EF catalog |
-
 ## License
 
 GPL-2.0-or-later

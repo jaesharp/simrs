@@ -899,13 +899,13 @@ swICC PC/SC wire protocol: 4-byte big-endian length prefix + APDU payload.
 
 **Deps:** [`simrs-transport`](#simrs-transport), [`simrs-iso7816`](#simrs-iso7816)
 
-Lock-free ring buffer in a shared memory region. Used by [`simrs-qemu`](#simrs-qemu).
+Lock-free ring buffer in a shared memory region. Used for high-performance in-process transport.
 
 ### `simrs-transport-virtio`
 
 **Deps:** [`simrs-transport`](#simrs-transport), [`simrs-iso7816`](#simrs-iso7816)
 
-`VirtIO` virtqueue-based transport, `no_std`. Used by [`simrs-peripheral-shannon`](#simrs-peripheral-shannon) as the guest-side SIM driver.
+`VirtIO` virtqueue-based transport, `no_std`. Used as the guest-side SIM driver in embedded baseband operating systems.
 
 ---
 
@@ -929,7 +929,7 @@ pub trait SimPeripheral {
 
 **Deps:** [`simrs-peripheral`](#simrs-peripheral), [`simrs-transport-virtio`](#simrs-transport-virtio), [`simrs-iso7816`](#simrs-iso7816)
 
-Shannon SIM MMIO registers intercepted by QEMU; `VirtIO` control device exposes APDU stream to the host.
+Baseband SIM peripheral for embedded operating systems. MMIO register interface with `VirtIO` control device exposing the APDU stream to the host.
 
 ### `simrs-peripheral-osembed`
 
@@ -941,7 +941,7 @@ Linux kernel SIM slot ioctls (Android RIL, character device).
 
 **Deps:** [`simrs-sim`](#simrs-sim), [`simrs-transport-shmem`](#simrs-transport-shmem)
 
-Daemon that bridges simrs to QEMU's virtual smart card interface via shmem transport.
+Daemon that bridges simrs to an emulator's virtual smart card interface via shmem transport.
 
 ### `simrs-interposer`
 
@@ -972,7 +972,7 @@ pub trait Snapshot {
 
 **Deps:** [`simrs-sim`](#simrs-sim), [`simrs-snapshot`](#simrs-snapshot), [`simrs-iso7816`](#simrs-iso7816)
 
-Compiled as `rlib` + `cdylib`. C-ABI surface for QEMU plugin loading:
+Compiled as `rlib` + `cdylib`. C-ABI surface for embedding into host applications:
 
 ```c
 void  simrs_hle_reset(void);
@@ -1071,7 +1071,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant FW as Shannon Firmware
+    participant FW as Baseband Firmware
     participant U as UsimApp
     participant M as MilenageParams
     participant R as Rijndael
@@ -1093,27 +1093,24 @@ sequenceDiagram
     end
 ```
 
-### Snapshot Fuzzing (Shannon + QEMU)
+### Snapshot Fuzzing
 
 ```mermaid
 sequenceDiagram
     participant FZ as simrs-fuzz
-    participant Q as QEMU
     participant HLE as simrs-hle
     participant SIM as Sim
     participant SNAP as Snapshot
 
     loop fuzz iteration
-        FZ->>Q: restore VM snapshot
+        FZ->>HLE: restore snapshot
         FZ->>HLE: simrs_hle_snapshot_restore(blob)
         HLE->>SIM: Snapshot::restore(blob)
-        FZ->>Q: inject mutated APDU sequence into guest RAM
-        FZ->>Q: resume execution
-        Q->>HLE: simrs_hle_apdu(cmd, rsp)  [hook at sim_send_apdu()]
+        FZ->>HLE: simrs_hle_apdu(cmd, rsp)
         HLE->>SIM: Sim::process(Apdu)
         SIM-->>HLE: SimResponse
-        HLE-->>Q: rsp bytes
-        Q-->>FZ: halt (coverage, crash?)
+        HLE-->>FZ: rsp bytes
+        FZ->>FZ: check coverage
         FZ->>HLE: simrs_hle_coverage_bitmap(buf)
         FZ->>FZ: dedup by state_hash; save interesting to corpus
     end
