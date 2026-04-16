@@ -10,8 +10,8 @@ use quote::quote;
 use syn::parse2;
 
 use simrs_jccompile::{
-    compute_basic_blocks, peephole_optimize_with_config, BranchInfo, BytecodeMetadata,
-    PeepholeConfig,
+    compute_basic_blocks, parse_aid_hex, peephole_optimize_with_config, BranchInfo,
+    BytecodeMetadata, PeepholeConfig,
 };
 
 use crate::opcodes::{self, ArgKind};
@@ -78,29 +78,6 @@ pub fn generate(input: TokenStream) -> TokenStream {
             (&AID, &METHODS)
         }
     }
-}
-
-/// Parse AID from underscore-separated hex: `"A0_00_00_01_51_00_00"` -> `[0xA0, 0x00, ...]`
-fn parse_aid_hex(s: &str) -> Result<Vec<u8>, String> {
-    let clean: String = s.chars().filter(|c| *c != '_').collect();
-    if !clean.len().is_multiple_of(2) {
-        return Err(format!("AID hex has odd length: {s}"));
-    }
-    let mut bytes = Vec::new();
-    let mut i = 0;
-    while i < clean.len() {
-        let byte = u8::from_str_radix(&clean[i..i + 2], 16)
-            .map_err(|e| format!("invalid hex in AID at position {i}: {e}"))?;
-        bytes.push(byte);
-        i += 2;
-    }
-    if bytes.is_empty() || bytes.len() > 16 {
-        return Err(format!(
-            "AID length must be 1-16 bytes, got {}",
-            bytes.len()
-        ));
-    }
-    Ok(bytes)
 }
 
 /// Assemble a method's instructions into bytecode.

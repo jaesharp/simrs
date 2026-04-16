@@ -11,7 +11,7 @@ use syn::{braced, parenthesized, Ident, LitInt, Result, Token};
 
 use simrs_jccompile::ir::{BinOp, Condition, JcClass, JcExpr, JcField, JcMethod, JcStmt, LValue};
 use simrs_jccompile::types::JcType;
-use simrs_jccompile::{OptConfig, PeepholeConfig};
+use simrs_jccompile::{parse_aid_hex, OptConfig, PeepholeConfig};
 
 // ---------------------------------------------------------------------------
 // AST types (parsed from the DSL, before conversion to IR)
@@ -634,29 +634,6 @@ fn parse_primary(input: ParseStream<'_>) -> Result<Expr> {
 // ---------------------------------------------------------------------------
 // Conversion to IR
 // ---------------------------------------------------------------------------
-
-/// Parse AID from underscore-separated hex: `"A0_00_00_01_51_00_00"` -> bytes.
-fn parse_aid_hex(s: &str) -> std::result::Result<Vec<u8>, String> {
-    let clean: String = s.chars().filter(|c| *c != '_').collect();
-    if !clean.len().is_multiple_of(2) {
-        return Err(format!("AID hex has odd length: {s}"));
-    }
-    let mut bytes = Vec::new();
-    let mut i = 0;
-    while i < clean.len() {
-        let byte = u8::from_str_radix(&clean[i..i + 2], 16)
-            .map_err(|e| format!("invalid hex in AID at position {i}: {e}"))?;
-        bytes.push(byte);
-        i += 2;
-    }
-    if bytes.is_empty() || bytes.len() > 16 {
-        return Err(format!(
-            "AID length must be 1-16 bytes, got {}",
-            bytes.len()
-        ));
-    }
-    Ok(bytes)
-}
 
 /// Convert a parsed `AppletDef` to a `JcClass`.
 fn applet_to_ir(

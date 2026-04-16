@@ -49,7 +49,8 @@ impl TestApplet {
     ///
     /// Example: `TestApplet::new("A0_00_00_00_62")`
     pub fn new(aid_hex: &str) -> Self {
-        let aid = parse_aid_hex(aid_hex);
+        let aid =
+            simrs_jccompile::parse_aid_hex(aid_hex).unwrap_or_else(|e| panic!("invalid AID: {e}"));
         Self {
             cap_builder: CapBuilder::new(&aid),
             aid,
@@ -206,26 +207,6 @@ impl TestApplet {
     }
 }
 
-/// Parse an AID from hex-with-underscores format: `A0_00_00_01_51` -> `[0xA0, 0x00, ...]`
-fn parse_aid_hex(s: &str) -> Vec<u8> {
-    let clean: String = s.chars().filter(|c| *c != '_').collect();
-    assert!(clean.len().is_multiple_of(2), "AID hex has odd length: {s}");
-    let mut bytes = Vec::new();
-    let mut i = 0;
-    while i < clean.len() {
-        let byte = u8::from_str_radix(&clean[i..i + 2], 16)
-            .unwrap_or_else(|e| panic!("invalid hex in AID at position {i}: {e}"));
-        bytes.push(byte);
-        i += 2;
-    }
-    assert!(
-        !bytes.is_empty() && bytes.len() <= 16,
-        "AID length must be 1-16 bytes, got {}",
-        bytes.len()
-    );
-    bytes
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,10 +262,11 @@ mod tests {
 
     #[test]
     fn parse_aid_hex_basic() {
-        assert_eq!(parse_aid_hex("A0_00_00"), vec![0xA0, 0x00, 0x00]);
-        assert_eq!(parse_aid_hex("FF"), vec![0xFF]);
+        use simrs_jccompile::parse_aid_hex;
+        assert_eq!(parse_aid_hex("A0_00_00").unwrap(), vec![0xA0, 0x00, 0x00]);
+        assert_eq!(parse_aid_hex("FF").unwrap(), vec![0xFF]);
         assert_eq!(
-            parse_aid_hex("A0_00_00_00_62_02_01"),
+            parse_aid_hex("A0_00_00_00_62_02_01").unwrap(),
             vec![0xA0, 0x00, 0x00, 0x00, 0x62, 0x02, 0x01]
         );
     }

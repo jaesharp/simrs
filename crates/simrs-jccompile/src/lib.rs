@@ -48,3 +48,37 @@ pub use ir::{BinOp, Condition, JcClass, JcExpr, JcField, JcMethod, JcStmt, LValu
 pub use optimize::{peephole_optimize, peephole_optimize_with_config};
 pub use sourcemap::SourceMap;
 pub use types::JcType;
+
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
+
+/// Parse an AID from underscore-separated hex: `"A0_00_00_01_51_00_00"` -> `[0xA0, 0x00, ...]`
+///
+/// Strips underscores, parses hex byte pairs, and validates the result is 1-16 bytes.
+///
+/// # Errors
+///
+/// Returns an error if the hex string has odd length, contains invalid hex
+/// digits, or produces a byte sequence outside the 1-16 byte range.
+pub fn parse_aid_hex(s: &str) -> Result<Vec<u8>, String> {
+    let clean: String = s.chars().filter(|c| *c != '_').collect();
+    if !clean.len().is_multiple_of(2) {
+        return Err(format!("AID hex has odd length: {s}"));
+    }
+    let mut bytes = Vec::new();
+    let mut i = 0;
+    while i < clean.len() {
+        let byte = u8::from_str_radix(&clean[i..i + 2], 16)
+            .map_err(|e| format!("invalid hex in AID at position {i}: {e}"))?;
+        bytes.push(byte);
+        i += 2;
+    }
+    if bytes.is_empty() || bytes.len() > 16 {
+        return Err(format!(
+            "AID length must be 1-16 bytes, got {}",
+            bytes.len()
+        ));
+    }
+    Ok(bytes)
+}
