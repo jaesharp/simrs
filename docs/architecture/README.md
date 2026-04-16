@@ -1103,16 +1103,14 @@ sequenceDiagram
     participant SNAP as Snapshot
 
     loop fuzz iteration
-        FZ->>HLE: restore snapshot
         FZ->>HLE: simrs_hle_snapshot_restore(blob)
-        HLE->>SIM: Snapshot::restore(blob)
+        HLE->>SNAP: Snapshot::restore(blob)
         FZ->>HLE: simrs_hle_apdu(cmd, rsp)
         HLE->>SIM: Sim::process(Apdu)
         SIM-->>HLE: SimResponse
         HLE-->>FZ: rsp bytes
-        FZ->>FZ: check coverage
         FZ->>HLE: simrs_hle_coverage_bitmap(buf)
-        FZ->>FZ: dedup by state_hash; save interesting to corpus
+        FZ->>FZ: dedup by state_hash, save interesting to corpus
     end
 ```
 
