@@ -98,4 +98,4 @@ cargo build -p simrs-hle --release
 
 ## License
 
-MIT OR Apache-2.0
+GPL-2.0-or-later

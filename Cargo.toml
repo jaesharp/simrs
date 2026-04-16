@@ -68,7 +68,7 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "GPL-2.0-or-later"
 # No rust-version field: this workspace requires nightly (see rust-toolchain.toml)
 
 [workspace.dependencies]
