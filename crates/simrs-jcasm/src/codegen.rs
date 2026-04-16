@@ -58,8 +58,8 @@ pub fn generate(input: TokenStream) -> TokenStream {
 
     let method_count = method_tokens.len();
 
-    // Compile-time reporting (visible in cargo build output).
-    if report {
+    // Compile-time reporting (only when SIMRS_JCASM_VERBOSE=1).
+    if report && std::env::var("SIMRS_JCASM_VERBOSE").as_deref() == Ok("1") {
         eprintln!("[jcasm] AID: {}", applet.aid_hex);
         for (i, method) in applet.methods.iter().enumerate() {
             let ct_tag = if method.constant_time {

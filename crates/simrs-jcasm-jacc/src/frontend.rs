@@ -1017,8 +1017,8 @@ pub fn generate(input: TokenStream) -> TokenStream {
             }
         };
 
-    // Compile-time reporting (visible in cargo build output).
-    if report {
+    // Compile-time reporting (only when SIMRS_JCASM_VERBOSE=1).
+    if report && std::env::var("SIMRS_JCASM_VERBOSE").as_deref() == Ok("1") {
         eprintln!("[jcapplet] AID: {}", applet.aid_hex);
         eprintln!("[jcapplet]   IR iterations: {}", opt_report.ir_iterations);
         for (i, md) in applet.methods.iter().enumerate() {
