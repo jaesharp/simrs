@@ -41,16 +41,7 @@ cargo test --workspace           # test
 cargo clippy --workspace         # lint (pedantic, zero warnings)
 ```
 
-### PC/SC (pcscd / pcsc-lite)
-
-```bash
-# Start simrs on the swICC port (127.0.0.1:37324)
-cargo run -p simrs-transport-tcp
-
-# Standard PC/SC tools work: opensc-tool, pkcs15-tool, pcsc_scan, etc.
-```
-
-### Compile and run a JavaCard applet
+### Compile and run a JavaCard-Compatible applet
 
 ```bash
 # Compile a Java Card source file to a CAP package
