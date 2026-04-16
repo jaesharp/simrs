@@ -102,18 +102,23 @@ cargo run -p simrs-interposer -- \
     --pcap trace.pcap
 ```
 
-### Auth vector generation
+### CLI tools
 
 ```bash
+# Generate a Milenage auth vector (for Open5GS, srsRAN, etc.)
 cargo run -p simrs-auth-cli -- gen-vector \
-    --ki 00112233445566778899AABBCCDDEEFF \
-    --opc 00000000000000000000000000000000 \
-    --rand AAAABBBBCCCCDDDDEEEEFFFFAAAABBBB
-```
+    --ki 465B5CE8B199B49FAA5F0A2EE238A6BC \
+    --opc CD63CB71954A9F4E48A5994E37A02BAF \
+    --sqn FF9BB4D0B607 --amf B9B9
 
-### C-ABI shared library
+# Manage the Oracle jcsl reference simulator
+cargo run -p simrs-jcsl -- status        # show installation
+cargo run -p simrs-jcsl -- guide         # acquisition instructions
 
-```bash
+# Run differential tests against Oracle jcsl
+cargo test -p simrs-differential-tests
+
+# Build the C-ABI shared library for embedding
 cargo build -p simrs-hle --release
 # => target/release/libsimrs_hle.so
 ```
