@@ -10,8 +10,8 @@ _If it's not supported - it's a bug._
       - TCA Profile Package DER parser -- ingest carrier-distributed profiles into a live filesystem
     - OTA (TS 102 225, TS 102 226)
       - Secured packet structure, remote APDU support
-  - Runs standalone or as a GlobalPlatform applet alongside JavaCard Bytecode or Rust Native Applets
-- **GlobalPlatform card OS** (GP 2.1.1, GP 2.3.1 Amd D)
+  - Runs standalone or as a GlobalPlatform-Compatible applet alongside JavaCard Bytecode or Rust Native Applets
+- **GlobalPlatform-Compatible card OS** (GP 2.1.1, GP 2.3.1 Amd D)
   - OPEN, ISD, applet registry, SCP01/SCP02/SCP03, card lifecycle
 - **Complete JavaCard-Compatible toolchain** (JC VM 2.1.1, JC RE 2.1.1)
   - Interpreter (Full Instrumentation and Introspection)
@@ -30,7 +30,7 @@ _If it's not supported - it's a bug._
 - **Zero external runtime deps** -- every cryptographic algorithm is implemented from scratch, validated against NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis), and [adversarially tested](tools/simrs-security-tests/) for protocol-level vulnerabilities. See [simrs-ref](crates/simrs-ref/) for reference test vectors.
 - **State machine driven** -- [`Sim::process(SimEvent) -> SimResponse`](crates/simrs-sim/); pure function, no callbacks
 - **Information flow security** -- [`Secret<T>`](crates/simrs-secret/) enforces classification boundaries at compile time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); [`Redact`](crates/simrs-redact/) prevents secrets in log output; uniform error responses close side-channel oracles
-- **Differential testing against Oracle** -- GP and SCP protocol behavior [validated against Oracle's reference JCVM](tools/simrs-differential-tests/) across 100+ APDU scenarios
+- **Differential behavioural validation against Oracle's Reference JCVM** -- GP and SCP protocol behavior [validated against Oracle's reference JCVM](tools/simrs-differential-tests/) across 100+ APDU scenarios
 - **Spec-linked** -- every public item cites its standard clause. See [standards map](docs/standards/)
 
 ## Quick start
