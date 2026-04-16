@@ -734,7 +734,7 @@ fn diff_full_discovery_sequence() {
 /// Complete mutual auth on BOTH sides independently, then compare
 /// authenticated GET STATUS responses.
 #[test]
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::similar_names)]
 fn diff_authenticated_get_status() {
     let mut dc = dual_card!("diff-auth-gs");
     dc.power_on();
@@ -834,38 +834,33 @@ fn diff_authenticated_get_status() {
     );
     let oracle_data = &oracle_iu_raw[..oracle_iu_raw.len() - 2];
 
-    let parsed = simrs_differential_tests::scp03::parse_scp03_init_update(oracle_data)
+    let parsed = simrs_gp_scp::scp03::parse_init_update(oracle_data)
         .expect("failed to parse SCP03 INIT UPDATE response");
     assert_eq!(parsed.scp_id, 0x03, "Oracle should be SCP03");
 
     // Derive SCP03 session keys.
-    let scp03_keys = simrs_differential_tests::scp03::derive_scp03_session_keys(
+    let (s_enc, s_mac, s_rmac) = simrs_gp_scp::scp03::derive_session_keys(
         &simrs_differential_tests::KEY_BYTES,
         &simrs_differential_tests::KEY_BYTES,
         &hc,
         &parsed.card_challenge,
     );
+    let _ = (s_enc, s_rmac); // suppress unused warnings
 
     // Verify card cryptogram.
-    let expected_card_crypto = simrs_differential_tests::scp03::compute_scp03_card_cryptogram(
-        &scp03_keys.s_mac,
-        &hc,
-        &parsed.card_challenge,
-    );
+    let expected_card_crypto =
+        simrs_gp_scp::scp03::compute_card_cryptogram(&s_mac, &hc, &parsed.card_challenge);
     eprintln!("Oracle card crypto: {:02X?}", parsed.card_cryptogram);
     eprintln!("Expected card crypto: {expected_card_crypto:02X?}");
 
     // Compute host cryptogram.
-    let host_crypto_scp03 = simrs_differential_tests::scp03::compute_scp03_host_cryptogram(
-        &scp03_keys.s_mac,
-        &hc,
-        &parsed.card_challenge,
-    );
+    let host_crypto_scp03 =
+        simrs_gp_scp::scp03::compute_host_cryptogram(&s_mac, &hc, &parsed.card_challenge);
 
     // EXT AUTH for SCP03: CLA=0x84, INS=0x82, P1=0x33 (C-MAC+C-ENC+R-MAC), P2=0x00.
     // Actually P1=0x01 for C-MAC only, which is simpler.
-    let (ea_cmac3, new_cv) = simrs_differential_tests::scp03::scp03_cmac(
-        &scp03_keys.s_mac,
+    let (ea_cmac3, new_cv) = simrs_gp_scp::scp03::generate_cmac(
+        &s_mac,
         &[0u8; 16], // initial chaining value
         &[0x84, 0x82, 0x01, 0x00],
         &host_crypto_scp03,
@@ -892,8 +887,8 @@ fn diff_authenticated_get_status() {
 
     if oracle_ea_sw == [0x90, 0x00] {
         // Send authenticated GET STATUS on Oracle.
-        let (gs_cmac3, _) = simrs_differential_tests::scp03::scp03_cmac(
-            &scp03_keys.s_mac,
+        let (gs_cmac3, _) = simrs_gp_scp::scp03::generate_cmac(
+            &s_mac,
             &new_cv,
             &[0x80, 0xF2, 0x80, 0x00],
             &gs_data,

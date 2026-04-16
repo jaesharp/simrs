@@ -34,7 +34,6 @@
 //! cargo test -p simrs-differential-tests
 //! ```
 
-pub mod scp03;
 mod session;
 
 pub use session::{DiffSession, DiffSessionBuilder};
