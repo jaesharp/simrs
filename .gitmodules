@@ -1,0 +1,3 @@
+[submodule "docs/specs"]
+	path = docs/specs
+	url = https://github.com/jaesharp/sim-specs.git
