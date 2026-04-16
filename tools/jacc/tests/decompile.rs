@@ -27,7 +27,7 @@ fn disassemble_simple_return() {
     };
     let cap = build_cap(aid, methods);
 
-    let asm = jvac::decompile::disassemble(&cap).unwrap();
+    let asm = jacc::decompile::disassemble(&cap).unwrap();
     assert!(asm.contains("bspush"), "expected bspush in:\n{asm}");
     assert!(asm.contains("42"), "expected 42 in:\n{asm}");
     assert!(asm.contains("sreturn"), "expected sreturn in:\n{asm}");
@@ -42,7 +42,7 @@ fn disassemble_arithmetic() {
     };
     let cap = build_cap(aid, methods);
 
-    let asm = jvac::decompile::disassemble(&cap).unwrap();
+    let asm = jacc::decompile::disassemble(&cap).unwrap();
     assert!(asm.contains("sconst_3"), "expected sconst_3 in:\n{asm}");
     assert!(asm.contains("sconst_2"), "expected sconst_2 in:\n{asm}");
     assert!(asm.contains("sadd"), "expected sadd in:\n{asm}");
@@ -57,7 +57,7 @@ fn disassemble_contains_applet_aid() {
     };
     let cap = build_cap(aid, methods);
 
-    let asm = jvac::decompile::disassemble(&cap).unwrap();
+    let asm = jacc::decompile::disassemble(&cap).unwrap();
     assert!(asm.contains(".applet"), "expected .applet in:\n{asm}");
     assert!(asm.contains("A0"), "expected AID byte A0 in:\n{asm}");
 }
@@ -71,7 +71,7 @@ fn disassemble_contains_method_header() {
     };
     let cap = build_cap(aid, methods);
 
-    let asm = jvac::decompile::disassemble(&cap).unwrap();
+    let asm = jacc::decompile::disassemble(&cap).unwrap();
     assert!(asm.contains(".method"), "expected .method in:\n{asm}");
     assert!(asm.contains(".end"), "expected .end in:\n{asm}");
 }
@@ -94,7 +94,7 @@ fn disassemble_branch_instruction() {
     };
     let cap = build_cap(aid, methods);
 
-    let asm = jvac::decompile::disassemble(&cap).unwrap();
+    let asm = jacc::decompile::disassemble(&cap).unwrap();
     assert!(asm.contains("if_scmpeq"), "expected if_scmpeq in:\n{asm}");
     // The target should be a resolved PC, formatted as 0xNNNN.
     assert!(asm.contains("0x"), "expected resolved target in:\n{asm}");
@@ -113,7 +113,7 @@ fn decompile_simple_return() {
     };
     let cap = build_cap(aid, methods);
 
-    let source = jvac::decompile::decompile(&cap).unwrap();
+    let source = jacc::decompile::decompile(&cap).unwrap();
     assert!(source.contains("return"), "expected return in:\n{source}");
     assert!(source.contains("42"), "expected 42 in:\n{source}");
 }
@@ -127,7 +127,7 @@ fn decompile_arithmetic_expression() {
     };
     let cap = build_cap(aid, methods);
 
-    let source = jvac::decompile::decompile(&cap).unwrap();
+    let source = jacc::decompile::decompile(&cap).unwrap();
     // Should reconstruct "3 + 2" or similar.
     assert!(
         source.contains('+') || source.contains("add"),
@@ -154,7 +154,7 @@ fn decompile_with_branch() {
     };
     let cap = build_cap(aid, methods);
 
-    let source = jvac::decompile::decompile(&cap).unwrap();
+    let source = jacc::decompile::decompile(&cap).unwrap();
     assert!(
         source.contains("if") || source.contains("=="),
         "expected if or == in:\n{source}"
@@ -175,7 +175,7 @@ fn decompile_local_variable_assignment() {
     };
     let cap = build_cap(aid, methods);
 
-    let source = jvac::decompile::decompile(&cap).unwrap();
+    let source = jacc::decompile::decompile(&cap).unwrap();
     assert!(source.contains("local_0"), "expected local_0 in:\n{source}");
     assert!(source.contains("10"), "expected 10 in:\n{source}");
 }
@@ -189,7 +189,7 @@ fn decompile_subtraction() {
     };
     let cap = build_cap(aid, methods);
 
-    let source = jvac::decompile::decompile(&cap).unwrap();
+    let source = jacc::decompile::decompile(&cap).unwrap();
     assert!(source.contains('-'), "expected - in:\n{source}");
 }
 
@@ -202,7 +202,7 @@ fn decompile_void_return() {
     };
     let cap = build_cap(aid, methods);
 
-    let source = jvac::decompile::decompile(&cap).unwrap();
+    let source = jacc::decompile::decompile(&cap).unwrap();
     assert!(source.contains("return"), "expected return in:\n{source}");
     assert!(
         source.contains("void"),
@@ -226,11 +226,11 @@ fn roundtrip_compile_decompile() {
             }
         }
     ";
-    let class = jvac::java_parser::parse_source(source).unwrap();
+    let class = jacc::java_parser::parse_source(source).unwrap();
     let compiled = simrs_jccompile::compile_class(&class).unwrap();
-    let cap = jvac::cap::write_cap(&compiled);
+    let cap = jacc::cap::write_cap(&compiled);
 
-    let decompiled = jvac::decompile::decompile(&cap).unwrap();
+    let decompiled = jacc::decompile::decompile(&cap).unwrap();
     assert!(
         decompiled.contains("return"),
         "expected return in:\n{decompiled}"
@@ -247,11 +247,11 @@ fn roundtrip_compile_disassemble() {
             }
         }
     ";
-    let class = jvac::java_parser::parse_source(source).unwrap();
+    let class = jacc::java_parser::parse_source(source).unwrap();
     let compiled = simrs_jccompile::compile_class(&class).unwrap();
-    let cap = jvac::cap::write_cap(&compiled);
+    let cap = jacc::cap::write_cap(&compiled);
 
-    let asm = jvac::decompile::disassemble(&cap).unwrap();
+    let asm = jacc::decompile::disassemble(&cap).unwrap();
     assert!(asm.contains("bspush"), "expected bspush in:\n{asm}");
     assert!(asm.contains("sreturn"), "expected sreturn in:\n{asm}");
 }
@@ -265,9 +265,9 @@ fn roundtrip_compile_disassemble() {
 
 /// Helper: compile JVA source to bytecodes and return (compiled, `cap_bytes`).
 fn compile_source(source: &str) -> (simrs_jccompile::CompiledClass, Vec<u8>) {
-    let class = jvac::java_parser::parse_source(source).unwrap();
+    let class = jacc::java_parser::parse_source(source).unwrap();
     let compiled = simrs_jccompile::compile_class(&class).unwrap();
-    let cap = jvac::cap::write_cap(&compiled);
+    let cap = jacc::cap::write_cap(&compiled);
     (compiled, cap)
 }
 
@@ -291,7 +291,7 @@ fn roundtrip_bytecodes_constant() {
     ",
     );
     // Decompile the CAP, then compile the decompiled source
-    let decompiled = jvac::decompile::decompile(&cap).unwrap();
+    let decompiled = jacc::decompile::decompile(&cap).unwrap();
     eprintln!("decompiled:\n{decompiled}");
 
     // Execute the original
@@ -371,7 +371,7 @@ fn roundtrip_execution_if_else() {
     // Decompile and verify structure is readable.
     // The decompiler may reconstruct if/else as a while-with-single-iteration;
     // both are semantically equivalent. Verify the control flow is present.
-    let decompiled = jvac::decompile::decompile(&cap).unwrap();
+    let decompiled = jacc::decompile::decompile(&cap).unwrap();
     assert!(
         decompiled.contains("if")
             || decompiled.contains("while")
@@ -412,7 +412,7 @@ fn roundtrip_execution_while_loop() {
     );
 
     // Verify decompiler can handle loops
-    let decompiled = jvac::decompile::decompile(&cap).unwrap();
+    let decompiled = jacc::decompile::decompile(&cap).unwrap();
     eprintln!("decompiled loop:\n{decompiled}");
     assert!(
         decompiled.contains("return"),
@@ -443,8 +443,8 @@ fn roundtrip_full_pipeline() {
     );
 
     // Disassemble and decompile
-    let asm = jvac::decompile::disassemble(&cap).unwrap();
-    let src = jvac::decompile::decompile(&cap).unwrap();
+    let asm = jacc::decompile::disassemble(&cap).unwrap();
+    let src = jacc::decompile::decompile(&cap).unwrap();
 
     eprintln!("=== Assembly ===\n{asm}");
     eprintln!("=== Decompiled ===\n{src}");
@@ -1017,7 +1017,7 @@ proptest! {
             return Ok(());
         }
         let cap = cap_from_bytecodes(&arith_bytecodes(a, b, op));
-        let result = jvac::decompile::disassemble(&cap);
+        let result = jacc::decompile::disassemble(&cap);
         prop_assert!(result.is_ok(), "disassemble failed: {:?}", result.err());
     }
 
@@ -1030,7 +1030,7 @@ proptest! {
             return Ok(());
         }
         let cap = cap_from_bytecodes(&arith_bytecodes(a, b, op));
-        let result = jvac::decompile::decompile(&cap);
+        let result = jacc::decompile::decompile(&cap);
         prop_assert!(result.is_ok(), "decompile failed: {:?}", result.err());
     }
 

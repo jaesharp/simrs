@@ -7,9 +7,9 @@ use simrs_jcvm::opcodes::ExecResult;
 
 /// Helper: compile source to CAP bytes.
 fn compile_source_to_cap(source: &str) -> Vec<u8> {
-    let class = jvac::java_parser::parse_source(source).expect("parse failed");
+    let class = jacc::java_parser::parse_source(source).expect("parse failed");
     let compiled = simrs_jccompile::compile_class(&class).expect("compile failed");
-    jvac::cap::write_cap(&compiled)
+    jacc::cap::write_cap(&compiled)
 }
 
 /// Helper: load CAP into VM and execute method 0.
@@ -73,9 +73,9 @@ fn compile_with_locals() {
             }
         }
     ";
-    let class = jvac::java_parser::parse_source(source).expect("parse failed");
+    let class = jacc::java_parser::parse_source(source).expect("parse failed");
     let compiled = simrs_jccompile::compile_class(&class).expect("compile failed");
-    let cap = jvac::cap::write_cap(&compiled);
+    let cap = jacc::cap::write_cap(&compiled);
 
     let pkg = parse_cap(&cap).unwrap();
     let mut vm = simrs_jcvm::JcVM::<4096, 4>::new();
@@ -214,7 +214,7 @@ fn parse_complex_class() {
             }
         }
     ";
-    let class = jvac::java_parser::parse_source(source).expect("parse failed");
+    let class = jacc::java_parser::parse_source(source).expect("parse failed");
     assert_eq!(class.fields.len(), 2);
     assert!(class.methods.len() >= 2); // constructor + install + process
 }
@@ -278,11 +278,11 @@ fn compile_multiple_methods() {
             }
         }
     ";
-    let class = jvac::java_parser::parse_source(source).expect("parse failed");
+    let class = jacc::java_parser::parse_source(source).expect("parse failed");
     let compiled = simrs_jccompile::compile_class(&class).expect("compile failed");
     assert_eq!(compiled.methods.len(), 2);
 
-    let cap = jvac::cap::write_cap(&compiled);
+    let cap = jacc::cap::write_cap(&compiled);
     let pkg = parse_cap(&cap).unwrap();
     let mut vm = simrs_jcvm::JcVM::<4096, 4>::new();
     let idx = vm.load_package(pkg).unwrap();

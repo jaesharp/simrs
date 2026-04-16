@@ -1,16 +1,16 @@
 [package]
-name = "jvac"
+name = "jacc"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "JVA smartcard applet compiler -- accepts .java/.jva source and .class/.jvc classfiles, produces .cap output"
+description = "jacc -- JavaCard-Approximately-Compatible Compiler. Accepts .java/.jva source and .class/.jvc classfiles, produces .cap output."
 
 [[bin]]
-name = "jvac"
+name = "jacc"
 path = "src/main.rs"
 
 [lib]
-name = "jvac"
+name = "jacc"
 path = "src/lib.rs"
 
 [dependencies]

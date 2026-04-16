@@ -8,7 +8,7 @@
 //! # `.jvamap` Text Format
 //!
 //! ```text
-//! # jvac source map v1
+//! # jacc source map v1
 //! # source: Counter.java
 //! # aid: A0 00 00 00 62 01 01
 //! method 0 "process"
@@ -109,7 +109,7 @@ impl SourceMap {
         use core::fmt::Write;
         let mut out = String::new();
 
-        let _ = writeln!(out, "# jvac source map v1");
+        let _ = writeln!(out, "# jacc source map v1");
         let _ = writeln!(out, "# source: {}", self.source_file);
 
         // Format AID as space-separated hex bytes.
@@ -168,7 +168,7 @@ impl SourceMap {
                 continue;
             }
             if trimmed.starts_with('#') {
-                // Other comment lines (e.g. "# jvac source map v1").
+                // Other comment lines (e.g. "# jacc source map v1").
                 continue;
             }
 
@@ -319,7 +319,7 @@ mod tests {
         let text = sm.to_text();
 
         // Verify text contains expected content.
-        assert!(text.contains("# jvac source map v1"));
+        assert!(text.contains("# jacc source map v1"));
         assert!(text.contains("# source: Counter.java"));
         assert!(text.contains("# aid: A0 00 00 00 62 01 01"));
         assert!(text.contains("method 0 \"process\""));
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn parse_error_bad_hex() {
-        let text = "# jvac source map v1\n# source: X.java\n# aid: ZZ\n";
+        let text = "# jacc source map v1\n# source: X.java\n# aid: ZZ\n";
         let result = SourceMap::from_text(text);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("invalid AID hex byte"));
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn parse_error_entry_before_method() {
-        let text = "# jvac source map v1\n0000 1:1\n";
+        let text = "# jacc source map v1\n0000 1:1\n";
         let result = SourceMap::from_text(text);
         assert!(result.is_err());
         assert!(result
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn parse_error_bad_pc() {
-        let text = "# jvac source map v1\nmethod 0 \"foo\"\nXXXX 1:1\n";
+        let text = "# jacc source map v1\nmethod 0 \"foo\"\nXXXX 1:1\n";
         let result = SourceMap::from_text(text);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("invalid PC"));
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn parse_error_bad_line_number() {
-        let text = "# jvac source map v1\nmethod 0 \"foo\"\n0000 abc:1\n";
+        let text = "# jacc source map v1\nmethod 0 \"foo\"\n0000 abc:1\n";
         let result = SourceMap::from_text(text);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("invalid number"));
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn parse_error_missing_colon() {
-        let text = "# jvac source map v1\nmethod 0 \"foo\"\n0000 12\n";
+        let text = "# jacc source map v1\nmethod 0 \"foo\"\n0000 12\n";
         let result = SourceMap::from_text(text);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("expected 'line:col'"));
@@ -450,7 +450,7 @@ mod tests {
     fn double_roundtrip() {
         // Parse -> serialize -> parse again -> compare.
         let text = "\
-# jvac source map v1
+# jacc source map v1
 # source: Test.java
 # aid: A0 FF
 method 0 \"main\"
