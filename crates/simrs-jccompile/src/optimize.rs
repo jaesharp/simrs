@@ -132,29 +132,10 @@ impl core::fmt::Debug for Effects {
     }
 }
 
-// =========================================================================
-// JCVM opcode constants (subset needed for peephole optimizer)
-// =========================================================================
-
-const SCONST_M1: u8 = 0x02;
-const SCONST_0: u8 = 0x03;
-const SCONST_5: u8 = 0x08;
-const BSPUSH: u8 = 0x10;
-const SSPUSH: u8 = 0x11;
-
-const SLOAD_0: u8 = 0x1C;
-
-const SSTORE_0: u8 = 0x2B;
-const SSTORE_3: u8 = 0x2E;
-
-const POP: u8 = 0x3B;
-const DUP: u8 = 0x3D;
-
-const SADD: u8 = 0x41;
-const SNEG: u8 = 0x4B;
-const INEG: u8 = 0x4C;
-
-const GOTO: u8 = 0x70;
+use simrs_jcvm_opcodes::{
+    BSPUSH, DUP, GOTO, INEG, POP, SADD, SCONST_0, SCONST_5, SCONST_M1, SLOAD_0, SNEG, SSPUSH,
+    SSTORE_0, SSTORE_3,
+};
 
 // =========================================================================
 // Layer 1: IR Optimization

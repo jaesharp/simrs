@@ -72,6 +72,7 @@ jobs:
           components: miri
       - uses: Swatinem/rust-cache@v2
       - run: >
+          MIRIFLAGS="-Zmiri-disable-isolation"
           cargo miri test
           -p simrs-consttime
           -p simrs-rijndael
