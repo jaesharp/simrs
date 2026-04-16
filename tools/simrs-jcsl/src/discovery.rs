@@ -565,10 +565,12 @@ fn extract_and_install(archive: &Path, tmp: &Path) -> Result<JcslInstallation, I
     #[allow(clippy::case_sensitive_file_extension_comparisons)] // name is already lowercased
     let status = if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
         std::process::Command::new("tar")
-            .args(["xzf", "--no-same-owner", "--no-same-permissions"])
+            .arg("xzf")
             .arg(archive)
             .arg("-C")
             .arg(tmp)
+            .arg("--no-same-owner")
+            .arg("--no-same-permissions")
             .status()
     } else if name.ends_with(".zip") {
         std::process::Command::new("unzip")
