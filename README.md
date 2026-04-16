@@ -98,6 +98,24 @@ cargo build -p simrs-hle --release
 # => target/release/libsimrs_hle.so
 ```
 
+### OpenPGP smart card (planned)
+
+The target workflow for running [SmartPGP](https://github.com/github-af/SmartPGP) (ANSSI's OpenPGP card 3.4 applet) on simrs:
+
+```bash
+# Build SmartPGP from source (requires simrs-jbld, our ant-javacard replacement)
+git clone https://github.com/github-af/SmartPGP
+cargo run -p simrs-jbld -- SmartPGP/ -o SmartPGP.cap
+
+# Boot simrs-swicc with the applet loaded
+cargo run -p simrs-swicc -- --load SmartPGP.cap
+
+# Interact via GnuPG
+gpg --card-status
+```
+
+Requires: JC 3.0.4 crypto APIs (RSA, ECC P-256/P-384/P-521, AES, SHA-256/384/512), extended-length APDUs, and `simrs-jbld` (JavaCard build tool -- not yet implemented).
+
 ## License
 
 GPL-2.0-or-later
