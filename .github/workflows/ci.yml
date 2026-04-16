@@ -63,32 +63,38 @@ jobs:
       - run: cargo test --manifest-path tools/simrs-spec-tests/Cargo.toml --test cucumber
 
   miri:
-    name: Miri
+    name: Miri (${{ matrix.crate }})
     runs-on: ubuntu-latest
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - simrs-consttime
+          - simrs-rijndael
+          - simrs-des
+          - simrs-sha256
+          - simrs-kdf
+          - simrs-comp128
+          - simrs-milenage
+          - simrs-bertlv
+          - simrs-iso7816
+          - simrs-fs
+          - simrs-pin
+          - simrs-ecies
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: miri-${{ matrix.crate }}
       - run: >
           MIRIFLAGS="-Zmiri-env-forward=PROPTEST_DISABLE_FAILURE_PERSISTENCE -Zmiri-env-forward=PROPTEST_CASES"
           PROPTEST_DISABLE_FAILURE_PERSISTENCE=1
           PROPTEST_CASES=10
-          cargo miri test
-          -p simrs-consttime
-          -p simrs-rijndael
-          -p simrs-des
-          -p simrs-sha256
-          -p simrs-kdf
-          -p simrs-comp128
-          -p simrs-milenage
-          -p simrs-bertlv
-          -p simrs-iso7816
-          -p simrs-fs
-          -p simrs-pin
-          -p simrs-ecies
+          cargo miri test -p ${{ matrix.crate }}
 
   no-std:
     name: no_std
