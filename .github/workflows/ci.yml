@@ -72,6 +72,7 @@ jobs:
           components: miri
       - uses: Swatinem/rust-cache@v2
       - run: >
+          MIRIFLAGS="-Zmiri-env-forward=PROPTEST_DISABLE_FAILURE_PERSISTENCE"
           PROPTEST_DISABLE_FAILURE_PERSISTENCE=1
           cargo miri test
           -p simrs-consttime
