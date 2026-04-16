@@ -286,35 +286,20 @@ impl SwIccMessage {
 }
 
 // ---------------------------------------------------------------------------
-// SwIccClient
+// SwIccConn -- shared wire I/O
 // ---------------------------------------------------------------------------
 
-/// A swICC network protocol client (card side).
-///
-/// Connects to a swICC PC/SC server over TCP and implements
-/// [`CardTransport`] to bridge APDUs between the server and a SIM state
-/// machine.
-///
-/// # Wire endianness
-///
-/// All multi-byte integers are transmitted in **little-endian** byte
-/// order, matching the C swICC server which uses native (x86) byte order
-/// without any `htonl`/`ntohl` conversion.
-pub struct SwIccClient {
+/// Shared TCP connection + wire buffer used by both [`SwIccClient`] and
+/// [`SwIccTerminal`].
+struct SwIccConn {
     stream: TcpStream,
     /// Wire buffer for sending/receiving complete messages.
     wire_buf: [u8; MSG_MAX],
 }
 
-impl SwIccClient {
-    /// Connect to a swICC PC/SC server at the given address.
-    ///
-    /// The address should be in `"host:port"` format (e.g. `"127.0.0.1:37324"`).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TransportError::IoError`] if the TCP connection fails.
-    pub fn connect(addr: &str) -> Result<Self, TransportError> {
+impl SwIccConn {
+    /// Connect to a swICC server at the given address.
+    fn connect(addr: &str) -> Result<Self, TransportError> {
         let stream = TcpStream::connect(addr).map_err(|_| TransportError::IoError)?;
         Ok(Self {
             stream,
@@ -322,10 +307,8 @@ impl SwIccClient {
         })
     }
 
-    /// Create a client from an already-connected `TcpStream`.
-    ///
-    /// Useful for testing or when the connection is established externally.
-    pub const fn from_stream(stream: TcpStream) -> Self {
+    /// Wrap an already-connected `TcpStream`.
+    const fn from_stream(stream: TcpStream) -> Self {
         Self {
             stream,
             wire_buf: [0u8; MSG_MAX],
@@ -364,12 +347,6 @@ impl SwIccClient {
 
         SwIccMessage::decode(&self.wire_buf[..HDR_SIZE + payload_size])
     }
-
-    /// Handle a keepalive by responding immediately.
-    fn handle_keepalive(&mut self) -> Result<(), TransportError> {
-        let rsp = SwIccMessage::new(Ctrl::Success);
-        self.send_msg(&rsp)
-    }
 }
 
 /// Read exactly `buf.len()` bytes from the stream.
@@ -381,6 +358,65 @@ fn read_exact(stream: &mut TcpStream, buf: &mut [u8]) -> Result<(), TransportErr
             TransportError::IoError
         }
     })
+}
+
+// ---------------------------------------------------------------------------
+// SwIccClient
+// ---------------------------------------------------------------------------
+
+/// A swICC network protocol client (card side).
+///
+/// Connects to a swICC PC/SC server over TCP and implements
+/// [`CardTransport`] to bridge APDUs between the server and a SIM state
+/// machine.
+///
+/// # Wire endianness
+///
+/// All multi-byte integers are transmitted in **little-endian** byte
+/// order, matching the C swICC server which uses native (x86) byte order
+/// without any `htonl`/`ntohl` conversion.
+pub struct SwIccClient {
+    conn: SwIccConn,
+}
+
+impl SwIccClient {
+    /// Connect to a swICC PC/SC server at the given address.
+    ///
+    /// The address should be in `"host:port"` format (e.g. `"127.0.0.1:37324"`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::IoError`] if the TCP connection fails.
+    pub fn connect(addr: &str) -> Result<Self, TransportError> {
+        Ok(Self {
+            conn: SwIccConn::connect(addr)?,
+        })
+    }
+
+    /// Create a client from an already-connected `TcpStream`.
+    ///
+    /// Useful for testing or when the connection is established externally.
+    pub const fn from_stream(stream: TcpStream) -> Self {
+        Self {
+            conn: SwIccConn::from_stream(stream),
+        }
+    }
+
+    /// Send a [`SwIccMessage`] over the wire.
+    fn send_msg(&mut self, msg: &SwIccMessage) -> Result<(), TransportError> {
+        self.conn.send_msg(msg)
+    }
+
+    /// Receive a [`SwIccMessage`] from the wire.
+    fn recv_msg(&mut self) -> Result<SwIccMessage, TransportError> {
+        self.conn.recv_msg()
+    }
+
+    /// Handle a keepalive by responding immediately.
+    fn handle_keepalive(&mut self) -> Result<(), TransportError> {
+        let rsp = SwIccMessage::new(Ctrl::Success);
+        self.send_msg(&rsp)
+    }
 }
 
 impl CardTransport for SwIccClient {
@@ -427,11 +463,7 @@ impl CardTransport for SwIccClient {
     }
 
     fn send_atr(&mut self, atr: &[u8]) -> Result<(), Self::Error> {
-        if atr.len() > BUF_MAX {
-            return Err(TransportError::BufferTooSmall);
-        }
-        let msg = SwIccMessage::new_response(Ctrl::Success, atr, 0);
-        self.send_msg(&msg)
+        self.send(atr)
     }
 }
 
@@ -447,9 +479,7 @@ impl CardTransport for SwIccClient {
 ///
 /// Use [`SwIccClient`] for the card (command-receiving) perspective.
 pub struct SwIccTerminal {
-    stream: TcpStream,
-    /// Wire buffer for sending/receiving complete messages.
-    wire_buf: [u8; MSG_MAX],
+    conn: SwIccConn,
 }
 
 impl SwIccTerminal {
@@ -461,10 +491,8 @@ impl SwIccTerminal {
     ///
     /// Returns [`TransportError::IoError`] if the TCP connection fails.
     pub fn connect(addr: &str) -> Result<Self, TransportError> {
-        let stream = TcpStream::connect(addr).map_err(|_| TransportError::IoError)?;
         Ok(Self {
-            stream,
-            wire_buf: [0u8; MSG_MAX],
+            conn: SwIccConn::connect(addr)?,
         })
     }
 
@@ -473,8 +501,7 @@ impl SwIccTerminal {
     /// Useful for testing or when the connection is established externally.
     pub const fn from_stream(stream: TcpStream) -> Self {
         Self {
-            stream,
-            wire_buf: [0u8; MSG_MAX],
+            conn: SwIccConn::from_stream(stream),
         }
     }
 
@@ -490,8 +517,8 @@ impl SwIccTerminal {
     /// control byte.
     pub fn reset_cold(&mut self) -> Result<SwIccMessage, TransportError> {
         let msg = SwIccMessage::new(Ctrl::MockResetColdPpsY);
-        self.send_msg(&msg)?;
-        self.recv_msg()
+        self.conn.send_msg(&msg)?;
+        self.conn.recv_msg()
     }
 
     /// Send a warm reset and return the ATR response.
@@ -506,41 +533,8 @@ impl SwIccTerminal {
     /// control byte.
     pub fn reset_warm(&mut self) -> Result<SwIccMessage, TransportError> {
         let msg = SwIccMessage::new(Ctrl::MockResetWarmPpsY);
-        self.send_msg(&msg)?;
-        self.recv_msg()
-    }
-
-    /// Send a [`SwIccMessage`] over the wire.
-    fn send_msg(&mut self, msg: &SwIccMessage) -> Result<(), TransportError> {
-        let n = msg.encode(&mut self.wire_buf)?;
-        self.stream
-            .write_all(&self.wire_buf[..n])
-            .map_err(|_| TransportError::IoError)
-    }
-
-    /// Receive a [`SwIccMessage`] from the wire.
-    fn recv_msg(&mut self) -> Result<SwIccMessage, TransportError> {
-        // Read header (4 bytes).
-        read_exact(&mut self.stream, &mut self.wire_buf[..HDR_SIZE])?;
-
-        let payload_size = u32::from_le_bytes([
-            self.wire_buf[0],
-            self.wire_buf[1],
-            self.wire_buf[2],
-            self.wire_buf[3],
-        ]) as usize;
-
-        if !(DATA_OVERHEAD..=DATA_MAX).contains(&payload_size) {
-            return Err(TransportError::InvalidMessage);
-        }
-
-        // Read payload.
-        read_exact(
-            &mut self.stream,
-            &mut self.wire_buf[HDR_SIZE..HDR_SIZE + payload_size],
-        )?;
-
-        SwIccMessage::decode(&self.wire_buf[..HDR_SIZE + payload_size])
+        self.conn.send_msg(&msg)?;
+        self.conn.recv_msg()
     }
 }
 
@@ -563,9 +557,9 @@ impl Transport for SwIccTerminal {
             return Err(TransportError::BufferTooSmall);
         }
         let request = SwIccMessage::new_response(Ctrl::None, cmd, 0);
-        self.send_msg(&request)?;
+        self.conn.send_msg(&request)?;
 
-        let msg = self.recv_msg()?;
+        let msg = self.conn.recv_msg()?;
         match msg.ctrl {
             Ctrl::Success => {
                 let data = msg.buf();
@@ -1109,7 +1103,7 @@ mod tests {
         let fail_msg = SwIccMessage::new(Ctrl::Failure);
         let mut wire = [0u8; MSG_MAX];
         let n = fail_msg.encode(&mut wire).unwrap();
-        std::io::Write::write_all(&mut card.stream, &wire[..n]).unwrap();
+        std::io::Write::write_all(&mut card.conn.stream, &wire[..n]).unwrap();
 
         let result = handle.join().unwrap();
         assert_eq!(result, Err(TransportError::IoError));
