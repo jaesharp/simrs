@@ -1763,6 +1763,7 @@ name = "simrs-jccompile"
 version = "0.1.0"
 dependencies = [
  "simrs-jcvm",
+ "simrs-jcvm-opcodes",
 ]
 
 [[package]]
@@ -1794,7 +1795,12 @@ dependencies = [
  "simrs-consttime",
  "simrs-iso7816",
  "simrs-jcre",
+ "simrs-jcvm-opcodes",
 ]
+
+[[package]]
+name = "simrs-jcvm-opcodes"
+version = "0.1.0"
 
 [[package]]
 name = "simrs-kdf"

@@ -10,6 +10,7 @@ default = ["std"]
 std     = []
 
 [dependencies]
+simrs-jcvm-opcodes = { workspace = true }
 
 [dev-dependencies]
 simrs-jcvm = { workspace = true }

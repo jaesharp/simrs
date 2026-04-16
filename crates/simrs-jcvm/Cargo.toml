@@ -10,6 +10,7 @@ default = []
 std     = []
 
 [dependencies]
+simrs-jcvm-opcodes = { workspace = true }
 simrs-jcre    = { workspace = true }
 simrs-consttime = { workspace = true }
 simrs-iso7816 = { workspace = true }

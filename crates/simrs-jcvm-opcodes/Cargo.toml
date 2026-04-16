@@ -1,0 +1,15 @@
+[package]
+name        = "simrs-jcvm-opcodes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "JCVM bytecode opcode constants (no_std, no deps) -- shared by simrs-jcvm and simrs-jccompile"
+
+[features]
+default = []
+std     = []
+
+[dependencies]
+
+[lints]
+workspace = true
