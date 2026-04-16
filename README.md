@@ -2,8 +2,9 @@
 
 SIM/USIM Emulation and Specification in Pure Embeddable Rust.
 
-- **SIM / USIM** (GSM 11.11, TS 102 221, TS 31.102)
-  - GSM 11.11 + 3GPP TS 31.102 applications, filesystem, PIN/PUK, proactive UICC
+- **SIM / USIM / ISIM / HPSIM** (GSM 11.11, TS 102 221, TS 31.102, TS 31.103, TS 31.104)
+  - SIM, USIM, ISIM, HPSIM applications with filesystem, PIN/PUK, proactive UICC
+  - Runs standalone or as a GlobalPlatform applet alongside JavaCard bytecode applets
 - **Authentication** (TS 35.206, TS 35.231, TS 33.501)
   - COMP128v1-v3, Milenage, TUAK, EAP-AKA', 5G SUCI (ECIES A/B)
 - **Cryptography** (FIPS 197, FIPS 180-4, RFC 7748)
@@ -12,8 +13,8 @@ SIM/USIM Emulation and Specification in Pure Embeddable Rust.
   - OPEN, ISD, applet registry, SCP01/SCP02/SCP03, card lifecycle
 - **JavaCard** (JC VM 2.1.1, JC RE 2.1.1)
   - JCVM bytecode interpreter, compiler, assembler, decompiler
-- **eUICC** (TCA v3.3.1, SGP.22)
-  - TCA Profile Package parser (DER to filesystem)
+- **eUICC profiles** (TCA v3.3.1, SGP.22)
+  - TCA Profile Package DER parser -- ingest carrier-distributed profiles into a live filesystem
 - **OTA** (TS 102 225, TS 102 226)
   - Secured packet structure, remote APDU
 - **Tooling**
