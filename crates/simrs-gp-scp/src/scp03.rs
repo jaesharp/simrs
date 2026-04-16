@@ -316,7 +316,11 @@ pub fn unwrap_command(
 /// Apply SCP03 R-MAC (and optionally R-ENC) to a response.
 ///
 /// Returns the number of bytes written to `output`.
-#[allow(dead_code, clippy::cast_possible_truncation, clippy::too_many_arguments)]
+#[allow(
+    dead_code,
+    clippy::cast_possible_truncation,
+    clippy::too_many_arguments
+)]
 pub(crate) fn wrap_response(
     session_rmac: &[u8; 16],
     session_enc: &[u8; 16],

@@ -38,8 +38,13 @@ impl JcType {
         match self {
             Self::Void => 0,
             Self::Int => 2,
-            Self::Byte | Self::Short | Self::Boolean
-            | Self::ByteArray | Self::ShortArray | Self::IntArray | Self::RefArray
+            Self::Byte
+            | Self::Short
+            | Self::Boolean
+            | Self::ByteArray
+            | Self::ShortArray
+            | Self::IntArray
+            | Self::RefArray
             | Self::Instance => 1,
         }
     }
@@ -59,7 +64,10 @@ impl JcType {
     /// Whether this type is an array type.
     #[inline]
     pub const fn is_array(self) -> bool {
-        matches!(self, Self::ByteArray | Self::ShortArray | Self::IntArray | Self::RefArray)
+        matches!(
+            self,
+            Self::ByteArray | Self::ShortArray | Self::IntArray | Self::RefArray
+        )
     }
 
     /// Whether this type is a reference type (arrays, instances).

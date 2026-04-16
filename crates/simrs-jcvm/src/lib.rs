@@ -1376,8 +1376,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     let Some(byte2) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    let native_result =
-                        native::dispatch_native(byte1, byte2, self);
+                    let native_result = native::dispatch_native(byte1, byte2, self);
                     match native_result {
                         native::NativeResult::Void => {}
                         native::NativeResult::Short(v) => {
@@ -1399,8 +1398,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         native::NativeResult::NotNative => {
                             // Rewind PC and fall through to normal dispatch.
                             self.pc = saved_pc;
-                            let result =
-                                self.exec_invokestatic(bytecode, bytecode_len);
+                            let result = self.exec_invokestatic(bytecode, bytecode_len);
                             if let Some(err) = result {
                                 return err;
                             }
@@ -2107,8 +2105,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     let Some(byte2) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    let native_result =
-                        native::dispatch_native(byte1, byte2, self);
+                    let native_result = native::dispatch_native(byte1, byte2, self);
                     match native_result {
                         native::NativeResult::Void => {}
                         native::NativeResult::Short(v) => {
@@ -2129,8 +2126,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         native::NativeResult::Exception(e) => return e,
                         native::NativeResult::NotNative => {
                             self.pc = saved_pc;
-                            let result =
-                                self.exec_invokestatic(bytecode, bytecode_len);
+                            let result = self.exec_invokestatic(bytecode, bytecode_len);
                             if let Some(err) = result {
                                 return err;
                             }

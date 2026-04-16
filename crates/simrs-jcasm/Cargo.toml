@@ -9,9 +9,10 @@ description = "Java Card assembler, CAP builder, and test DSL for JCVM security 
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1"
-syn         = { version = "2", features = ["full", "extra-traits"] }
-quote       = "1"
+proc-macro2      = "1"
+syn              = { version = "2", features = ["full", "extra-traits"] }
+quote            = "1"
+simrs-jccompile  = { workspace = true }
 
 [dev-dependencies]
 simrs-jcvm = { workspace = true }

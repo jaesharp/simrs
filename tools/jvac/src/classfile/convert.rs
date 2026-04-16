@@ -142,6 +142,7 @@ fn convert_method(m: &MethodInfo) -> Result<JcMethod, String> {
         locals,
         body,
         is_static,
+        constant_time: false,
     })
 }
 

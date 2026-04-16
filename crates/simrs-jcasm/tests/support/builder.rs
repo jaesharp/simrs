@@ -227,9 +227,7 @@ mod tests {
         let bytecode = [0x03; 10]; // 10 NOPs (sconst_0 is a harmless filler)
         let aid = [0xA0, 0x01];
 
-        let m = MethodBuilder::new(&bytecode)
-            .exception(0, 5, 7, 0)
-            .build();
+        let m = MethodBuilder::new(&bytecode).exception(0, 5, 7, 0).build();
 
         let mut builder = CapBuilder::new(&aid);
         builder.add_method(m);
@@ -276,9 +274,7 @@ mod tests {
         let aid = [0xA0, 0x03];
 
         // handler_pc=5 but bytecode is only 1 byte long
-        let m = MethodBuilder::new(&bytecode)
-            .exception(0, 1, 5, 0)
-            .build();
+        let m = MethodBuilder::new(&bytecode).exception(0, 1, 5, 0).build();
 
         let mut builder = CapBuilder::new(&aid);
         builder.add_method(m);

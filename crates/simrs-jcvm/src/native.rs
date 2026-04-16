@@ -227,13 +227,8 @@ pub fn dispatch_native<const H: usize, const P: usize>(
                 Err(e) => return NativeResult::Exception(e),
             };
 
-            match vm.native_array_copy(
-                ObjRef(src_ref),
-                src_off,
-                ObjRef(dest_ref),
-                dest_off,
-                length,
-            ) {
+            match vm.native_array_copy(ObjRef(src_ref), src_off, ObjRef(dest_ref), dest_off, length)
+            {
                 Ok(result_off) => NativeResult::Short(result_off),
                 Err(e) => NativeResult::Exception(e),
             }
@@ -262,13 +257,8 @@ pub fn dispatch_native<const H: usize, const P: usize>(
                 Err(e) => return NativeResult::Exception(e),
             };
 
-            match vm.native_array_copy(
-                ObjRef(src_ref),
-                src_off,
-                ObjRef(dest_ref),
-                dest_off,
-                length,
-            ) {
+            match vm.native_array_copy(ObjRef(src_ref), src_off, ObjRef(dest_ref), dest_off, length)
+            {
                 Ok(result_off) => NativeResult::Short(result_off),
                 Err(e) => NativeResult::Exception(e),
             }
@@ -467,8 +457,7 @@ mod tests {
     #[test]
     fn apdu_set_incoming_and_receive_returns_zero() {
         let mut vm = test_vm();
-        let result =
-            dispatch_native(class_id::APDU, method_id::SET_INCOMING_AND_RECEIVE, &mut vm);
+        let result = dispatch_native(class_id::APDU, method_id::SET_INCOMING_AND_RECEIVE, &mut vm);
         assert_eq!(result, NativeResult::Short(0));
     }
 
@@ -483,8 +472,7 @@ mod tests {
     fn apdu_set_outgoing_length_pops_arg() {
         let mut vm = test_vm();
         let _ = vm.push_pub(100);
-        let result =
-            dispatch_native(class_id::APDU, method_id::SET_OUTGOING_LENGTH, &mut vm);
+        let result = dispatch_native(class_id::APDU, method_id::SET_OUTGOING_LENGTH, &mut vm);
         assert_eq!(result, NativeResult::Void);
     }
 
@@ -502,8 +490,7 @@ mod tests {
         let mut vm = test_vm();
         let _ = vm.push_pub(0);
         let _ = vm.push_pub(10);
-        let result =
-            dispatch_native(class_id::APDU, method_id::SET_OUTGOING_AND_SEND, &mut vm);
+        let result = dispatch_native(class_id::APDU, method_id::SET_OUTGOING_AND_SEND, &mut vm);
         assert_eq!(result, NativeResult::Void);
     }
 
@@ -533,7 +520,10 @@ mod tests {
         let _ = vm.push_pub(0xDE); // b1
         let _ = vm.push_pub(0xAD); // b2
         let result = dispatch_native(class_id::UTIL, method_id::MAKE_SHORT, &mut vm);
-        assert_eq!(result, NativeResult::Short(i16::from_be_bytes([0xDE, 0xAD])));
+        assert_eq!(
+            result,
+            NativeResult::Short(i16::from_be_bytes([0xDE, 0xAD]))
+        );
     }
 
     #[test]
@@ -725,16 +715,14 @@ mod tests {
     fn jc_system_commit_transaction() {
         let mut vm = test_vm();
         let _ = vm.journal_mut().begin();
-        let result =
-            dispatch_native(class_id::JC_SYSTEM, method_id::COMMIT_TRANSACTION, &mut vm);
+        let result = dispatch_native(class_id::JC_SYSTEM, method_id::COMMIT_TRANSACTION, &mut vm);
         assert_eq!(result, NativeResult::Void);
     }
 
     #[test]
     fn jc_system_abort_transaction() {
         let mut vm = test_vm();
-        let result =
-            dispatch_native(class_id::JC_SYSTEM, method_id::ABORT_TRANSACTION, &mut vm);
+        let result = dispatch_native(class_id::JC_SYSTEM, method_id::ABORT_TRANSACTION, &mut vm);
         assert_eq!(result, NativeResult::Void);
     }
 
@@ -781,7 +769,10 @@ mod tests {
             method_id::MAKE_TRANSIENT_BYTE_ARRAY,
             &mut vm,
         );
-        assert_eq!(result, NativeResult::Exception(ExecResult::NegativeArraySize));
+        assert_eq!(
+            result,
+            NativeResult::Exception(ExecResult::NegativeArraySize)
+        );
     }
 
     // -- Unknown class/method --
@@ -854,7 +845,10 @@ mod tests {
         let _ = vm.push_pub(2); // offset
 
         let result = dispatch_native(class_id::UTIL, method_id::GET_SHORT, &mut vm);
-        assert_eq!(result, NativeResult::Short(i16::from_be_bytes([0xAB, 0xCD])));
+        assert_eq!(
+            result,
+            NativeResult::Short(i16::from_be_bytes([0xAB, 0xCD]))
+        );
     }
 
     #[test]

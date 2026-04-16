@@ -11,10 +11,7 @@ pub mod reader;
 /// # Errors
 ///
 /// Returns a descriptive error string on read or conversion failure.
-pub fn read_and_convert(
-    data: &[u8],
-    aid: &[u8],
-) -> Result<simrs_jccompile::ir::JcClass, String> {
+pub fn read_and_convert(data: &[u8], aid: &[u8]) -> Result<simrs_jccompile::ir::JcClass, String> {
     let cf = reader::read_classfile(data)?;
     convert::classfile_to_ir(&cf, aid)
 }

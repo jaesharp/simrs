@@ -36,12 +36,18 @@ pub struct CheckedMethod {
 impl CheckedMethod {
     /// Look up a local variable's stack slot index by name.
     pub fn local_index(&self, name: &str) -> Option<u8> {
-        self.local_map.iter().find(|(n, _)| n == name).map(|(_, i)| *i)
+        self.local_map
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, i)| *i)
     }
 
     /// Look up a field's byte offset by name.
     pub fn field_offset(&self, name: &str) -> Option<u8> {
-        self.field_map.iter().find(|(n, _)| n == name).map(|(_, o)| *o)
+        self.field_map
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, o)| *o)
     }
 
     /// Look up a local variable's type by name.
@@ -186,9 +192,7 @@ fn check_stmt(
         }
         JcStmt::Return(None) => {
             if method.return_ty != JcType::Void {
-                errors.push(String::from(
-                    "non-void method must return a value",
-                ));
+                errors.push(String::from("non-void method must return a value"));
             }
         }
         JcStmt::If {
@@ -197,8 +201,12 @@ fn check_stmt(
             else_body,
         } => {
             check_condition(cond, local_map, field_map, locals, class, errors);
-            check_stmts(then_body, local_map, field_map, locals, method, class, errors);
-            check_stmts(else_body, local_map, field_map, locals, method, class, errors);
+            check_stmts(
+                then_body, local_map, field_map, locals, method, class, errors,
+            );
+            check_stmts(
+                else_body, local_map, field_map, locals, method, class, errors,
+            );
         }
         JcStmt::While { cond, body } => {
             check_condition(cond, local_map, field_map, locals, class, errors);
@@ -207,14 +215,22 @@ fn check_stmt(
         JcStmt::Expr(expr) => {
             check_expr(expr, local_map, field_map, locals, class, errors);
         }
-        JcStmt::Switch { key, cases, default } => {
+        JcStmt::Switch {
+            key,
+            cases,
+            default,
+        } => {
             check_expr(key, local_map, field_map, locals, class, errors);
             for (_val, body) in cases {
                 check_stmts(body, local_map, field_map, locals, method, class, errors);
             }
             check_stmts(default, local_map, field_map, locals, method, class, errors);
         }
-        JcStmt::IntSwitch { key, cases, default } => {
+        JcStmt::IntSwitch {
+            key,
+            cases,
+            default,
+        } => {
             check_expr(key, local_map, field_map, locals, class, errors);
             for (_val, body) in cases {
                 check_stmts(body, local_map, field_map, locals, method, class, errors);
@@ -266,32 +282,25 @@ fn check_condition(
     errors: &mut Vec<String>,
 ) {
     match cond {
-        // Short comparisons.
+        // Null/non-null reference checks (single operand).
+        Condition::Null(e) | Condition::NonNull(e) => {
+            check_expr(e, local_map, field_map, locals, class, errors);
+        }
+        // Short, int, and reference comparisons (all two-operand).
         Condition::Eq(l, r)
         | Condition::Ne(l, r)
         | Condition::Lt(l, r)
         | Condition::Ge(l, r)
         | Condition::Gt(l, r)
-        | Condition::Le(l, r) => {
-            check_expr(l, local_map, field_map, locals, class, errors);
-            check_expr(r, local_map, field_map, locals, class, errors);
-        }
-        // Null/non-null reference checks (single operand).
-        Condition::Null(e) | Condition::NonNull(e) => {
-            check_expr(e, local_map, field_map, locals, class, errors);
-        }
-        // Int comparisons.
-        Condition::IntEq(l, r)
+        | Condition::Le(l, r)
+        | Condition::IntEq(l, r)
         | Condition::IntNe(l, r)
         | Condition::IntLt(l, r)
         | Condition::IntGe(l, r)
         | Condition::IntGt(l, r)
-        | Condition::IntLe(l, r) => {
-            check_expr(l, local_map, field_map, locals, class, errors);
-            check_expr(r, local_map, field_map, locals, class, errors);
-        }
-        // Reference comparisons.
-        Condition::RefEq(l, r) | Condition::RefNe(l, r) => {
+        | Condition::IntLe(l, r)
+        | Condition::RefEq(l, r)
+        | Condition::RefNe(l, r) => {
             check_expr(l, local_map, field_map, locals, class, errors);
             check_expr(r, local_map, field_map, locals, class, errors);
         }
@@ -299,6 +308,7 @@ fn check_condition(
 }
 
 /// Validate an expression.
+#[allow(clippy::too_many_lines)]
 fn check_expr(
     expr: &JcExpr,
     local_map: &[(String, u8)],
@@ -330,9 +340,17 @@ fn check_expr(
             ) {
                 let need_numeric = matches!(
                     op,
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
-                    | BinOp::And | BinOp::Or | BinOp::Xor
-                    | BinOp::Shl | BinOp::Shr | BinOp::Ushr
+                    BinOp::Add
+                        | BinOp::Sub
+                        | BinOp::Mul
+                        | BinOp::Div
+                        | BinOp::Rem
+                        | BinOp::And
+                        | BinOp::Or
+                        | BinOp::Xor
+                        | BinOp::Shl
+                        | BinOp::Shr
+                        | BinOp::Ushr
                 );
                 if need_numeric {
                     if !lt.is_numeric() {
@@ -393,9 +411,7 @@ fn check_expr(
                 check_expr(arg, local_map, field_map, locals, class, errors);
             }
         }
-        JcExpr::NewByteArray(len)
-        | JcExpr::NewShortArray(len)
-        | JcExpr::NewIntArray(len) => {
+        JcExpr::NewByteArray(len) | JcExpr::NewShortArray(len) | JcExpr::NewIntArray(len) => {
             check_expr(len, local_map, field_map, locals, class, errors);
         }
         JcExpr::NewRefArray { length, .. } => {
@@ -409,10 +425,9 @@ fn check_expr(
             // Validate conversion pair.
             let valid = matches!(
                 (from, to),
-                (JcType::Short, JcType::Byte)
-                | (JcType::Short, JcType::Int)
-                | (JcType::Int, JcType::Short)
-                | (JcType::Int, JcType::Byte)
+                (JcType::Short | JcType::Int, JcType::Byte)
+                    | (JcType::Short, JcType::Int)
+                    | (JcType::Int, JcType::Short)
             );
             if !valid {
                 errors.push(format!("invalid cast from {from:?} to {to:?}"));
@@ -449,9 +464,7 @@ fn expr_type(
         JcExpr::NewShortArray(_) => Some(JcType::ShortArray),
         JcExpr::NewIntArray(_) => Some(JcType::IntArray),
         JcExpr::NewRefArray { .. } => Some(JcType::RefArray),
-        JcExpr::IntLit(_)
-        | JcExpr::IntBinOp { .. }
-        | JcExpr::IntNeg(_) => Some(JcType::Int),
+        JcExpr::IntLit(_) | JcExpr::IntBinOp { .. } | JcExpr::IntNeg(_) => Some(JcType::Int),
         JcExpr::Lit(_)
         | JcExpr::BinOp { .. }
         | JcExpr::Neg(_)
@@ -465,9 +478,9 @@ fn expr_type(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::{BinOp, JcField, JcMethod};
     use alloc::boxed::Box;
     use alloc::vec;
-    use crate::ir::{BinOp, JcField, JcMethod};
 
     fn make_simple_class(method: JcMethod) -> JcClass {
         JcClass {
@@ -486,6 +499,7 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(42)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_simple_class(method);
         let result = check_class(&cls);
@@ -501,12 +515,15 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Var(String::from("x"))))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_simple_class(method);
         let result = check_class(&cls);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("undefined variable `x`")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("undefined variable `x`")));
     }
 
     #[test]
@@ -520,12 +537,15 @@ mod tests {
                 "balance",
             ))))],
             is_static: false,
+            constant_time: false,
         };
         let cls = make_simple_class(method);
         let result = check_class(&cls);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("undefined field `balance`")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("undefined field `balance`")));
     }
 
     #[test]
@@ -537,12 +557,15 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_simple_class(method);
         let result = check_class(&cls);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("void method cannot return a value")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("void method cannot return a value")));
     }
 
     #[test]
@@ -564,6 +587,7 @@ mod tests {
                 right: Box::new(JcExpr::Var(String::from("b"))),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_simple_class(method);
         let result = check_class(&cls).unwrap();
@@ -583,6 +607,7 @@ mod tests {
                 "balance",
             ))))],
             is_static: false,
+            constant_time: false,
         };
         let cls = JcClass {
             aid: vec![0xA0, 0x00, 0x00, 0x00, 0x62],
@@ -611,6 +636,7 @@ mod tests {
                 right: Box::new(JcExpr::Lit(1)),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_simple_class(method);
         let result = check_class(&cls);

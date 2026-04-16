@@ -257,7 +257,7 @@ pub struct CompiledClass {
 pub struct BytecodeMetadata {
     /// PCs that are branch targets (must maintain instruction alignment).
     pub branch_targets: Vec<u16>,
-    /// Basic blocks: (start_pc, end_pc) ranges where end_pc is exclusive.
+    /// Basic blocks: (`start_pc`, `end_pc`) ranges where `end_pc` is exclusive.
     pub basic_blocks: Vec<(u16, u16)>,
     /// Branch instructions with offset info for repatching.
     pub branches: Vec<BranchInfo>,
@@ -320,7 +320,7 @@ pub fn compute_basic_blocks(
         }
     }
 
-    starts.sort();
+    starts.sort_unstable();
     starts.dedup();
 
     // Build (start, end) pairs.
@@ -352,16 +352,45 @@ pub fn compute_basic_blocks(
 ///
 /// Returns compilation errors from type checking or code generation.
 pub fn compile_class(class: &JcClass) -> Result<CompiledClass, Vec<CompileError>> {
-    let optimized = crate::optimize::optimize_ir(class);
+    use crate::config::OptConfig;
+    let (compiled, _report) = compile_class_with_config(class, &OptConfig::full())?;
+    Ok(compiled)
+}
+
+/// Compile a class with explicit optimization configuration.
+///
+/// Returns the compiled class and an optimization report.
+///
+/// # Errors
+///
+/// Returns compilation errors from type checking or code generation.
+pub fn compile_class_with_config(
+    class: &JcClass,
+    config: &crate::config::OptConfig,
+) -> Result<(CompiledClass, crate::config::OptReport), Vec<CompileError>> {
+    use crate::config::{MethodReport, OptReport};
+
+    let optimized = crate::optimize::optimize_ir_with_config(class, &config.ir);
     let checked = check_class(&optimized)?;
 
     let mut methods = Vec::new();
+    let mut method_reports = Vec::new();
     let mut errors = Vec::new();
 
     for cm in &checked.methods {
         match compile_method(cm) {
             Ok((mut bytecode, mut metadata)) => {
-                crate::optimize::peephole_optimize(&mut bytecode, &mut metadata);
+                let bytes_before = bytecode.len();
+                let changes = crate::optimize::peephole_optimize_with_config(
+                    &mut bytecode,
+                    &mut metadata,
+                    &config.peephole,
+                );
+                method_reports.push(MethodReport {
+                    peephole_changes: changes,
+                    bytes_before,
+                    bytes_after: bytecode.len(),
+                });
                 methods.push(bytecode);
             }
             Err(e) => errors.push(CompileError {
@@ -372,10 +401,17 @@ pub fn compile_class(class: &JcClass) -> Result<CompiledClass, Vec<CompileError>
     }
 
     if errors.is_empty() {
-        Ok(CompiledClass {
-            aid: checked.aid,
-            methods,
-        })
+        let report = OptReport {
+            ir_iterations: 0, // TODO: return from optimize_ir_with_config
+            methods: method_reports,
+        };
+        Ok((
+            CompiledClass {
+                aid: checked.aid,
+                methods,
+            },
+            report,
+        ))
     } else {
         Err(errors)
     }
@@ -495,7 +531,7 @@ impl MethodCodegen {
     }
 
     /// Current bytecode position.
-    fn pos(&self) -> usize {
+    const fn pos(&self) -> usize {
         self.code.len()
     }
 
@@ -555,7 +591,7 @@ impl MethodCodegen {
             });
         }
 
-        branch_targets.sort();
+        branch_targets.sort_unstable();
         branch_targets.dedup();
 
         let basic_blocks = compute_basic_blocks(&branch_targets, &branches, self.code.len());
@@ -659,16 +695,20 @@ fn emit_stmt(cg: &mut MethodCodegen, stmt: &JcStmt, cm: &CheckedMethod) -> Resul
             // A more complete compiler would track stack effects.
             Ok(())
         }
-        JcStmt::Switch { key, cases, default } => {
-            emit_switch_short(cg, key, cases, default, cm)
-        }
-        JcStmt::IntSwitch { key, cases, default } => {
-            emit_switch_int(cg, key, cases, default, cm)
-        }
+        JcStmt::Switch {
+            key,
+            cases,
+            default,
+        } => emit_switch_short(cg, key, cases, default, cm),
+        JcStmt::IntSwitch {
+            key,
+            cases,
+            default,
+        } => emit_switch_int(cg, key, cases, default, cm),
         JcStmt::Increment { var, amount } => {
-            let idx = cm.local_index(var).ok_or_else(|| {
-                format!("codegen: undefined local `{var}` in increment")
-            })?;
+            let idx = cm
+                .local_index(var)
+                .ok_or_else(|| format!("codegen: undefined local `{var}` in increment"))?;
             let ty = cm.local_type(var).unwrap_or(JcType::Short);
             if ty.is_int() {
                 cg.emit(IINC);
@@ -919,9 +959,9 @@ fn emit_assign(
             // Push `this` (local 0), then value, then putfield.
             emit_aload(cg, 0);
             emit_expr(cg, value, cm)?;
-            let offset = cm.field_offset(field_name).ok_or_else(|| {
-                format!("codegen: undefined field `{field_name}`")
-            })?;
+            let offset = cm
+                .field_offset(field_name)
+                .ok_or_else(|| format!("codegen: undefined field `{field_name}`"))?;
             let field_ty = cm.field_type(field_name).unwrap_or(JcType::Byte);
             let op = putfield_opcode(field_ty);
             cg.emit(op);
@@ -945,14 +985,10 @@ fn emit_assign(
 // =========================================================================
 
 /// Emit a store instruction for a named local, choosing the opcode based on type.
-fn emit_store_local(
-    cg: &mut MethodCodegen,
-    cm: &CheckedMethod,
-    name: &str,
-) -> Result<(), String> {
-    let idx = cm.local_index(name).ok_or_else(|| {
-        format!("codegen: undefined local `{name}`")
-    })?;
+fn emit_store_local(cg: &mut MethodCodegen, cm: &CheckedMethod, name: &str) -> Result<(), String> {
+    let idx = cm
+        .local_index(name)
+        .ok_or_else(|| format!("codegen: undefined local `{name}`"))?;
     let ty = cm.local_type(name).unwrap_or(JcType::Short);
 
     if ty.is_int() {
@@ -966,14 +1002,10 @@ fn emit_store_local(
 }
 
 /// Emit a load instruction for a named local, choosing the opcode based on type.
-fn emit_load_local(
-    cg: &mut MethodCodegen,
-    cm: &CheckedMethod,
-    name: &str,
-) -> Result<(), String> {
-    let idx = cm.local_index(name).ok_or_else(|| {
-        format!("codegen: undefined local `{name}`")
-    })?;
+fn emit_load_local(cg: &mut MethodCodegen, cm: &CheckedMethod, name: &str) -> Result<(), String> {
+    let idx = cm
+        .local_index(name)
+        .ok_or_else(|| format!("codegen: undefined local `{name}`"))?;
     let ty = cm.local_type(name).unwrap_or(JcType::Short);
 
     if ty.is_int() {
@@ -1053,6 +1085,7 @@ fn emit_astore(cg: &mut MethodCodegen, idx: u8) {
 // =========================================================================
 
 /// Emit bytecodes for an expression (result pushed onto the stack).
+#[allow(clippy::too_many_lines)]
 fn emit_expr(cg: &mut MethodCodegen, expr: &JcExpr, cm: &CheckedMethod) -> Result<(), String> {
     match expr {
         JcExpr::Lit(n) => {
@@ -1063,15 +1096,13 @@ fn emit_expr(cg: &mut MethodCodegen, expr: &JcExpr, cm: &CheckedMethod) -> Resul
             emit_int_lit(cg, *n);
             Ok(())
         }
-        JcExpr::Var(name) => {
-            emit_load_local(cg, cm, name)
-        }
+        JcExpr::Var(name) => emit_load_local(cg, cm, name),
         JcExpr::SelfField(name) => {
             // Push `this` (local 0), then getfield.
             emit_aload(cg, 0);
-            let offset = cm.field_offset(name).ok_or_else(|| {
-                format!("codegen: undefined field `{name}`")
-            })?;
+            let offset = cm
+                .field_offset(name)
+                .ok_or_else(|| format!("codegen: undefined field `{name}`"))?;
             let field_ty = cm.field_type(name).unwrap_or(JcType::Byte);
             let op = getfield_opcode(field_ty);
             cg.emit(op);
@@ -1185,7 +1216,7 @@ fn emit_expr(cg: &mut MethodCodegen, expr: &JcExpr, cm: &CheckedMethod) -> Resul
 fn emit_short_lit(cg: &mut MethodCodegen, n: i16) {
     // sconst_m1 (0x02) through sconst_5 (0x08) cover -1..5.
     let lo = i16::from(SCONST_M1) - i16::from(SCONST_0); // -1
-    let hi = i16::from(SCONST_5) - i16::from(SCONST_0);  // 5
+    let hi = i16::from(SCONST_5) - i16::from(SCONST_0); // 5
     if n >= lo && n <= hi {
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         let opcode = (i16::from(SCONST_0) + n) as u8;
@@ -1204,7 +1235,7 @@ fn emit_short_lit(cg: &mut MethodCodegen, n: i16) {
 /// Emit an int literal using the most compact encoding.
 fn emit_int_lit(cg: &mut MethodCodegen, n: i32) {
     // iconst_m1 (0x09) through iconst_5 (0x0F) cover -1..5.
-    if n >= -1 && n <= 5 {
+    if (-1..=5).contains(&n) {
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         let opcode = ICONST_0.wrapping_add_signed(n as i8);
         cg.emit(opcode);
@@ -1222,7 +1253,7 @@ fn emit_int_lit(cg: &mut MethodCodegen, n: i32) {
 // =========================================================================
 
 /// Select the correct short binary operation opcode.
-fn short_binop_opcode(op: BinOp) -> u8 {
+const fn short_binop_opcode(op: BinOp) -> u8 {
     match op {
         BinOp::Add => SADD,
         BinOp::Sub => SSUB,
@@ -1239,7 +1270,7 @@ fn short_binop_opcode(op: BinOp) -> u8 {
 }
 
 /// Select the correct int binary operation opcode.
-fn int_binop_opcode(op: BinOp) -> u8 {
+const fn int_binop_opcode(op: BinOp) -> u8 {
     match op {
         BinOp::Add => IADD,
         BinOp::Sub => ISUB,
@@ -1256,37 +1287,44 @@ fn int_binop_opcode(op: BinOp) -> u8 {
 }
 
 /// Select the return opcode for a given return type.
-fn return_opcode_for_type(ty: JcType) -> u8 {
+const fn return_opcode_for_type(ty: JcType) -> u8 {
     match ty {
         JcType::Void => RETURN,
         JcType::Int => IRETURN,
-        JcType::Instance | JcType::ByteArray | JcType::ShortArray
-        | JcType::IntArray | JcType::RefArray => ARETURN,
+        JcType::Instance
+        | JcType::ByteArray
+        | JcType::ShortArray
+        | JcType::IntArray
+        | JcType::RefArray => ARETURN,
         JcType::Byte | JcType::Short | JcType::Boolean => SRETURN,
     }
 }
 
 /// Select the getfield opcode for a given field type.
-fn getfield_opcode(ty: JcType) -> u8 {
+const fn getfield_opcode(ty: JcType) -> u8 {
     match ty {
-        JcType::Byte | JcType::Boolean => GETFIELD_B,
+        JcType::Byte | JcType::Boolean | JcType::Void => GETFIELD_B,
         JcType::Short => GETFIELD_S,
         JcType::Int => GETFIELD_I,
-        JcType::Instance | JcType::ByteArray | JcType::ShortArray
-        | JcType::IntArray | JcType::RefArray => GETFIELD_A,
-        JcType::Void => GETFIELD_B, // fallback (should never happen)
+        JcType::Instance
+        | JcType::ByteArray
+        | JcType::ShortArray
+        | JcType::IntArray
+        | JcType::RefArray => GETFIELD_A,
     }
 }
 
 /// Select the putfield opcode for a given field type.
-fn putfield_opcode(ty: JcType) -> u8 {
+const fn putfield_opcode(ty: JcType) -> u8 {
     match ty {
-        JcType::Byte | JcType::Boolean => PUTFIELD_B,
+        JcType::Byte | JcType::Boolean | JcType::Void => PUTFIELD_B,
         JcType::Short => PUTFIELD_S,
         JcType::Int => PUTFIELD_I,
-        JcType::Instance | JcType::ByteArray | JcType::ShortArray
-        | JcType::IntArray | JcType::RefArray => PUTFIELD_A,
-        JcType::Void => PUTFIELD_B, // fallback (should never happen)
+        JcType::Instance
+        | JcType::ByteArray
+        | JcType::ShortArray
+        | JcType::IntArray
+        | JcType::RefArray => PUTFIELD_A,
     }
 }
 
@@ -1336,9 +1374,9 @@ fn resolve_expr_type(expr: &JcExpr, cm: &CheckedMethod) -> Option<JcType> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::JcMethod;
     use alloc::boxed::Box;
     use alloc::vec;
-    use crate::ir::JcMethod;
 
     fn make_static_class(method: JcMethod) -> JcClass {
         JcClass {
@@ -1357,6 +1395,7 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(42)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1375,6 +1414,7 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1390,6 +1430,7 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(-1)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1405,6 +1446,7 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(5)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1420,14 +1462,12 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(1000)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
         // sspush 0x03 0xE8, sreturn
-        assert_eq!(
-            compiled.methods[0],
-            vec![SSPUSH, 0x03, 0xE8, SRETURN]
-        );
+        assert_eq!(compiled.methods[0], vec![SSPUSH, 0x03, 0xE8, SRETURN]);
     }
 
     #[test]
@@ -1444,14 +1484,12 @@ mod tests {
                 right: Box::new(JcExpr::Lit(2)),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
         // sload_0, sconst_2, sadd, sreturn
-        assert_eq!(
-            compiled.methods[0],
-            vec![SLOAD_0, 0x05, SADD, SRETURN]
-        );
+        assert_eq!(compiled.methods[0], vec![SLOAD_0, 0x05, SADD, SRETURN]);
     }
 
     #[test]
@@ -1461,21 +1499,17 @@ mod tests {
             name: String::from("f"),
             params: vec![(String::from("x"), JcType::Short)],
             return_ty: JcType::Short,
-            locals: vec![
-                (String::from("x"), JcType::Short),
-            ],
-            body: vec![
-                JcStmt::Return(Some(JcExpr::Neg(Box::new(JcExpr::Var(String::from("x")))))),
-            ],
+            locals: vec![(String::from("x"), JcType::Short)],
+            body: vec![JcStmt::Return(Some(JcExpr::Neg(Box::new(JcExpr::Var(
+                String::from("x"),
+            )))))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
         // sload_0, sneg, sreturn
-        assert_eq!(
-            compiled.methods[0],
-            vec![SLOAD_0, SNEG, SRETURN]
-        );
+        assert_eq!(compiled.methods[0], vec![SLOAD_0, SNEG, SRETURN]);
     }
 
     #[test]
@@ -1506,13 +1540,23 @@ mod tests {
                 })),
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
         // sconst_3, sstore_0, sconst_2, sstore_1, sload_0, sload_1, sadd, sreturn
         assert_eq!(
             compiled.methods[0],
-            vec![0x06, SSTORE_0, 0x05, SSTORE_0 + 1, SLOAD_0, SLOAD_0 + 1, SADD, SRETURN]
+            vec![
+                0x06,
+                SSTORE_0,
+                0x05,
+                SSTORE_0 + 1,
+                SLOAD_0,
+                SLOAD_0 + 1,
+                SADD,
+                SRETURN
+            ]
         );
     }
 
@@ -1525,6 +1569,7 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(None)],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1546,15 +1591,13 @@ mod tests {
                     init: JcExpr::Lit(0),
                 },
                 JcStmt::If {
-                    cond: Condition::Eq(
-                        JcExpr::Var(String::from("x")),
-                        JcExpr::Lit(0),
-                    ),
+                    cond: Condition::Eq(JcExpr::Var(String::from("x")), JcExpr::Lit(0)),
                     then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                     else_body: vec![JcStmt::Return(Some(JcExpr::Lit(2)))],
                 },
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let result = compile_class(&cls);
@@ -1589,10 +1632,7 @@ mod tests {
                     init: JcExpr::Lit(0),
                 },
                 JcStmt::While {
-                    cond: Condition::Ne(
-                        JcExpr::Var(String::from("i")),
-                        JcExpr::Lit(6),
-                    ),
+                    cond: Condition::Ne(JcExpr::Var(String::from("i")), JcExpr::Lit(6)),
                     body: vec![
                         JcStmt::Assign {
                             target: LValue::Var(String::from("sum")),
@@ -1615,6 +1655,7 @@ mod tests {
                 JcStmt::Return(Some(JcExpr::Var(String::from("sum")))),
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let result = compile_class(&cls);
@@ -1638,6 +1679,7 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::IntLit(3)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1655,6 +1697,7 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::IntLit(100_000)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1679,6 +1722,7 @@ mod tests {
                 right: Box::new(JcExpr::IntLit(2)),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1697,17 +1741,15 @@ mod tests {
             params: vec![(String::from("x"), JcType::Int)],
             return_ty: JcType::Int,
             locals: vec![(String::from("x"), JcType::Int)],
-            body: vec![JcStmt::Return(Some(JcExpr::IntNeg(
-                Box::new(JcExpr::Var(String::from("x"))),
-            )))],
+            body: vec![JcStmt::Return(Some(JcExpr::IntNeg(Box::new(JcExpr::Var(
+                String::from("x"),
+            )))))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
-        assert_eq!(
-            compiled.methods[0],
-            vec![ILOAD_0, INEG, IRETURN]
-        );
+        assert_eq!(compiled.methods[0], vec![ILOAD_0, INEG, IRETURN]);
     }
 
     #[test]
@@ -1724,6 +1766,7 @@ mod tests {
                 right: Box::new(JcExpr::Lit(3)),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1754,6 +1797,7 @@ mod tests {
                 right: Box::new(JcExpr::Lit(1)),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1775,6 +1819,7 @@ mod tests {
                 right: Box::new(JcExpr::Lit(3)),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1795,6 +1840,7 @@ mod tests {
                 expr: Box::new(JcExpr::Var(String::from("x"))),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1815,6 +1861,7 @@ mod tests {
                 expr: Box::new(JcExpr::Var(String::from("x"))),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1836,6 +1883,7 @@ mod tests {
                 expr: Box::new(JcExpr::Var(String::from("x"))),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1856,6 +1904,7 @@ mod tests {
                 expr: Box::new(JcExpr::Var(String::from("x"))),
             }))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1877,15 +1926,13 @@ mod tests {
                     init: JcExpr::Lit(3),
                 },
                 JcStmt::If {
-                    cond: Condition::Lt(
-                        JcExpr::Var(String::from("x")),
-                        JcExpr::Lit(5),
-                    ),
+                    cond: Condition::Lt(JcExpr::Var(String::from("x")), JcExpr::Lit(5)),
                     then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                     else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
                 },
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1907,15 +1954,13 @@ mod tests {
                     init: JcExpr::Lit(3),
                 },
                 JcStmt::If {
-                    cond: Condition::Gt(
-                        JcExpr::Var(String::from("x")),
-                        JcExpr::Lit(5),
-                    ),
+                    cond: Condition::Gt(JcExpr::Var(String::from("x")), JcExpr::Lit(5)),
                     then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                     else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
                 },
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1944,6 +1989,7 @@ mod tests {
                 JcStmt::Return(Some(JcExpr::Var(String::from("x")))),
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1962,6 +2008,7 @@ mod tests {
                 Box::new(JcExpr::IntLit(5)),
             )))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -1987,6 +2034,7 @@ mod tests {
                 })),
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -2017,6 +2065,7 @@ mod tests {
                 },
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -2032,6 +2081,7 @@ mod tests {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::IntLit(42)))],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -2071,6 +2121,7 @@ mod tests {
                     right: Box::new(JcExpr::Var(String::from("b"))),
                 }))],
                 is_static: true,
+                constant_time: false,
             };
             let cls = make_static_class(method);
             let compiled = compile_class(&cls).unwrap();
@@ -2114,6 +2165,7 @@ mod tests {
                     right: Box::new(JcExpr::Var(String::from("b"))),
                 }))],
                 is_static: true,
+                constant_time: false,
             };
             let cls = make_static_class(method);
             let compiled = compile_class(&cls).unwrap();
@@ -2136,6 +2188,7 @@ mod tests {
                 JcStmt::Return(Some(JcExpr::Lit(0))),
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();
@@ -2160,6 +2213,7 @@ mod tests {
                 JcStmt::Return(Some(JcExpr::Var(String::from("x")))),
             ],
             is_static: true,
+            constant_time: false,
         };
         let cls = make_static_class(method);
         let compiled = compile_class(&cls).unwrap();

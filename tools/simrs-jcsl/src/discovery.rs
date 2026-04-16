@@ -31,12 +31,7 @@ use crate::configurator;
 // ---------------------------------------------------------------------------
 
 /// Expected files in the jcsl runtime directory (binary + shared libraries).
-const RUNTIME_FILES: &[&str] = &[
-    "jcsl",
-    "libcrypto.so.3",
-    "libssl.so.3",
-    "legacy.so",
-];
+const RUNTIME_FILES: &[&str] = &["jcsl", "libcrypto.so.3", "libssl.so.3", "legacy.so"];
 
 /// Symlinks that should exist alongside the binary.
 const RUNTIME_SYMLINKS: &[(&str, &str)] = &[
@@ -155,7 +150,11 @@ impl fmt::Display for ValidationError {
             Self::NotAFile(p) => write!(f, "not a regular file: {}", p.display()),
             Self::NotElf(p) => write!(f, "not an ELF binary: {}", p.display()),
             Self::MissingSentinel(p) => {
-                write!(f, "missing jcsl magic patterns (not a jcsl binary?): {}", p.display())
+                write!(
+                    f,
+                    "missing jcsl magic patterns (not a jcsl binary?): {}",
+                    p.display()
+                )
             }
             Self::Io(e) => write!(f, "I/O error: {e}"),
         }
@@ -369,13 +368,12 @@ pub fn install_from_sdk(sdk_dir: &Path) -> Result<JcslInstallation, InstallError
     // Validate the source binary.
     validate(&src_binary)?;
 
-    let dst_dir = cache_dir()
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "cannot determine XDG cache directory (HOME not set?)",
-            )
-        })?;
+    let dst_dir = cache_dir().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "cannot determine XDG cache directory (HOME not set?)",
+        )
+    })?;
 
     fs::create_dir_all(&dst_dir)?;
 
@@ -442,19 +440,19 @@ pub fn install_from_sdk(sdk_dir: &Path) -> Result<JcslInstallation, InstallError
 pub fn install_from_binary(binary_path: &Path) -> Result<JcslInstallation, InstallError> {
     validate(binary_path)?;
 
-    let src_dir = binary_path
-        .parent()
-        .ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "binary path has no parent directory")
-        })?;
+    let src_dir = binary_path.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "binary path has no parent directory",
+        )
+    })?;
 
-    let dst_dir = cache_dir()
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "cannot determine XDG cache directory (HOME not set?)",
-            )
-        })?;
+    let dst_dir = cache_dir().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "cannot determine XDG cache directory (HOME not set?)",
+        )
+    })?;
 
     fs::create_dir_all(&dst_dir)?;
 
@@ -466,7 +464,10 @@ pub fn install_from_binary(binary_path: &Path) -> Result<JcslInstallation, Insta
     {
         use std::os::unix::fs::PermissionsExt;
         let meta = fs::metadata(binary_path)?;
-        fs::set_permissions(&dst_binary, fs::Permissions::from_mode(meta.permissions().mode()))?;
+        fs::set_permissions(
+            &dst_binary,
+            fs::Permissions::from_mode(meta.permissions().mode()),
+        )?;
     }
 
     // Copy sibling shared libraries if present.
@@ -730,9 +731,18 @@ mod tests {
 
     #[test]
     fn discovery_source_display() {
-        assert_eq!(DiscoverySource::EnvVar.to_string(), "SIMRS_JCSL_BINARY env var");
-        assert_eq!(DiscoverySource::XdgCache.to_string(), "XDG cache (~/.cache/simrs/)");
-        assert_eq!(DiscoverySource::Workspace.to_string(), "workspace (tools/oracle-jcvm-ref/)");
+        assert_eq!(
+            DiscoverySource::EnvVar.to_string(),
+            "SIMRS_JCSL_BINARY env var"
+        );
+        assert_eq!(
+            DiscoverySource::XdgCache.to_string(),
+            "XDG cache (~/.cache/simrs/)"
+        );
+        assert_eq!(
+            DiscoverySource::Workspace.to_string(),
+            "workspace (tools/oracle-jcvm-ref/)"
+        );
     }
 
     #[test]
@@ -796,9 +806,8 @@ mod tests {
         let errors: Vec<String> = vec![
             InstallError::SdkNotFound(PathBuf::from("/opt/oracle/jcdk")).to_string(),
             InstallError::MissingRuntime(PathBuf::from("/opt/oracle/jcdk")).to_string(),
-            InstallError::Validation(
-                ValidationError::NotElf(PathBuf::from("/tmp/bad"))
-            ).to_string(),
+            InstallError::Validation(ValidationError::NotElf(PathBuf::from("/tmp/bad")))
+                .to_string(),
         ];
         let output = errors
             .iter()
@@ -836,7 +845,11 @@ mod tests {
             let suffix = extract_bracket_suffix(line);
             format!("  2. <xdg_cache>/simrs/jcsl{suffix}")
         } else if line.starts_with("  3. /") {
-            let name = if line.contains("jcsl.orig") { "jcsl.orig" } else { "jcsl" };
+            let name = if line.contains("jcsl.orig") {
+                "jcsl.orig"
+            } else {
+                "jcsl"
+            };
             let suffix = extract_bracket_suffix(line);
             format!("  3. <workspace>/tools/oracle-jcvm-ref/runtime/bin/{name}{suffix}")
         } else if line.starts_with("  binary: /") {

@@ -53,7 +53,10 @@ impl<'a> Parser<'a> {
             let sp = self.span();
             Err(format!(
                 "{}:{}: expected {:?}, found {:?}",
-                sp.line, sp.col, expected, self.current()
+                sp.line,
+                sp.col,
+                expected,
+                self.current()
             ))
         }
     }
@@ -82,7 +85,9 @@ impl<'a> Parser<'a> {
             let sp = self.span();
             Err(format!(
                 "{}:{}: expected identifier, found {:?}",
-                sp.line, sp.col, self.current()
+                sp.line,
+                sp.col,
+                self.current()
             ))
         }
     }
@@ -138,10 +143,7 @@ pub fn parse(tokens: &[SpannedToken]) -> Result<JcClass, String> {
     }
 
     // Access modifiers before class.
-    while matches!(
-        p.current(),
-        Token::Public | Token::Abstract | Token::Final
-    ) {
+    while matches!(p.current(), Token::Public | Token::Abstract | Token::Final) {
         p.advance();
     }
 
@@ -187,12 +189,30 @@ pub fn parse(tokens: &[SpannedToken]) -> Result<JcClass, String> {
         let mut is_abstract = false;
         loop {
             match p.current() {
-                Token::Public => { is_public = true; p.advance(); }
-                Token::Private => { is_private = true; p.advance(); }
-                Token::Protected => { is_protected = true; p.advance(); }
-                Token::Static => { is_static = true; p.advance(); }
-                Token::Final => { is_final = true; p.advance(); }
-                Token::Abstract => { is_abstract = true; p.advance(); }
+                Token::Public => {
+                    is_public = true;
+                    p.advance();
+                }
+                Token::Private => {
+                    is_private = true;
+                    p.advance();
+                }
+                Token::Protected => {
+                    is_protected = true;
+                    p.advance();
+                }
+                Token::Static => {
+                    is_static = true;
+                    p.advance();
+                }
+                Token::Final => {
+                    is_final = true;
+                    p.advance();
+                }
+                Token::Abstract => {
+                    is_abstract = true;
+                    p.advance();
+                }
                 _ => break,
             }
         }
@@ -222,6 +242,7 @@ pub fn parse(tokens: &[SpannedToken]) -> Result<JcClass, String> {
                     locals,
                     body,
                     is_static: false,
+                    constant_time: false,
                 });
                 continue;
             }
@@ -261,6 +282,7 @@ pub fn parse(tokens: &[SpannedToken]) -> Result<JcClass, String> {
                 locals,
                 body: body_stmts,
                 is_static,
+                constant_time: false,
             });
         } else {
             // Field declaration.
@@ -308,18 +330,34 @@ pub fn parse(tokens: &[SpannedToken]) -> Result<JcClass, String> {
 /// `byte[]`, `short[]`, and class type names (mapped to `Instance`).
 fn parse_type(p: &mut Parser<'_>) -> Result<JcType, String> {
     let base = match p.current() {
-        Token::Void => { p.advance(); JcType::Void }
-        Token::Byte => { p.advance(); JcType::Byte }
-        Token::Short | Token::Int => { p.advance(); JcType::Short } // Java Card: int -> short
-        Token::Boolean => { p.advance(); JcType::Boolean }
+        Token::Void => {
+            p.advance();
+            JcType::Void
+        }
+        Token::Byte => {
+            p.advance();
+            JcType::Byte
+        }
+        Token::Short | Token::Int => {
+            p.advance();
+            JcType::Short
+        } // Java Card: int -> short
+        Token::Boolean => {
+            p.advance();
+            JcType::Boolean
+        }
         Token::Ident(_) => {
             p.advance();
             // Skip generic parameters like <T>
             if p.eat(&Token::Lt) {
                 let mut depth = 1;
                 while depth > 0 && p.current() != &Token::Eof {
-                    if p.current() == &Token::Lt { depth += 1; }
-                    if p.current() == &Token::Gt { depth -= 1; }
+                    if p.current() == &Token::Lt {
+                        depth += 1;
+                    }
+                    if p.current() == &Token::Gt {
+                        depth -= 1;
+                    }
                     p.advance();
                 }
             }
@@ -329,7 +367,9 @@ fn parse_type(p: &mut Parser<'_>) -> Result<JcType, String> {
             let sp = p.span();
             return Err(format!(
                 "{}:{}: expected type, found {:?}",
-                sp.line, sp.col, p.current()
+                sp.line,
+                sp.col,
+                p.current()
             ));
         }
     };
@@ -473,7 +513,9 @@ fn parse_statement(p: &mut Parser<'_>) -> Result<Option<JcStmt>, String> {
             let sp = p.span();
             Err(format!(
                 "{}:{}: unexpected token {:?} at start of statement",
-                sp.line, sp.col, p.current()
+                sp.line,
+                sp.col,
+                p.current()
             ))
         }
     }
@@ -1028,7 +1070,9 @@ fn parse_primary(p: &mut Parser<'_>) -> Result<JcExpr, String> {
             let sp = p.span();
             Err(format!(
                 "{}:{}: unexpected token {:?} in expression",
-                sp.line, sp.col, p.current()
+                sp.line,
+                sp.col,
+                p.current()
             ))
         }
     }
@@ -1082,10 +1126,16 @@ fn parse_arg_list(p: &mut Parser<'_>) -> Result<Vec<JcExpr>, String> {
 /// Map a known method call on a receiver to a `JcExpr`.
 fn map_method_call(name: &str, _receiver: JcExpr) -> JcExpr {
     match name {
-        "selectingApplet" | "register" | "getBuffer"
-        | "setIncomingAndReceive" | "setOutgoingAndSend"
-        | "setOutgoing" | "setOutgoingLength"
-        | "sendBytes" | "sendBytesLong" | "receiveBytes" => JcExpr::Lit(0),
+        "selectingApplet"
+        | "register"
+        | "getBuffer"
+        | "setIncomingAndReceive"
+        | "setOutgoingAndSend"
+        | "setOutgoing"
+        | "setOutgoingLength"
+        | "sendBytes"
+        | "sendBytesLong"
+        | "receiveBytes" => JcExpr::Lit(0),
         _ => JcExpr::Call {
             method_index: 0,
             args: vec![],
@@ -1117,9 +1167,7 @@ const fn map_type_to_jcvm(ty: JcType) -> JcType {
 fn collect_locals(stmts: &[JcStmt], locals: &mut Vec<(String, JcType)>) {
     for stmt in stmts {
         match stmt {
-            JcStmt::Let { name, ty, .. }
-                if !locals.iter().any(|(n, _)| n == name) =>
-            {
+            JcStmt::Let { name, ty, .. } if !locals.iter().any(|(n, _)| n == name) => {
                 locals.push((name.clone(), *ty));
             }
             JcStmt::If {
@@ -1231,9 +1279,7 @@ mod tests {
 
     #[test]
     fn parse_class_with_field() {
-        let cls = parse_src(
-            "public class Foo extends Applet { private short count; }",
-        );
+        let cls = parse_src("public class Foo extends Applet { private short count; }");
         assert_eq!(cls.fields.len(), 1);
         assert_eq!(cls.fields[0].name, "count");
         assert_eq!(cls.fields[0].ty, JcType::Short);
@@ -1258,9 +1304,7 @@ mod tests {
 
     #[test]
     fn parse_field_with_byte_array() {
-        let cls = parse_src(
-            "public class Foo extends Applet { private byte[] buf; }",
-        );
+        let cls = parse_src("public class Foo extends Applet { private byte[] buf; }");
         assert_eq!(cls.fields.len(), 1);
         assert_eq!(cls.fields[0].ty, JcType::ByteArray);
     }

@@ -30,8 +30,7 @@ pub use scp02::{
 pub use scp03::{
     compute_card_cryptogram as compute_scp03_card_cryptogram,
     compute_host_cryptogram as compute_scp03_host_cryptogram,
-    derive_session_keys as derive_scp03_session_keys,
-    generate_cmac as scp03_generate_cmac,
+    derive_session_keys as derive_scp03_session_keys, generate_cmac as scp03_generate_cmac,
 };
 pub use snapshot::{restore_scp_state, save_scp_state, SCP_STATE_SNAPSHOT_SIZE};
 
@@ -514,8 +513,7 @@ pub fn process_initialize_update_scp03(
         scp03::derive_session_keys(&static_enc, &static_mac, host_challenge, card_challenge);
 
     // Compute card cryptogram.
-    let card_cryptogram =
-        scp03::compute_card_cryptogram(&s_mac, host_challenge, card_challenge);
+    let card_cryptogram = scp03::compute_card_cryptogram(&s_mac, host_challenge, card_challenge);
 
     // Build 29-byte response.
     let mut response = [0u8; 29];
@@ -565,7 +563,13 @@ pub fn process_external_authenticate_scp03(
             session_rmac,
             scp_version: ScpVersion::Scp03,
             ..
-        } => (*host_challenge, *card_challenge, *session_enc, *session_mac, *session_rmac),
+        } => (
+            *host_challenge,
+            *card_challenge,
+            *session_enc,
+            *session_mac,
+            *session_rmac,
+        ),
         _ => return Err(ScpError::InvalidState),
     };
 
@@ -1452,8 +1456,8 @@ mod tests {
 
     fn test_aes_keys() -> KeySet {
         let k = [
-            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
-            0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D,
+            0x4E, 0x4F,
         ];
         KeySet::aes128(k, k, k)
     }
@@ -1464,8 +1468,7 @@ mod tests {
         let hc = test_host_challenge();
         let cc = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
 
-        let (s_enc, s_mac, s_rmac) =
-            derive_scp03_session_keys(&static_key, &static_key, &hc, &cc);
+        let (s_enc, s_mac, s_rmac) = derive_scp03_session_keys(&static_key, &static_key, &hc, &cc);
 
         assert_ne!(s_enc, s_mac, "S-ENC and S-MAC should differ");
         assert_ne!(s_mac, s_rmac, "S-MAC and S-RMAC should differ");
@@ -1484,7 +1487,10 @@ mod tests {
         let card_crypto = compute_scp03_card_cryptogram(&s_mac, &hc, &cc);
         let host_crypto = compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
 
-        assert_ne!(card_crypto, host_crypto, "card and host cryptograms should differ");
+        assert_ne!(
+            card_crypto, host_crypto,
+            "card and host cryptograms should differ"
+        );
         assert_ne!(card_crypto, [0u8; 8]);
         assert_ne!(host_crypto, [0u8; 8]);
     }
@@ -1496,8 +1502,7 @@ mod tests {
         let hc = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         let cc = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
 
-        let (s_enc, s_mac, s_rmac) =
-            derive_scp03_session_keys(&static_enc, &static_mac, &hc, &cc);
+        let (s_enc, s_mac, s_rmac) = derive_scp03_session_keys(&static_enc, &static_mac, &hc, &cc);
 
         // Same inputs -> same outputs.
         let (s_enc2, s_mac2, s_rmac2) =
@@ -1524,9 +1529,7 @@ mod tests {
         let kdiv = test_key_diversification();
 
         let mut state = ScpState::NoSession;
-        let response = process_initialize_update_scp03(
-            &mut state, 0x01, &hc, &keys, &cc, &kdiv,
-        );
+        let response = process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv);
 
         assert_eq!(response.len(), 29);
         assert_eq!(&response[0..10], &kdiv);
@@ -1537,7 +1540,10 @@ mod tests {
 
         assert!(matches!(
             state,
-            ScpState::InitUpdateDone { scp_version: ScpVersion::Scp03, .. }
+            ScpState::InitUpdateDone {
+                scp_version: ScpVersion::Scp03,
+                ..
+            }
         ));
 
         let s_mac = match &state {
@@ -1547,20 +1553,14 @@ mod tests {
 
         let host_crypto = compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
 
-        let (ext_auth_mac, _) = scp03_generate_cmac(
-            &s_mac,
-            &[0u8; 16],
-            &[0x84, 0x82, 0x01, 0x00],
-            &host_crypto,
-        );
+        let (ext_auth_mac, _) =
+            scp03_generate_cmac(&s_mac, &[0u8; 16], &[0x84, 0x82, 0x01, 0x00], &host_crypto);
 
         let mut host_crypto_and_mac = [0u8; 16];
         host_crypto_and_mac[0..8].copy_from_slice(&host_crypto);
         host_crypto_and_mac[8..16].copy_from_slice(&ext_auth_mac);
 
-        let result = process_external_authenticate_scp03(
-            &mut state, 0x01, &host_crypto_and_mac,
-        );
+        let result = process_external_authenticate_scp03(&mut state, 0x01, &host_crypto_and_mac);
         assert!(result.is_ok(), "SCP03 EXT AUTH failed: {result:?}");
 
         assert!(matches!(
@@ -1581,14 +1581,10 @@ mod tests {
         let kdiv = test_key_diversification();
 
         let mut state = ScpState::NoSession;
-        let _ = process_initialize_update_scp03(
-            &mut state, 0x01, &hc, &keys, &cc, &kdiv,
-        );
+        let _ = process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv);
 
         let bad_crypto_and_mac = [0xFF; 16];
-        let result = process_external_authenticate_scp03(
-            &mut state, 0x00, &bad_crypto_and_mac,
-        );
+        let result = process_external_authenticate_scp03(&mut state, 0x00, &bad_crypto_and_mac);
         assert_eq!(result, Err(ScpError::HostCryptogramMismatch));
         assert!(matches!(state, ScpState::InitUpdateDone { .. }));
     }
@@ -1599,16 +1595,14 @@ mod tests {
         let initial_cv = [0u8; 16];
 
         let (mac1, cv1) = scp03_generate_cmac(
-            &s_mac, &initial_cv,
+            &s_mac,
+            &initial_cv,
             &[0x84, 0xF2, 0x80, 0x00],
             &[0x4F, 0x00],
         );
 
-        let (mac2, cv2) = scp03_generate_cmac(
-            &s_mac, &cv1,
-            &[0x84, 0xF2, 0x40, 0x00],
-            &[0x4F, 0x00],
-        );
+        let (mac2, cv2) =
+            scp03_generate_cmac(&s_mac, &cv1, &[0x84, 0xF2, 0x40, 0x00], &[0x4F, 0x00]);
 
         assert_ne!(mac1, mac2, "chained MACs should differ");
         assert_ne!(cv1, cv2);
@@ -1623,9 +1617,7 @@ mod tests {
         let kdiv = test_key_diversification();
 
         let mut state = ScpState::NoSession;
-        let _ = process_initialize_update_scp03(
-            &mut state, 0x01, &hc, &keys, &cc, &kdiv,
-        );
+        let _ = process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv);
 
         let s_mac = match &state {
             ScpState::InitUpdateDone { session_mac, .. } => *session_mac,
@@ -1633,11 +1625,8 @@ mod tests {
         };
 
         let host_crypto = compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
-        let (ext_auth_mac, _) = scp03_generate_cmac(
-            &s_mac, &[0u8; 16],
-            &[0x84, 0x82, 0x01, 0x00],
-            &host_crypto,
-        );
+        let (ext_auth_mac, _) =
+            scp03_generate_cmac(&s_mac, &[0u8; 16], &[0x84, 0x82, 0x01, 0x00], &host_crypto);
 
         let mut hcm = [0u8; 16];
         hcm[0..8].copy_from_slice(&host_crypto);

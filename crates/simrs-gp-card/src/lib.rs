@@ -707,6 +707,7 @@ mod sim_tests {
     use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
     use simrs_gp_keys::KeySet;
     use simrs_gp_open::{INS_GET_STATUS, INS_INITIALIZE_UPDATE};
+    use simrs_gp_scp::ScpVersion;
     use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
     use simrs_sim::gp_adapter::SimApplet;
 
@@ -754,6 +755,90 @@ mod sim_tests {
 
     fn make_gp_sim_card() -> GpCard<261> {
         GpCard::with_sim(DEFAULT_ATR, &test_keys(), make_sim_applet())
+    }
+
+    /// Perform full SCP02 mutual authentication on a powered-on card.
+    ///
+    /// Sends SELECT ISD, INITIALIZE UPDATE, derives session keys,
+    /// computes host cryptogram + C-MAC, and sends EXTERNAL AUTHENTICATE.
+    fn scp02_authenticate(card: &mut GpCard<261>) {
+        let keys = test_keys();
+
+        // 1. SELECT ISD.
+        let select = select_aid_apdu(&ISD_AID_BYTES);
+        let rsp = card.process(SimEvent::Apdu(&select));
+        match rsp {
+            SimResponse::Apdu { sw, .. } => {
+                assert_eq!(sw.to_bytes(), [0x90, 0x00], "SELECT ISD should succeed");
+            }
+            _ => panic!("expected Apdu response for SELECT ISD"),
+        }
+
+        // 2. INITIALIZE UPDATE: 80 50 00 00 08 <host_challenge[8]>
+        let hc: [u8; 8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let mut iu_apdu = [0u8; 13];
+        iu_apdu[0] = 0x80;
+        iu_apdu[1] = INS_INITIALIZE_UPDATE;
+        iu_apdu[2] = 0x00; // key version
+        iu_apdu[3] = 0x00; // key ID
+        iu_apdu[4] = 0x08; // Lc
+        iu_apdu[5..13].copy_from_slice(&hc);
+
+        let rsp = card.process(SimEvent::Apdu(&iu_apdu));
+        let iu_data = match rsp {
+            SimResponse::Apdu { data, sw } => {
+                assert_eq!(sw.to_bytes(), [0x90, 0x00], "INITIALIZE UPDATE should succeed");
+                assert!(data.len() >= 28, "INIT UPDATE response must be >= 28 bytes");
+                let mut buf = [0u8; 28];
+                buf.copy_from_slice(&data[..28]);
+                buf
+            }
+            _ => panic!("expected Apdu response for INITIALIZE UPDATE"),
+        };
+
+        // 3. Parse response: [0..10] key_div, [10] key_ver, [11] scp_id,
+        //    [12..14] sequence_counter, [14..20] card_challenge, [20..28] card_cryptogram.
+        let seq = u16::from_be_bytes([iu_data[12], iu_data[13]]);
+        let mut cc6 = [0u8; 6];
+        cc6.copy_from_slice(&iu_data[14..20]);
+
+        // 4. Derive SCP02 session keys.
+        let (enc, mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
+
+        // 5. Compute host cryptogram.
+        let host_crypto = simrs_gp_scp::compute_scp02_host_cryptogram(&enc, &hc, seq, &cc6);
+
+        // 6. Compute C-MAC for EXTERNAL AUTHENTICATE.
+        let security_level: u8 = 0x00; // no secure messaging required
+        let (cmac, _) = simrs_gp_scp::generate_cmac(
+            &mac,
+            &[0x84, 0x82, security_level, 0x00],
+            &host_crypto,
+            &[0u8; 8],
+            ScpVersion::Scp02,
+        );
+
+        // 7. EXTERNAL AUTHENTICATE: 84 82 <sec_level> 00 10 <host_crypto[8]> <cmac[8]>
+        let mut ea_apdu = [0u8; 21];
+        ea_apdu[0] = 0x84;
+        ea_apdu[1] = 0x82;
+        ea_apdu[2] = security_level;
+        ea_apdu[3] = 0x00;
+        ea_apdu[4] = 0x10; // Lc = 16
+        ea_apdu[5..13].copy_from_slice(&host_crypto);
+        ea_apdu[13..21].copy_from_slice(&cmac);
+
+        let rsp = card.process(SimEvent::Apdu(&ea_apdu));
+        match rsp {
+            SimResponse::Apdu { sw, .. } => {
+                assert_eq!(
+                    sw.to_bytes(),
+                    [0x90, 0x00],
+                    "EXTERNAL AUTHENTICATE should succeed"
+                );
+            }
+            _ => panic!("expected Apdu response for EXTERNAL AUTHENTICATE"),
+        }
     }
 
     /// Build a SELECT-by-AID APDU for the given AID.
@@ -847,9 +932,8 @@ mod sim_tests {
         let mut card = make_gp_sim_card();
         let _ = card.process(SimEvent::PowerOn);
 
-        // SELECT ISD.
-        let select = select_aid_apdu(&ISD_AID_BYTES);
-        let _ = card.process(SimEvent::Apdu(&select));
+        // Authenticate via SCP02 (GET STATUS requires an authenticated session).
+        scp02_authenticate(&mut card);
 
         // GET STATUS P1=0x80 (ISD): 80 F2 80 00
         let apdu = [0x80, INS_GET_STATUS, 0x80, 0x00];
@@ -857,10 +941,13 @@ mod sim_tests {
         match rsp {
             SimResponse::Apdu { data, sw } => {
                 assert_eq!(sw.to_bytes(), [0x90, 0x00], "GET STATUS should succeed");
-                // Response: AID_len(1) + AID(7) + lifecycle(1) + privileges(1) = 10 bytes.
-                assert!(data.len() >= 10, "GET STATUS should return ISD data");
-                assert_eq!(data[0], 7, "ISD AID length should be 7");
-                assert_eq!(&data[1..8], &ISD_AID_BYTES, "ISD AID should match");
+                // Response is E3 TLV per GP 2.1.1 Table 9-7:
+                // E3 <len> { 4F <aid_len> <aid> 9F70 01 <lifecycle> C5 01 <privileges> }
+                assert!(data.len() >= 18, "GET STATUS should return ISD TLV data");
+                assert_eq!(data[0], 0xE3, "response should start with E3 tag");
+                assert_eq!(data[2], 0x4F, "AID tag should be 4F");
+                assert_eq!(data[3], 7, "ISD AID length should be 7");
+                assert_eq!(&data[4..11], &ISD_AID_BYTES, "ISD AID should match");
             }
             _ => panic!("expected Apdu response for GET STATUS"),
         }
@@ -872,6 +959,9 @@ mod sim_tests {
     fn switch_between_usim_and_isd() {
         let mut card = make_gp_sim_card();
         let _ = card.process(SimEvent::PowerOn);
+
+        // Authenticate via SCP02 (GET STATUS requires an authenticated session).
+        scp02_authenticate(&mut card);
 
         // 1. SELECT USIM and issue a SIM command.
         let select_usim = select_aid_apdu(&USIM_AID_BYTES);
@@ -920,6 +1010,9 @@ mod sim_tests {
         let mut card = make_gp_sim_card();
         let _ = card.process(SimEvent::PowerOn);
 
+        // Authenticate via SCP02 (GET STATUS requires an authenticated session).
+        scp02_authenticate(&mut card);
+
         // GET STATUS P1=0x40 (applications): 80 F2 40 00
         let apdu = [0x80, INS_GET_STATUS, 0x40, 0x00];
         let rsp = card.process(SimEvent::Apdu(&apdu));
@@ -930,12 +1023,15 @@ mod sim_tests {
                     [0x90, 0x00],
                     "GET STATUS apps should succeed"
                 );
-                // Data should contain the USIM AID entry.
-                // Format: [aid_len(1), aid(7), lifecycle(1), privileges(1)] = 10 bytes.
-                assert!(data.len() >= 10, "should have at least one applet entry");
-                assert_eq!(data[0], 7, "USIM AID length should be 7");
+                // Data should contain the USIM AID entry in E3 TLV format
+                // per GP 2.1.1 Table 9-7:
+                // E3 <len> { 4F <aid_len> <aid> 9F70 01 <lifecycle> C5 01 <privileges> }
+                assert!(data.len() >= 18, "should have at least one applet entry");
+                assert_eq!(data[0], 0xE3, "response should start with E3 tag");
+                assert_eq!(data[2], 0x4F, "AID tag should be 4F");
+                assert_eq!(data[3], 7, "USIM AID length should be 7");
                 assert_eq!(
-                    &data[1..8],
+                    &data[4..11],
                     &USIM_AID_BYTES,
                     "USIM AID should be in the registry"
                 );

@@ -5,9 +5,7 @@
 
 use std::fmt::Write as _;
 
-use super::cfgraph::{
-    self, Condition, Expression, Statement, Structure,
-};
+use super::cfgraph::{self, Condition, Expression, Statement, Structure};
 
 /// Reconstruct JVA source from a method's bytecodes.
 ///
@@ -58,9 +56,9 @@ pub fn reconstruct_cap(cap_data: &[u8]) -> Result<String, String> {
 
     // Reconstruct each method.
     for idx in 0..pkg.method_count {
-        let method = pkg.method(idx).ok_or_else(|| {
-            format!("method {idx} missing from package")
-        })?;
+        let method = pkg
+            .method(idx)
+            .ok_or_else(|| format!("method {idx} missing from package"))?;
         let bc = &method.bytecode[..method.bytecode_len as usize];
 
         let return_type = infer_return_type(bc);
@@ -73,7 +71,9 @@ pub fn reconstruct_cap(cap_data: &[u8]) -> Result<String, String> {
 
         match reconstruct_method(bc) {
             Ok(body) => output.push_str(&body),
-            Err(e) => { let _ = writeln!(output, "        // decompilation error: {e}"); }
+            Err(e) => {
+                let _ = writeln!(output, "        // decompilation error: {e}");
+            }
         }
 
         output.push_str("    }\n\n");
@@ -124,7 +124,6 @@ fn emit_structure(structure: &Structure, output: &mut String, indent: usize) {
             let _ = writeln!(output, "{pad}while ({}) {{", format_condition(condition));
             emit_structure(body, output, indent + 1);
             let _ = writeln!(output, "{pad}}}");
-
         }
 
         Structure::Return(None) => {
@@ -149,13 +148,20 @@ fn emit_statement(stmt: &Statement, output: &mut String, pad: &str) {
         }
         Statement::FieldPut { obj, offset, value } => {
             let _ = writeln!(
-                output, "{pad}{}.field_{offset} = {};",
-                format_expression(obj), format_expression(value)
+                output,
+                "{pad}{}.field_{offset} = {};",
+                format_expression(obj),
+                format_expression(value)
             );
         }
-        Statement::ArrayStore { array, index, value } => {
+        Statement::ArrayStore {
+            array,
+            index,
+            value,
+        } => {
             let _ = writeln!(
-                output, "{pad}{}[{}] = {};",
+                output,
+                "{pad}{}[{}] = {};",
                 format_expression(array),
                 format_expression(index),
                 format_expression(value)
@@ -254,7 +260,12 @@ mod tests {
     #[test]
     fn reconstruct_arithmetic() {
         // sconst_3, sconst_2, sadd, sreturn
-        let bc = [opcodes::SCONST_3, opcodes::SCONST_2, opcodes::SADD, opcodes::SRETURN];
+        let bc = [
+            opcodes::SCONST_3,
+            opcodes::SCONST_2,
+            opcodes::SADD,
+            opcodes::SRETURN,
+        ];
         let source = reconstruct_method(&bc).unwrap();
         assert!(source.contains('+'), "expected + in: {source}");
         assert!(source.contains("return"), "expected return in: {source}");

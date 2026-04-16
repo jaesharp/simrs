@@ -161,9 +161,8 @@ fn replay_ext_auth_without_init_update() {
     let mut s = diff_session!("replay-extauth-noiu");
 
     let ext_auth = [
-        0x84, 0x82, 0x00, 0x00, 0x10,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x84, 0x82, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
     let results = s.replay_one(&ext_auth);
@@ -289,11 +288,11 @@ fn replay_error_recovery_sequence() {
     let mut s = diff_session!("replay-recovery");
 
     let sequence: Vec<Vec<u8>> = vec![
-        vec![0x80, 0xFD, 0x00, 0x00],           // Invalid INS
-        select_aid(&SIMRS_ISD_AID),              // Valid SELECT
-        vec![0x80, 0xCA, 0x00, 0x66],            // GET DATA 0066
-        vec![0x80, 0xCA, 0xDE, 0xAD],            // GET DATA bad tag
-        select_aid(&SIMRS_ISD_AID),              // Recovery SELECT
+        vec![0x80, 0xFD, 0x00, 0x00], // Invalid INS
+        select_aid(&SIMRS_ISD_AID),   // Valid SELECT
+        vec![0x80, 0xCA, 0x00, 0x66], // GET DATA 0066
+        vec![0x80, 0xCA, 0xDE, 0xAD], // GET DATA bad tag
+        select_aid(&SIMRS_ISD_AID),   // Recovery SELECT
     ];
 
     let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
@@ -310,8 +309,8 @@ fn replay_manage_channel_sequence() {
     let mut s = diff_session!("replay-mgmt-ch");
 
     let sequence: Vec<Vec<u8>> = vec![
-        vec![0x00, 0x70, 0x00, 0x00, 0x01],     // MANAGE CHANNEL OPEN
-        select_aid(&SIMRS_ISD_AID),              // SELECT ISD on basic channel
+        vec![0x00, 0x70, 0x00, 0x00, 0x01], // MANAGE CHANNEL OPEN
+        select_aid(&SIMRS_ISD_AID),         // SELECT ISD on basic channel
     ];
 
     let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
@@ -334,24 +333,21 @@ fn replay_scp02_handshake_failure() {
     init_update.extend_from_slice(&host_challenge);
 
     let bad_ext_auth = vec![
-        0x84, 0x82, 0x00, 0x00, 0x10,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x84, 0x82, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
 
-    let sequence: Vec<Vec<u8>> = vec![
-        select_aid(&SIMRS_ISD_AID),
-        init_update,
-        bad_ext_auth,
-    ];
+    let sequence: Vec<Vec<u8>> = vec![select_aid(&SIMRS_ISD_AID), init_update, bad_ext_auth];
 
     let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
     let stats = s.replay_sequence(&refs);
 
     // SELECT and INIT UPDATE should succeed on both. EXT AUTH should fail on both.
     assert_eq!(stats.total_apdus, 3);
-    eprintln!("SCP02 handshake failure: {} matches, {} sw mismatches, {} data mismatches",
-        stats.matches, stats.sw_mismatches, stats.data_mismatches);
+    eprintln!(
+        "SCP02 handshake failure: {} matches, {} sw mismatches, {} data mismatches",
+        stats.matches, stats.sw_mismatches, stats.data_mismatches
+    );
     s.print_summary();
 }
 
@@ -362,18 +358,21 @@ fn replay_get_data_multi_tag() {
 
     let sequence: Vec<Vec<u8>> = vec![
         select_aid(&SIMRS_ISD_AID),
-        vec![0x80, 0xCA, 0x00, 0x66],           // Card Recognition Data
-        vec![0x80, 0xCA, 0x00, 0x42, 0x00],     // ISD AID
-        vec![0x80, 0xCA, 0xDE, 0xAD],           // Unknown tag
-        vec![0x80, 0xCA, 0x9F, 0x7F, 0x00],     // CPLC
+        vec![0x80, 0xCA, 0x00, 0x66],       // Card Recognition Data
+        vec![0x80, 0xCA, 0x00, 0x42, 0x00], // ISD AID
+        vec![0x80, 0xCA, 0xDE, 0xAD],       // Unknown tag
+        vec![0x80, 0xCA, 0x9F, 0x7F, 0x00], // CPLC
     ];
 
     let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
     let stats = s.replay_sequence(&refs);
 
     assert_eq!(stats.total_apdus, 5);
-    eprintln!("GET DATA multi: {} matches, {} divergences",
-        stats.matches, stats.sw_mismatches + stats.data_mismatches);
+    eprintln!(
+        "GET DATA multi: {} matches, {} divergences",
+        stats.matches,
+        stats.sw_mismatches + stats.data_mismatches
+    );
     s.print_summary();
 }
 
@@ -394,12 +393,7 @@ fn replay_repeated_init_update() {
     let mut iu3 = vec![0x80, 0x50, 0x00, 0x00, 0x08];
     iu3.extend_from_slice(&hc3);
 
-    let sequence: Vec<Vec<u8>> = vec![
-        select_aid(&SIMRS_ISD_AID),
-        iu1,
-        iu2,
-        iu3,
-    ];
+    let sequence: Vec<Vec<u8>> = vec![select_aid(&SIMRS_ISD_AID), iu1, iu2, iu3];
 
     let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
     let stats = s.replay_sequence(&refs);
@@ -407,8 +401,10 @@ fn replay_repeated_init_update() {
     assert_eq!(stats.total_apdus, 4);
     // All INIT UPDATEs should succeed with SW 9000 on both.
     // Data will differ (different crypto material) but SW should match.
-    eprintln!("Repeated INIT UPDATE: {} matches, {} data mismatches (expected for crypto)",
-        stats.matches, stats.data_mismatches);
+    eprintln!(
+        "Repeated INIT UPDATE: {} matches, {} data mismatches (expected for crypto)",
+        stats.matches, stats.data_mismatches
+    );
     s.print_summary();
 }
 
@@ -507,12 +503,12 @@ fn replay_error_resilience() {
     let mut s = diff_session!("replay-resilience");
 
     let sequence: Vec<Vec<u8>> = vec![
-        vec![0x80, 0xFD, 0x00, 0x00],           // Bad GP INS
-        vec![0x00, 0xFD, 0x00, 0x00],           // Bad ISO INS
-        select_aid(&SIMRS_ISD_AID),              // Recovery SELECT
-        vec![0x80, 0xCA, 0x00, 0x66],           // GET DATA (should work)
-        vec![0x80, 0xCA, 0xFF, 0xFF],           // Bad tag
-        select_aid(&SIMRS_ISD_AID),              // Recovery SELECT again
+        vec![0x80, 0xFD, 0x00, 0x00], // Bad GP INS
+        vec![0x00, 0xFD, 0x00, 0x00], // Bad ISO INS
+        select_aid(&SIMRS_ISD_AID),   // Recovery SELECT
+        vec![0x80, 0xCA, 0x00, 0x66], // GET DATA (should work)
+        vec![0x80, 0xCA, 0xFF, 0xFF], // Bad tag
+        select_aid(&SIMRS_ISD_AID),   // Recovery SELECT again
     ];
 
     let refs: Vec<&[u8]> = sequence.iter().map(Vec::as_slice).collect();
@@ -520,7 +516,9 @@ fn replay_error_resilience() {
 
     assert_eq!(stats.total_apdus, 6);
     assert_eq!(stats.shadow_ignored, 0, "Oracle should process all APDUs");
-    eprintln!("Error resilience: {}/{} matched",
-        stats.matches, stats.total_apdus);
+    eprintln!(
+        "Error resilience: {}/{} matched",
+        stats.matches, stats.total_apdus
+    );
     s.print_summary();
 }

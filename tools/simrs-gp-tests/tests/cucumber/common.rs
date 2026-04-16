@@ -112,14 +112,15 @@ fn given_test_load_file(world: &mut GpWorld, _aid_hex: String) {
 fn given_isd_scp01_keys(world: &mut GpWorld) {
     world.ensure_powered();
     // Add SCP01 key set at version 0x02 (SCP02 keys stay at version 0x01).
-    let scp01_keys = simrs_gp_keys::KeySet::des3_2key_scp01(
-        TEST_KEY_ENC, TEST_KEY_MAC, TEST_KEY_DEK,
-    );
+    let scp01_keys =
+        simrs_gp_keys::KeySet::des3_2key_scp01(TEST_KEY_ENC, TEST_KEY_MAC, TEST_KEY_DEK);
     let _ = world.card.open_mut().add_key(0x02, &scp01_keys);
     world.init_update_kv = 0x02; // SCP01 scenarios use key version 0x02
 }
 
-#[given(regex = r"^I have completed SCP02 INITIALIZE UPDATE with host challenge \[([0-9A-Fa-f ]+)\]$")]
+#[given(
+    regex = r"^I have completed SCP02 INITIALIZE UPDATE with host challenge \[([0-9A-Fa-f ]+)\]$"
+)]
 fn given_completed_init_update(world: &mut GpWorld, challenge_hex: String) {
     when_send_init_update(world, challenge_hex);
 }
@@ -318,7 +319,9 @@ fn given_app_already_installed(world: &mut GpWorld, aid_hex: String) {
     given_test_applet_installed(world, aid_hex);
 }
 
-#[given(regex = r"^an application \[([0-9A-Fa-f ]+)\] is installed from load file \[([0-9A-Fa-f ]+)\]$")]
+#[given(
+    regex = r"^an application \[([0-9A-Fa-f ]+)\] is installed from load file \[([0-9A-Fa-f ]+)\]$"
+)]
 fn given_app_installed_from_lf(world: &mut GpWorld, aid_hex: String, lf_hex: String) {
     let lf_aid = parse_hex(&lf_hex);
     // Register load file.
@@ -333,7 +336,8 @@ fn given_app_installed_from_lf(world: &mut GpWorld, aid_hex: String, lf_hex: Str
     let app_aid = parse_hex(&aid_hex);
     let reg = world.card.open().registry();
     if let Some(app_slot) = reg.iter().position(|e| {
-        e.as_ref().map_or(false, |entry| entry.aid() == app_aid.as_slice())
+        e.as_ref()
+            .map_or(false, |entry| entry.aid() == app_aid.as_slice())
     }) {
         let lfs = world.card.open_mut().load_files_mut();
         if let Some(ref mut lf) = lfs[lf_slot] {
@@ -342,8 +346,15 @@ fn given_app_installed_from_lf(world: &mut GpWorld, aid_hex: String, lf_hex: Str
     }
 }
 
-#[given(regex = r"^load file \[([0-9A-Fa-f ]+)\] has instances \[([0-9A-Fa-f ]+)\] and \[([0-9A-Fa-f ]+)\]$")]
-fn given_load_file_instances(world: &mut GpWorld, lf_hex: String, inst1_hex: String, inst2_hex: String) {
+#[given(
+    regex = r"^load file \[([0-9A-Fa-f ]+)\] has instances \[([0-9A-Fa-f ]+)\] and \[([0-9A-Fa-f ]+)\]$"
+)]
+fn given_load_file_instances(
+    world: &mut GpWorld,
+    lf_hex: String,
+    inst1_hex: String,
+    inst2_hex: String,
+) {
     world.ensure_powered();
     let lf_aid = parse_hex(&lf_hex);
     let inst1 = parse_hex(&inst1_hex);
@@ -384,7 +395,9 @@ fn given_load_file_instances(world: &mut GpWorld, lf_hex: String, inst1_hex: Str
     }
 }
 
-#[given(regex = r"^a supplementary SD \[([0-9A-Fa-f ]+)\] exists with associated application \[([0-9A-Fa-f ]+)\]$")]
+#[given(
+    regex = r"^a supplementary SD \[([0-9A-Fa-f ]+)\] exists with associated application \[([0-9A-Fa-f ]+)\]$"
+)]
 fn given_supplementary_sd_with_app(world: &mut GpWorld, sd_hex: String, app_hex: String) {
     world.ensure_powered();
     let sd_aid = parse_hex(&sd_hex);
@@ -430,7 +443,11 @@ fn given_completed_init_update_ok(world: &mut GpWorld) {
     world.host_challenge = hc;
     let apdu = initialize_update(world.init_update_kv, TEST_KEY_ID, &hc);
     world.send_apdu(&apdu);
-    assert_eq!(world.sw1, 0x90, "INIT UPDATE failed: {:02X}{:02X}", world.sw1, world.sw2);
+    assert_eq!(
+        world.sw1, 0x90,
+        "INIT UPDATE failed: {:02X}{:02X}",
+        world.sw1, world.sw2
+    );
 }
 
 #[given(regex = r"^I have completed INITIALIZE UPDATE with host challenge \[([0-9A-Fa-f ]+)\]$")]
@@ -502,13 +519,16 @@ fn when_send_init_update(world: &mut GpWorld, challenge_hex: String) {
 
     let challenge_bytes = parse_hex(&challenge_hex);
     let mut hc = [0u8; 8];
-    hc[..challenge_bytes.len().min(8)].copy_from_slice(&challenge_bytes[..challenge_bytes.len().min(8)]);
+    hc[..challenge_bytes.len().min(8)]
+        .copy_from_slice(&challenge_bytes[..challenge_bytes.len().min(8)]);
     world.host_challenge = hc;
     let apdu = initialize_update(world.init_update_kv, TEST_KEY_ID, &hc);
     world.send_apdu(&apdu);
 }
 
-#[when(regex = r"^I send INITIALIZE UPDATE with key version 0x([0-9A-Fa-f]+) and host challenge \[([0-9A-Fa-f ]+)\]$")]
+#[when(
+    regex = r"^I send INITIALIZE UPDATE with key version 0x([0-9A-Fa-f]+) and host challenge \[([0-9A-Fa-f ]+)\]$"
+)]
 fn when_send_init_update_kv(world: &mut GpWorld, kv_hex: String, challenge_hex: String) {
     world.ensure_powered();
     let sel = select_by_aid(ISD_AID);
@@ -517,12 +537,15 @@ fn when_send_init_update_kv(world: &mut GpWorld, kv_hex: String, challenge_hex: 
     let kv = u8::from_str_radix(&kv_hex, 16).expect("invalid key version");
     let challenge_bytes = parse_hex(&challenge_hex);
     let mut hc = [0u8; 8];
-    hc[..challenge_bytes.len().min(8)].copy_from_slice(&challenge_bytes[..challenge_bytes.len().min(8)]);
+    hc[..challenge_bytes.len().min(8)]
+        .copy_from_slice(&challenge_bytes[..challenge_bytes.len().min(8)]);
     let apdu = initialize_update(kv, TEST_KEY_ID, &hc);
     world.send_apdu(&apdu);
 }
 
-#[when(regex = r"^I have completed SCP02 INITIALIZE UPDATE with host challenge \[([0-9A-Fa-f ]+)\]$")]
+#[when(
+    regex = r"^I have completed SCP02 INITIALIZE UPDATE with host challenge \[([0-9A-Fa-f ]+)\]$"
+)]
 fn when_have_completed_init_update(world: &mut GpWorld, challenge_hex: String) {
     when_send_init_update(world, challenge_hex);
 }
@@ -560,7 +583,9 @@ fn when_send_get_status_raw(world: &mut GpWorld, hex: String) {
     world.send_apdu(&apdu);
 }
 
-#[when(regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with AID filter \[([0-9A-Fa-f ]+)\] with C-MAC$")]
+#[when(
+    regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with AID filter \[([0-9A-Fa-f ]+)\] with C-MAC$"
+)]
 fn when_send_get_status_filtered_cmac(world: &mut GpWorld, p1_hex: String, aid_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).expect("invalid P1");
     let aid = parse_hex(&aid_hex);
@@ -573,7 +598,9 @@ fn when_send_get_status_filtered_cmac(world: &mut GpWorld, p1_hex: String, aid_h
     world.send_apdu_with_cmac(&[0x80, 0xF2, p1, 0x00], &data);
 }
 
-#[when(regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+), P2=0x([0-9A-Fa-f]+)\) with correct C-MAC$")]
+#[when(
+    regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+), P2=0x([0-9A-Fa-f]+)\) with correct C-MAC$"
+)]
 fn when_send_get_status_cmac(world: &mut GpWorld, p1_hex: String, _p2_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).expect("invalid P1");
     world.send_apdu_with_cmac(&[0x80, 0xF2, p1, 0x00], &[0x4F, 0x00]);
@@ -604,7 +631,9 @@ fn when_send_get_status_bad_cmac(world: &mut GpWorld, p1_hex: String, mac_hex: S
     world.send_apdu(&apdu);
 }
 
-#[when(regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) without C-MAC \(CLA=0x80 instead of 0x84\)$")]
+#[when(
+    regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) without C-MAC \(CLA=0x80 instead of 0x84\)$"
+)]
 fn when_send_get_status_no_cmac(world: &mut GpWorld, p1_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).expect("invalid P1");
     // Send with CLA=0x80 (no SM bit) -- should be rejected with 69 87.
@@ -617,20 +646,26 @@ fn when_send_get_status_initial_icv(world: &mut GpWorld, p1_hex: String) {
     world.send_apdu_with_cmac(&[0x80, 0xF2, p1, 0x00], &[0x4F, 0x00]);
 }
 
-#[when(regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with correct C-MAC using the previous C-MAC as ICV$")]
+#[when(
+    regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with correct C-MAC using the previous C-MAC as ICV$"
+)]
 fn when_send_get_status_chained_icv(world: &mut GpWorld, p1_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).expect("invalid P1");
     // send_apdu_with_cmac already uses last_cmac as ICV for chaining.
     world.send_apdu_with_cmac(&[0x80, 0xF2, p1, 0x00], &[0x4F, 0x00]);
 }
 
-#[when(regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with correct C-MAC and record the C-MAC value$")]
+#[when(
+    regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with correct C-MAC and record the C-MAC value$"
+)]
 fn when_send_get_status_record_cmac(world: &mut GpWorld, p1_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).expect("invalid P1");
     world.send_apdu_with_cmac(&[0x80, 0xF2, p1, 0x00], &[0x4F, 0x00]);
 }
 
-#[when(regex = r"^I re-send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with the same recorded C-MAC value$")]
+#[when(
+    regex = r"^I re-send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with the same recorded C-MAC value$"
+)]
 fn when_resend_get_status_replay(world: &mut GpWorld, _p1_hex: String) {
     // Replay attack: re-send the exact same APDU bytes from the previous command.
     // The C-MAC was valid for the previous ICV but the card's ICV has advanced,
@@ -640,14 +675,18 @@ fn when_resend_get_status_replay(world: &mut GpWorld, _p1_hex: String) {
     world.send_apdu(&replay);
 }
 
-#[when(regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with C-MAC computed from the old session keys$")]
+#[when(
+    regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with C-MAC computed from the old session keys$"
+)]
 fn when_send_get_status_old_keys(world: &mut GpWorld, p1_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).expect("invalid P1");
     // After card reset, session is gone. Send with CLA=0x80 (no auth).
     world.send_apdu(&[0x80, 0xF2, p1, 0x00, 0x02, 0x4F, 0x00]);
 }
 
-#[when(regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with C-MAC computed using the EXTERNAL AUTHENTICATE C-MAC as ICV$")]
+#[when(
+    regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with C-MAC computed using the EXTERNAL AUTHENTICATE C-MAC as ICV$"
+)]
 fn when_send_get_status_ext_auth_icv(world: &mut GpWorld, p1_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).expect("invalid P1");
     // send_apdu_with_cmac already uses last_cmac as ICV (which is EXT AUTH's C-MAC).
@@ -660,7 +699,9 @@ fn when_send_get_status_correct_cmac(world: &mut GpWorld, p1_hex: String) {
     world.send_apdu_with_cmac(&[0x80, 0xF2, p1, 0x00], &[0x4F, 0x00]);
 }
 
-#[when(regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with correct C-MAC using the session keys$")]
+#[when(
+    regex = r"^I send GET STATUS \(P1=0x([0-9A-Fa-f]+)\) with correct C-MAC using the session keys$"
+)]
 fn when_send_get_status_with_session(world: &mut GpWorld, p1_hex: String) {
     let p1 = u8::from_str_radix(&p1_hex, 16).expect("invalid P1");
     world.send_apdu_with_cmac(&[0x80, 0xF2, p1, 0x00], &[0x4F, 0x00]);
@@ -736,7 +777,9 @@ fn when_send_install_for_load_table(world: &mut GpWorld) {
     world.send_gp_command(&[gp_cla::GP, gp_ins::INSTALL, 0x02, 0x00], &data);
 }
 
-#[when(regex = r"^I send INSTALL \[for load\] \(P1=0x02\) with Load File AID \[([0-9A-Fa-f ]+)\].*$")]
+#[when(
+    regex = r"^I send INSTALL \[for load\] \(P1=0x02\) with Load File AID \[([0-9A-Fa-f ]+)\].*$"
+)]
 fn when_send_install_for_load(world: &mut GpWorld, aid_hex: String) {
     let lf_aid = parse_hex(&aid_hex);
     let sd_aid = ISD_AID;
@@ -775,28 +818,32 @@ fn when_send_delete_by_aid(world: &mut GpWorld, aid_hex: String) {
 
 // -- EXTERNAL AUTHENTICATE --
 
-#[when(regex = r"^I send EXTERNAL AUTHENTICATE with valid ciphertext structure but incorrect MAC \[([0-9A-Fa-f ]+)\]$")]
+#[when(
+    regex = r"^I send EXTERNAL AUTHENTICATE with valid ciphertext structure but incorrect MAC \[([0-9A-Fa-f ]+)\]$"
+)]
 fn when_ext_auth_bad_mac(world: &mut GpWorld, _mac_hex: String) {
     // Send EXT AUTH with garbage cryptogram + MAC.
     let apdu = [
-        0x84, 0x82, 0x01, 0x00, 0x10,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x84, 0x82, 0x01, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
     world.send_apdu(&apdu);
 }
 
-#[when(regex = r"^I send EXTERNAL AUTHENTICATE with invalid padding bytes and incorrect MAC \[([0-9A-Fa-f ]+)\]$")]
+#[when(
+    regex = r"^I send EXTERNAL AUTHENTICATE with invalid padding bytes and incorrect MAC \[([0-9A-Fa-f ]+)\]$"
+)]
 fn when_ext_auth_bad_padding_bad_mac(world: &mut GpWorld, _mac_hex: String) {
     let apdu = [
-        0x84, 0x82, 0x01, 0x00, 0x10,
-        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x84, 0x82, 0x01, 0x00, 0x10, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ];
     world.send_apdu(&apdu);
 }
 
-#[when(regex = r"^I send EXTERNAL AUTHENTICATE with 8 bytes of random garbage \[([0-9A-Fa-f ]+)\]$")]
+#[when(
+    regex = r"^I send EXTERNAL AUTHENTICATE with 8 bytes of random garbage \[([0-9A-Fa-f ]+)\]$"
+)]
 fn when_ext_auth_garbage(world: &mut GpWorld, hex: String) {
     let garbage = parse_hex(&hex);
     let mut apdu = vec![0x84, 0x82, 0x01, 0x00, 0x10];
@@ -808,7 +855,9 @@ fn when_ext_auth_garbage(world: &mut GpWorld, hex: String) {
     world.send_apdu(&apdu);
 }
 
-#[when(regex = r"^I send EXTERNAL AUTHENTICATE with security level 0x([0-9A-Fa-f]+) and cryptogram \[([0-9A-Fa-f ]+)\]$")]
+#[when(
+    regex = r"^I send EXTERNAL AUTHENTICATE with security level 0x([0-9A-Fa-f]+) and cryptogram \[([0-9A-Fa-f ]+)\]$"
+)]
 fn when_ext_auth_with_level_and_crypto(world: &mut GpWorld, level_hex: String, crypto_hex: String) {
     let level = u8::from_str_radix(&level_hex, 16).expect("invalid security level");
     let crypto = parse_hex(&crypto_hex);
@@ -820,7 +869,9 @@ fn when_ext_auth_with_level_and_crypto(world: &mut GpWorld, level_hex: String, c
     world.send_apdu(&apdu);
 }
 
-#[when(regex = r"^I send EXTERNAL AUTHENTICATE with security level 0x([0-9A-Fa-f]+) and the host cryptogram$")]
+#[when(
+    regex = r"^I send EXTERNAL AUTHENTICATE with security level 0x([0-9A-Fa-f]+) and the host cryptogram$"
+)]
 fn when_ext_auth_with_host_crypto(world: &mut GpWorld, level_hex: String) {
     use super::world::{Scp01Session, Scp02Session};
 
@@ -862,13 +913,17 @@ fn when_ext_auth_with_host_crypto(world: &mut GpWorld, level_hex: String) {
     }
 }
 
-#[when(regex = r"^I send EXTERNAL AUTHENTICATE with security level 0x([0-9A-Fa-f]+) and the host cryptogram with C-MAC$")]
+#[when(
+    regex = r"^I send EXTERNAL AUTHENTICATE with security level 0x([0-9A-Fa-f]+) and the host cryptogram with C-MAC$"
+)]
 fn when_ext_auth_with_crypto_cmac(world: &mut GpWorld, _level_hex: String) {
     // This is handled by establish_scp02_session in the Given step.
     let _ = world;
 }
 
-#[when(regex = r"^I send EXTERNAL AUTHENTICATE with security level 0x([0-9A-Fa-f]+) and the modified cryptogram$")]
+#[when(
+    regex = r"^I send EXTERNAL AUTHENTICATE with security level 0x([0-9A-Fa-f]+) and the modified cryptogram$"
+)]
 fn when_ext_auth_modified_crypto(_world: &mut GpWorld, _level_hex: String) {
     // The modified cryptogram was already sent by the previous "compute and flip" step.
 }
@@ -914,7 +969,9 @@ fn when_restore_snapshot(_world: &mut GpWorld) {
 
 // -- Misc stubs for complex When steps --
 
-#[when(regex = r"^I compute the host cryptogram as MAC\(session_S-ENC, card_challenge \|\| host_challenge\)$")]
+#[when(
+    regex = r"^I compute the host cryptogram as MAC\(session_S-ENC, card_challenge \|\| host_challenge\)$"
+)]
 fn when_compute_host_cryptogram_scp01(world: &mut GpWorld) {
     // SCP01 host cryptogram: MAC(session_S-ENC, card_challenge || host_challenge).
     let hc = simrs_gp_scp::compute_scp01_host_cryptogram(
@@ -944,9 +1001,8 @@ fn when_compute_host_cryptogram_scp02(world: &mut GpWorld) {
             sec_level: 0x00,
             icv: [0u8; 8],
         }));
-        world.host_cryptogram = simrs_gp_scp::compute_scp02_host_cryptogram(
-            &enc, &world.host_challenge, seq, &cc6,
-        );
+        world.host_cryptogram =
+            simrs_gp_scp::compute_scp02_host_cryptogram(&enc, &world.host_challenge, seq, &cc6);
     }
 }
 
@@ -1024,7 +1080,9 @@ fn when_end_rmac(_world: &mut GpWorld) {
     // R-MAC session management -- stub.
 }
 
-#[when(regex = r"^I send SELECT with partial AID \[([0-9A-Fa-f ]+)\] \(P1=0x04, P2=0x([0-9A-Fa-f]+)\)$")]
+#[when(
+    regex = r"^I send SELECT with partial AID \[([0-9A-Fa-f ]+)\] \(P1=0x04, P2=0x([0-9A-Fa-f]+)\)$"
+)]
 fn when_send_select_partial_p2(world: &mut GpWorld, aid_hex: String, p2_hex: String) {
     let aid = parse_hex(&aid_hex);
     let p2 = u8::from_str_radix(&p2_hex, 16).expect("invalid P2");
@@ -1100,7 +1158,9 @@ fn when_send_delete_raw(world: &mut GpWorld, header_hex: String, data_hex: Strin
     }
 }
 
-#[when(regex = r"^I send STORE DATA with plaintext \[([0-9A-Fa-f ]+)\] encrypted with session S-ENC and C-MAC appended$")]
+#[when(
+    regex = r"^I send STORE DATA with plaintext \[([0-9A-Fa-f ]+)\] encrypted with session S-ENC and C-MAC appended$"
+)]
 fn when_send_store_data_encrypted(world: &mut GpWorld, hex: String) {
     let plaintext = parse_hex(&hex);
     // Pad plaintext with ISO 9797-1 Method 2 to 8-byte boundary.
@@ -1122,17 +1182,17 @@ fn when_send_store_data_encrypted(world: &mut GpWorld, hex: String) {
     simrs_iso9797::des3_2key_cbc_encrypt(&enc_key, &iv, &mut encrypted);
 
     // Send with C-MAC (send_apdu_with_cmac computes C-MAC over the encrypted data).
-    world.send_apdu_with_cmac(
-        &[gp_cla::GP, gp_ins::STORE_DATA, 0x80, 0x00],
-        &encrypted,
-    );
+    world.send_apdu_with_cmac(&[gp_cla::GP, gp_ins::STORE_DATA, 0x80, 0x00], &encrypted);
 }
 
 #[when(regex = r"^I send STORE DATA with personalization data.*$")]
 fn when_send_store_data(world: &mut GpWorld) {
     // STORE DATA triggers PERSONALIZED lifecycle transition.
     // The card stub accepts; we also need to transition the applet lifecycle.
-    world.send_gp_command(&[gp_cla::GP, gp_ins::STORE_DATA, 0x80, 0x00], &[0xC9, 0x03, 0x01, 0x02, 0x03]);
+    world.send_gp_command(
+        &[gp_cla::GP, gp_ins::STORE_DATA, 0x80, 0x00],
+        &[0xC9, 0x03, 0x01, 0x02, 0x03],
+    );
     // Transition the selected applet to PERSONALIZED.
     if world.sw1 == 0x90 {
         let channel = 0u8;
@@ -1147,8 +1207,15 @@ fn when_send_store_data(world: &mut GpWorld) {
     }
 }
 
-#[when(regex = r"^I send SET STATUS \(P1=0x([0-9A-Fa-f]+)\) for application \[([0-9A-Fa-f ]+)\] with new state 0x([0-9A-Fa-f]+)$")]
-fn when_send_set_status_app(world: &mut GpWorld, _p1_hex: String, aid_hex: String, state_hex: String) {
+#[when(
+    regex = r"^I send SET STATUS \(P1=0x([0-9A-Fa-f]+)\) for application \[([0-9A-Fa-f ]+)\] with new state 0x([0-9A-Fa-f]+)$"
+)]
+fn when_send_set_status_app(
+    world: &mut GpWorld,
+    _p1_hex: String,
+    aid_hex: String,
+    state_hex: String,
+) {
     let aid = parse_hex(&aid_hex);
     let state = u8::from_str_radix(&state_hex, 16).expect("invalid hex state");
     world.send_gp_command(&[gp_cla::GP, gp_ins::SET_STATUS, 0x40, state], &aid);
@@ -1163,12 +1230,18 @@ fn when_send_install_for_install_table(world: &mut GpWorld) {
     send_install_for_install(world, &lf_aid, &mod_aid, &app_aid);
 }
 
-#[when(regex = r"^I send INSTALL \[for install\] \(P1=0x04\) with Module AID \[([0-9A-Fa-f ]+)\] and Instance AID \[([0-9A-Fa-f ]+)\]$")]
+#[when(
+    regex = r"^I send INSTALL \[for install\] \(P1=0x04\) with Module AID \[([0-9A-Fa-f ]+)\] and Instance AID \[([0-9A-Fa-f ]+)\]$"
+)]
 fn when_send_install_for_install_aids(world: &mut GpWorld, mod_hex: String, app_hex: String) {
     let mod_aid = parse_hex(&mod_hex);
     let app_aid = parse_hex(&app_hex);
     // Assume load file AID is prefix of module AID (common convention).
-    let lf_aid = if mod_aid.len() > 5 { &mod_aid[..mod_aid.len() - 1] } else { mod_aid.as_slice() };
+    let lf_aid = if mod_aid.len() > 5 {
+        &mod_aid[..mod_aid.len() - 1]
+    } else {
+        mod_aid.as_slice()
+    };
     send_install_for_install(world, lf_aid, &mod_aid, &app_aid);
 }
 
@@ -1191,7 +1264,9 @@ fn send_install_for_install(world: &mut GpWorld, lf_aid: &[u8], mod_aid: &[u8], 
     world.send_gp_command(&[gp_cla::GP, gp_ins::INSTALL, 0x04, 0x00], &data);
 }
 
-#[when(regex = r"^I send INSTALL \[for make selectable\] \(P1=0x08\) with Instance AID \[([0-9A-Fa-f ]+)\]$")]
+#[when(
+    regex = r"^I send INSTALL \[for make selectable\] \(P1=0x08\) with Instance AID \[([0-9A-Fa-f ]+)\]$"
+)]
 fn when_send_install_make_selectable(world: &mut GpWorld, aid_hex: String) {
     let aid = parse_hex(&aid_hex);
     // INSTALL [for make selectable]: P1=0x08, data = load(0) + module(0) + app_aid
@@ -1228,7 +1303,9 @@ fn when_send_install_combined(world: &mut GpWorld) {
     world.send_gp_command(&[gp_cla::GP, gp_ins::INSTALL, 0x0C, 0x00], &data);
 }
 
-#[when(regex = r"^I send INSTALL \[for install\] \(P1=0x04\) with Instance AID \[([0-9A-Fa-f ]+)\]$")]
+#[when(
+    regex = r"^I send INSTALL \[for install\] \(P1=0x04\) with Instance AID \[([0-9A-Fa-f ]+)\]$"
+)]
 fn when_send_install_instance(world: &mut GpWorld, aid_hex: String) {
     let aid = parse_hex(&aid_hex);
     // INSTALL [for install] data: load(0) + module(0) + app_aid_len + app_aid
@@ -1377,8 +1454,16 @@ fn then_card_lifecycle(world: &mut GpWorld, expected_hex: String) {
     }
 }
 
-#[then(regex = r"^bytes (\d+)\.\.(\d+) identify SCP02 \\(key info byte (\d+) is 0x([0-9A-Fa-f]+)\\)$")]
-fn then_scp02_identifier(world: &mut GpWorld, _start: usize, _end: usize, byte_idx: usize, expected_hex: String) {
+#[then(
+    regex = r"^bytes (\d+)\.\.(\d+) identify SCP02 \\(key info byte (\d+) is 0x([0-9A-Fa-f]+)\\)$"
+)]
+fn then_scp02_identifier(
+    world: &mut GpWorld,
+    _start: usize,
+    _end: usize,
+    byte_idx: usize,
+    expected_hex: String,
+) {
     let expected = u8::from_str_radix(&expected_hex, 16).expect("invalid hex");
     let data = world.response_data();
     assert!(
@@ -1542,7 +1627,9 @@ fn then_bytes_range_are(_world: &mut GpWorld, _start: String, _end: String) {
     // Byte range description -- stub.
 }
 
-#[then(regex = r"^the session S-ENC equals 3DES_CBC\(\[40\]\*16, \[([0-9A-Fa-f ]+)\], IV=\[00\]\*8\)$")]
+#[then(
+    regex = r"^the session S-ENC equals 3DES_CBC\(\[40\]\*16, \[([0-9A-Fa-f ]+)\], IV=\[00\]\*8\)$"
+)]
 fn then_session_enc_equals(world: &mut GpWorld, _input_hex: String) {
     use super::world::Scp02Session;
 
@@ -1612,7 +1699,10 @@ fn then_security_level_cmac_cenc(world: &mut GpWorld) {
 
 #[then(regex = r"^an SCP01 secure channel session is established$")]
 fn then_scp01_session_established(world: &mut GpWorld) {
-    assert!(world.scp_authenticated(), "SCP session should be established");
+    assert!(
+        world.scp_authenticated(),
+        "SCP session should be established"
+    );
 }
 
 #[then(regex = r"^the session .* key equals .*$")]
@@ -1625,7 +1715,9 @@ fn then_derive_scp01_session(world: &mut GpWorld) {
     derive_scp01_session_from_response(world);
 }
 
-#[then(regex = r"^I derive session (S-ENC|C-MAC|R-MAC|DEK) with constant 0x([0-9A-Fa-f]+) and the sequence counter$")]
+#[then(
+    regex = r"^I derive session (S-ENC|C-MAC|R-MAC|DEK) with constant 0x([0-9A-Fa-f]+) and the sequence counter$"
+)]
 fn then_derive_scp02_session_key(world: &mut GpWorld, _key_name: String, _constant_hex: String) {
     use super::world::Scp02Session;
 
@@ -1644,7 +1736,9 @@ fn then_derive_scp02_session_key(world: &mut GpWorld, _key_name: String, _consta
     }
 }
 
-#[then(regex = r"^the card cryptogram equals MAC\(session_S-ENC, host_challenge \|\| card_challenge\) per Figure D-2$")]
+#[then(
+    regex = r"^the card cryptogram equals MAC\(session_S-ENC, host_challenge \|\| card_challenge\) per Figure D-2$"
+)]
 fn then_card_cryptogram_matches(world: &mut GpWorld) {
     let data = world.response_data().to_vec();
     assert!(data.len() >= 28, "need INIT UPDATE response");
@@ -1654,13 +1748,12 @@ fn then_card_cryptogram_matches(world: &mut GpWorld) {
         &world.host_challenge,
         &world.card_challenge,
     );
-    assert_eq!(
-        card_crypto, &expected,
-        "card cryptogram mismatch"
-    );
+    assert_eq!(card_crypto, &expected, "card cryptogram mismatch");
 }
 
-#[then(regex = r"^the card cryptogram equals MAC\(session_S-ENC, host_challenge \|\| sequence_counter \|\| card_challenge\)$")]
+#[then(
+    regex = r"^the card cryptogram equals MAC\(session_S-ENC, host_challenge \|\| sequence_counter \|\| card_challenge\)$"
+)]
 fn then_card_cryptogram_scp02(world: &mut GpWorld) {
     let data = world.response_data().to_vec();
     assert!(data.len() >= 28, "need INIT UPDATE response");
@@ -1677,20 +1770,36 @@ fn then_card_cryptogram_scp02(world: &mut GpWorld) {
     assert_eq!(card_crypto, &expected, "SCP02 card cryptogram mismatch");
 }
 
-#[then(regex = r"^the derivation data is host_challenge\[4\.\.8\] \|\| card_challenge\[0\.\.4\] \|\| host_challenge\[0\.\.4\] \|\| card_challenge\[4\.\.8\]$")]
+#[then(
+    regex = r"^the derivation data is host_challenge\[4\.\.8\] \|\| card_challenge\[0\.\.4\] \|\| host_challenge\[0\.\.4\] \|\| card_challenge\[4\.\.8\]$"
+)]
 fn then_derivation_data(world: &mut GpWorld) {
     // Verify the SCP01 derivation data layout by deriving keys and
     // checking they match the card's session.
     derive_scp01_session_from_response(world);
-    assert_ne!(world.session_enc(), [0u8; 16], "session keys should be derived");
+    assert_ne!(
+        world.session_enc(),
+        [0u8; 16],
+        "session keys should be derived"
+    );
 }
 
-#[then(regex = r"^session_(S-ENC|C-MAC|DEK) equals 3DES_ECB\(static_(S-ENC|C-MAC|DEK), derivation_data\)$")]
+#[then(
+    regex = r"^session_(S-ENC|C-MAC|DEK) equals 3DES_ECB\(static_(S-ENC|C-MAC|DEK), derivation_data\)$"
+)]
 fn then_scp01_session_key_equals(world: &mut GpWorld, _key_name: String, _static_name: String) {
     // The keys were already derived by derive_scp01_session_from_response.
     // Just assert they're non-zero (actual derivation happened).
-    assert_ne!(world.session_enc(), [0u8; 16], "session S-ENC should be derived");
-    assert_ne!(world.session_mac(), [0u8; 16], "session C-MAC should be derived");
+    assert_ne!(
+        world.session_enc(),
+        [0u8; 16],
+        "session S-ENC should be derived"
+    );
+    assert_ne!(
+        world.session_mac(),
+        [0u8; 16],
+        "session C-MAC should be derived"
+    );
 }
 
 #[then(regex = r"^a new card challenge and cryptogram are returned$")]
@@ -1725,7 +1834,11 @@ fn then_no_state_changed(_world: &mut GpWorld) {
 fn then_scp02_id_simple(world: &mut GpWorld) {
     let data = world.response_data();
     assert!(data.len() > 11, "response too short for SCP identifier");
-    assert_eq!(data[11], 0x02, "expected SCP02 identifier (0x02), got 0x{:02X}", data[11]);
+    assert_eq!(
+        data[11], 0x02,
+        "expected SCP02 identifier (0x02), got 0x{:02X}",
+        data[11]
+    );
 }
 
 #[then(regex = r"^the key information byte 11 is 0x([0-9A-Fa-f]+).*$")]
@@ -1733,7 +1846,11 @@ fn then_key_info_byte(world: &mut GpWorld, expected_hex: String) {
     let expected = u8::from_str_radix(&expected_hex, 16).expect("invalid hex");
     let data = world.response_data();
     assert!(data.len() > 11, "response too short for key info byte");
-    assert_eq!(data[11], expected, "expected key info 0x{expected:02X}, got 0x{:02X}", data[11]);
+    assert_eq!(
+        data[11], expected,
+        "expected key info 0x{expected:02X}, got 0x{:02X}",
+        data[11]
+    );
 }
 
 #[then(regex = r"^no SCP session is established$")]
@@ -1937,7 +2054,9 @@ fn then_app_lifecycle_hex(world: &mut GpWorld, aid_hex: String, lc_hex: String) 
     panic!("application {:02X?} not found in registry", aid);
 }
 
-#[then(regex = r"^the application \[([0-9A-Fa-f ]+)\] is in (INSTALLED|SELECTABLE|PERSONALIZED) state \(0x([0-9A-Fa-f]+)\)$")]
+#[then(
+    regex = r"^the application \[([0-9A-Fa-f ]+)\] is in (INSTALLED|SELECTABLE|PERSONALIZED) state \(0x([0-9A-Fa-f]+)\)$"
+)]
 fn then_app_in_state(world: &mut GpWorld, aid_hex: String, _state_name: String, lc_hex: String) {
     then_app_lifecycle_hex(world, aid_hex, lc_hex);
 }
@@ -1957,9 +2076,7 @@ fn then_sd_present(world: &mut GpWorld, sd_hex: String) {
     let sd_aid = parse_hex(&sd_hex);
     let sds = world.card.open().sds();
     assert!(
-        sds.iter()
-            .flatten()
-            .any(|sd| sd.aid() == sd_aid.as_slice()),
+        sds.iter().flatten().any(|sd| sd.aid() == sd_aid.as_slice()),
         "SD {:02X?} not found in registry",
         sd_aid
     );
@@ -2042,12 +2159,18 @@ fn when_abort_transaction(world: &mut GpWorld) {
 
 #[then(regex = r"^the PIN try counter remains at (\d+)$")]
 fn then_pin_counter_remains(world: &mut GpWorld, expected: u8) {
-    assert_eq!(world.pin_try_counter, expected, "PIN counter should NOT have been rolled back");
+    assert_eq!(
+        world.pin_try_counter, expected,
+        "PIN counter should NOT have been rolled back"
+    );
 }
 
 #[then(regex = r"^the PIN try counter was NOT rolled back to (\d+)$")]
 fn then_pin_not_rolled_back(world: &mut GpWorld, rolled_back_val: u8) {
-    assert_ne!(world.pin_try_counter, rolled_back_val, "PIN counter was rolled back!");
+    assert_ne!(
+        world.pin_try_counter, rolled_back_val,
+        "PIN counter was rolled back!"
+    );
 }
 
 // -- Scenario 2: Firewall prevents cross-applet instance field access --
@@ -2145,12 +2268,15 @@ fn when_baload(world: &mut GpWorld, index: u16) {
 fn when_saload_negative(world: &mut GpWorld) {
     // 0xFFFF as u16 = 65535, way out of bounds for any array.
     // Also triggers TypeMismatch because it's a byte[] (not short[]).
-    let result = world.jcvm.heap_mut().saload(world.jcvm_array_ref, 0xFFFF, 0);
+    let result = world
+        .jcvm
+        .heap_mut()
+        .saload(world.jcvm_array_ref, 0xFFFF, 0);
     world.jcvm_result = match result {
-        Err(simrs_jcvm::heap::AccessError::OutOfBounds
-            | simrs_jcvm::heap::AccessError::TypeMismatch) => {
-            Some(simrs_jcvm::opcodes::ExecResult::ArrayIndexOutOfBounds)
-        }
+        Err(
+            simrs_jcvm::heap::AccessError::OutOfBounds
+            | simrs_jcvm::heap::AccessError::TypeMismatch,
+        ) => Some(simrs_jcvm::opcodes::ExecResult::ArrayIndexOutOfBounds),
         _ => None,
     };
 }
@@ -2213,7 +2339,10 @@ fn given_short_array_named(world: &mut GpWorld, length: u16) {
 #[when(regex = r"^applet A executes baload on the short\[\] reference myShorts with index (\d+)$")]
 fn when_baload_on_short_array(world: &mut GpWorld, index: u16) {
     // Reverse type confusion: baload on short[] must also raise TypeMismatch.
-    let result = world.jcvm.heap_mut().baload(world.jcvm_array_ref2, index, 0);
+    let result = world
+        .jcvm
+        .heap_mut()
+        .baload(world.jcvm_array_ref2, index, 0);
     world.jcvm_result = match result {
         Err(simrs_jcvm::heap::AccessError::TypeMismatch) => {
             Some(simrs_jcvm::opcodes::ExecResult::ArrayStoreException)
@@ -2289,7 +2418,9 @@ fn given_cap_descriptor_offset(world: &mut GpWorld, offset_hex: String) {
     world.jcvm_result = None;
 }
 
-#[given(regex = r"^the Class component public_virtual_method_table offset is 0x0000 \(mismatched\)$")]
+#[given(
+    regex = r"^the Class component public_virtual_method_table offset is 0x0000 \(mismatched\)$"
+)]
 fn given_cap_class_offset_mismatch(world: &mut GpWorld) {
     // Build a malformed CAP with descriptor_offset=0x0040, class_offset=0x0000.
     // Bytecode assembled via jcasm! for the method body.
@@ -2400,13 +2531,17 @@ fn given_applet_b_aid(world: &mut GpWorld, _aid_hex: String) {
     world.jcvm.load_package(pkg);
 }
 
-#[given(regex = r"^applet B implements getShareableInterfaceObject that only grants access to AID \[([0-9A-Fa-f ]+)\]$")]
+#[given(
+    regex = r"^applet B implements getShareableInterfaceObject that only grants access to AID \[([0-9A-Fa-f ]+)\]$"
+)]
 fn given_applet_b_sio(_world: &mut GpWorld, _allowed_aid_hex: String) {
     // The access control is enforced by the JCRE runtime -- applet B
     // only grants access to a specific AID. Applet A's AID doesn't match.
 }
 
-#[when(regex = r"^applet A calls getShareableInterfaceObject for applet B with parameter 0x([0-9A-Fa-f]+)$")]
+#[when(
+    regex = r"^applet A calls getShareableInterfaceObject for applet B with parameter 0x([0-9A-Fa-f]+)$"
+)]
 fn when_get_sio(world: &mut GpWorld, _param_hex: String) {
     // JCRE 2.2.1 Section 6.2.4: "The JCRE shall set the clientAID parameter
     // to the AID of the requesting applet instance."
@@ -2415,14 +2550,19 @@ fn when_get_sio(world: &mut GpWorld, _param_hex: String) {
     world.jcvm_obj_ref = simrs_jcvm::heap::ObjRef::NULL; // null = access denied
 }
 
-#[then(regex = r"^applet B's getShareableInterfaceObject receives clientAID = \[([0-9A-Fa-f ]+)\]$")]
+#[then(
+    regex = r"^applet B's getShareableInterfaceObject receives clientAID = \[([0-9A-Fa-f ]+)\]$"
+)]
 fn then_client_aid_correct(_world: &mut GpWorld, _aid_hex: String) {
     // The JCRE injected the caller's real AID, not a spoofed one.
 }
 
 #[then(regex = r"^applet B returns null.*$")]
 fn then_sio_returns_null(world: &mut GpWorld) {
-    assert!(world.jcvm_obj_ref.is_null(), "SIO should be null (access denied)");
+    assert!(
+        world.jcvm_obj_ref.is_null(),
+        "SIO should be null (access denied)"
+    );
 }
 
 #[then(regex = r"^applet A receives null from the JCRE$")]

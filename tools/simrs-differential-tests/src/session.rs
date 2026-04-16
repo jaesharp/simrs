@@ -18,7 +18,7 @@
 //! session.print_summary();
 //! ```
 
-use crate::{GpCardTerminal, KEY_BYTES, next_port};
+use crate::{next_port, GpCardTerminal, KEY_BYTES};
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
 use simrs_interposer::diff::{DiffEngine, DiffRecord};
@@ -74,7 +74,8 @@ impl DiffSessionBuilder {
     ///
     /// The card is powered on automatically.
     pub fn simrs_gp_card(mut self) -> Self {
-        self.pending.push(PendingBackend::SimrsGpCard { keys: None });
+        self.pending
+            .push(PendingBackend::SimrsGpCard { keys: None });
         self
     }
 

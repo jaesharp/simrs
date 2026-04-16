@@ -91,7 +91,11 @@ pub const fn snapshot_size(max_applets: usize, max_sds: usize) -> usize {
 }
 
 /// Save the entire `GpOpen` state into `buf`. Returns bytes written.
-#[allow(clippy::cast_possible_truncation, clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)]
 pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     card_lifecycle: CardLifecycle,
     isd: &SecurityDomain,
@@ -239,7 +243,11 @@ pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
 }
 
 /// Restore the `GpOpen` state from `buf`. Returns `true` on success.
-#[allow(clippy::too_many_arguments, clippy::needless_range_loop, clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::needless_range_loop,
+    clippy::too_many_lines
+)]
 pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     card_lifecycle: &mut CardLifecycle,
     isd: &mut SecurityDomain,
@@ -316,12 +324,7 @@ pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
         };
         let sd_byte = buf[new_off];
         let sd_idx = if sd_byte == 0xFF { None } else { Some(sd_byte) };
-        let mut entry = AppletEntry::new_with_sd(
-            &aid[..aid_len as usize],
-            lc,
-            privs,
-            sd_idx,
-        );
+        let mut entry = AppletEntry::new_with_sd(&aid[..aid_len as usize], lc, privs, sd_idx);
         // Restore JCVM fields: has_jcvm(1) + pkg_idx(1) + process_method(1).
         let jcvm_off = new_off + 1;
         if jcvm_off + 3 > buf.len() {

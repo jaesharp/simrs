@@ -57,6 +57,8 @@ pub mod protocol;
 
 // Re-export key types at crate root for convenience.
 pub use client::JcslClient;
-pub use configurator::{ConfigError, GlobalPin, ScpKeyset, configure_binary, configure_to_memfd, is_configured};
-pub use discovery::{JcslInstallation, discover_binary};
+pub use configurator::{
+    configure_binary, configure_to_memfd, is_configured, ConfigError, GlobalPin, ScpKeyset,
+};
+pub use discovery::{discover_binary, JcslInstallation};
 pub use process::{JcslConfig, JcslProcess};

@@ -102,9 +102,9 @@ pub fn disassemble_cap(cap_data: &[u8]) -> Result<String, String> {
 
     // Disassemble each method.
     for idx in 0..pkg.method_count {
-        let method = pkg.method(idx).ok_or_else(|| {
-            format!("method {idx} missing from package")
-        })?;
+        let method = pkg
+            .method(idx)
+            .ok_or_else(|| format!("method {idx} missing from package"))?;
         let bc = &method.bytecode[..method.bytecode_len as usize];
         let flags = if method.is_static() { "static " } else { "" };
 
@@ -307,12 +307,8 @@ fn format_instruction(instr: &Instruction) -> String {
 
         // 5-byte: opcode + imm32
         opcodes::IIPUSH => {
-            let val = i32::from_be_bytes([
-                instr.args[0],
-                instr.args[1],
-                instr.args[2],
-                instr.args[3],
-            ]);
+            let val =
+                i32::from_be_bytes([instr.args[0], instr.args[1], instr.args[2], instr.args[3]]);
             format!("{pc:04X}: {mnemonic} {val}")
         }
 
@@ -351,8 +347,10 @@ fn format_instruction(instr: &Instruction) -> String {
         }
 
         // Variable-length switch instructions
-        opcodes::STABLESWITCH | opcodes::ITABLESWITCH
-        | opcodes::SLOOKUPSWITCH | opcodes::ILOOKUPSWITCH => {
+        opcodes::STABLESWITCH
+        | opcodes::ITABLESWITCH
+        | opcodes::SLOOKUPSWITCH
+        | opcodes::ILOOKUPSWITCH => {
             format!("{pc:04X}: {mnemonic} ...")
         }
 
@@ -636,7 +634,10 @@ mod tests {
             mnemonic: "goto",
         };
         let text = format_instruction(&instr);
-        assert!(text.contains("0x0000"), "expected resolved target PC 0, got: {text}");
+        assert!(
+            text.contains("0x0000"),
+            "expected resolved target PC 0, got: {text}"
+        );
     }
 
     #[test]

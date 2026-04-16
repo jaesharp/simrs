@@ -70,18 +70,36 @@ pub fn get_status<'buf, const N: usize, const M: usize, const L: usize>(
 
     match p1 {
         P1_ISD => {
-            if !write_e3_entry(buf, &mut off, isd.aid(), isd.lifecycle().to_byte(), isd.privileges()) {
+            if !write_e3_entry(
+                buf,
+                &mut off,
+                isd.aid(),
+                isd.lifecycle().to_byte(),
+                isd.privileges(),
+            ) {
                 return write_sw(buf, StatusWord::WrongLength);
             }
         }
         P1_APPS => {
             for entry in registry.iter().flatten() {
-                if !write_e3_entry(buf, &mut off, entry.aid(), entry.lifecycle().to_byte(), entry.privileges()) {
+                if !write_e3_entry(
+                    buf,
+                    &mut off,
+                    entry.aid(),
+                    entry.lifecycle().to_byte(),
+                    entry.privileges(),
+                ) {
                     break;
                 }
             }
             for sd in sds.iter().flatten() {
-                if !write_e3_entry(buf, &mut off, sd.aid(), sd.lifecycle().to_byte(), sd.privileges()) {
+                if !write_e3_entry(
+                    buf,
+                    &mut off,
+                    sd.aid(),
+                    sd.lifecycle().to_byte(),
+                    sd.privileges(),
+                ) {
                     break;
                 }
             }
@@ -110,13 +128,19 @@ pub fn get_status<'buf, const N: usize, const M: usize, const L: usize>(
 
 /// Write one E3 TLV entry into `buf` at `off`. Returns false if buffer too small.
 #[allow(clippy::cast_possible_truncation)]
-fn write_e3_entry(buf: &mut [u8], off: &mut usize, aid: &[u8], lifecycle: u8, privileges: u8) -> bool {
+fn write_e3_entry(
+    buf: &mut [u8],
+    off: &mut usize,
+    aid: &[u8],
+    lifecycle: u8,
+    privileges: u8,
+) -> bool {
     // E3 { 4F { AID } 9F70 01 { lifecycle } C5 01 { privileges } }
-    let aid_tlv_len = 2 + aid.len();   // tag 4F (1) + len (1) + AID
-    let lifecycle_tlv_len = 4;         // tag 9F70 (2) + len (1) + value (1)
-    let privileges_tlv_len = 3;       // tag C5 (1) + len (1) + value (1)
+    let aid_tlv_len = 2 + aid.len(); // tag 4F (1) + len (1) + AID
+    let lifecycle_tlv_len = 4; // tag 9F70 (2) + len (1) + value (1)
+    let privileges_tlv_len = 3; // tag C5 (1) + len (1) + value (1)
     let inner_len = aid_tlv_len + lifecycle_tlv_len + privileges_tlv_len;
-    let total = 2 + inner_len;         // tag E3 (1) + len (1) + inner
+    let total = 2 + inner_len; // tag E3 (1) + len (1) + inner
     if *off + total + 2 > buf.len() {
         return false;
     }
@@ -190,18 +214,33 @@ pub fn set_status<const N: usize, const M: usize>(
             // Search in registry.
             for entry in registry.iter_mut().flatten() {
                 if entry.aid() == aid {
-                    return try_lifecycle_transition(entry.lifecycle(), target_lc, |lc| entry.set_lifecycle(lc), buf);
+                    return try_lifecycle_transition(
+                        entry.lifecycle(),
+                        target_lc,
+                        |lc| entry.set_lifecycle(lc),
+                        buf,
+                    );
                 }
             }
             // Search in SDs.
             for sd in sds.iter_mut().flatten() {
                 if sd.aid() == aid {
-                    return try_lifecycle_transition(sd.lifecycle(), target_lc, |lc| sd.set_lifecycle(lc), buf);
+                    return try_lifecycle_transition(
+                        sd.lifecycle(),
+                        target_lc,
+                        |lc| sd.set_lifecycle(lc),
+                        buf,
+                    );
                 }
             }
             // Also check ISD.
             if isd.aid() == aid {
-                return try_lifecycle_transition(isd.lifecycle(), target_lc, |lc| isd.set_lifecycle(lc), buf);
+                return try_lifecycle_transition(
+                    isd.lifecycle(),
+                    target_lc,
+                    |lc| isd.set_lifecycle(lc),
+                    buf,
+                );
             }
             // Not found.
             write_sw_raw(buf, StatusWord::wrong_params(0x82))
@@ -642,7 +681,11 @@ pub fn load(
 }
 
 /// PUT KEY command stub -- accepts and returns 90 00.
-pub fn put_key_stub(buf: &mut [u8]) -> usize { write_sw_raw(buf, StatusWord::Success) }
+pub fn put_key_stub(buf: &mut [u8]) -> usize {
+    write_sw_raw(buf, StatusWord::Success)
+}
 
 /// STORE DATA command stub -- accepts and returns 90 00.
-pub fn store_data_stub(buf: &mut [u8]) -> usize { write_sw_raw(buf, StatusWord::Success) }
+pub fn store_data_stub(buf: &mut [u8]) -> usize {
+    write_sw_raw(buf, StatusWord::Success)
+}

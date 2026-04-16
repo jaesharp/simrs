@@ -1604,6 +1604,7 @@ dependencies = [
  "simrs-fs",
  "simrs-gp-keys",
  "simrs-gp-open",
+ "simrs-gp-scp",
  "simrs-iso7816",
  "simrs-jcre",
  "simrs-milenage",
@@ -1743,6 +1744,7 @@ dependencies = [
  "proc-macro2",
  "proptest",
  "quote",
+ "simrs-jccompile",
  "simrs-jcvm",
  "syn",
 ]

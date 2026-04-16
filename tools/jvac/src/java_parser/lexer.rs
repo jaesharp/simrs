@@ -339,13 +339,19 @@ pub fn tokenize(source: &str) -> Result<Vec<SpannedToken>, String> {
             pos += 1;
             col += 1;
             if pos >= len {
-                return Err(format!("{}:{}: unterminated char literal", span.line, span.col));
+                return Err(format!(
+                    "{}:{}: unterminated char literal",
+                    span.line, span.col
+                ));
             }
             let c = if chars[pos] == '\\' {
                 pos += 1;
                 col += 1;
                 if pos >= len {
-                    return Err(format!("{}:{}: unterminated char escape", span.line, span.col));
+                    return Err(format!(
+                        "{}:{}: unterminated char escape",
+                        span.line, span.col
+                    ));
                 }
                 let escaped = match chars[pos] {
                     'n' => '\n',
@@ -366,7 +372,10 @@ pub fn tokenize(source: &str) -> Result<Vec<SpannedToken>, String> {
                 c
             };
             if pos >= len || chars[pos] != '\'' {
-                return Err(format!("{}:{}: unterminated char literal", span.line, span.col));
+                return Err(format!(
+                    "{}:{}: unterminated char literal",
+                    span.line, span.col
+                ));
             }
             pos += 1;
             col += 1;
@@ -390,13 +399,13 @@ pub fn tokenize(source: &str) -> Result<Vec<SpannedToken>, String> {
                 }
                 if pos == hex_start {
                     return Err(format!(
-                        "{}:{}: expected hex digits after 0x", span.line, span.col
+                        "{}:{}: expected hex digits after 0x",
+                        span.line, span.col
                     ));
                 }
                 let hex_str: String = chars[hex_start..pos].iter().collect();
-                let value = i64::from_str_radix(&hex_str, 16).map_err(|e| {
-                    format!("{}:{}: invalid hex literal: {e}", span.line, span.col)
-                })?;
+                let value = i64::from_str_radix(&hex_str, 16)
+                    .map_err(|e| format!("{}:{}: invalid hex literal: {e}", span.line, span.col))?;
                 // Skip trailing L/l suffix if present.
                 if pos < len && (chars[pos] == 'L' || chars[pos] == 'l') {
                     pos += 1;
@@ -510,100 +519,180 @@ fn lex_punctuation(
     let ch = chars[*pos];
     let len = chars.len();
     let tok = match ch {
-        '(' => { *pos += 1; *col += 1; Token::LParen }
-        ')' => { *pos += 1; *col += 1; Token::RParen }
-        '{' => { *pos += 1; *col += 1; Token::LBrace }
-        '}' => { *pos += 1; *col += 1; Token::RBrace }
-        '[' => { *pos += 1; *col += 1; Token::LBracket }
-        ']' => { *pos += 1; *col += 1; Token::RBracket }
-        ';' => { *pos += 1; *col += 1; Token::Semicolon }
-        ',' => { *pos += 1; *col += 1; Token::Comma }
-        '.' => { *pos += 1; *col += 1; Token::Dot }
-        ':' => { *pos += 1; *col += 1; Token::Colon }
-        '~' => { *pos += 1; *col += 1; Token::BitNot }
-        '^' => { *pos += 1; *col += 1; Token::BitXor }
+        '(' => {
+            *pos += 1;
+            *col += 1;
+            Token::LParen
+        }
+        ')' => {
+            *pos += 1;
+            *col += 1;
+            Token::RParen
+        }
+        '{' => {
+            *pos += 1;
+            *col += 1;
+            Token::LBrace
+        }
+        '}' => {
+            *pos += 1;
+            *col += 1;
+            Token::RBrace
+        }
+        '[' => {
+            *pos += 1;
+            *col += 1;
+            Token::LBracket
+        }
+        ']' => {
+            *pos += 1;
+            *col += 1;
+            Token::RBracket
+        }
+        ';' => {
+            *pos += 1;
+            *col += 1;
+            Token::Semicolon
+        }
+        ',' => {
+            *pos += 1;
+            *col += 1;
+            Token::Comma
+        }
+        '.' => {
+            *pos += 1;
+            *col += 1;
+            Token::Dot
+        }
+        ':' => {
+            *pos += 1;
+            *col += 1;
+            Token::Colon
+        }
+        '~' => {
+            *pos += 1;
+            *col += 1;
+            Token::BitNot
+        }
+        '^' => {
+            *pos += 1;
+            *col += 1;
+            Token::BitXor
+        }
         '+' => {
-            *pos += 1; *col += 1;
+            *pos += 1;
+            *col += 1;
             if *pos < len && chars[*pos] == '=' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::PlusAssign
             } else if *pos < len && chars[*pos] == '+' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::PlusPlus
             } else {
                 Token::Plus
             }
         }
         '-' => {
-            *pos += 1; *col += 1;
+            *pos += 1;
+            *col += 1;
             if *pos < len && chars[*pos] == '=' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::MinusAssign
             } else if *pos < len && chars[*pos] == '-' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::MinusMinus
             } else {
                 Token::Minus
             }
         }
-        '*' => { *pos += 1; *col += 1; Token::Star }
-        '/' => { *pos += 1; *col += 1; Token::Slash }
-        '%' => { *pos += 1; *col += 1; Token::Percent }
+        '*' => {
+            *pos += 1;
+            *col += 1;
+            Token::Star
+        }
+        '/' => {
+            *pos += 1;
+            *col += 1;
+            Token::Slash
+        }
+        '%' => {
+            *pos += 1;
+            *col += 1;
+            Token::Percent
+        }
         '=' => {
-            *pos += 1; *col += 1;
+            *pos += 1;
+            *col += 1;
             if *pos < len && chars[*pos] == '=' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::Eq
             } else {
                 Token::Assign
             }
         }
         '!' => {
-            *pos += 1; *col += 1;
+            *pos += 1;
+            *col += 1;
             if *pos < len && chars[*pos] == '=' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::Ne
             } else {
                 Token::Not
             }
         }
         '<' => {
-            *pos += 1; *col += 1;
+            *pos += 1;
+            *col += 1;
             if *pos < len && chars[*pos] == '=' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::Le
             } else if *pos < len && chars[*pos] == '<' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::Shl
             } else {
                 Token::Lt
             }
         }
         '>' => {
-            *pos += 1; *col += 1;
+            *pos += 1;
+            *col += 1;
             if *pos < len && chars[*pos] == '=' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::Ge
             } else if *pos < len && chars[*pos] == '>' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::Shr
             } else {
                 Token::Gt
             }
         }
         '&' => {
-            *pos += 1; *col += 1;
+            *pos += 1;
+            *col += 1;
             if *pos < len && chars[*pos] == '&' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::And
             } else {
                 Token::BitAnd
             }
         }
         '|' => {
-            *pos += 1; *col += 1;
+            *pos += 1;
+            *col += 1;
             if *pos < len && chars[*pos] == '|' {
-                *pos += 1; *col += 1;
+                *pos += 1;
+                *col += 1;
                 Token::Or
             } else {
                 Token::BitOr

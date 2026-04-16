@@ -23,6 +23,7 @@ simrs-milenage = { workspace = true, optional = true }
 proptest       = { workspace = true }
 simrs-milenage = { workspace = true }
 simrs-fs       = { workspace = true }
+simrs-gp-scp   = { workspace = true }
 
 [lints]
 workspace = true

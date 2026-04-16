@@ -51,9 +51,7 @@ fn offset_mismatch_both_zero_accepted() {
 /// JCVM 3.1 Section 6.3: Matching non-zero offsets are accepted.
 #[test]
 fn offset_mismatch_both_equal_accepted() {
-    let m = MethodBuilder::new(&[0x7A])
-        .offsets(0x0042, 0x0042)
-        .build();
+    let m = MethodBuilder::new(&[0x7A]).offsets(0x0042, 0x0042).build();
 
     let mut applet = TestApplet::new("A0_00_00_00_62_06_02");
     applet.method_with_exceptions(m);
@@ -206,7 +204,10 @@ fn exception_valid_accepted() {
     applet.method_with_exceptions(m);
 
     let result = applet.try_parse();
-    assert!(result.is_ok(), "valid exception table should parse successfully");
+    assert!(
+        result.is_ok(),
+        "valid exception table should parse successfully"
+    );
 }
 
 /// JCVM spec exception table: too many exception table entries must be
@@ -348,13 +349,13 @@ fn malformed_truncated() {
 fn malformed_bytecode_too_long() {
     let mut buf = [0u8; 32];
     buf[0..4].copy_from_slice(&simrs_jcvm::cap::CAP_MAGIC.to_be_bytes());
-    buf[4] = 1;    // aid_len
+    buf[4] = 1; // aid_len
     buf[5] = 0xAA; // aid
-    buf[6] = 1;    // 1 method
-    buf[7] = 0;    // flags
-    buf[8] = 0;    // max_stack
-    buf[9] = 0;    // nargs
-    buf[10] = 0;   // max_locals
+    buf[6] = 1; // 1 method
+    buf[7] = 0; // flags
+    buf[8] = 0; // max_stack
+    buf[9] = 0; // nargs
+    buf[10] = 0; // max_locals
     buf[11] = 0x01; // bytecode_len high
     buf[12] = 0x01; // bytecode_len = 257 > MAX_BYTECODE
     let result = simrs_jcvm::cap::parse_cap(&buf[..13]);

@@ -421,10 +421,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
 
         // GP 2.1.1 clause 8: commands that require an authenticated SCP session.
         // Exempt: SELECT, GET DATA, MANAGE CHANNEL -- these work without auth.
-        let auth_exempt = matches!(
-            cmd.ins(),
-            ins::SELECT | INS_GET_DATA | INS_MANAGE_CHANNEL
-        );
+        let auth_exempt = matches!(cmd.ins(), ins::SELECT | INS_GET_DATA | INS_MANAGE_CHANNEL);
         if !auth_exempt && !matches!(self.scp_state, ScpState::Authenticated { .. }) {
             return write_sw(buf, StatusWord::command_not_allowed(0x85));
         }
@@ -433,7 +430,12 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         // commands requiring auth must include and pass C-MAC verification.
         // GP 2.1.1 clause 8.3.1.
         if !auth_exempt {
-            if let ScpState::Authenticated { security_level, scp_version, .. } = self.scp_state {
+            if let ScpState::Authenticated {
+                security_level,
+                scp_version,
+                ..
+            } = self.scp_state
+            {
                 if security_level & 0x01 != 0 {
                     let mut uw_data = [0u8; 256];
                     let uw_result = if scp_version == ScpVersion::Scp03 {
@@ -448,8 +450,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                             uw_apdu[..4].copy_from_slice(&raw[..4]);
                             let uw_len = if data_len > 0 {
                                 uw_apdu[4] = data_len as u8;
-                                uw_apdu[5..5 + data_len]
-                                    .copy_from_slice(&uw_data[..data_len]);
+                                uw_apdu[5..5 + data_len].copy_from_slice(&uw_data[..data_len]);
                                 5 + data_len
                             } else {
                                 4
@@ -460,16 +461,10 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                             return self.dispatch_gp(&uw_cmd, buf);
                         }
                         Err(ScpError::CmacMismatch) => {
-                            return write_sw(
-                                buf,
-                                StatusWord::command_not_allowed(0x88),
-                            );
+                            return write_sw(buf, StatusWord::command_not_allowed(0x88));
                         }
                         Err(ScpError::SecureMessagingMissing) => {
-                            return write_sw(
-                                buf,
-                                StatusWord::command_not_allowed(0x87),
-                            );
+                            return write_sw(buf, StatusWord::command_not_allowed(0x87));
                         }
                         Err(_) => {
                             return write_sw(buf, StatusWord::NoPreciseDiagnosis);
@@ -492,9 +487,14 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                     write_sw(buf, StatusWord::wrong_params(0x86))
                 }
             }
-            INS_GET_STATUS => {
-                commands::get_status(&self.isd, &self.registry, &self.sds, &self.load_files, cmd, buf)
-            }
+            INS_GET_STATUS => commands::get_status(
+                &self.isd,
+                &self.registry,
+                &self.sds,
+                &self.load_files,
+                cmd,
+                buf,
+            ),
             INS_SET_STATUS => {
                 let n = commands::set_status(
                     &mut self.card_lifecycle,
@@ -538,7 +538,9 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                 );
                 &buf[..n]
             }
-            INS_GET_DATA => commands::get_data(self.card_lifecycle, self.isd.aid(), self.iin(), cmd, buf),
+            INS_GET_DATA => {
+                commands::get_data(self.card_lifecycle, self.isd.aid(), self.iin(), cmd, buf)
+            }
             INS_PUT_KEY => {
                 let n = commands::put_key_stub(buf);
                 &buf[..n]
@@ -558,7 +560,12 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
     /// Returns `Some(response_len)` if the applet is a JCVM applet and
     /// execution completed, `None` if the applet is not a JCVM applet.
     #[allow(clippy::cast_possible_truncation)]
-    fn dispatch_to_jcvm(&mut self, applet_idx: u8, _cmd_bytes: &[u8], buf: &mut [u8]) -> Option<usize> {
+    fn dispatch_to_jcvm(
+        &mut self,
+        applet_idx: u8,
+        _cmd_bytes: &[u8],
+        buf: &mut [u8],
+    ) -> Option<usize> {
         let entry = self.registry[applet_idx as usize].as_ref()?;
         let pkg_idx = entry.jcvm_pkg_idx()?;
         let method = entry.jcvm_process_method();
@@ -620,7 +627,12 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
             || registry::partial_aid_matches(self.isd.aid(), aid)
         {
             self.deselect_channel(channel);
-            return Self::select_response(buf, self.isd.aid(), self.isd.lifecycle().to_byte(), self.card_lifecycle);
+            return Self::select_response(
+                buf,
+                self.isd.aid(),
+                self.isd.lifecycle().to_byte(),
+                self.card_lifecycle,
+            );
         }
 
         // Search registry for matching AID (exact, prefix, or partial).
@@ -662,11 +674,11 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
     ) -> &'buf [u8] {
         let tag73_inner = commands::build_card_recognition_oids(card_lifecycle);
         let tag73_block = 2 + tag73_inner.len(); // tag 73(1) + len(1) + inner(49) = 51
-        let lifecycle_tlv = 4usize;              // tag 9F65(2) + len(1) + lifecycle(1)
+        let lifecycle_tlv = 4usize; // tag 9F65(2) + len(1) + lifecycle(1)
         let a5_inner = tag73_block + lifecycle_tlv;
-        let a5_block = 2 + a5_inner;             // tag A5(1) + len(1) + inner
+        let a5_block = 2 + a5_inner; // tag A5(1) + len(1) + inner
         let inner_len = 2 + aid.len() + a5_block; // tag 84(1) + len(1) + aid + A5 block
-        let fci_len = 2 + inner_len;              // tag 6F(1) + len(1) + inner
+        let fci_len = 2 + inner_len; // tag 6F(1) + len(1) + inner
         let mut fci = [0u8; 80];
         let mut off = 0;
         fci[off] = 0x6F;
@@ -714,11 +726,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
 
     // -- SCP03 C-MAC unwrap helper --
 
-    fn scp03_unwrap(
-        &mut self,
-        apdu: &[u8],
-        output: &mut [u8],
-    ) -> Result<usize, ScpError> {
+    fn scp03_unwrap(&mut self, apdu: &[u8], output: &mut [u8]) -> Result<usize, ScpError> {
         if let ScpState::Authenticated {
             session_enc,
             session_mac,
@@ -833,7 +841,10 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         // Dispatch SCP03 or SCP01/02 based on InitUpdateDone state.
         let is_scp03 = matches!(
             self.scp_state,
-            ScpState::InitUpdateDone { scp_version: ScpVersion::Scp03, .. }
+            ScpState::InitUpdateDone {
+                scp_version: ScpVersion::Scp03,
+                ..
+            }
         );
 
         let result = if is_scp03 {
@@ -843,11 +854,7 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
                 &host_crypto_and_mac,
             )
         } else {
-            process_external_authenticate(
-                &mut self.scp_state,
-                security_level,
-                &host_crypto_and_mac,
-            )
+            process_external_authenticate(&mut self.scp_state, security_level, &host_crypto_and_mac)
         };
 
         match result {
@@ -1012,7 +1019,11 @@ mod tests {
         select_apdu[5..11].copy_from_slice(&app_aid);
 
         let rsp = gp.handle(&select_apdu, &mut buf);
-        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "SELECT by AID should succeed");
+        assert_eq!(
+            &rsp[rsp.len() - 2..],
+            &[0x90, 0x00],
+            "SELECT by AID should succeed"
+        );
 
         // Verify the applet is selected on channel 0.
         assert!(gp.selected_applet_index(0).is_some());
@@ -1077,9 +1088,12 @@ mod tests {
         assert_eq!(rsp.len(), 20);
         assert_eq!(rsp[0], 0xE3); // E3 tag
         assert_eq!(rsp[2], 0x4F); // 4F tag (AID)
-        assert_eq!(rsp[3], 7);    // AID length
+        assert_eq!(rsp[3], 7); // AID length
         assert_eq!(&rsp[4..11], &DEFAULT_ISD_AID);
-        assert_eq!(&rsp[11..15], &[0x9F, 0x70, 0x01, AppletLifecycle::Selectable.to_byte()]);
+        assert_eq!(
+            &rsp[11..15],
+            &[0x9F, 0x70, 0x01, AppletLifecycle::Selectable.to_byte()]
+        );
         assert_eq!(&rsp[15..18], &[0xC5, 0x01, 0x9E]); // ISD privileges
         assert_eq!(&rsp[18..20], &[0x90, 0x00]); // SW
     }
@@ -1386,7 +1400,11 @@ mod tests {
         select_apdu[5..5 + aid_len].copy_from_slice(aid);
 
         let rsp = gp.handle(&select_apdu[..5 + aid_len], &mut buf);
-        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "SELECT should succeed");
+        assert_eq!(
+            &rsp[rsp.len() - 2..],
+            &[0x90, 0x00],
+            "SELECT should succeed"
+        );
 
         gp.selected_applet_index(0)
             .expect("applet should be selected after SELECT")
@@ -1684,7 +1702,11 @@ mod tests {
         let total_load = 5 + install_load[4] as usize;
         let mut buf = [0u8; 261];
         let rsp = gp.handle(&install_load[..total_load], &mut buf);
-        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "INSTALL [for load] should succeed");
+        assert_eq!(
+            &rsp[rsp.len() - 2..],
+            &[0x90, 0x00],
+            "INSTALL [for load] should succeed"
+        );
 
         // 3. LOAD (single block, P1=0x80 = last block).
         let mut load_apdu = [0u8; 261];
@@ -1717,13 +1739,21 @@ mod tests {
         select[4] = instance_aid.len() as u8;
         select[5..5 + instance_aid.len()].copy_from_slice(&instance_aid);
         let rsp = gp.handle(&select[..5 + instance_aid.len()], &mut buf);
-        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "SELECT should succeed");
+        assert_eq!(
+            &rsp[rsp.len() - 2..],
+            &[0x90, 0x00],
+            "SELECT should succeed"
+        );
 
         // 6. Send APDU to applet -> should return 42.
         // CLA 0x00 = interindustry (NOT 0x80 which is GP management).
         let apdu = [0x00, 0x01, 0x00, 0x00];
         let rsp = gp.handle(&apdu, &mut buf);
-        assert_eq!(&rsp[rsp.len() - 2..], &[0x90, 0x00], "APDU dispatch should succeed");
+        assert_eq!(
+            &rsp[rsp.len() - 2..],
+            &[0x90, 0x00],
+            "APDU dispatch should succeed"
+        );
         assert_eq!(rsp.len(), 4, "expected 2 bytes data + 2 bytes SW");
         let value = i16::from_be_bytes([rsp[0], rsp[1]]);
         assert_eq!(value, 42, "JCVM applet should return 42");

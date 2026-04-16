@@ -28,9 +28,7 @@ fn main() {
     } else {
         futures::executor::block_on(
             world::GpWorld::cucumber()
-                .filter_run("features/", |_, _, sc| {
-                    !sc.tags.iter().any(|t| t == "wip")
-                }),
+                .filter_run("features/", |_, _, sc| !sc.tags.iter().any(|t| t == "wip")),
         );
     }
 }

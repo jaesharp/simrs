@@ -39,6 +39,7 @@ fn constant_return_42() {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(42)))],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(42));
@@ -56,6 +57,7 @@ fn constant_return_zero() {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(0));
@@ -73,6 +75,7 @@ fn constant_return_negative() {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(-1)))],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(-1));
@@ -90,6 +93,7 @@ fn constant_return_large() {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Lit(1000)))],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1000));
@@ -115,6 +119,7 @@ fn arithmetic_add() {
                 right: Box::new(JcExpr::Lit(2)),
             }))],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(5));
@@ -136,6 +141,7 @@ fn arithmetic_sub() {
                 right: Box::new(JcExpr::Lit(3)),
             }))],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(2));
@@ -157,6 +163,7 @@ fn arithmetic_mul() {
                 right: Box::new(JcExpr::Lit(3)),
             }))],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(12));
@@ -197,6 +204,7 @@ fn local_variables_add() {
                 })),
             ],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(5));
@@ -224,15 +232,13 @@ fn if_else_eq_true_branch() {
                     init: JcExpr::Lit(0),
                 },
                 JcStmt::If {
-                    cond: Condition::Eq(
-                        JcExpr::Var(String::from("x")),
-                        JcExpr::Lit(0),
-                    ),
+                    cond: Condition::Eq(JcExpr::Var(String::from("x")), JcExpr::Lit(0)),
                     then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                     else_body: vec![JcStmt::Return(Some(JcExpr::Lit(2)))],
                 },
             ],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
@@ -256,15 +262,13 @@ fn if_else_eq_false_branch() {
                     init: JcExpr::Lit(1),
                 },
                 JcStmt::If {
-                    cond: Condition::Eq(
-                        JcExpr::Var(String::from("x")),
-                        JcExpr::Lit(0),
-                    ),
+                    cond: Condition::Eq(JcExpr::Var(String::from("x")), JcExpr::Lit(0)),
                     then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                     else_body: vec![JcStmt::Return(Some(JcExpr::Lit(2)))],
                 },
             ],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(2));
@@ -300,10 +304,7 @@ fn while_loop_sum_1_to_5() {
                     init: JcExpr::Lit(0),
                 },
                 JcStmt::While {
-                    cond: Condition::Ne(
-                        JcExpr::Var(String::from("i")),
-                        JcExpr::Lit(6),
-                    ),
+                    cond: Condition::Ne(JcExpr::Var(String::from("i")), JcExpr::Lit(6)),
                     body: vec![
                         JcStmt::Assign {
                             target: LValue::Var(String::from("sum")),
@@ -326,6 +327,7 @@ fn while_loop_sum_1_to_5() {
                 JcStmt::Return(Some(JcExpr::Var(String::from("sum")))),
             ],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(15));
@@ -355,6 +357,7 @@ fn negation() {
                 JcStmt::Return(Some(JcExpr::Neg(Box::new(JcExpr::Var(String::from("x")))))),
             ],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(-7));
@@ -376,6 +379,7 @@ fn void_return() {
             locals: vec![],
             body: vec![JcStmt::Return(None)],
             is_static: true,
+            constant_time: false,
         }],
     };
     assert_eq!(compile_and_run(&class), ExecResult::ReturnVoid);
@@ -397,6 +401,7 @@ fn compile_error_undefined_var() {
             locals: vec![],
             body: vec![JcStmt::Return(Some(JcExpr::Var(String::from("x"))))],
             is_static: true,
+            constant_time: false,
         }],
     };
     let result = compile_class(&class);
@@ -433,6 +438,7 @@ fn int_literal_small() {
         locals: vec![],
         body: vec![JcStmt::Return(Some(JcExpr::IntLit(3)))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(3));
 }
@@ -446,6 +452,7 @@ fn int_literal_large() {
         locals: vec![],
         body: vec![JcStmt::Return(Some(JcExpr::IntLit(100_000)))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(100_000));
 }
@@ -459,6 +466,7 @@ fn int_literal_negative() {
         locals: vec![],
         body: vec![JcStmt::Return(Some(JcExpr::IntLit(-1)))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(-1));
 }
@@ -480,6 +488,7 @@ fn int_add() {
             right: Box::new(JcExpr::IntLit(50_000)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(100_000));
 }
@@ -497,6 +506,7 @@ fn int_sub() {
             right: Box::new(JcExpr::IntLit(1)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(99_999));
 }
@@ -514,6 +524,7 @@ fn int_mul() {
             right: Box::new(JcExpr::IntLit(1000)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(1_000_000));
 }
@@ -531,6 +542,7 @@ fn int_div() {
             right: Box::new(JcExpr::IntLit(3)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(33_333));
 }
@@ -553,6 +565,7 @@ fn short_bitwise_and() {
             right: Box::new(JcExpr::Lit(0x0F)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     // 0xFF as i16 = 255. 255 & 15 = 15.
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(15));
@@ -572,6 +585,7 @@ fn short_bitwise_or() {
             right: Box::new(JcExpr::Lit(0xF0)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(0xFF));
 }
@@ -590,6 +604,7 @@ fn short_bitwise_xor() {
             right: Box::new(JcExpr::Lit(0x0F)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(0xF0));
 }
@@ -608,6 +623,7 @@ fn short_shift_left() {
             right: Box::new(JcExpr::Lit(3)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(8));
 }
@@ -626,6 +642,7 @@ fn short_shift_right() {
             right: Box::new(JcExpr::Lit(2)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(4));
 }
@@ -644,6 +661,7 @@ fn short_unsigned_shift_right() {
             right: Box::new(JcExpr::Lit(1)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(0x7FFF));
 }
@@ -667,6 +685,7 @@ fn cast_s2b() {
             expr: Box::new(JcExpr::Lit(300)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(44));
 }
@@ -685,6 +704,7 @@ fn cast_s2i() {
             expr: Box::new(JcExpr::Lit(42)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(42));
 }
@@ -703,6 +723,7 @@ fn cast_s2i_negative() {
             expr: Box::new(JcExpr::Lit(-1)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(-1));
 }
@@ -721,6 +742,7 @@ fn cast_i2s() {
             expr: Box::new(JcExpr::IntLit(42)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(42));
 }
@@ -740,6 +762,7 @@ fn cast_i2b() {
             expr: Box::new(JcExpr::IntLit(300)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(44));
 }
@@ -763,15 +786,13 @@ fn condition_lt_true() {
                 init: JcExpr::Lit(3),
             },
             JcStmt::If {
-                cond: Condition::Lt(
-                    JcExpr::Var(String::from("x")),
-                    JcExpr::Lit(5),
-                ),
+                cond: Condition::Lt(JcExpr::Var(String::from("x")), JcExpr::Lit(5)),
                 then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                 else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
             },
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -791,15 +812,13 @@ fn condition_lt_false() {
                 init: JcExpr::Lit(5),
             },
             JcStmt::If {
-                cond: Condition::Lt(
-                    JcExpr::Var(String::from("x")),
-                    JcExpr::Lit(5),
-                ),
+                cond: Condition::Lt(JcExpr::Var(String::from("x")), JcExpr::Lit(5)),
                 then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                 else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
             },
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(0));
 }
@@ -819,15 +838,13 @@ fn condition_ge_true() {
                 init: JcExpr::Lit(5),
             },
             JcStmt::If {
-                cond: Condition::Ge(
-                    JcExpr::Var(String::from("x")),
-                    JcExpr::Lit(5),
-                ),
+                cond: Condition::Ge(JcExpr::Var(String::from("x")), JcExpr::Lit(5)),
                 then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                 else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
             },
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -847,15 +864,13 @@ fn condition_gt_true() {
                 init: JcExpr::Lit(5),
             },
             JcStmt::If {
-                cond: Condition::Gt(
-                    JcExpr::Var(String::from("x")),
-                    JcExpr::Lit(3),
-                ),
+                cond: Condition::Gt(JcExpr::Var(String::from("x")), JcExpr::Lit(3)),
                 then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                 else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
             },
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -875,15 +890,13 @@ fn condition_le_true() {
                 init: JcExpr::Lit(3),
             },
             JcStmt::If {
-                cond: Condition::Le(
-                    JcExpr::Var(String::from("x")),
-                    JcExpr::Lit(5),
-                ),
+                cond: Condition::Le(JcExpr::Var(String::from("x")), JcExpr::Lit(5)),
                 then_body: vec![JcStmt::Return(Some(JcExpr::Lit(1)))],
                 else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
             },
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -906,6 +919,7 @@ fn int_condition_eq_true() {
             else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
         }],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -923,6 +937,7 @@ fn int_condition_eq_false() {
             else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
         }],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(0));
 }
@@ -940,6 +955,7 @@ fn int_condition_lt() {
             else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
         }],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -957,6 +973,7 @@ fn int_condition_ge() {
             else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
         }],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -974,6 +991,7 @@ fn int_condition_ne() {
             else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
         }],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -991,6 +1009,7 @@ fn int_condition_gt() {
             else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
         }],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -1008,6 +1027,7 @@ fn int_condition_le() {
             else_body: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
         }],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -1023,10 +1043,11 @@ fn int_negation() {
         params: vec![],
         return_ty: JcType::Int,
         locals: vec![],
-        body: vec![JcStmt::Return(Some(JcExpr::IntNeg(
-            Box::new(JcExpr::IntLit(100_000)),
-        )))],
+        body: vec![JcStmt::Return(Some(JcExpr::IntNeg(Box::new(
+            JcExpr::IntLit(100_000),
+        ))))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(-100_000));
 }
@@ -1048,6 +1069,7 @@ fn int_compare_less() {
             Box::new(JcExpr::IntLit(2)),
         )))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(-1));
 }
@@ -1065,6 +1087,7 @@ fn int_compare_equal() {
             Box::new(JcExpr::IntLit(5)),
         )))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(0));
 }
@@ -1082,6 +1105,7 @@ fn int_compare_greater() {
             Box::new(JcExpr::IntLit(3)),
         )))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(1));
 }
@@ -1111,6 +1135,7 @@ fn sinc_increment() {
             JcStmt::Return(Some(JcExpr::Var(String::from("x")))),
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(15));
 }
@@ -1136,6 +1161,7 @@ fn sinc_decrement() {
             JcStmt::Return(Some(JcExpr::Var(String::from("x")))),
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(7));
 }
@@ -1161,6 +1187,7 @@ fn iinc_increment() {
             JcStmt::Return(Some(JcExpr::Var(String::from("x")))),
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(15));
 }
@@ -1186,6 +1213,7 @@ fn int_local_roundtrip() {
             JcStmt::Return(Some(JcExpr::Var(String::from("x")))),
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(100_000));
 }
@@ -1218,6 +1246,7 @@ fn switch_case_match() {
             },
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(20));
 }
@@ -1238,13 +1267,12 @@ fn switch_default_case() {
             },
             JcStmt::Switch {
                 key: JcExpr::Var(String::from("x")),
-                cases: vec![
-                    (1, vec![JcStmt::Return(Some(JcExpr::Lit(10)))]),
-                ],
+                cases: vec![(1, vec![JcStmt::Return(Some(JcExpr::Lit(10)))])],
                 default: vec![JcStmt::Return(Some(JcExpr::Lit(0)))],
             },
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(0));
 }
@@ -1280,6 +1308,7 @@ fn field_access_short() {
                 JcStmt::Return(Some(JcExpr::SelfField(String::from("val")))),
             ],
             is_static: false,
+            constant_time: false,
         }],
     };
     // Verify compilation succeeds (the JCVM execution test for instance
@@ -1305,6 +1334,7 @@ fn compile_error_invalid_cast() {
             expr: Box::new(JcExpr::Lit(0)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     let result = compile_class(&class);
     assert!(result.is_err());
@@ -1328,6 +1358,7 @@ fn int_bitwise_and() {
             right: Box::new(JcExpr::IntLit(0x0000_0F0F)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(0x0F0F));
 }
@@ -1345,6 +1376,7 @@ fn int_bitwise_or() {
             right: Box::new(JcExpr::IntLit(0x000F)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(0x00FF));
 }
@@ -1364,6 +1396,7 @@ fn int_shift_left() {
             right: Box::new(JcExpr::Lit(20)),
         }))],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnInt(1_048_576));
 }
@@ -1396,10 +1429,7 @@ fn while_loop_with_lt() {
                 init: JcExpr::Lit(0),
             },
             JcStmt::While {
-                cond: Condition::Lt(
-                    JcExpr::Var(String::from("i")),
-                    JcExpr::Lit(5),
-                ),
+                cond: Condition::Lt(JcExpr::Var(String::from("i")), JcExpr::Lit(5)),
                 body: vec![
                     JcStmt::Assign {
                         target: LValue::Var(String::from("sum")),
@@ -1422,6 +1452,7 @@ fn while_loop_with_lt() {
             JcStmt::Return(Some(JcExpr::Var(String::from("sum")))),
         ],
         is_static: true,
+        constant_time: false,
     });
     assert_eq!(compile_and_run(&class), ExecResult::ReturnShort(10));
 }

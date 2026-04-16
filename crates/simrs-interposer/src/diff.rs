@@ -171,10 +171,7 @@ impl DiffEngine {
     /// Print a human-readable summary to stderr.
     pub fn print_summary(&self) {
         let labels: Vec<&str> = self.backends.iter().map(|(l, _)| l.as_str()).collect();
-        eprintln!(
-            "[DiffEngine] backends: [{}]",
-            labels.join(", ")
-        );
+        eprintln!("[DiffEngine] backends: [{}]", labels.join(", "));
         eprintln!(
             "[DiffEngine] total={} match={} sw_mismatch={} data_mismatch={} ignored={}",
             self.stats.total_apdus,
@@ -184,7 +181,10 @@ impl DiffEngine {
             self.stats.shadow_ignored,
         );
         if !self.divergences.is_empty() {
-            eprintln!("[DiffEngine] {} divergences recorded", self.divergences.len());
+            eprintln!(
+                "[DiffEngine] {} divergences recorded",
+                self.divergences.len()
+            );
         }
     }
 
@@ -295,8 +295,7 @@ impl DiffEngine {
             // Record semantic stats.
             match &result {
                 SemanticResult::Match => self.semantic_stats.semantic_matches += 1,
-                SemanticResult::SwMismatch { .. }
-                | SemanticResult::FieldMismatches(_) => {
+                SemanticResult::SwMismatch { .. } | SemanticResult::FieldMismatches(_) => {
                     self.semantic_stats.semantic_mismatches += 1;
                 }
                 SemanticResult::SchemaNotApplicable => {
@@ -429,8 +428,14 @@ mod tests {
     #[test]
     fn data_mismatch_detected() {
         let mut engine = DiffEngine::new();
-        engine.add_backend("a", Box::new(FixedTransport::new(&[0x01, 0x02], 0x90, 0x00)));
-        engine.add_backend("b", Box::new(FixedTransport::new(&[0x03, 0x04], 0x90, 0x00)));
+        engine.add_backend(
+            "a",
+            Box::new(FixedTransport::new(&[0x01, 0x02], 0x90, 0x00)),
+        );
+        engine.add_backend(
+            "b",
+            Box::new(FixedTransport::new(&[0x03, 0x04], 0x90, 0x00)),
+        );
 
         let results = engine.replay_one(&[0x00, 0xB0, 0x00, 0x00]);
         assert_eq!(results.len(), 1);
@@ -500,7 +505,9 @@ mod tests {
         let cmds: &[&[u8]] = &[
             &[0x00, 0xA4, 0x04, 0x00, 0x00],
             &[0x80, 0xCA, 0x00, 0x66],
-            &[0x80, 0x50, 0x00, 0x00, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
+            &[
+                0x80, 0x50, 0x00, 0x00, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            ],
         ];
         engine.replay_sequence(cmds);
 
@@ -540,15 +547,27 @@ mod tests {
     #[test]
     fn snap_data_mismatch_divergence() {
         let mut engine = DiffEngine::new();
-        engine.add_backend("a", Box::new(FixedTransport::new(&[0x01, 0x02, 0x03], 0x90, 0x00)));
-        engine.add_backend("b", Box::new(FixedTransport::new(&[0xAA, 0xBB], 0x90, 0x00)));
+        engine.add_backend(
+            "a",
+            Box::new(FixedTransport::new(&[0x01, 0x02, 0x03], 0x90, 0x00)),
+        );
+        engine.add_backend(
+            "b",
+            Box::new(FixedTransport::new(&[0xAA, 0xBB], 0x90, 0x00)),
+        );
 
         let results = engine.replay_one(&[0x00, 0xB0, 0x00, 0x00]);
         let result_strs: Vec<String> = results.iter().map(|r| format!("{r:?}")).collect();
-        let div_strs: Vec<String> = engine.divergences.iter().map(|d| {
-            format!("seq={} cmd={:02x?} left={} right={} result={:?}",
-                d.seq, d.cmd, d.left_idx, d.right_idx, d.result)
-        }).collect();
+        let div_strs: Vec<String> = engine
+            .divergences
+            .iter()
+            .map(|d| {
+                format!(
+                    "seq={} cmd={:02x?} left={} right={} result={:?}",
+                    d.seq, d.cmd, d.left_idx, d.right_idx, d.result
+                )
+            })
+            .collect();
 
         let output = format!(
             "results:\n{}\ndivergences:\n{}",
@@ -561,8 +580,14 @@ mod tests {
     #[test]
     fn snap_replay_results_debug() {
         let mut engine = DiffEngine::new();
-        engine.add_backend("simrs", Box::new(FixedTransport::new(&[0x66, 0x10], 0x90, 0x00)));
-        engine.add_backend("oracle", Box::new(FixedTransport::new(&[0x66, 0x12], 0x90, 0x00)));
+        engine.add_backend(
+            "simrs",
+            Box::new(FixedTransport::new(&[0x66, 0x10], 0x90, 0x00)),
+        );
+        engine.add_backend(
+            "oracle",
+            Box::new(FixedTransport::new(&[0x66, 0x12], 0x90, 0x00)),
+        );
 
         let r1 = engine.replay_one(&[0x80, 0xCA, 0x00, 0x66]);
         let r2 = engine.replay_one(&[0x00, 0xA4, 0x04, 0x00, 0x00]);

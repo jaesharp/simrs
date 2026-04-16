@@ -34,8 +34,8 @@
 //! cargo test -p simrs-differential-tests
 //! ```
 
-mod session;
 pub mod scp03;
+mod session;
 
 pub use session::{DiffSession, DiffSessionBuilder};
 
@@ -50,13 +50,18 @@ use simrs_gp_keys::KeySet;
 use simrs_jcsl::configurator::{GlobalPin, ScpKeyset};
 use simrs_jcsl::{JcslClient, JcslProcess};
 use simrs_transport::{Transport, TransportError};
-use std::sync::atomic::{AtomicU16, Ordering};
 
-/// Atomic port counter to avoid collisions between parallel tests.
-static NEXT_PORT: AtomicU16 = AtomicU16::new(19200);
-
+/// Allocate a free TCP port from the OS.
+///
+/// Binds to port 0, reads the assigned port, then drops the listener.
+/// There is a small TOCTOU window, but this is far more reliable than
+/// a hardcoded counter when multiple test binaries run in parallel.
 pub(crate) fn next_port() -> u16 {
-    NEXT_PORT.fetch_add(1, Ordering::Relaxed)
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("OS should be able to allocate an ephemeral port")
+        .local_addr()
+        .expect("bound listener should have a local address")
+        .port()
 }
 
 // Re-export jcsl discovery for convenience.
@@ -214,8 +219,7 @@ impl DualResponse {
 ///
 /// Default `GlobalPlatform` test keys (all 0x40..0x4F).
 pub const KEY_BYTES: [u8; 16] = [
-    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E,
-    0x4F,
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
 ];
 
 /// ISD AID used by simrs (7 bytes, GP 2.1.1 default).
@@ -347,8 +351,8 @@ pub fn try_create_dual_card(_label: &str) -> Option<DualCard> {
     )
     .expect("failed to start jcsl");
 
-    let client = JcslClient::connect(&format!("127.0.0.1:{port}"))
-        .expect("failed to connect to jcsl");
+    let client =
+        JcslClient::connect(&format!("127.0.0.1:{port}")).expect("failed to connect to jcsl");
 
     let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
     let mut card = GpCard::with_default_atr(&keys);
@@ -384,9 +388,10 @@ mod tests {
 
     #[test]
     fn snap_apdu_response_success_with_data() {
-        let rsp = ApduResponse::from_raw(&[0x66, 0x10, 0x73, 0x0E, 0x06, 0x07,
-            0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x01, 0x60, 0x03, 0x01, 0x02,
-            0x90, 0x00]);
+        let rsp = ApduResponse::from_raw(&[
+            0x66, 0x10, 0x73, 0x0E, 0x06, 0x07, 0x2A, 0x86, 0x48, 0x86, 0xFC, 0x6B, 0x01, 0x60,
+            0x03, 0x01, 0x02, 0x90, 0x00,
+        ]);
         insta::assert_snapshot!("apdu_rsp_success_with_data", format!("{rsp:?}"));
     }
 
@@ -420,8 +425,9 @@ mod tests {
         terminal.power_on();
 
         // SELECT ISD by AID
-        let cmd = [0x00, 0xA4, 0x04, 0x00, 0x07,
-                   0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+        let cmd = [
+            0x00, 0xA4, 0x04, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00,
+        ];
         let mut rsp = [0u8; 261];
         let n = terminal.exchange(&cmd, &mut rsp).unwrap();
         let parsed = ApduResponse::from_raw(&rsp[..n]);
@@ -435,8 +441,7 @@ mod tests {
         let mut terminal = GpCardTerminal::new(card);
         terminal.power_on();
 
-        let cmd = [0x00, 0xA4, 0x04, 0x00, 0x05,
-                   0xFF, 0xEE, 0xDD, 0xCC, 0xBB];
+        let cmd = [0x00, 0xA4, 0x04, 0x00, 0x05, 0xFF, 0xEE, 0xDD, 0xCC, 0xBB];
         let mut rsp = [0u8; 261];
         let n = terminal.exchange(&cmd, &mut rsp).unwrap();
         let parsed = ApduResponse::from_raw(&rsp[..n]);
@@ -479,14 +484,16 @@ mod tests {
         terminal.power_on();
 
         // SELECT ISD first
-        let sel = [0x00, 0xA4, 0x04, 0x00, 0x07,
-                   0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+        let sel = [
+            0x00, 0xA4, 0x04, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00,
+        ];
         let mut rsp = [0u8; 261];
         let _ = terminal.exchange(&sel, &mut rsp).unwrap();
 
         // INITIALIZE UPDATE
-        let cmd = [0x80, 0x50, 0x00, 0x00, 0x08,
-                   0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let cmd = [
+            0x80, 0x50, 0x00, 0x00, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        ];
         let n = terminal.exchange(&cmd, &mut rsp).unwrap();
         let parsed = ApduResponse::from_raw(&rsp[..n]);
 
@@ -494,7 +501,10 @@ mod tests {
         // only the structure: data length and SW.
         let stable = format!(
             "sw={:02X}{:02X} data_len={} success={}",
-            parsed.sw[0], parsed.sw[1], parsed.data.len(), parsed.is_success()
+            parsed.sw[0],
+            parsed.sw[1],
+            parsed.data.len(),
+            parsed.is_success()
         );
         insta::assert_snapshot!("gp_terminal_init_update_structure", stable);
     }
@@ -505,14 +515,26 @@ mod tests {
 
     #[test]
     fn snap_key_bytes() {
-        let hex: String = KEY_BYTES.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        let hex: String = KEY_BYTES
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         insta::assert_snapshot!("key_bytes", hex);
     }
 
     #[test]
     fn snap_isd_aids() {
-        let simrs_hex: String = SIMRS_ISD_AID.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
-        let oracle_hex: String = ORACLE_ISD_AID.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        let simrs_hex: String = SIMRS_ISD_AID
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let oracle_hex: String = ORACLE_ISD_AID
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         let output = format!("simrs_isd:  {simrs_hex}\noracle_isd: {oracle_hex}");
         insta::assert_snapshot!("isd_aids", output);
     }
@@ -529,7 +551,10 @@ mod tests {
         };
         let output = format!(
             "simrs: {:?}\noracle: {:?}\nsw_match: {}\nsw1_match: {}",
-            dr.simrs, dr.oracle, dr.sw_match(), dr.sw1_match()
+            dr.simrs,
+            dr.oracle,
+            dr.sw_match(),
+            dr.sw1_match()
         );
         insta::assert_snapshot!("dual_response_matching", output);
     }
@@ -542,7 +567,10 @@ mod tests {
         };
         let output = format!(
             "simrs: {:?}\noracle: {:?}\nsw_match: {}\nsw1_match: {}",
-            dr.simrs, dr.oracle, dr.sw_match(), dr.sw1_match()
+            dr.simrs,
+            dr.oracle,
+            dr.sw_match(),
+            dr.sw1_match()
         );
         insta::assert_snapshot!("dual_response_sw_mismatch", output);
     }
@@ -555,7 +583,10 @@ mod tests {
         };
         let output = format!(
             "simrs: {:?}\noracle: {:?}\nsw_match: {}\nsw1_match: {}",
-            dr.simrs, dr.oracle, dr.sw_match(), dr.sw1_match()
+            dr.simrs,
+            dr.oracle,
+            dr.sw_match(),
+            dr.sw1_match()
         );
         insta::assert_snapshot!("dual_response_sw1_match_sw2_differ", output);
     }

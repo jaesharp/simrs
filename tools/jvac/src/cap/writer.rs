@@ -575,8 +575,8 @@ mod tests {
         CompiledClass {
             aid: vec![0xA0, 0x01, 0x02, 0x03, 0x04],
             methods: vec![
-                vec![0x04, 0x78],       // sconst_1, sreturn
-                vec![0x10, 42, 0x78],   // bspush 42, sreturn
+                vec![0x04, 0x78],     // sconst_1, sreturn
+                vec![0x10, 42, 0x78], // bspush 42, sreturn
             ],
         }
     }
@@ -788,10 +788,7 @@ mod tests {
         let mut pos = 0;
         let mut component_count = 0;
         while pos < cap.len() {
-            assert!(
-                pos + 3 <= cap.len(),
-                "truncated component at offset {pos}"
-            );
+            assert!(pos + 3 <= cap.len(), "truncated component at offset {pos}");
             let tag = cap[pos];
             let size = u16::from_be_bytes([cap[pos + 1], cap[pos + 2]]) as usize;
             assert!(
@@ -895,10 +892,7 @@ mod tests {
         let applet_body = find_component_body(&cap, TAG_APPLET).unwrap();
         // Verify the custom applet AID is in the applet component.
         assert_eq!(applet_body[1], 5); // aid_length
-        assert_eq!(
-            &applet_body[2..7],
-            &[0xA0, 0x00, 0x00, 0x01, 0x01]
-        );
+        assert_eq!(&applet_body[2..7], &[0xA0, 0x00, 0x00, 0x01, 0x01]);
     }
 
     #[test]

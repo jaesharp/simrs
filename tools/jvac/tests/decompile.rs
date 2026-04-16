@@ -129,7 +129,10 @@ fn decompile_arithmetic_expression() {
 
     let source = jvac::decompile::decompile(&cap).unwrap();
     // Should reconstruct "3 + 2" or similar.
-    assert!(source.contains('+') || source.contains("add"), "expected + in:\n{source}");
+    assert!(
+        source.contains('+') || source.contains("add"),
+        "expected + in:\n{source}"
+    );
     assert!(source.contains("return"), "expected return in:\n{source}");
 }
 
@@ -201,7 +204,10 @@ fn decompile_void_return() {
 
     let source = jvac::decompile::decompile(&cap).unwrap();
     assert!(source.contains("return"), "expected return in:\n{source}");
-    assert!(source.contains("void"), "expected void return type in:\n{source}");
+    assert!(
+        source.contains("void"),
+        "expected void return type in:\n{source}"
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -225,7 +231,10 @@ fn roundtrip_compile_decompile() {
     let cap = jvac::cap::write_cap(&compiled);
 
     let decompiled = jvac::decompile::decompile(&cap).unwrap();
-    assert!(decompiled.contains("return"), "expected return in:\n{decompiled}");
+    assert!(
+        decompiled.contains("return"),
+        "expected return in:\n{decompiled}"
+    );
     assert!(!decompiled.is_empty());
 }
 
@@ -274,12 +283,14 @@ fn execute_cap(cap: &[u8]) -> simrs_jcvm::opcodes::ExecResult {
 /// Verifies the decompiled source produces identical bytecodes.
 #[test]
 fn roundtrip_bytecodes_constant() {
-    let (original, cap) = compile_source(r#"
+    let (original, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() { return 42; }
         }
-    "#);
-    let original_bc = &original.methods[0];
+    "#,
+    );
+    let _original_bc = &original.methods[0];
 
     // Decompile the CAP, then compile the decompiled source
     let decompiled = jvac::decompile::decompile(&cap).unwrap();
@@ -290,8 +301,14 @@ fn roundtrip_bytecodes_constant() {
     assert_eq!(result_a, simrs_jcvm::opcodes::ExecResult::ReturnShort(42));
 
     // Verify the decompiled output is syntactically valid (contains key elements)
-    assert!(decompiled.contains("42"), "decompiled should contain 42:\n{decompiled}");
-    assert!(decompiled.contains("return"), "decompiled should contain return:\n{decompiled}");
+    assert!(
+        decompiled.contains("42"),
+        "decompiled should contain 42:\n{decompiled}"
+    );
+    assert!(
+        decompiled.contains("return"),
+        "decompiled should contain return:\n{decompiled}"
+    );
 }
 
 /// Execution-level roundtrip: compile source -> execute -> get result A
@@ -300,7 +317,8 @@ fn roundtrip_bytecodes_constant() {
 #[test]
 fn roundtrip_execution_arithmetic() {
     // Compile from Java source
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short x = 7;
@@ -308,7 +326,8 @@ fn roundtrip_execution_arithmetic() {
                 return (short)(x * y);
             }
         }
-    "#);
+    "#,
+    );
     let result_a = execute_cap(&cap);
     assert_eq!(result_a, simrs_jcvm::opcodes::ExecResult::ReturnShort(42));
 
@@ -328,13 +347,17 @@ fn roundtrip_execution_arithmetic() {
     assert_eq!(result_b, simrs_jcvm::opcodes::ExecResult::ReturnShort(42));
 
     // Both paths produce the same result
-    assert_eq!(result_a, result_b, "Java source and jcasm should produce same result");
+    assert_eq!(
+        result_a, result_b,
+        "Java source and jcasm should produce same result"
+    );
 }
 
 /// Execution roundtrip with if/else branching.
 #[test]
 fn roundtrip_execution_if_else() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short x = 5;
@@ -342,7 +365,8 @@ fn roundtrip_execution_if_else() {
                 if (x == y) { return 1; } else { return 0; }
             }
         }
-    "#);
+    "#,
+    );
     let result = execute_cap(&cap);
     assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(1));
 
@@ -351,18 +375,24 @@ fn roundtrip_execution_if_else() {
     // both are semantically equivalent. Verify the control flow is present.
     let decompiled = jvac::decompile::decompile(&cap).unwrap();
     assert!(
-        decompiled.contains("if") || decompiled.contains("while") || decompiled.contains("==") || decompiled.contains("!="),
+        decompiled.contains("if")
+            || decompiled.contains("while")
+            || decompiled.contains("==")
+            || decompiled.contains("!="),
         "decompiled should show control flow:\n{decompiled}"
     );
     // Verify both branches' return values are present
-    assert!(decompiled.contains("return 1") || decompiled.contains("return 0"),
-        "decompiled should contain branch return values:\n{decompiled}");
+    assert!(
+        decompiled.contains("return 1") || decompiled.contains("return 0"),
+        "decompiled should contain branch return values:\n{decompiled}"
+    );
 }
 
 /// Execution roundtrip with while loop.
 #[test]
 fn roundtrip_execution_while_loop() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short sum = 0;
@@ -374,15 +404,22 @@ fn roundtrip_execution_while_loop() {
                 return sum;
             }
         }
-    "#);
+    "#,
+    );
     let result = execute_cap(&cap);
-    assert_eq!(result, simrs_jcvm::opcodes::ExecResult::ReturnShort(15),
-        "sum of 1..5 should be 15");
+    assert_eq!(
+        result,
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(15),
+        "sum of 1..5 should be 15"
+    );
 
     // Verify decompiler can handle loops
     let decompiled = jvac::decompile::decompile(&cap).unwrap();
     eprintln!("decompiled loop:\n{decompiled}");
-    assert!(decompiled.contains("return"), "should have return statement");
+    assert!(
+        decompiled.contains("return"),
+        "should have return statement"
+    );
 }
 
 /// Full pipeline roundtrip: .java -> jvac compile -> .cap -> GP LOAD -> INSTALL ->
@@ -390,17 +427,22 @@ fn roundtrip_execution_while_loop() {
 /// Then decompile the .cap and verify it's readable.
 #[test]
 fn roundtrip_full_pipeline() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class Counter extends Applet {
             public static short process() {
                 return 99;
             }
         }
-    "#);
+    "#,
+    );
 
     // Execute directly
     let direct_result = execute_cap(&cap);
-    assert_eq!(direct_result, simrs_jcvm::opcodes::ExecResult::ReturnShort(99));
+    assert_eq!(
+        direct_result,
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(99)
+    );
 
     // Disassemble and decompile
     let asm = jvac::decompile::disassemble(&cap).unwrap();
@@ -424,110 +466,165 @@ fn roundtrip_full_pipeline() {
 /// Literal encoding: sconst_m1 (-1)
 #[test]
 fn roundtrip_literal_minus_one() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet { public static short process() { return -1; } }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(-1));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(-1)
+    );
 }
 
 /// Literal encoding: sconst_0 (0)
 #[test]
 fn roundtrip_literal_zero() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet { public static short process() { return 0; } }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(0));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(0)
+    );
 }
 
 /// Literal encoding: sconst_5 (5, last sconst)
 #[test]
 fn roundtrip_literal_five() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet { public static short process() { return 5; } }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(5));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(5)
+    );
 }
 
 /// Literal encoding: bspush boundary (127, max positive i8)
 #[test]
 fn roundtrip_literal_127() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet { public static short process() { return 127; } }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(127));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(127)
+    );
 }
 
 /// Literal encoding: sspush (128, first value that needs 2-byte immediate)
 #[test]
 fn roundtrip_literal_128() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet { public static short process() { return 128; } }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(128));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(128)
+    );
 }
 
 /// Literal encoding: sspush max positive (32767)
 #[test]
 fn roundtrip_literal_max_short() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet { public static short process() { return 32767; } }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(32767));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(32767)
+    );
 }
 
 /// Arithmetic: subtraction
 #[test]
 fn roundtrip_subtraction() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() { return (short)(100 - 37); }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(63));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(63)
+    );
 }
 
 /// Arithmetic: division
 #[test]
 fn roundtrip_division() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() { return (short)(100 / 7); }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(14));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(14)
+    );
 }
 
 /// Arithmetic: remainder
 #[test]
 fn roundtrip_remainder() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() { return (short)(100 % 7); }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(2));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(2)
+    );
 }
 
 /// Arithmetic: double negation is identity
 #[test]
 fn roundtrip_double_negation() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() { short x = 42; return (short)(-(-x)); }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(42));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(42)
+    );
 }
 
 /// Arithmetic: negation of zero
 #[test]
 fn roundtrip_negation_zero() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() { return (short)(-0); }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(0));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(0)
+    );
 }
 
 /// Overflow: 32767 + 1 wraps to -32768 (Java Card short semantics)
@@ -544,7 +641,10 @@ fn roundtrip_overflow_wraps() {
         }
     };
     let cap = build_cap(aid, methods);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(-32768));
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(-32768)
+    );
 }
 
 /// Overflow: -32768 - 1 wraps to 32767
@@ -561,13 +661,17 @@ fn roundtrip_underflow_wraps() {
         }
     };
     let cap = build_cap(aid, methods);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(32767));
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(32767)
+    );
 }
 
 /// Many locals: forces sload/sstore with explicit index byte (>3)
 #[test]
 fn roundtrip_many_locals() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short a = 1;
@@ -578,14 +682,19 @@ fn roundtrip_many_locals() {
                 return (short)(a + b + c + d + e);
             }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(15));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(15)
+    );
 }
 
 /// While loop: zero iterations (condition false from start)
 #[test]
 fn roundtrip_while_zero_iterations() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short x = 10;
@@ -595,14 +704,19 @@ fn roundtrip_while_zero_iterations() {
                 return x;
             }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(10));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(10)
+    );
 }
 
 /// While loop: single iteration
 #[test]
 fn roundtrip_while_single_iteration() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short x = 0;
@@ -612,14 +726,19 @@ fn roundtrip_while_single_iteration() {
                 return x;
             }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(1));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(1)
+    );
 }
 
 /// Nested expression: operator precedence (a + b * c)
 #[test]
 fn roundtrip_precedence() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short a = 2;
@@ -628,19 +747,28 @@ fn roundtrip_precedence() {
                 return (short)(a + b * c);
             }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(14)); // 2 + (3*4) = 14
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(14)
+    ); // 2 + (3*4) = 14
 }
 
 /// Void return
 #[test]
 fn roundtrip_void_return() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static void process() { return; }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnVoid);
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnVoid
+    );
 }
 
 /// Division by zero raises ArithmeticException
@@ -657,7 +785,10 @@ fn roundtrip_div_by_zero() {
         }
     };
     let cap = build_cap(aid, methods);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ArithmeticException);
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ArithmeticException
+    );
 }
 
 /// Remainder by zero raises ArithmeticException
@@ -674,7 +805,10 @@ fn roundtrip_rem_by_zero() {
         }
     };
     let cap = build_cap(aid, methods);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ArithmeticException);
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ArithmeticException
+    );
 }
 
 /// Cross-method invokestatic: call helper that returns value
@@ -693,13 +827,17 @@ fn roundtrip_invokestatic() {
         }
     };
     let cap = build_cap(aid, methods);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(77));
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(77)
+    );
 }
 
 /// Chained arithmetic: ((((1 + 2) * 3) - 4) / 5)
 #[test]
 fn roundtrip_chained_arithmetic() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short x = (short)(1 + 2);
@@ -709,15 +847,20 @@ fn roundtrip_chained_arithmetic() {
                 return x;
             }
         }
-    "#);
+    "#,
+    );
     // (1+2)=3, *3=9, -4=5, /5=1
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(1));
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(1)
+    );
 }
 
 /// Variable reassignment: mutate same variable multiple times
 #[test]
 fn roundtrip_reassignment() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short x = 1;
@@ -727,15 +870,20 @@ fn roundtrip_reassignment() {
                 return x;
             }
         }
-    "#);
+    "#,
+    );
     // 1 -> 2 -> 4 -> 8
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(8));
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(8)
+    );
 }
 
 /// If/else false branch
 #[test]
 fn roundtrip_if_else_false() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short x = 3;
@@ -743,14 +891,19 @@ fn roundtrip_if_else_false() {
                 if (x == y) { return 1; } else { return 0; }
             }
         }
-    "#);
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(0));
+    "#,
+    );
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(0)
+    );
 }
 
 /// Fibonacci-like: iterative computation
 #[test]
 fn roundtrip_fibonacci() {
-    let (_, cap) = compile_source(r#"
+    let (_, cap) = compile_source(
+        r#"
         public class T extends Applet {
             public static short process() {
                 short a = 0;
@@ -765,9 +918,13 @@ fn roundtrip_fibonacci() {
                 return a;
             }
         }
-    "#);
+    "#,
+    );
     // fib(10) = 55
-    assert_eq!(execute_cap(&cap), simrs_jcvm::opcodes::ExecResult::ReturnShort(55));
+    assert_eq!(
+        execute_cap(&cap),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(55)
+    );
 }
 
 // =========================================================================

@@ -70,14 +70,20 @@ impl JcslProcess {
         let binary = config.binary_path.canonicalize().map_err(|e| {
             io::Error::new(
                 e.kind(),
-                format!("cannot resolve jcsl binary path {}: {e}", config.binary_path.display()),
+                format!(
+                    "cannot resolve jcsl binary path {}: {e}",
+                    config.binary_path.display()
+                ),
             )
         })?;
 
         let lib_dir = binary
             .parent()
             .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "binary path has no parent directory")
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "binary path has no parent directory",
+                )
             })?
             .to_path_buf();
 
@@ -156,10 +162,7 @@ impl JcslProcess {
         cmd.stderr(Stdio::piped());
 
         let child = cmd.spawn().map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!("failed to spawn jcsl from memfd: {e}"),
-            )
+            io::Error::new(e.kind(), format!("failed to spawn jcsl from memfd: {e}"))
         })?;
 
         let mut proc = Self {
@@ -197,14 +200,12 @@ impl JcslProcess {
         log_level: &str,
         startup_timeout: Duration,
     ) -> io::Result<Self> {
-        let lib_dir = src
-            .parent()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "source binary path has no parent directory",
-                )
-            })?;
+        let lib_dir = src.parent().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "source binary path has no parent directory",
+            )
+        })?;
 
         let mfd = crate::configurator::configure_to_memfd(src, keyset, pin)
             .map_err(|e| io::Error::other(e.to_string()))?;

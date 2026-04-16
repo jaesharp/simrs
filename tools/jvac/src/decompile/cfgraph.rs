@@ -138,9 +138,8 @@ pub fn build_cfg(bytecodes: &[u8]) -> Result<Vec<BasicBlock>, String> {
             block_instrs.push(instr.clone());
         }
 
-        let (kind, successors) = classify_block_exit(
-            &block_instrs, block_idx, &block_starts, &start_to_block,
-        );
+        let (kind, successors) =
+            classify_block_exit(&block_instrs, block_idx, &block_starts, &start_to_block);
 
         blocks.push(BasicBlock {
             index: block_idx,
@@ -324,9 +323,7 @@ pub enum Structure {
 /// Returns `(statements, remaining_stack)`.
 #[must_use]
 #[allow(clippy::too_many_lines)]
-pub fn recover_expressions(
-    instructions: &[Instruction],
-) -> (Vec<Statement>, Vec<Expression>) {
+pub fn recover_expressions(instructions: &[Instruction]) -> (Vec<Statement>, Vec<Expression>) {
     let mut stack: Vec<Expression> = Vec::new();
     let mut stmts: Vec<Statement> = Vec::new();
 
@@ -358,8 +355,7 @@ pub fn recover_expressions(
             opcodes::SLOAD => stack.push(Expression::Local(instr.args[0])),
 
             // Store locals.
-            opcodes::SSTORE_0 | opcodes::SSTORE_1 | opcodes::SSTORE_2
-            | opcodes::SSTORE_3 => {
+            opcodes::SSTORE_0 | opcodes::SSTORE_1 | opcodes::SSTORE_2 | opcodes::SSTORE_3 => {
                 let idx = instr.opcode - opcodes::SSTORE_0;
                 let expr = stack.pop().unwrap_or(Expression::Literal(0));
                 stmts.push(Statement::Assign(idx, expr));
@@ -406,7 +402,11 @@ pub fn recover_expressions(
                 let value = stack.pop().unwrap_or(Expression::Literal(0));
                 let index = stack.pop().unwrap_or(Expression::Literal(0));
                 let array = stack.pop().unwrap_or(Expression::Literal(0));
-                stmts.push(Statement::ArrayStore { array, index, value });
+                stmts.push(Statement::ArrayStore {
+                    array,
+                    index,
+                    value,
+                });
             }
             opcodes::ARRAYLENGTH => {
                 let arr = stack.pop().unwrap_or(Expression::Literal(0));
@@ -495,11 +495,7 @@ pub fn recover_structure(blocks: &[BasicBlock]) -> Structure {
 }
 
 /// Recursively recover structured control flow starting from a given block.
-fn recover_block_range(
-    blocks: &[BasicBlock],
-    start: usize,
-    visited: &mut [bool],
-) -> Structure {
+fn recover_block_range(blocks: &[BasicBlock], start: usize, visited: &mut [bool]) -> Structure {
     let mut structures: Vec<Structure> = Vec::new();
     let mut current = start;
 
@@ -524,7 +520,9 @@ fn recover_block_range(
             }
 
             BlockKind::UnconditionalJump => {
-                let non_branch: Vec<_> = block.instructions.iter()
+                let non_branch: Vec<_> = block
+                    .instructions
+                    .iter()
                     .filter(|i| !is_jump(i.opcode))
                     .cloned()
                     .collect();
@@ -550,8 +548,7 @@ fn recover_block_range(
                     continue;
                 }
 
-                if let Some((if_struct, merge_block)) =
-                    try_detect_if_else(blocks, current, visited)
+                if let Some((if_struct, merge_block)) = try_detect_if_else(blocks, current, visited)
                 {
                     structures.push(if_struct);
                     current = merge_block;
@@ -559,7 +556,9 @@ fn recover_block_range(
                 }
 
                 // Fallback: emit as sequence.
-                let non_branch: Vec<_> = block.instructions.iter()
+                let non_branch: Vec<_> = block
+                    .instructions
+                    .iter()
                     .filter(|i| !is_conditional_branch(i.opcode))
                     .cloned()
                     .collect();
@@ -575,7 +574,9 @@ fn recover_block_range(
 
 /// Recover a return block's statements and return expression.
 fn recover_return_block(block: &BasicBlock, structures: &mut Vec<Structure>) {
-    let non_branch: Vec<_> = block.instructions.iter()
+    let non_branch: Vec<_> = block
+        .instructions
+        .iter()
         .filter(|i| !is_return(i.opcode))
         .cloned()
         .collect();
@@ -623,7 +624,9 @@ fn try_detect_while(
     }
 
     let last_instr = cond_block.instructions.last()?;
-    let non_branch: Vec<_> = cond_block.instructions.iter()
+    let non_branch: Vec<_> = cond_block
+        .instructions
+        .iter()
         .filter(|i| !is_conditional_branch(i.opcode))
         .cloned()
         .collect();
@@ -671,7 +674,9 @@ fn try_detect_if_else(
     let else_start = *cond_block.successors.get(1)?;
 
     let last_instr = cond_block.instructions.last()?;
-    let non_branch: Vec<_> = cond_block.instructions.iter()
+    let non_branch: Vec<_> = cond_block
+        .instructions
+        .iter()
         .filter(|i| !is_conditional_branch(i.opcode))
         .cloned()
         .collect();
@@ -684,15 +689,18 @@ fn try_detect_if_else(
         .filter(|&i| i < blocks.len())
         .collect();
 
-    let merge_point = then_blocks.last().and_then(|&last_then| {
-        if blocks[last_then].kind == BlockKind::UnconditionalJump {
-            blocks[last_then].successors.first().copied()
-        } else if blocks[last_then].kind == BlockKind::Return {
-            Some(else_start + 1)
-        } else {
-            None
-        }
-    }).unwrap_or(else_start);
+    let merge_point = then_blocks
+        .last()
+        .and_then(|&last_then| {
+            if blocks[last_then].kind == BlockKind::UnconditionalJump {
+                blocks[last_then].successors.first().copied()
+            } else if blocks[last_then].kind == BlockKind::Return {
+                Some(else_start + 1)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(else_start);
 
     let else_blocks: Vec<usize> = (else_start..merge_point)
         .filter(|&i| i < blocks.len())
@@ -731,7 +739,9 @@ fn recover_body_blocks(blocks: &[BasicBlock], indices: &[usize]) -> Structure {
         if block.kind == BlockKind::Return {
             recover_return_block(block, &mut structures);
         } else {
-            let non_branch: Vec<_> = block.instructions.iter()
+            let non_branch: Vec<_> = block
+                .instructions
+                .iter()
                 .filter(|i| !is_jump(i.opcode) && !is_conditional_branch(i.opcode))
                 .cloned()
                 .collect();
@@ -818,9 +828,24 @@ mod tests {
     #[test]
     fn recover_expressions_arithmetic() {
         let instrs = vec![
-            Instruction { pc: 0, opcode: opcodes::SCONST_3, args: vec![], mnemonic: "sconst_3" },
-            Instruction { pc: 1, opcode: opcodes::SCONST_2, args: vec![], mnemonic: "sconst_2" },
-            Instruction { pc: 2, opcode: opcodes::SADD, args: vec![], mnemonic: "sadd" },
+            Instruction {
+                pc: 0,
+                opcode: opcodes::SCONST_3,
+                args: vec![],
+                mnemonic: "sconst_3",
+            },
+            Instruction {
+                pc: 1,
+                opcode: opcodes::SCONST_2,
+                args: vec![],
+                mnemonic: "sconst_2",
+            },
+            Instruction {
+                pc: 2,
+                opcode: opcodes::SADD,
+                args: vec![],
+                mnemonic: "sadd",
+            },
         ];
         let (_stmts, stack) = recover_expressions(&instrs);
         assert_eq!(stack.len(), 1);
@@ -833,8 +858,18 @@ mod tests {
     #[test]
     fn recover_expressions_store() {
         let instrs = vec![
-            Instruction { pc: 0, opcode: opcodes::BSPUSH, args: vec![42], mnemonic: "bspush" },
-            Instruction { pc: 2, opcode: opcodes::SSTORE_0, args: vec![], mnemonic: "sstore_0" },
+            Instruction {
+                pc: 0,
+                opcode: opcodes::BSPUSH,
+                args: vec![42],
+                mnemonic: "bspush",
+            },
+            Instruction {
+                pc: 2,
+                opcode: opcodes::SSTORE_0,
+                args: vec![],
+                mnemonic: "sstore_0",
+            },
         ];
         let (stmts, stack) = recover_expressions(&instrs);
         assert!(stack.is_empty());

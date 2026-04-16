@@ -355,8 +355,14 @@ mod tests {
             assert_eq!(AppletLifecycle::from_byte(b), Some(state));
         }
         // Locked variants preserve previous state bits.
-        assert_eq!(AppletLifecycle::from_byte(0x83), Some(AppletLifecycle::from_byte(0x83).unwrap()));
-        assert_eq!(AppletLifecycle::from_byte(0x87), Some(AppletLifecycle::from_byte(0x87).unwrap()));
+        assert_eq!(
+            AppletLifecycle::from_byte(0x83),
+            Some(AppletLifecycle::from_byte(0x83).unwrap())
+        );
+        assert_eq!(
+            AppletLifecycle::from_byte(0x87),
+            Some(AppletLifecycle::from_byte(0x87).unwrap())
+        );
     }
 
     #[test]

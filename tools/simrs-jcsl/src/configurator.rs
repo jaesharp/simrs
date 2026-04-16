@@ -94,12 +94,19 @@ impl std::fmt::Display for ConfigError {
         match self {
             Self::ScpMagicNotFound => f.write_str("SCP keyset magic not found in binary"),
             Self::PinMagicNotFound => f.write_str("Global PIN magic not found in binary"),
-            Self::InvalidKeyLength(n) => write!(f, "key length {n} invalid (must be 16, 24, or 32)"),
-            Self::KeyLengthMismatch => f.write_str("ENC, MAC, DEK keys must all be the same length"),
+            Self::InvalidKeyLength(n) => {
+                write!(f, "key length {n} invalid (must be 16, 24, or 32)")
+            }
+            Self::KeyLengthMismatch => {
+                f.write_str("ENC, MAC, DEK keys must all be the same length")
+            }
             Self::InvalidKvn(v) => write!(f, "KVN 0x{v:02x} out of range (must be 0x01..0x6F)"),
             Self::InvalidPinLength(n) => write!(f, "PIN length {n} invalid (must be 3..=16)"),
             Self::NonZeroData { offset } => {
-                write!(f, "non-zero data at offset 0x{offset:x} (use force to overwrite)")
+                write!(
+                    f,
+                    "non-zero data at offset 0x{offset:x} (use force to overwrite)"
+                )
             }
             Self::Io(e) => write!(f, "I/O error: {e}"),
         }
@@ -116,9 +123,7 @@ impl From<io::Error> for ConfigError {
 
 /// Find the first occurrence of `needle` in `haystack`.
 fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 /// Write `data` into `binary` at `offset`, checking for non-zero bytes
@@ -171,8 +176,8 @@ pub fn inject_scp_keyset(
     }
 
     // Locate magic
-    let magic_offset = find_pattern(binary, &SCP_KEYSET_MAGIC)
-        .ok_or(ConfigError::ScpMagicNotFound)?;
+    let magic_offset =
+        find_pattern(binary, &SCP_KEYSET_MAGIC).ok_or(ConfigError::ScpMagicNotFound)?;
 
     let mut pos = magic_offset + SCP_KEYSET_MAGIC.len();
 
@@ -221,8 +226,8 @@ pub fn inject_global_pin(
         return Err(ConfigError::InvalidPinLength(pin_len));
     }
 
-    let magic_offset = find_pattern(binary, &GLOBAL_PIN_MAGIC)
-        .ok_or(ConfigError::PinMagicNotFound)?;
+    let magic_offset =
+        find_pattern(binary, &GLOBAL_PIN_MAGIC).ok_or(ConfigError::PinMagicNotFound)?;
 
     let mut pos = magic_offset + GLOBAL_PIN_MAGIC.len();
 
@@ -651,8 +656,10 @@ mod tests {
     fn snap_pin_injection_16digit() {
         let mut bin = fake_binary();
         let pin = GlobalPin {
-            pin: vec![0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
-                      0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35],
+            pin: vec![
+                0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x31, 0x32, 0x33,
+                0x34, 0x35,
+            ],
             max_retries: 10,
         };
         inject_global_pin(&mut bin, &pin, false).unwrap();
@@ -689,13 +696,26 @@ mod tests {
 
         // SCP only
         let mut scp_bin = fake_binary();
-        let ks = ScpKeyset { kvn: 1, enc: vec![0x40; 16], mac: vec![0x41; 16], dek: vec![0x42; 16] };
+        let ks = ScpKeyset {
+            kvn: 1,
+            enc: vec![0x40; 16],
+            mac: vec![0x41; 16],
+            dek: vec![0x42; 16],
+        };
         inject_scp_keyset(&mut scp_bin, &ks, false).unwrap();
         let (scp, pin) = is_configured(&scp_bin);
         let scp_only = format!("scp={scp}, pin={pin}");
 
         // Both
-        inject_global_pin(&mut scp_bin, &GlobalPin { pin: vec![0x31; 4], max_retries: 3 }, false).unwrap();
+        inject_global_pin(
+            &mut scp_bin,
+            &GlobalPin {
+                pin: vec![0x31; 4],
+                max_retries: 3,
+            },
+            false,
+        )
+        .unwrap();
         let (scp, pin) = is_configured(&scp_bin);
         let both = format!("scp={scp}, pin={pin}");
 

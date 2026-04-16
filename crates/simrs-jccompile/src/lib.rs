@@ -29,6 +29,7 @@ extern crate std;
 
 pub mod check;
 pub mod codegen;
+pub mod config;
 pub mod error;
 pub mod ir;
 pub mod optimize;
@@ -37,8 +38,13 @@ pub mod types;
 
 // Re-export primary types for convenience.
 pub use check::{check_class, CheckedClass, CheckedMethod};
-pub use codegen::{compile_class, CompiledClass};
+pub use codegen::{
+    compile_class, compile_class_with_config, compute_basic_blocks, BranchInfo, BytecodeMetadata,
+    CompiledClass,
+};
+pub use config::{IrConfig, OptConfig, OptReport, PeepholeConfig};
 pub use error::CompileError;
 pub use ir::{BinOp, Condition, JcClass, JcExpr, JcField, JcMethod, JcStmt, LValue};
+pub use optimize::{peephole_optimize, peephole_optimize_with_config};
 pub use sourcemap::SourceMap;
 pub use types::JcType;

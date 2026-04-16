@@ -115,8 +115,7 @@ fn run_decompile(path: &str) {
 
 /// Compile a Java/JVA source file to CAP.
 fn compile_source(path: &str) -> Result<Vec<u8>, String> {
-    let source = fs::read_to_string(path)
-        .map_err(|e| format!("failed to read {path}: {e}"))?;
+    let source = fs::read_to_string(path).map_err(|e| format!("failed to read {path}: {e}"))?;
     let class = jvac::java_parser::parse_source(&source)?;
     let compiled = simrs_jccompile::compile_class(&class).map_err(|errors| {
         errors
@@ -130,8 +129,7 @@ fn compile_source(path: &str) -> Result<Vec<u8>, String> {
 
 /// Compile a Java classfile to CAP.
 fn compile_classfile(path: &str) -> Result<Vec<u8>, String> {
-    let data = fs::read(path)
-        .map_err(|e| format!("failed to read {path}: {e}"))?;
+    let data = fs::read(path).map_err(|e| format!("failed to read {path}: {e}"))?;
     let default_aid = [0xA0, 0x00, 0x00, 0x00, 0x62];
     let class = jvac::classfile::read_and_convert(&data, &default_aid)?;
     let compiled = simrs_jccompile::compile_class(&class).map_err(|errors| {
@@ -164,17 +162,13 @@ fn has_flag(args: &[String], flag: &str) -> bool {
 /// Derive a default output path by replacing the input extension with `.cap`.
 fn default_output(input: &str) -> String {
     let path = PathBuf::from(input);
-    path.with_extension("cap")
-        .to_string_lossy()
-        .into_owned()
+    path.with_extension("cap").to_string_lossy().into_owned()
 }
 
 /// Derive the `.jvamap` path from the `.cap` output path.
 fn source_map_path(output: &str) -> String {
     let path = PathBuf::from(output);
-    path.with_extension("jvamap")
-        .to_string_lossy()
-        .into_owned()
+    path.with_extension("jvamap").to_string_lossy().into_owned()
 }
 
 /// Build a source map from the compiled CAP file.

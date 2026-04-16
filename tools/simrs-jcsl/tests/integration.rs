@@ -15,7 +15,7 @@
 //! temporary files are created.
 
 use simrs_jcsl::configurator::{GlobalPin, ScpKeyset};
-use simrs_jcsl::{JcslClient, JcslProcess, configure_binary};
+use simrs_jcsl::{configure_binary, JcslClient, JcslProcess};
 use simrs_transport::Transport;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -41,16 +41,16 @@ fn test_keyset() -> ScpKeyset {
     ScpKeyset {
         kvn: 0x01,
         enc: vec![
-            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
-            0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D,
+            0x4E, 0x4F,
         ],
         mac: vec![
-            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
-            0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D,
+            0x4E, 0x4F,
         ],
         dek: vec![
-            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
-            0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D,
+            0x4E, 0x4F,
         ],
     }
 }
@@ -141,8 +141,7 @@ fn start_and_connect() {
     let (mut proc, port) = start_jcsl(&src);
     assert!(proc.is_running());
 
-    let mut client = JcslClient::connect(&format!("127.0.0.1:{port}"))
-        .expect("failed to connect");
+    let mut client = JcslClient::connect(&format!("127.0.0.1:{port}")).expect("failed to connect");
 
     // Power ON
     let atr = client.power_on().expect("power on failed");
@@ -170,19 +169,18 @@ fn select_isd_aid() {
     };
 
     let (mut proc, port) = start_jcsl(&src);
-    let mut client = JcslClient::connect(&format!("127.0.0.1:{port}"))
-        .expect("failed to connect");
+    let mut client = JcslClient::connect(&format!("127.0.0.1:{port}")).expect("failed to connect");
 
     client.power_on().expect("power on failed");
 
     // SELECT the ISD AID (A0 00 00 01 51 00 00 00)
     let select_isd = [
-        0x00, 0xA4, 0x04, 0x00, 0x08,
-        0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00, 0x00,
-        0x00,
+        0x00, 0xA4, 0x04, 0x00, 0x08, 0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00, 0x00, 0x00,
     ];
     let mut rsp = [0u8; 258];
-    let n = client.exchange(&select_isd, &mut rsp).expect("APDU exchange failed");
+    let n = client
+        .exchange(&select_isd, &mut rsp)
+        .expect("APDU exchange failed");
 
     eprintln!("SELECT ISD response ({n} bytes): {:02x?}", &rsp[..n]);
 
@@ -209,8 +207,7 @@ fn get_data_cplc() {
     };
 
     let (mut proc, port) = start_jcsl(&src);
-    let mut client = JcslClient::connect(&format!("127.0.0.1:{port}"))
-        .expect("failed to connect");
+    let mut client = JcslClient::connect(&format!("127.0.0.1:{port}")).expect("failed to connect");
 
     client.power_on().expect("power on failed");
 
@@ -218,7 +215,9 @@ fn get_data_cplc() {
     // CLA=80 INS=CA P1=9F P2=7F Le=00
     let get_cplc = [0x80, 0xCA, 0x9F, 0x7F, 0x00];
     let mut rsp = [0u8; 258];
-    let n = client.exchange(&get_cplc, &mut rsp).expect("APDU exchange failed");
+    let n = client
+        .exchange(&get_cplc, &mut rsp)
+        .expect("APDU exchange failed");
 
     eprintln!("GET DATA CPLC ({n} bytes): {:02x?}", &rsp[..n]);
     assert!(n >= 2);

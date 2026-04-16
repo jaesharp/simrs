@@ -163,8 +163,7 @@ const GP_KNOWN_CLA: &[u8] = &[0x00, 0x80, 0x84];
 
 /// Default GP test key material.
 const GP_KEY_BYTES: [u8; 16] = [
-    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
-    0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
 ];
 
 /// ISD AID (7 bytes, GP 2.1.1 default).
@@ -454,8 +453,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100_000);
 
-    let target_gp =
-        std::env::var("SIMRS_FUZZ_TARGET").is_ok_and(|s| s.eq_ignore_ascii_case("gp"));
+    let target_gp = std::env::var("SIMRS_FUZZ_TARGET").is_ok_and(|s| s.eq_ignore_ascii_case("gp"));
     let use_tuak = std::env::var("SIMRS_FUZZ_AUTH").is_ok_and(|s| s.eq_ignore_ascii_case("tuak"));
 
     let pcap_path = std::env::var("SIMRS_FUZZ_PCAP").ok();
@@ -565,7 +563,11 @@ fn fuzz_sim(iters: usize, use_tuak: bool, pcap: &mut Option<PcapWriter>) {
 
         let state_hash = hle_state_hash();
         if state_hash != 0 && corpus.is_new(state_hash.wrapping_add(combined_hash)) {
-            record_interesting(pcap, &apdu_buf[..last_apdu_len], &last_rsp_full[..last_rsp_full_len]);
+            record_interesting(
+                pcap,
+                &apdu_buf[..last_apdu_len],
+                &last_rsp_full[..last_rsp_full_len],
+            );
         }
     }
 
@@ -641,7 +643,11 @@ fn fuzz_gp(iters: usize, pcap: &mut Option<PcapWriter>) {
 
         let state_hash = card.state_hash();
         if state_hash != 0 && corpus.is_new(state_hash.wrapping_add(combined_hash)) {
-            record_interesting(pcap, &apdu_buf[..last_apdu_len], &last_rsp_full[..last_rsp_full_len]);
+            record_interesting(
+                pcap,
+                &apdu_buf[..last_apdu_len],
+                &last_rsp_full[..last_rsp_full_len],
+            );
         }
     }
 
@@ -871,18 +877,19 @@ mod tests {
         // Known GP sequences that exercise different code paths.
         let sequences: &[&[u8]] = &[
             // SELECT ISD
-            &[0x00, 0xA4, 0x04, 0x00, 0x07,
-              0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00],
+            &[
+                0x00, 0xA4, 0x04, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00,
+            ],
             // GET DATA 0066 (Card Recognition Data)
             &[0x80, 0xCA, 0x00, 0x66],
             // INITIALIZE UPDATE with host challenge
-            &[0x80, 0x50, 0x00, 0x00, 0x08,
-              0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08],
+            &[
+                0x80, 0x50, 0x00, 0x00, 0x08, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            ],
             // Invalid INS
             &[0x80, 0xFD, 0x00, 0x00],
             // SELECT unknown AID
-            &[0x00, 0xA4, 0x04, 0x00, 0x05,
-              0xFF, 0xEE, 0xDD, 0xCC, 0xBB],
+            &[0x00, 0xA4, 0x04, 0x00, 0x05, 0xFF, 0xEE, 0xDD, 0xCC, 0xBB],
             // MANAGE CHANNEL open
             &[0x00, 0x70, 0x00, 0x00, 0x01],
         ];

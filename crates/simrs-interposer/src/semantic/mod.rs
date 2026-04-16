@@ -21,7 +21,7 @@
 use simrs_bertlv::Decoder;
 
 // Re-export schema definition types from the foundation crate.
-pub use simrs_apdu_schema::{FieldPolicy, FieldSpec, FieldSpan, ResponseSchema};
+pub use simrs_apdu_schema::{FieldPolicy, FieldSpan, FieldSpec, ResponseSchema};
 
 // ---------------------------------------------------------------------------
 // Schema registry
@@ -258,11 +258,7 @@ pub fn compare_with_schema(
 }
 
 /// Compare a single field between two response buffers.
-fn compare_field(
-    spec: &FieldSpec,
-    left: &[u8],
-    right: &[u8],
-) -> Option<FieldMismatch> {
+fn compare_field(spec: &FieldSpec, left: &[u8], right: &[u8]) -> Option<FieldMismatch> {
     let left_bytes = extract_field(&spec.span, left);
     let right_bytes = extract_field(&spec.span, right);
 
@@ -419,10 +415,7 @@ mod tests {
     #[test]
     fn find_tlv_path_single_level() {
         let data = [0x80, 0x02, 0x00, 0x10];
-        assert_eq!(
-            find_tlv_path(&data, &[0x80]),
-            Some([0x00, 0x10].as_slice())
-        );
+        assert_eq!(find_tlv_path(&data, &[0x80]), Some([0x00, 0x10].as_slice()));
     }
 
     #[test]
@@ -443,7 +436,10 @@ mod tests {
     fn extract_field_bytes_in_range() {
         let data = [0x00, 0x01, 0x02, 0x03, 0x04];
         let span = FieldSpan::Bytes { offset: 1, len: 3 };
-        assert_eq!(extract_field(&span, &data), Some([0x01, 0x02, 0x03].as_slice()));
+        assert_eq!(
+            extract_field(&span, &data),
+            Some([0x01, 0x02, 0x03].as_slice())
+        );
     }
 
     #[test]
@@ -544,7 +540,14 @@ mod tests {
     fn semantic_sw_mismatch_short_circuits() {
         let reg = test_registry();
         let cmd = [0x80, 0x50, 0x00, 0x00, 0x08];
-        let result = compare_semantic(&reg, &cmd, &[0u8; 28], [0x90, 0x00], &[0u8; 28], [0x6A, 0x82]);
+        let result = compare_semantic(
+            &reg,
+            &cmd,
+            &[0u8; 28],
+            [0x90, 0x00],
+            &[0u8; 28],
+            [0x6A, 0x82],
+        );
         assert_eq!(
             result,
             SemanticResult::SwMismatch {
@@ -610,8 +613,14 @@ mod tests {
         let reg = test_registry();
         let cmd = [0x80, 0x50, 0x00, 0x00, 0x08];
 
-        let result =
-            compare_semantic(&reg, &cmd, &[0u8; 27], [0x90, 0x00], &[0u8; 28], [0x90, 0x00]);
+        let result = compare_semantic(
+            &reg,
+            &cmd,
+            &[0u8; 27],
+            [0x90, 0x00],
+            &[0u8; 28],
+            [0x90, 0x00],
+        );
         assert!(matches!(result, SemanticResult::FieldMismatches(_)));
         if let SemanticResult::FieldMismatches(ref mm) = result {
             assert_eq!(mm[0].field, "response_length");
@@ -688,9 +697,18 @@ mod tests {
     #[test]
     fn registry_lookup_known_commands() {
         let reg = test_registry();
-        assert_eq!(reg.lookup(&[0x80, 0x50, 0x00, 0x00]).unwrap().name, "INIT_UPDATE");
-        assert_eq!(reg.lookup(&[0x80, 0xCA, 0x00, 0x66]).unwrap().name, "GET_DATA_0066");
-        assert_eq!(reg.lookup(&[0x00, 0xA4, 0x04, 0x00]).unwrap().name, "SELECT");
+        assert_eq!(
+            reg.lookup(&[0x80, 0x50, 0x00, 0x00]).unwrap().name,
+            "INIT_UPDATE"
+        );
+        assert_eq!(
+            reg.lookup(&[0x80, 0xCA, 0x00, 0x66]).unwrap().name,
+            "GET_DATA_0066"
+        );
+        assert_eq!(
+            reg.lookup(&[0x00, 0xA4, 0x04, 0x00]).unwrap().name,
+            "SELECT"
+        );
     }
 
     #[test]
@@ -711,7 +729,10 @@ mod tests {
 
     #[test]
     fn snap_semantic_result_match() {
-        insta::assert_snapshot!("semantic_result_match", format!("{:?}", SemanticResult::Match));
+        insta::assert_snapshot!(
+            "semantic_result_match",
+            format!("{:?}", SemanticResult::Match)
+        );
     }
 
     #[test]

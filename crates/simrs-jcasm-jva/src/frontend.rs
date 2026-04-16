@@ -9,10 +9,9 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{braced, parenthesized, Ident, LitInt, Result, Token};
 
-use simrs_jccompile::ir::{
-    BinOp, Condition, JcClass, JcExpr, JcField, JcMethod, JcStmt, LValue,
-};
+use simrs_jccompile::ir::{BinOp, Condition, JcClass, JcExpr, JcField, JcMethod, JcStmt, LValue};
 use simrs_jccompile::types::JcType;
+use simrs_jccompile::{OptConfig, PeepholeConfig};
 
 // ---------------------------------------------------------------------------
 // AST types (parsed from the DSL, before conversion to IR)
@@ -20,6 +19,8 @@ use simrs_jccompile::types::JcType;
 
 /// A parsed applet definition.
 struct AppletDef {
+    /// Optional `optimize` directive before `applet`.
+    opt: Option<OptDirective>,
     /// Applet name (used for error messages, not in output).
     _name: Ident,
     /// AID in hex-with-underscores format.
@@ -30,28 +31,55 @@ struct AppletDef {
     methods: Vec<MethodDef>,
 }
 
+/// An optimization directive: `optimize <level>;` or `optimize <level>(<knobs>);`
+struct OptDirective {
+    level: OptLevel,
+    knobs: Vec<OptKnob>,
+}
+
+/// Optimization level.
+enum OptLevel {
+    /// No optimization.
+    None,
+    /// Peephole bytecode optimization only (no IR passes).
+    Peephole,
+    /// Full optimization (IR + peephole).
+    Full,
+}
+
+/// Individual optimization knob.
+#[allow(dead_code)]
+enum OptKnob {
+    /// Enable a named peephole pattern.
+    Pattern(String),
+    /// Set `max_passes` for the peephole optimizer.
+    MaxPasses(usize),
+    /// Set `max_iterations` for the IR optimizer.
+    IrMaxIterations(usize),
+    /// Enable compile-time optimization reporting.
+    Report,
+}
+
 /// A parsed field declaration: `field name: type;`
 struct FieldDef {
     name: Ident,
     ty: JcType,
 }
 
-/// A parsed method declaration: `fn name(params) [-> type] { body }`
+/// A parsed method declaration: `[constant_time] fn name(params) [-> type] { body }`
 struct MethodDef {
     name: Ident,
     params: Vec<(Ident, JcType)>,
     return_ty: JcType,
     body: Vec<Stmt>,
+    /// Whether this method is marked `constant_time`.
+    constant_time: bool,
 }
 
 /// A parsed statement.
 enum Stmt {
     /// `let name: type = expr;`
-    Let {
-        name: Ident,
-        ty: JcType,
-        init: Expr,
-    },
+    Let { name: Ident, ty: JcType, init: Expr },
     /// `target = expr;`
     Assign { target: AssignTarget, value: Expr },
     /// `return [expr];`
@@ -101,10 +129,7 @@ enum Expr {
     /// Negation: `-expr`
     Neg(Box<Self>),
     /// Array access: `arr[idx]`
-    ArrayLoad {
-        array: Box<Self>,
-        index: Box<Self>,
-    },
+    ArrayLoad { array: Box<Self>, index: Box<Self> },
     /// Method call: `name(args)`
     Call { name: Ident, args: Vec<Self> },
     /// `new_byte_array(len)`
@@ -134,6 +159,21 @@ fn parse_jc_type(ident: &Ident) -> Result<JcType> {
 
 impl Parse for AppletDef {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
+        // Optional: `optimize <level>;` or `optimize <level>(<knobs>);`
+        let opt = if input.peek(Ident) && input.peek2(Ident) {
+            let fork = input.fork();
+            let kw: Ident = fork.parse()?;
+            if kw == "optimize" {
+                // Consume from real stream.
+                input.parse::<Ident>()?; // "optimize"
+                Some(parse_opt_directive(input)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // `applet Name(AID_HEX) { ... }`
         let kw: Ident = input.parse()?;
         if kw != "applet" {
@@ -158,29 +198,37 @@ impl Parse for AppletDef {
         while !body.is_empty() {
             // Peek to determine if this is a field or method.
             if body.peek(Token![fn]) {
-                methods.push(parse_method_def(&body)?);
+                methods.push(parse_method_def(&body, false)?);
             } else {
-                // Must be `field name: type;`
-                let kw: Ident = body.parse()?;
-                if kw != "field" {
+                // Check for `constant_time fn ...`
+                let fork = body.fork();
+                let kw: Ident = fork.parse()?;
+                if kw == "constant_time" {
+                    body.parse::<Ident>()?; // consume "constant_time"
+                    methods.push(parse_method_def(&body, true)?);
+                } else if kw == "field" {
+                    // Consume from real stream.
+                    body.parse::<Ident>()?; // "field"
+                    let field_name: Ident = body.parse()?;
+                    body.parse::<Token![:]>()?;
+                    let ty_ident: Ident = body.parse()?;
+                    let ty = parse_jc_type(&ty_ident)?;
+                    body.parse::<Token![;]>()?;
+                    fields.push(FieldDef {
+                        name: field_name,
+                        ty,
+                    });
+                } else {
                     return Err(syn::Error::new(
                         kw.span(),
-                        "expected `field` or `fn`",
+                        "expected `field`, `fn`, or `constant_time fn`",
                     ));
                 }
-                let field_name: Ident = body.parse()?;
-                body.parse::<Token![:]>()?;
-                let ty_ident: Ident = body.parse()?;
-                let ty = parse_jc_type(&ty_ident)?;
-                body.parse::<Token![;]>()?;
-                fields.push(FieldDef {
-                    name: field_name,
-                    ty,
-                });
             }
         }
 
         Ok(Self {
+            opt,
             _name: name,
             aid_hex,
             fields,
@@ -189,8 +237,8 @@ impl Parse for AppletDef {
     }
 }
 
-/// Parse a method definition: `fn name(params) [-> type] { body }`
-fn parse_method_def(input: ParseStream<'_>) -> Result<MethodDef> {
+/// Parse a method definition: `[constant_time] fn name(params) [-> type] { body }`
+fn parse_method_def(input: ParseStream<'_>, constant_time: bool) -> Result<MethodDef> {
     input.parse::<Token![fn]>()?;
     let name: Ident = input.parse()?;
 
@@ -231,6 +279,7 @@ fn parse_method_def(input: ParseStream<'_>) -> Result<MethodDef> {
         params,
         return_ty,
         body,
+        constant_time,
     })
 }
 
@@ -630,9 +679,9 @@ fn applet_to_ir(
             ty: fd.ty,
             offset: field_offset,
         });
-        field_offset = field_offset.checked_add(size).ok_or_else(|| {
-            syn::Error::new(fd.name.span(), "field offsets overflow u8")
-        })?;
+        field_offset = field_offset
+            .checked_add(size)
+            .ok_or_else(|| syn::Error::new(fd.name.span(), "field offsets overflow u8"))?;
     }
 
     let has_fields = !fields.is_empty();
@@ -660,6 +709,7 @@ fn applet_to_ir(
             locals,
             body,
             is_static,
+            constant_time: md.constant_time,
         });
     }
 
@@ -705,10 +755,7 @@ fn stmts_to_ir(
 }
 
 /// Convert a single parsed statement to IR.
-fn stmt_to_ir(
-    stmt: &Stmt,
-    method_names: &[String],
-) -> std::result::Result<JcStmt, syn::Error> {
+fn stmt_to_ir(stmt: &Stmt, method_names: &[String]) -> std::result::Result<JcStmt, syn::Error> {
     match stmt {
         Stmt::Let { name, ty, init } => Ok(JcStmt::Let {
             name: name.to_string(),
@@ -732,9 +779,7 @@ fn stmt_to_ir(
             })
         }
         Stmt::Return(None) => Ok(JcStmt::Return(None)),
-        Stmt::Return(Some(expr)) => {
-            Ok(JcStmt::Return(Some(expr_to_ir(expr, method_names)?)))
-        }
+        Stmt::Return(Some(expr)) => Ok(JcStmt::Return(Some(expr_to_ir(expr, method_names)?))),
         Stmt::If {
             cond,
             then_body,
@@ -753,10 +798,7 @@ fn stmt_to_ir(
 }
 
 /// Convert a parsed condition to IR.
-fn cond_to_ir(
-    cond: &Cond,
-    method_names: &[String],
-) -> std::result::Result<Condition, syn::Error> {
+fn cond_to_ir(cond: &Cond, method_names: &[String]) -> std::result::Result<Condition, syn::Error> {
     match cond {
         Cond::Eq(left, right) => Ok(Condition::Eq(
             expr_to_ir(left, method_names)?,
@@ -770,10 +812,7 @@ fn cond_to_ir(
 }
 
 /// Convert a parsed expression to IR.
-fn expr_to_ir(
-    expr: &Expr,
-    method_names: &[String],
-) -> std::result::Result<JcExpr, syn::Error> {
+fn expr_to_ir(expr: &Expr, method_names: &[String]) -> std::result::Result<JcExpr, syn::Error> {
     match expr {
         Expr::Lit(n) => Ok(JcExpr::Lit(*n)),
         Expr::Var(ident) => Ok(JcExpr::Var(ident.to_string())),
@@ -794,10 +833,7 @@ fn expr_to_ir(
                 .iter()
                 .position(|n| *n == name_str)
                 .ok_or_else(|| {
-                    syn::Error::new(
-                        name.span(),
-                        format!("undefined method `{name_str}`"),
-                    )
+                    syn::Error::new(name.span(), format!("undefined method `{name_str}`"))
                 })?;
             #[allow(clippy::cast_possible_truncation)]
             let idx = method_index as u8;
@@ -808,21 +844,168 @@ fn expr_to_ir(
                 args: ir_args?,
             })
         }
-        Expr::NewByteArray(len) => {
-            Ok(JcExpr::NewByteArray(Box::new(expr_to_ir(len, method_names)?)))
-        }
-        Expr::NewShortArray(len) => {
-            Ok(JcExpr::NewShortArray(Box::new(expr_to_ir(len, method_names)?)))
-        }
-        Expr::ArrayLength(arr) => {
-            Ok(JcExpr::ArrayLength(Box::new(expr_to_ir(arr, method_names)?)))
-        }
+        Expr::NewByteArray(len) => Ok(JcExpr::NewByteArray(Box::new(expr_to_ir(
+            len,
+            method_names,
+        )?))),
+        Expr::NewShortArray(len) => Ok(JcExpr::NewShortArray(Box::new(expr_to_ir(
+            len,
+            method_names,
+        )?))),
+        Expr::ArrayLength(arr) => Ok(JcExpr::ArrayLength(Box::new(expr_to_ir(
+            arr,
+            method_names,
+        )?))),
     }
 }
 
 // ---------------------------------------------------------------------------
 // Code generation
 // ---------------------------------------------------------------------------
+
+/// Convert a parsed optimization directive to an `OptConfig`.
+///
+/// Returns `(config, report)`.
+fn opt_directive_to_config(directive: Option<&OptDirective>) -> (OptConfig, bool) {
+    let Some(dir) = directive else {
+        return (OptConfig::full(), false);
+    };
+
+    let mut report = false;
+
+    let mut config = match dir.level {
+        OptLevel::None => OptConfig::none(),
+        OptLevel::Peephole => {
+            // If specific patterns are listed, start with peephole_only and customize.
+            let has_patterns = dir.knobs.iter().any(|k| matches!(k, OptKnob::Pattern(_)));
+            if has_patterns {
+                let mut c = OptConfig::peephole_only();
+                c.peephole = PeepholeConfig::none();
+                c.peephole.enabled = true;
+                c.peephole.max_passes = 64;
+                c
+            } else {
+                OptConfig::peephole_only()
+            }
+        }
+        OptLevel::Full => {
+            let has_patterns = dir.knobs.iter().any(|k| matches!(k, OptKnob::Pattern(_)));
+            if has_patterns {
+                let mut c = OptConfig::full();
+                c.peephole = PeepholeConfig::none();
+                c.peephole.enabled = true;
+                c.peephole.max_passes = 64;
+                c
+            } else {
+                OptConfig::full()
+            }
+        }
+    };
+
+    // Apply knobs.
+    for knob in &dir.knobs {
+        match knob {
+            OptKnob::Pattern(name) => match name.as_str() {
+                "store_load_dup" => config.peephole.store_load_dup = true,
+                "dead_push_pop" => config.peephole.dead_push_pop = true,
+                "double_negation" => config.peephole.double_negation = true,
+                "goto_next" => config.peephole.goto_next = true,
+                "add_zero_identity" => config.peephole.add_zero_identity = true,
+                "dead_store" => config.peephole.dead_store = true,
+                _ => {} // parser already validates names
+            },
+            OptKnob::MaxPasses(n) => config.peephole.max_passes = *n,
+            OptKnob::IrMaxIterations(n) => config.ir.max_iterations = *n,
+            OptKnob::Report => report = true,
+        }
+    }
+
+    (config, report)
+}
+
+/// Parse an optimization directive after the `optimize` keyword.
+///
+/// Syntax: `<level>;` or `<level>(<knob>, ...);`
+/// where `<level>` is `none`, `peephole`, or `full`,
+/// and `<knob>` is a pattern name, `report`, `max_passes = N`,
+/// or `ir_max_iterations = N`.
+fn parse_opt_directive(input: ParseStream<'_>) -> Result<OptDirective> {
+    let level_ident: Ident = input.parse()?;
+    let level = match level_ident.to_string().as_str() {
+        "none" => OptLevel::None,
+        "peephole" => OptLevel::Peephole,
+        "full" => OptLevel::Full,
+        other => {
+            return Err(syn::Error::new(
+                level_ident.span(),
+                format!("expected `none`, `peephole`, or `full`, got `{other}`"),
+            ));
+        }
+    };
+
+    let knobs = if input.peek(syn::token::Paren) {
+        let content;
+        parenthesized!(content in input);
+        parse_opt_knobs(&content)?
+    } else {
+        Vec::new()
+    };
+
+    input.parse::<Token![;]>()?;
+
+    Ok(OptDirective { level, knobs })
+}
+
+/// Parse comma-separated optimization knobs inside parentheses.
+fn parse_opt_knobs(input: ParseStream<'_>) -> Result<Vec<OptKnob>> {
+    let mut knobs = Vec::new();
+    while !input.is_empty() {
+        let ident: Ident = input.parse()?;
+        let name = ident.to_string();
+
+        // Check for `key = value` syntax.
+        if input.peek(Token![=]) {
+            input.parse::<Token![=]>()?;
+            let lit: LitInt = input.parse()?;
+            let val = lit.base10_parse::<usize>()?;
+            match name.as_str() {
+                "max_passes" => knobs.push(OptKnob::MaxPasses(val)),
+                "ir_max_iterations" => knobs.push(OptKnob::IrMaxIterations(val)),
+                other => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!("unknown optimization knob: `{other}`"),
+                    ));
+                }
+            }
+        } else {
+            // Bare identifier: pattern name or `report`.
+            match name.as_str() {
+                "report" => knobs.push(OptKnob::Report),
+                "store_load_dup" | "dead_push_pop" | "double_negation" | "goto_next"
+                | "add_zero_identity" | "dead_store" => {
+                    knobs.push(OptKnob::Pattern(name));
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!(
+                            "unknown pattern or knob: `{other}`. \
+                             Valid patterns: store_load_dup, dead_push_pop, \
+                             double_negation, goto_next, add_zero_identity, dead_store"
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // Consume optional trailing comma.
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+        }
+    }
+    Ok(knobs)
+}
 
 /// Main entry point: parse, convert to IR, compile, emit Rust code.
 pub fn generate(input: TokenStream) -> TokenStream {
@@ -834,25 +1017,51 @@ pub fn generate(input: TokenStream) -> TokenStream {
     // Collect method names for call resolution.
     let method_names: Vec<String> = applet.methods.iter().map(|m| m.name.to_string()).collect();
 
+    // Convert optimization directive to OptConfig.
+    let (opt_config, report) = opt_directive_to_config(applet.opt.as_ref());
+
     // Convert to IR.
     let class = match applet_to_ir(&applet, &method_names) {
         Ok(c) => c,
         Err(e) => return e.to_compile_error(),
     };
 
-    // Compile via simrs-jccompile.
-    let compiled = match simrs_jccompile::compile_class(&class) {
-        Ok(c) => c,
+    // Compile via simrs-jccompile with optimization configuration.
+    let (compiled, opt_report) = match simrs_jccompile::compile_class_with_config(&class, &opt_config) {
+        Ok(result) => result,
         Err(errors) => {
             let msg = errors
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join("; ");
-            return syn::Error::new(proc_macro2::Span::call_site(), msg)
-                .to_compile_error();
+            return syn::Error::new(proc_macro2::Span::call_site(), msg).to_compile_error();
         }
     };
+
+    // Compile-time reporting (visible in cargo build output).
+    if report {
+        eprintln!("[jcapplet] AID: {}", applet.aid_hex);
+        eprintln!(
+            "[jcapplet]   IR iterations: {}",
+            opt_report.ir_iterations
+        );
+        for (i, md) in applet.methods.iter().enumerate() {
+            let ct_tag = if md.constant_time {
+                " [constant_time]"
+            } else {
+                ""
+            };
+            let mr = opt_report.methods.get(i);
+            let changes = mr.map_or(0, |r| r.peephole_changes);
+            let before = mr.map_or(0, |r| r.bytes_before);
+            let after = mr.map_or(0, |r| r.bytes_after);
+            eprintln!(
+                "[jcapplet]   method {i}: {}{ct_tag} ({changes} peephole changes, {before} -> {after} bytes)",
+                md.name
+            );
+        }
+    }
 
     // Emit Rust code.
     let aid_bytes = &compiled.aid;

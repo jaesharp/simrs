@@ -30,9 +30,9 @@
 
 use proc_macro::TokenStream;
 
+mod codegen;
 mod opcodes;
 mod parse;
-mod codegen;
 
 /// Assemble Java Card bytecode at compile time.
 ///

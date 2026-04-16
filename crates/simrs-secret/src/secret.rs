@@ -234,7 +234,7 @@ mod tests {
     fn debug_redacted() {
         let s = Secret::new([0xDEu8, 0xAD, 0xBE, 0xEF]);
         let output = format!("{s:?}");
-        assert!(output.contains("masked"), "Debug must redact: {output}");
+        assert!(output.contains("REDACTED"), "Debug must redact: {output}");
         assert!(
             !output.contains("DEAD"),
             "Debug must not leak data: {output}"

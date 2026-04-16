@@ -96,8 +96,9 @@ impl JcslClient {
         let frame = protocol::power_on_frame();
         protocol::write_frame(&mut self.stream, &frame)?;
 
-        let response = protocol::read_frame(&mut self.stream)?
-            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "no response to power on"))?;
+        let response = protocol::read_frame(&mut self.stream)?.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::ConnectionReset, "no response to power on")
+        })?;
 
         self.atr.clone_from(&response.payload);
         self.powered = true;
@@ -137,9 +138,7 @@ impl JcslClient {
         protocol::write_frame(&mut self.stream, &frame)?;
 
         let response = protocol::read_frame(&mut self.stream)?
-            .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::ConnectionReset, "no response to APDU")
-            })?;
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "no response to APDU"))?;
 
         Ok(response.payload)
     }
@@ -176,7 +175,9 @@ impl Transport for JcslClient {
     type Error = TransportError;
 
     fn exchange(&mut self, cmd: &[u8], rsp: &mut [u8]) -> Result<usize, TransportError> {
-        let response = self.transmit_apdu(cmd).map_err(|_| TransportError::IoError)?;
+        let response = self
+            .transmit_apdu(cmd)
+            .map_err(|_| TransportError::IoError)?;
 
         if response.len() > rsp.len() {
             return Err(TransportError::BufferTooSmall);

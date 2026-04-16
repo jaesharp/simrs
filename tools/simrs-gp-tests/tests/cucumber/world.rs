@@ -35,17 +35,26 @@ pub struct Scp01Session {
 }
 
 impl ScpSessionHost for Scp01Session {
-    fn version(&self) -> ScpVersion { ScpVersion::Scp01 }
-    fn session_enc(&self) -> [u8; 16] { self.enc }
-    fn session_mac(&self) -> [u8; 16] { self.mac }
-    fn security_level(&self) -> u8 { self.sec_level }
+    fn version(&self) -> ScpVersion {
+        ScpVersion::Scp01
+    }
+    fn session_enc(&self) -> [u8; 16] {
+        self.enc
+    }
+    fn session_mac(&self) -> [u8; 16] {
+        self.mac
+    }
+    fn security_level(&self) -> u8 {
+        self.sec_level
+    }
     fn generate_cmac(&mut self, header: &[u8; 4], data: &[u8]) -> [u8; 8] {
-        let (cmac, _) = simrs_gp_scp::generate_cmac(
-            &self.mac, header, data, &[0u8; 8], ScpVersion::Scp01,
-        );
+        let (cmac, _) =
+            simrs_gp_scp::generate_cmac(&self.mac, header, data, &[0u8; 8], ScpVersion::Scp01);
         cmac
     }
-    fn icv_for_cenc(&self) -> [u8; 8] { [0u8; 8] }
+    fn icv_for_cenc(&self) -> [u8; 8] {
+        [0u8; 8]
+    }
 }
 
 /// SCP02 host session (8-byte 3DES ICV chaining).
@@ -57,18 +66,27 @@ pub struct Scp02Session {
 }
 
 impl ScpSessionHost for Scp02Session {
-    fn version(&self) -> ScpVersion { ScpVersion::Scp02 }
-    fn session_enc(&self) -> [u8; 16] { self.enc }
-    fn session_mac(&self) -> [u8; 16] { self.mac }
-    fn security_level(&self) -> u8 { self.sec_level }
+    fn version(&self) -> ScpVersion {
+        ScpVersion::Scp02
+    }
+    fn session_enc(&self) -> [u8; 16] {
+        self.enc
+    }
+    fn session_mac(&self) -> [u8; 16] {
+        self.mac
+    }
+    fn security_level(&self) -> u8 {
+        self.sec_level
+    }
     fn generate_cmac(&mut self, header: &[u8; 4], data: &[u8]) -> [u8; 8] {
-        let (cmac, new_icv) = simrs_gp_scp::generate_cmac(
-            &self.mac, header, data, &self.icv, ScpVersion::Scp02,
-        );
+        let (cmac, new_icv) =
+            simrs_gp_scp::generate_cmac(&self.mac, header, data, &self.icv, ScpVersion::Scp02);
         self.icv = new_icv;
         cmac
     }
-    fn icv_for_cenc(&self) -> [u8; 8] { self.icv }
+    fn icv_for_cenc(&self) -> [u8; 8] {
+        self.icv
+    }
 }
 
 /// SCP03 host session (16-byte AES-CMAC chaining).
@@ -80,14 +98,21 @@ pub struct Scp03Session {
 }
 
 impl ScpSessionHost for Scp03Session {
-    fn version(&self) -> ScpVersion { ScpVersion::Scp03 }
-    fn session_enc(&self) -> [u8; 16] { self.enc }
-    fn session_mac(&self) -> [u8; 16] { self.mac }
-    fn security_level(&self) -> u8 { self.sec_level }
+    fn version(&self) -> ScpVersion {
+        ScpVersion::Scp03
+    }
+    fn session_enc(&self) -> [u8; 16] {
+        self.enc
+    }
+    fn session_mac(&self) -> [u8; 16] {
+        self.mac
+    }
+    fn security_level(&self) -> u8 {
+        self.sec_level
+    }
     fn generate_cmac(&mut self, header: &[u8; 4], data: &[u8]) -> [u8; 8] {
-        let (cmac, new_cv) = simrs_gp_scp::scp03_generate_cmac(
-            &self.mac, &self.mac_chaining, header, data,
-        );
+        let (cmac, new_cv) =
+            simrs_gp_scp::scp03_generate_cmac(&self.mac, &self.mac_chaining, header, data);
         self.mac_chaining = new_cv;
         cmac
     }
@@ -150,7 +175,10 @@ impl std::fmt::Debug for GpWorld {
             .field("powered", &self.powered)
             .field("sw", &format_args!("{:02X}{:02X}", self.sw1, self.sw2))
             .field("scp_authenticated", &self.scp_session.is_some())
-            .field("lifecycle", &format_args!("0x{:02X}", self.expected_card_lifecycle))
+            .field(
+                "lifecycle",
+                &format_args!("0x{:02X}", self.expected_card_lifecycle),
+            )
             .finish()
     }
 }
@@ -189,15 +217,25 @@ impl Default for GpWorld {
 
 impl GpWorld {
     /// Shorthand: is an SCP session active?
-    pub fn scp_authenticated(&self) -> bool { self.scp_session.is_some() }
+    pub fn scp_authenticated(&self) -> bool {
+        self.scp_session.is_some()
+    }
     /// Shorthand: session ENC key (panics if no session).
-    pub fn session_enc(&self) -> [u8; 16] { self.scp_session.as_ref().unwrap().session_enc() }
+    pub fn session_enc(&self) -> [u8; 16] {
+        self.scp_session.as_ref().unwrap().session_enc()
+    }
     /// Shorthand: session MAC key (panics if no session).
-    pub fn session_mac(&self) -> [u8; 16] { self.scp_session.as_ref().unwrap().session_mac() }
+    pub fn session_mac(&self) -> [u8; 16] {
+        self.scp_session.as_ref().unwrap().session_mac()
+    }
     /// Shorthand: security level (panics if no session).
-    pub fn security_level(&self) -> u8 { self.scp_session.as_ref().unwrap().security_level() }
+    pub fn security_level(&self) -> u8 {
+        self.scp_session.as_ref().unwrap().security_level()
+    }
     /// Shorthand: SCP version (panics if no session).
-    pub fn scp_version(&self) -> ScpVersion { self.scp_session.as_ref().unwrap().version() }
+    pub fn scp_version(&self) -> ScpVersion {
+        self.scp_session.as_ref().unwrap().version()
+    }
 
     /// Ensure the card is powered on.
     pub fn ensure_powered(&mut self) {
@@ -267,10 +305,7 @@ impl GpWorld {
         };
 
         for &state_byte in transitions {
-            self.send_gp_command(
-                &[0x80, 0xF0, 0x80, state_byte],
-                simrs_gp_tests::ISD_AID,
-            );
+            self.send_gp_command(&[0x80, 0xF0, 0x80, state_byte], simrs_gp_tests::ISD_AID);
             assert_eq!(
                 self.sw1, 0x90,
                 "lifecycle transition to 0x{state_byte:02X} failed: {:02X}{:02X}",
@@ -292,7 +327,11 @@ impl GpWorld {
     /// Send a GP management command, automatically wrapping with C-MAC
     /// if a C-MAC session is active.
     pub fn send_gp_command(&mut self, header: &[u8; 4], data: &[u8]) {
-        if self.scp_session.as_ref().map_or(false, |s| s.security_level() & 0x01 != 0) {
+        if self
+            .scp_session
+            .as_ref()
+            .map_or(false, |s| s.security_level() & 0x01 != 0)
+        {
             self.send_apdu_with_cmac(header, data);
         } else {
             // Build plain APDU.
@@ -370,12 +409,10 @@ impl GpWorld {
                 cc.copy_from_slice(&data[12..20]);
                 self.card_challenge = cc;
 
-                let (enc, mac, _dek) =
-                    simrs_gp_scp::derive_scp01_session_keys(&keys, &hc, &cc);
+                let (enc, mac, _dek) = simrs_gp_scp::derive_scp01_session_keys(&keys, &hc, &cc);
 
                 // 4. Compute host cryptogram.
-                let host_crypto =
-                    simrs_gp_scp::compute_scp01_host_cryptogram(&enc, &hc, &cc);
+                let host_crypto = simrs_gp_scp::compute_scp01_host_cryptogram(&enc, &hc, &cc);
 
                 // 5. Compute C-MAC for EXTERNAL AUTHENTICATE.
                 let (cmac, _) = simrs_gp_scp::generate_cmac(
@@ -387,11 +424,8 @@ impl GpWorld {
                 );
 
                 // 6. Send EXTERNAL AUTHENTICATE.
-                let ea_apdu = simrs_gp_tests::external_authenticate(
-                    security_level,
-                    &host_crypto,
-                    &cmac,
-                );
+                let ea_apdu =
+                    simrs_gp_tests::external_authenticate(security_level, &host_crypto, &cmac);
                 self.send_apdu(&ea_apdu);
                 self.scp_session = Some(Box::new(Scp01Session {
                     enc,
@@ -408,12 +442,10 @@ impl GpWorld {
                 cc8[2..8].copy_from_slice(&cc6);
                 self.card_challenge = cc8;
 
-                let (enc, mac, _rmac, _dek) =
-                    simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
+                let (enc, mac, _rmac, _dek) = simrs_gp_scp::derive_scp02_session_keys(&keys, seq);
 
                 // Host cryptogram for SCP02.
-                let host_crypto =
-                    simrs_gp_scp::compute_scp02_host_cryptogram(&enc, &hc, seq, &cc6);
+                let host_crypto = simrs_gp_scp::compute_scp02_host_cryptogram(&enc, &hc, seq, &cc6);
 
                 // C-MAC for EXTERNAL AUTHENTICATE.
                 let (cmac, _) = simrs_gp_scp::generate_cmac(
@@ -424,11 +456,8 @@ impl GpWorld {
                     ScpVersion::Scp02,
                 );
 
-                let ea_apdu = simrs_gp_tests::external_authenticate(
-                    security_level,
-                    &host_crypto,
-                    &cmac,
-                );
+                let ea_apdu =
+                    simrs_gp_tests::external_authenticate(security_level, &host_crypto, &cmac);
                 self.send_apdu(&ea_apdu);
                 let mut icv = [0u8; 8];
                 icv.copy_from_slice(&cmac);
@@ -453,8 +482,7 @@ impl GpWorld {
                 let (enc, mac, _rmac) =
                     simrs_gp_scp::derive_scp03_session_keys(&static_key, &static_key, &hc, &cc);
 
-                let host_crypto =
-                    simrs_gp_scp::compute_scp03_host_cryptogram(&mac, &hc, &cc);
+                let host_crypto = simrs_gp_scp::compute_scp03_host_cryptogram(&mac, &hc, &cc);
 
                 let (cmac, new_cv) = simrs_gp_scp::scp03_generate_cmac(
                     &mac,
@@ -463,11 +491,8 @@ impl GpWorld {
                     &host_crypto,
                 );
 
-                let ea_apdu = simrs_gp_tests::external_authenticate(
-                    security_level,
-                    &host_crypto,
-                    &cmac,
-                );
+                let ea_apdu =
+                    simrs_gp_tests::external_authenticate(security_level, &host_crypto, &cmac);
                 self.send_apdu(&ea_apdu);
                 self.scp_session = Some(Box::new(Scp03Session {
                     enc,

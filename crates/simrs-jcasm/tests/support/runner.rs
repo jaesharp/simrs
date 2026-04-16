@@ -209,10 +209,7 @@ impl TestApplet {
 /// Parse an AID from hex-with-underscores format: `A0_00_00_01_51` -> `[0xA0, 0x00, ...]`
 fn parse_aid_hex(s: &str) -> Vec<u8> {
     let clean: String = s.chars().filter(|c| *c != '_').collect();
-    assert!(
-        clean.len().is_multiple_of(2),
-        "AID hex has odd length: {s}"
-    );
+    assert!(clean.len().is_multiple_of(2), "AID hex has odd length: {s}");
     let mut bytes = Vec::new();
     let mut i = 0;
     while i < clean.len() {

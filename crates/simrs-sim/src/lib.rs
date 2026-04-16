@@ -96,8 +96,10 @@ const SNAPSHOT_VERSION: u8 = 1;
 pub const SNAPSHOT_HEADER_SIZE: usize = 6;
 
 /// Feature flag: GSM application present.
+#[cfg(feature = "gsm")]
 const SNAP_FLAG_GSM: u8 = 1 << 0;
 /// Feature flag: USIM application present.
+#[cfg(feature = "usim")]
 const SNAP_FLAG_USIM: u8 = 1 << 1;
 
 /// Build the feature flags byte for the current compilation.

@@ -46,6 +46,12 @@ pub struct JcMethod {
     pub body: Vec<JcStmt>,
     /// Whether this is a static method.
     pub is_static: bool,
+    /// Whether this method is marked constant-time.
+    ///
+    /// CT methods receive CT-safe optimization only: the IR optimizer
+    /// skips branch DCE (preserving timing-equalization structure) while
+    /// arithmetic folding and peephole patterns still apply.
+    pub constant_time: bool,
 }
 
 /// A statement in a method body.
@@ -92,18 +98,18 @@ pub enum JcStmt {
         /// Key expression (short).
         key: JcExpr,
         /// Case arms: `(match_value, body)`.
-        cases: Vec<(i16, Vec<JcStmt>)>,
+        cases: Vec<(i16, Vec<Self>)>,
         /// Default arm body.
-        default: Vec<JcStmt>,
+        default: Vec<Self>,
     },
     /// Int switch statement (`itableswitch`/`ilookupswitch`).
     IntSwitch {
         /// Key expression (int).
         key: JcExpr,
         /// Case arms: `(match_value, body)`.
-        cases: Vec<(i32, Vec<JcStmt>)>,
+        cases: Vec<(i32, Vec<Self>)>,
         /// Default arm body.
-        default: Vec<JcStmt>,
+        default: Vec<Self>,
     },
     /// Increment a local variable by a signed byte constant.
     ///
@@ -298,6 +304,7 @@ mod tests {
                 locals: vec![],
                 body: vec![JcStmt::Return(Some(JcExpr::Lit(42)))],
                 is_static: true,
+                constant_time: false,
             }],
         };
         assert_eq!(cls.aid.len(), 5);

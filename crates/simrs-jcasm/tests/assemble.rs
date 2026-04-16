@@ -38,7 +38,7 @@ fn assemble_array_bounds_test() {
 #[test]
 fn assemble_firewall_test() {
     // JCVM 3.1 Section 6.2.4: Firewall enforcement on getfield_b
-    let (aid, methods) = jcasm! {
+    let (_aid, methods) = jcasm! {
         applet A0_00_00_00_62_02_03 {
             fn process() {
                 sload_0;
@@ -119,7 +119,7 @@ fn assemble_multiple_methods() {
     };
 
     assert_eq!(methods.len(), 2);
-    assert_eq!(methods[0], &[0x7A]);       // install: return
+    assert_eq!(methods[0], &[0x7A]); // install: return
     assert_eq!(methods[1], &[0x04, 0x78]); // process: sconst_1, sreturn
 }
 

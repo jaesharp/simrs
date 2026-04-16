@@ -114,23 +114,15 @@ impl SourceMap {
 
         // Format AID as space-separated hex bytes.
         let _ = write!(out, "# aid:");
-        for (i, b) in self.package_aid.iter().enumerate() {
-            if i > 0 {
-                let _ = write!(out, " {:02X}", b);
-            } else {
-                let _ = write!(out, " {:02X}", b);
-            }
+        for b in &self.package_aid {
+            let _ = write!(out, " {b:02X}");
         }
         let _ = writeln!(out);
 
         for (idx, method) in self.methods.iter().enumerate() {
             let _ = writeln!(out, "method {} \"{}\"", idx, method.name);
             for entry in &method.entries {
-                let _ = writeln!(
-                    out,
-                    "{:04X} {}:{}",
-                    entry.pc, entry.line, entry.column
-                );
+                let _ = writeln!(out, "{:04X} {}:{}", entry.pc, entry.line, entry.column);
             }
         }
 
@@ -155,12 +147,12 @@ impl SourceMap {
             }
 
             // Header comments.
-            if trimmed.starts_with("# source:") {
-                source_file = String::from(trimmed["# source:".len()..].trim());
+            if let Some(rest) = trimmed.strip_prefix("# source:") {
+                source_file = String::from(rest.trim());
                 continue;
             }
-            if trimmed.starts_with("# aid:") {
-                let aid_str = trimmed["# aid:".len()..].trim();
+            if let Some(rest) = trimmed.strip_prefix("# aid:") {
+                let aid_str = rest.trim();
                 package_aid = Vec::new();
                 for hex_byte in aid_str.split_whitespace() {
                     let val = u8::from_str_radix(hex_byte, 16).map_err(|e| {
@@ -181,17 +173,14 @@ impl SourceMap {
             }
 
             // Method declaration: method <idx> "<name>"
-            if trimmed.starts_with("method ") {
-                let rest = &trimmed["method ".len()..];
+            if let Some(rest) = trimmed.strip_prefix("method ") {
                 // Parse: idx "name"
                 let quote_start = rest
                     .find('"')
                     .ok_or_else(|| alloc::format!("line {}: missing method name", line_num + 1))?;
-                let quote_end = rest[quote_start + 1..]
-                    .find('"')
-                    .ok_or_else(|| {
-                        alloc::format!("line {}: unterminated method name", line_num + 1)
-                    })?;
+                let quote_end = rest[quote_start + 1..].find('"').ok_or_else(|| {
+                    alloc::format!("line {}: unterminated method name", line_num + 1)
+                })?;
                 let name = &rest[quote_start + 1..quote_start + 1 + quote_end];
                 let idx = methods.len();
                 methods.push(MethodMap {
@@ -249,14 +238,8 @@ impl SourceMap {
 
 /// Parse a u32 from a string, with a nice error message.
 fn parse_u32(s: &str, line_num: usize) -> Result<u32, String> {
-    s.parse::<u32>().map_err(|e| {
-        alloc::format!(
-            "line {}: invalid number '{}': {}",
-            line_num + 1,
-            s,
-            e
-        )
-    })
+    s.parse::<u32>()
+        .map_err(|e| alloc::format!("line {}: invalid number '{}': {}", line_num + 1, s, e))
 }
 
 // =========================================================================

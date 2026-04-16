@@ -267,3 +267,63 @@ fn zero_constant() {
     let result = run_applet(aid, methods);
     assert_eq!(result, ExecResult::ReturnShort(0));
 }
+
+#[test]
+fn optimize_none_still_produces_correct_result() {
+    let (aid, methods) = jcapplet! {
+        optimize none;
+        applet Test(A0_00_00_00_62) {
+            fn process() -> short {
+                return 42;
+            }
+        }
+    };
+    let mut buf = [0u8; 4096];
+    let len = simrs_jcvm::cap::build_cap_blob(aid, methods, &mut buf);
+    let pkg = simrs_jcvm::cap::parse_cap(&buf[..len]).unwrap();
+    let mut vm = simrs_jcvm::JcVM::<4096, 4>::new();
+    let idx = vm.load_package(pkg).unwrap();
+    assert_eq!(vm.execute(idx, 0), simrs_jcvm::opcodes::ExecResult::ReturnShort(42));
+}
+
+#[test]
+fn optimize_peephole_only_works() {
+    let (_aid, methods) = jcapplet! {
+        optimize peephole;
+        applet Test(A0_00_00_00_62) {
+            fn process() -> short {
+                return 42;
+            }
+        }
+    };
+    assert!(!methods.is_empty());
+}
+
+#[test]
+fn constant_time_method_compiles() {
+    let (aid, methods) = jcapplet! {
+        applet Test(A0_00_00_00_62) {
+            constant_time fn verify() -> short {
+                return 7;
+            }
+        }
+    };
+    let mut buf = [0u8; 4096];
+    let len = simrs_jcvm::cap::build_cap_blob(aid, methods, &mut buf);
+    let pkg = simrs_jcvm::cap::parse_cap(&buf[..len]).unwrap();
+    let mut vm = simrs_jcvm::JcVM::<4096, 4>::new();
+    let idx = vm.load_package(pkg).unwrap();
+    assert_eq!(vm.execute(idx, 0), simrs_jcvm::opcodes::ExecResult::ReturnShort(7));
+}
+
+#[test]
+fn optimize_full_report_compiles() {
+    let (_aid, _methods) = jcapplet! {
+        optimize full(report);
+        applet Test(A0_00_00_00_62) {
+            fn process() -> short {
+                return 1;
+            }
+        }
+    };
+}
