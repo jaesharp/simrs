@@ -42,23 +42,29 @@ cargo test --workspace           # test
 cargo clippy --workspace         # lint (pedantic, zero warnings)
 ```
 
-### swICC PC/SC virtual reader
+### Virtual smart card reader
+
+Boot a SIM card and expose it over TCP for PC/SC tools:
 
 ```bash
-# Boot a SIM card and expose it over swICC TCP (default port 37324)
+# vpcd protocol (port 35963) -- works with vsmartcard-vpcd pcscd driver
+cargo run -p simrs-vpcd
+
+# swICC protocol (port 37324) -- works with swICC pcscd driver
 cargo run -p simrs-swicc
 
-# With APDU logging
-cargo run -p simrs-swicc -- -v
+# Both support -v for APDU logging and --port to override
+cargo run -p simrs-vpcd -- -v --port 35964
 ```
 
-To use standard PC/SC tools, install the [swICC pcscd reader driver](https://github.com/nickg/swicc) which bridges pcscd to the swICC TCP protocol:
+Install a pcscd reader driver to bridge PC/SC tools to the virtual card:
+- **vpcd**: `apt install vsmartcard-vpcd` (some distros) or [build from source](https://frankmorgner.github.io/vsmartcard/)
+- **swICC**: [build from source](https://github.com/nickg/swicc)
+
+Then standard tools connect directly:
 
 ```bash
-# Find the reader name (depends on swICC driver config)
-opensc-tool -l
-
-# Then use the reader name shown:
+opensc-tool -l                                         # list readers
 opensc-tool -a                                         # list ATR
 opensc-tool -s "00A40400 07 A0000000871002"            # SELECT USIM AID
 pcsc_scan                                              # monitor card events
