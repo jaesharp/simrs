@@ -51,14 +51,15 @@ cargo run -p simrs-swicc
 cargo run -p simrs-swicc -- -v
 ```
 
-With the swICC pcscd driver installed, standard PC/SC tools connect directly:
+With the swICC pcscd driver installed, standard PC/SC tools connect to the virtual reader:
 
 ```bash
-opensc-tool -a                    # list ATR
-opensc-tool -s "00A40400 07 A0000000871002"  # SELECT USIM AID
-pcsc_scan                         # monitor card insertion/removal
-pkcs15-tool -D                    # dump PKCS#15 structure
-gp -l                             # list applets (GlobalPlatformPro)
+# Connect to the swICC reader at 127.0.0.1:37324
+opensc-tool --reader "swICC" -a                                    # list ATR
+opensc-tool --reader "swICC" -s "00A40400 07 A0000000871002"       # SELECT USIM AID
+pcsc_scan                                                          # monitor card events
+pkcs15-tool --reader "swICC" -D                                    # dump PKCS#15 structure
+gp --reader "swICC" -l                                             # list applets (GlobalPlatformPro)
 ```
 
 ### Compile and run a JavaCard-Compatible applet
