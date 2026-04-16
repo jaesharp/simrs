@@ -34,6 +34,8 @@
 //! cargo test -p simrs-differential-tests
 //! ```
 
+pub mod known_divergences;
+pub mod report;
 mod session;
 
 pub use session::{DiffSession, DiffSessionBuilder};
