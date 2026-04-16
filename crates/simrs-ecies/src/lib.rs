@@ -215,6 +215,40 @@ const fn increment_counter(ctr: &mut [u8; 16]) {
 }
 
 // ---------------------------------------------------------------------------
+// KDF output splitting (enc_key || ICB || mac_key)
+// ---------------------------------------------------------------------------
+
+/// Derived ECIES keys from the 64-byte X9.63 KDF output.
+///
+/// Layout: `enc_key`(16) || ICB(16) || `mac_key`(32).
+struct EciesKeys {
+    enc_key: Secret<[u8; 16]>,
+    icb: [u8; 16],
+    mac_key: Secret<[u8; 32]>,
+}
+
+/// Split a 64-byte KDF output into the three ECIES sub-keys.
+fn split_kdf_output(kdf_out: &[u8; 64]) -> EciesKeys {
+    let enc_key = Secret::new({
+        let mut k = [0u8; 16];
+        k.copy_from_slice(&kdf_out[..16]);
+        k
+    });
+    let mut icb = [0u8; 16];
+    icb.copy_from_slice(&kdf_out[16..32]);
+    let mac_key = Secret::new({
+        let mut k = [0u8; 32];
+        k.copy_from_slice(&kdf_out[32..64]);
+        k
+    });
+    EciesKeys {
+        enc_key,
+        icb,
+        mac_key,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Shared encrypt-and-MAC logic (used by both Profile A and Profile B)
 // ---------------------------------------------------------------------------
 
@@ -307,21 +341,11 @@ pub fn ecies_profile_a_encrypt(
         &mut kdf_out,
     );
 
-    let enc_key = Secret::new({
-        let mut k = [0u8; 16];
-        k.copy_from_slice(&kdf_out[..16]);
-        k
-    });
-    let mut icb = [0u8; 16];
-    icb.copy_from_slice(&kdf_out[16..32]);
-    let mac_key = Secret::new({
-        let mut k = [0u8; 32];
-        k.copy_from_slice(&kdf_out[32..64]);
-        k
-    });
+    let keys = split_kdf_output(&kdf_out);
 
     // Steps 4+5: AES-128-CTR encryption + HMAC-SHA-256 MAC.
-    let (ciphertext, ct_len, mac) = encrypt_and_mac(&enc_key, &icb, &mac_key, plaintext);
+    let (ciphertext, ct_len, mac) =
+        encrypt_and_mac(&keys.enc_key, &keys.icb, &keys.mac_key, plaintext);
 
     EciesProfileAResult {
         ephemeral_pk,
@@ -400,21 +424,11 @@ pub fn ecies_profile_b_encrypt(
         &mut kdf_out,
     );
 
-    let enc_key = Secret::new({
-        let mut k = [0u8; 16];
-        k.copy_from_slice(&kdf_out[..16]);
-        k
-    });
-    let mut icb = [0u8; 16];
-    icb.copy_from_slice(&kdf_out[16..32]);
-    let mac_key = Secret::new({
-        let mut k = [0u8; 32];
-        k.copy_from_slice(&kdf_out[32..64]);
-        k
-    });
+    let keys = split_kdf_output(&kdf_out);
 
     // Steps 4+5: AES-128-CTR encryption + HMAC-SHA-256 MAC.
-    let (ciphertext, ct_len, mac) = encrypt_and_mac(&enc_key, &icb, &mac_key, plaintext);
+    let (ciphertext, ct_len, mac) =
+        encrypt_and_mac(&keys.enc_key, &keys.icb, &keys.mac_key, plaintext);
 
     EciesProfileBResult {
         ephemeral_pk,
@@ -636,15 +650,10 @@ mod tests {
             &mut kdf_out,
         );
 
-        let mut enc_key = [0u8; 16];
-        enc_key.copy_from_slice(&kdf_out[..16]);
-        let mut icb = [0u8; 16];
-        icb.copy_from_slice(&kdf_out[16..32]);
-        let mut mac_key = [0u8; 32];
-        mac_key.copy_from_slice(&kdf_out[32..64]);
+        let keys = split_kdf_output(&kdf_out);
 
         // Verify MAC.
-        let mut mac_hasher = HmacSha256::new(&Secret::new(mac_key));
+        let mut mac_hasher = HmacSha256::new(&keys.mac_key);
         mac_hasher.update(&result.ciphertext[..result.ct_len]);
         let full_mac = mac_hasher.finalize();
         assert_eq!(&full_mac[..8], result.mac.as_bytes());
@@ -652,8 +661,8 @@ mod tests {
         // Decrypt.
         let mut decrypted = [0u8; 16];
         aes128_ctr(
-            &Secret::new(enc_key),
-            &icb,
+            &keys.enc_key,
+            &keys.icb,
             &result.ciphertext[..result.ct_len],
             &mut decrypted,
         );
@@ -849,15 +858,10 @@ mod tests {
             &mut kdf_out,
         );
 
-        let mut enc_key = [0u8; 16];
-        enc_key.copy_from_slice(&kdf_out[..16]);
-        let mut icb = [0u8; 16];
-        icb.copy_from_slice(&kdf_out[16..32]);
-        let mut mac_key = [0u8; 32];
-        mac_key.copy_from_slice(&kdf_out[32..64]);
+        let keys = split_kdf_output(&kdf_out);
 
         // Verify MAC.
-        let mut mac_hasher = HmacSha256::new(&Secret::new(mac_key));
+        let mut mac_hasher = HmacSha256::new(&keys.mac_key);
         mac_hasher.update(&result.ciphertext[..result.ct_len]);
         let full_mac = mac_hasher.finalize();
         assert_eq!(&full_mac[..8], result.mac.as_bytes());
@@ -865,8 +869,8 @@ mod tests {
         // Decrypt.
         let mut decrypted = [0u8; 16];
         aes128_ctr(
-            &Secret::new(enc_key),
-            &icb,
+            &keys.enc_key,
+            &keys.icb,
             &result.ciphertext[..result.ct_len],
             &mut decrypted,
         );
@@ -984,22 +988,17 @@ mod proptests {
             let mut kdf_out = [0u8; 64];
             simrs_kdf::kdf_x963(shared_secret.declassify_ref(), result.ephemeral_pk.as_bytes(), 64, &mut kdf_out);
 
-            let mut enc_key = [0u8; 16];
-            enc_key.copy_from_slice(&kdf_out[..16]);
-            let mut icb = [0u8; 16];
-            icb.copy_from_slice(&kdf_out[16..32]);
-            let mut mac_key = [0u8; 32];
-            mac_key.copy_from_slice(&kdf_out[32..64]);
+            let keys = split_kdf_output(&kdf_out);
 
             // Verify MAC.
-            let mut mac_hasher = simrs_kdf::HmacSha256::new(&simrs_secret::Secret::new(mac_key));
+            let mut mac_hasher = simrs_kdf::HmacSha256::new(&keys.mac_key);
             mac_hasher.update(&result.ciphertext[..result.ct_len]);
             let full_mac = mac_hasher.finalize();
             prop_assert_eq!(&full_mac[..8], result.mac.as_bytes().as_slice(), "MAC must verify");
 
             // Decrypt.
             let mut decrypted = [0u8; 16];
-            aes128_ctr(&Secret::new(enc_key), &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
+            aes128_ctr(&keys.enc_key, &keys.icb, &result.ciphertext[..result.ct_len], &mut decrypted);
             prop_assert_eq!(&decrypted[..msin.len()], &msin[..]);
         }
     }
@@ -1029,22 +1028,17 @@ mod proptests {
             let mut kdf_out = [0u8; 64];
             simrs_kdf::kdf_x963(z.declassify_ref(), result.ephemeral_pk.as_bytes(), 64, &mut kdf_out);
 
-            let mut enc_key = [0u8; 16];
-            enc_key.copy_from_slice(&kdf_out[..16]);
-            let mut icb = [0u8; 16];
-            icb.copy_from_slice(&kdf_out[16..32]);
-            let mut mac_key = [0u8; 32];
-            mac_key.copy_from_slice(&kdf_out[32..64]);
+            let keys = split_kdf_output(&kdf_out);
 
             // Verify MAC.
-            let mut mac_hasher = simrs_kdf::HmacSha256::new(&simrs_secret::Secret::new(mac_key));
+            let mut mac_hasher = simrs_kdf::HmacSha256::new(&keys.mac_key);
             mac_hasher.update(&result.ciphertext[..result.ct_len]);
             let full_mac = mac_hasher.finalize();
             prop_assert_eq!(&full_mac[..8], result.mac.as_bytes().as_slice(), "MAC must verify");
 
             // Decrypt.
             let mut decrypted = [0u8; 16];
-            aes128_ctr(&Secret::new(enc_key), &icb, &result.ciphertext[..result.ct_len], &mut decrypted);
+            aes128_ctr(&keys.enc_key, &keys.icb, &result.ciphertext[..result.ct_len], &mut decrypted);
             prop_assert_eq!(&decrypted[..msin.len()], &msin[..]);
         }
     }
