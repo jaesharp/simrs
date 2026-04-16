@@ -33,10 +33,37 @@ use syn::{Data, DeriveInput, Fields, Index};
 // CtEq
 // ---------------------------------------------------------------------------
 
+/// Check whether a `DeriveInput` has `PartialEq` in its `#[derive(...)]` list.
+fn has_derive_partial_eq(input: &DeriveInput) -> bool {
+    input.attrs.iter().any(|attr| {
+        if !attr.path().is_ident("derive") {
+            return false;
+        }
+        let Ok(nested) = attr.parse_args_with(
+            syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
+        ) else {
+            return false;
+        };
+        nested.iter().any(|p| p.is_ident("PartialEq"))
+    })
+}
+
 /// Core derive logic for `CtEq` using `proc_macro2` types for testability.
 fn derive_ct_eq_impl(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    // Reject types that derive PartialEq -- it enables timing-unsafe ==
+    // comparisons that undermine the constant-time guarantee of CtEq.
+    if has_derive_partial_eq(input) {
+        return syn::Error::new_spanned(
+            name,
+            "CtEq and PartialEq must not coexist: PartialEq enables timing-unsafe \
+             comparisons that leak secret data via early-exit byte matching. \
+             Remove #[derive(PartialEq)] or use #[cfg(test)] for test-only PartialEq.",
+        )
+        .to_compile_error();
+    }
 
     let body = match &input.data {
         Data::Struct(data) => generate_ct_eq_body(&data.fields),
@@ -372,6 +399,25 @@ mod tests {
 
         assert!(output_str.contains("compile_error"), "output: {output_str}");
         assert!(output_str.contains("enum"), "output: {output_str}");
+    }
+
+    #[test]
+    fn ct_eq_rejects_partial_eq() {
+        let input = quote! {
+            #[derive(PartialEq, Eq)]
+            struct Mac([u8; 8]);
+        };
+        let output = expand_ct_eq(input);
+        let output_str = output.to_string();
+
+        assert!(
+            output_str.contains("compile_error"),
+            "should reject PartialEq: {output_str}"
+        );
+        assert!(
+            output_str.contains("PartialEq"),
+            "error should mention PartialEq: {output_str}"
+        );
     }
 
     #[test]

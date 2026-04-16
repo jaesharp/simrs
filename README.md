@@ -8,22 +8,22 @@ If it's not supported - it's a bug.
     - eUICC profiles (TCA v3.3.1, SGP.22)
       - TCA Profile Package DER parser -- ingest carrier-distributed profiles into a live filesystem
     - OTA (TS 102 225, TS 102 226)
-      - Secured packet structure, remote APDU
+      - Secured packet structure, remote APDU support
   - Runs standalone or as a GlobalPlatform applet alongside JavaCard Bytecode or Rust Native Applets
 - **GlobalPlatform card OS** (GP 2.1.1, GP 2.3.1 Amd D)
   - OPEN, ISD, applet registry, SCP01/SCP02/SCP03, card lifecycle
-- **Complete JavaCard toolchain** (JC VM 2.1.1, JC RE 2.1.1)
-  - JCVM-compatible bytecode interpreter
-  - `jacc` compiler (IR, optimizer, source maps)
-  - Rust-inline Assembler/Compiler Support with macros
-  - Decompiler
+- **Complete JavaCard-Compatible toolchain** (JC VM 2.1.1, JC RE 2.1.1)
+  - Interpreter (Full Instrumentation and Introspection)
+  - Assembler (HLA support)
+  - Compiler (Fully Optimising HLL IR with Source Maps)
+  - Rust-inline Assembler/Compiler Support via proc-macros
 - Tooling
-  - Interposer/shadow SIM
-    - PCAP/GSMTAP Capture
+  - Interposer/shadow machine-in-the-middle virtual card
+    - PCAP/GSMTAP Capture/Replay
   - Differential Testing Framework
-  - and More
+  - ...
 
-## Research Flexibility Built to be Deployed in The Real World
+## Research Flexibility Built to be Deployed in Hard Reality
 
 - **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only boundary crates (TCP, OS ioctl, CLI binaries) require `std`. See [crate index](crates/README.md).
 - **Zero external runtime deps** -- every cryptographic algorithm is implemented from scratch, validated against NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis), and [adversarially tested](tools/simrs-security-tests/) for protocol-level vulnerabilities. See [simrs-ref](crates/simrs-ref/) for reference test vectors.
@@ -40,6 +40,15 @@ cargo test --workspace           # test
 cargo clippy --workspace         # lint (pedantic, zero warnings)
 ```
 
+### PC/SC (pcscd / pcsc-lite)
+
+```bash
+# Start simrs on the swICC port (127.0.0.1:37324)
+cargo run -p simrs-transport-tcp
+
+# Standard PC/SC tools work: opensc-tool, pkcs15-tool, pcsc_scan, etc.
+```
+
 ### Compile and run a JavaCard applet
 
 ```bash
@@ -52,15 +61,6 @@ cargo run -p simrs-jacc -- --decompile applet.cap
 # Run the full test suite (includes JCVM execution of compiled applets)
 cargo test -p simrs-jcvm
 cargo test -p simrs-jacc
-```
-
-### PC/SC (pcscd / pcsc-lite)
-
-```bash
-# Start simrs on the swICC port (127.0.0.1:37324)
-cargo run -p simrs-transport-tcp
-
-# Standard PC/SC tools work: opensc-tool, pkcs15-tool, pcsc_scan, etc.
 ```
 
 ### Shadow SIM interposer
