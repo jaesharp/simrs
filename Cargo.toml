@@ -61,7 +61,7 @@ members = [
     "tools/simrs-gp-tests",
     "tools/simrs-jcsl",
     "tools/simrs-differential-tests",
-    "tools/jacc",
+    "tools/simrs-jacc",
 ]
 resolver = "2"
 

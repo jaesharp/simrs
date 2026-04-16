@@ -9,8 +9,8 @@ Compiles Java Card applet source files and classfiles to JCVM CAP packages, and 
 Compile source files (`.java`, `.jva`) or classfiles (`.class`, `.jvc`) to CAP packages:
 
 ```
-cargo run -p jacc -- input.java -o output.cap
-cargo run -p jacc -- input.class -o output.cap
+cargo run -p simrs-jacc -- input.java -o output.cap
+cargo run -p simrs-jacc -- input.class -o output.cap
 ```
 
 If `-o` is omitted, the output file is the input path with a `.cap` extension.
@@ -18,19 +18,19 @@ If `-o` is omitted, the output file is the input path with a `.cap` extension.
 Generate a `.jvamap` source map alongside the output:
 
 ```
-cargo run -p jacc -- input.java --source-map
+cargo run -p simrs-jacc -- input.java --source-map
 ```
 
 Disassemble a CAP file to assembly text (stdout):
 
 ```
-cargo run -p jacc -- --disasm applet.cap
+cargo run -p simrs-jacc -- --disasm applet.cap
 ```
 
 Decompile a CAP file to JVA source (stdout):
 
 ```
-cargo run -p jacc -- --decompile applet.cap
+cargo run -p simrs-jacc -- --decompile applet.cap
 ```
 
 ## Supported input formats

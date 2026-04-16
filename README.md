@@ -40,14 +40,14 @@ cargo clippy --workspace         # lint (pedantic, zero warnings)
 
 ```bash
 # Compile a Java Card source file to a CAP package
-cargo run -p jacc -- applet.java -o applet.cap
+cargo run -p simrs-jacc -- applet.java -o applet.cap
 
 # Decompile it back to verify
-cargo run -p jacc -- --decompile applet.cap
+cargo run -p simrs-jacc -- --decompile applet.cap
 
 # Run the full test suite (includes JCVM execution of compiled applets)
 cargo test -p simrs-jcvm
-cargo test -p jacc
+cargo test -p simrs-jacc
 ```
 
 ### PC/SC (pcscd / pcsc-lite)
