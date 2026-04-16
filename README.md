@@ -27,7 +27,8 @@ _If it's not supported - it's a bug._
 ## Research Flexibility Built to be Deployed in Hard Reality
 
 - **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only boundary crates (TCP, OS ioctl, CLI binaries) require `std`. See [crate index](crates/README.md).
-- **Zero external runtime deps** -- every cryptographic algorithm is implemented from scratch, validated against NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis), and [adversarially tested](tools/simrs-security-tests/) for protocol-level vulnerabilities. See [simrs-ref](crates/simrs-ref/) for reference test vectors.
+- **Zero external runtime deps** -- every cryptographic algorithm is self-contained and validated against 
+  NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis), and [adversarially tested](tools/simrs-security-tests/) for protocol-level vulnerabilities. See [simrs-ref](crates/simrs-ref/) for reference test vectors.
 - **State machine driven** -- [`Sim::process(SimEvent) -> SimResponse`](crates/simrs-sim/); pure function, no callbacks
 - **Information flow security** -- [`Secret<T>`](crates/simrs-secret/) enforces classification boundaries at compile time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); [`Redact`](crates/simrs-redact/) prevents secrets in log output; uniform error responses close side-channel oracles
 - **Differential behavioural validation against Oracle's Reference JCVM** -- GP and SCP protocol behavior [validated against Oracle's reference JCVM](tools/simrs-differential-tests/) across 100+ APDU scenarios
@@ -51,15 +52,18 @@ cargo run -p simrs-swicc
 cargo run -p simrs-swicc -- -v
 ```
 
-With the swICC pcscd driver installed, standard PC/SC tools connect to the virtual reader:
+To use standard PC/SC tools, install the [swICC pcscd reader driver](https://github.com/nickg/swicc) which bridges pcscd to the swICC TCP protocol:
 
 ```bash
-# Connect to the swICC reader at 127.0.0.1:37324
-opensc-tool --reader "swICC" -a                                    # list ATR
-opensc-tool --reader "swICC" -s "00A40400 07 A0000000871002"       # SELECT USIM AID
-pcsc_scan                                                          # monitor card events
-pkcs15-tool --reader "swICC" -D                                    # dump PKCS#15 structure
-gp --reader "swICC" -l                                             # list applets (GlobalPlatformPro)
+# Find the reader name (depends on swICC driver config)
+opensc-tool -l
+
+# Then use the reader name shown:
+opensc-tool -a                                         # list ATR
+opensc-tool -s "00A40400 07 A0000000871002"            # SELECT USIM AID
+pcsc_scan                                              # monitor card events
+pkcs15-tool -D                                         # dump PKCS#15 structure
+gp -l                                                  # list applets (GlobalPlatformPro)
 ```
 
 ### Compile and run a JavaCard-Compatible applet
