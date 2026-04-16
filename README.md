@@ -2,6 +2,18 @@
 
 SIM/USIM Emulation and Specification in Pure Embeddable Rust.
 
+## Features
+
+- **Constant-time crypto with compile-time enforcement** -- `Secret<T>` blocks `PartialEq`, `Hash`, `Deref` at the type level; all key material flows through `CtEq`/`CtSelect`/`CtSwap`. DudeCT timing validation (Bayesian, not Welch's t-test) verifies the runtime guarantees.
+- **Self-contained cryptography** -- AES-128, SHA-256, Keccak-f[1600], DES/3DES, COMP128v1-v3, Milenage, TUAK, RSA (Montgomery), X25519, ECIES Profiles A/B -- all implemented from scratch with zero external dependencies.
+- **Four generations of mobile auth** -- GSM (COMP128), UMTS (Milenage), LTE (Milenage + 3GPP KDF), 5G (TUAK + SUCI ECIES) in a single tool.
+- **Full JavaCard stack** -- JCVM bytecode interpreter (~185 opcodes), compiler with IR + optimizer + source maps, proc-macro assembler, and decompiler. Bytecode applets run on the GlobalPlatform card alongside native Rust applets.
+- **GlobalPlatform card OS** -- OPEN runtime, ISD, applet registry, SCP01/SCP02 secure channels, card lifecycle management, GET STATUS / SET STATUS / INSTALL / DELETE.
+- **Real eUICC profile ingestion** -- TCA eUICC Profile Package v3.3.1 DER parser converts carrier-distributed profiles into a live USIM filesystem.
+- **Shadow SIM interposer** -- transparent proxy between a modem and SIM with PCAP/GSMTAP capture, diff mode for A/B comparison, and response injection.
+- **Differential testing against Oracle** -- automated conformance testing against the Oracle Java Card Simulator (jcsl) across 100+ APDU scenarios.
+- **`no_std` / zero-alloc** -- 74% of crates are `no_std` with no heap allocation, including all cryptographic implementations. Embeddable on bare-metal targets without libc or a memory manager.
+
 ## Design
 
 - **`no_std` throughout** -- no allocator; all buffers are stack or `'static`
@@ -65,9 +77,9 @@ cargo run -p simrs-auth-cli -- gen-vector \
     --rand AAAABBBBCCCCDDDDEEEEFFFFAAAABBBB
 ```
 
-### QEMU HLE integration
+### C-ABI shared library
 
-The HLE library (`cdylib`) plugs into QEMU for high-speed baseband fuzzing with snapshot save/restore.
+The HLE crate builds as a `cdylib` for embedding into any host application or runtime.
 
 ```bash
 # Build the C-ABI shared library
