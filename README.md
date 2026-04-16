@@ -23,9 +23,9 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
 ## Design
 
 - **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only boundary crates (TCP, OS ioctl, CLI binaries) require `std`.
-- **Zero external runtime deps** -- every cryptographic algorithm is implemented from scratch
+- **Zero external runtime deps** -- every cryptographic algorithm is implemented from scratch, validated against NIST/ETSI/3GPP published test vectors, property-tested with proptest, and checked for undefined behavior under Miri
 - **State machine driven** -- `Sim::process(SimEvent) -> SimResponse`; pure function, no callbacks
-- **Constant-time enforced** -- `Secret<T>` blocks non-CT operations at compile time; DudeCT validates at runtime
+- **Constant-time enforced** -- `Secret<T>` blocks non-CT operations at compile time; DudeCT (Bayesian) validates timing properties at runtime
 - **Spec-linked** -- every public item cites its standard clause
 
 ## Quick start
