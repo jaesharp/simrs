@@ -1190,7 +1190,7 @@ mod tests {
     #[test]
     fn gsm_only_rejects_usim_cla() {
         let mut sim = make_sim();
-        sim.process(SimEvent::PowerOn);
+        let _ = sim.process(SimEvent::PowerOn);
         let rsp = sim.process(SimEvent::Apdu(&[0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00]));
         match rsp {
             SimResponse::Apdu { sw, .. } => assert_eq!(sw.to_bytes(), [0x6E, 0x00]),
