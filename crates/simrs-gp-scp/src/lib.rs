@@ -80,6 +80,7 @@ pub use scp03::{
     compute_card_cryptogram as compute_scp03_card_cryptogram,
     compute_host_cryptogram as compute_scp03_host_cryptogram,
     derive_session_keys as derive_scp03_session_keys, generate_cmac as scp03_generate_cmac,
+    parse_init_update as parse_scp03_init_update, Scp03InitUpdateResponse,
 };
 pub use snapshot::{restore_scp_state, save_scp_state, SCP_STATE_SNAPSHOT_SIZE};
 

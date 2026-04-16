@@ -9,12 +9,11 @@ publish     = false
 [dependencies]
 simrs-gp-card    = { workspace = true }
 simrs-gp-keys    = { workspace = true }
+simrs-gp-scp     = { workspace = true }
 simrs-card-api   = { workspace = true }
 simrs-transport  = { workspace = true }
 simrs-interposer = { workspace = true }
 simrs-jcsl       = { path = "../simrs-jcsl" }
-simrs-rijndael   = { workspace = true }
-simrs-secret     = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

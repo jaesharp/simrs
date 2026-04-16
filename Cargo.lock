@@ -1548,8 +1548,6 @@ dependencies = [
  "simrs-gp-scp",
  "simrs-interposer",
  "simrs-jcsl",
- "simrs-rijndael",
- "simrs-secret",
  "simrs-transport",
 ]
 

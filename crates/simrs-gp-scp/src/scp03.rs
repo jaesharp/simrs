@@ -377,6 +377,63 @@ pub(crate) fn wrap_response(
 }
 
 // ---------------------------------------------------------------------------
+// INIT UPDATE Response Parser
+// ---------------------------------------------------------------------------
+
+/// Parsed SCP03 INITIALIZE UPDATE response.
+pub struct Scp03InitUpdateResponse {
+    /// Key diversification data (10 bytes).
+    pub key_div: [u8; 10],
+    /// Key version number.
+    pub key_version: u8,
+    /// SCP identifier (should be 0x03).
+    pub scp_id: u8,
+    /// SCP03 "i" parameter.
+    pub i_param: u8,
+    /// Card challenge (8 bytes).
+    pub card_challenge: [u8; 8],
+    /// Card cryptogram (8 bytes).
+    pub card_cryptogram: [u8; 8],
+    /// Sequence counter (3 bytes, present when i indicates pseudo-random challenge).
+    pub sequence_counter: [u8; 3],
+}
+
+/// Parse an SCP03 INIT UPDATE response (29 or 32 bytes).
+pub fn parse_init_update(data: &[u8]) -> Option<Scp03InitUpdateResponse> {
+    if data.len() < 29 {
+        return None;
+    }
+
+    let mut key_div = [0u8; 10];
+    key_div.copy_from_slice(&data[0..10]);
+
+    let key_version = data[10];
+    let scp_id = data[11];
+    let i_param = data[12];
+
+    let mut card_challenge = [0u8; 8];
+    card_challenge.copy_from_slice(&data[13..21]);
+
+    let mut card_cryptogram = [0u8; 8];
+    card_cryptogram.copy_from_slice(&data[21..29]);
+
+    let mut sequence_counter = [0u8; 3];
+    if data.len() >= 32 {
+        sequence_counter.copy_from_slice(&data[29..32]);
+    }
+
+    Some(Scp03InitUpdateResponse {
+        key_div,
+        key_version,
+        scp_id,
+        i_param,
+        card_challenge,
+        card_cryptogram,
+        sequence_counter,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
 
