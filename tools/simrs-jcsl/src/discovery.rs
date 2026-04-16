@@ -887,7 +887,9 @@ mod tests {
 
         // Save and clear env vars that affect discovery.
         let saved_jcsl = std::env::var_os("SIMRS_JCSL_BINARY");
+        let saved_xdg = std::env::var_os("XDG_CACHE_HOME");
         std::env::remove_var("SIMRS_JCSL_BINARY");
+        std::env::set_var("XDG_CACHE_HOME", &tmp);
 
         let mut buf = Vec::new();
         print_status(&mut buf).unwrap();
@@ -896,6 +898,11 @@ mod tests {
         // Restore.
         if let Some(val) = saved_jcsl {
             std::env::set_var("SIMRS_JCSL_BINARY", val);
+        }
+        if let Some(val) = saved_xdg {
+            std::env::set_var("XDG_CACHE_HOME", val);
+        } else {
+            std::env::remove_var("XDG_CACHE_HOME");
         }
 
         // Redact machine-specific paths for reproducibility.
