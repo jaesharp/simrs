@@ -10,6 +10,23 @@ use simrs_transport::{Transport, TransportError};
 
 use crate::mode::AuthConfig;
 
+/// Build a `Sim` from auth config, ATR, and MF definition.
+///
+/// Shared by both `ShadowSim` and `SimTerminal` constructors.
+fn build_sim(
+    config: &AuthConfig,
+    atr: &'static [u8],
+    mf: &'static DfDef,
+) -> Sim<MilenageParams, 256> {
+    let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::SubscriberKey::reclassify(config.ki));
+    let mil = MilenageParams::with_defaults(
+        SubscriberKey::reclassify(config.k),
+        OperatorVariant::reclassify_operator_cipher(config.opc),
+    );
+    let usim = simrs_usim::UsimApp::new(mf, &[], mil);
+    Sim::<MilenageParams, 256>::new(atr, gsm, usim)
+}
+
 /// A shadow SIM instance that processes APDUs in parallel with a real card.
 pub struct ShadowSim {
     sim: Sim<MilenageParams, 256>,
@@ -29,16 +46,8 @@ pub struct SimTerminal {
 impl SimTerminal {
     /// Create a new SimTerminal with the given auth config and filesystem.
     pub fn new(config: &AuthConfig, atr: &'static [u8], mf: &'static DfDef) -> Self {
-        let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::SubscriberKey::reclassify(config.ki));
-        let mil = MilenageParams::with_defaults(
-            SubscriberKey::reclassify(config.k),
-            OperatorVariant::reclassify_operator_cipher(config.opc),
-        );
-        let usim = simrs_usim::UsimApp::new(mf, &[], mil);
-        let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
-
         Self {
-            sim,
+            sim: build_sim(config, atr, mf),
             rsp_buf: [0u8; 261],
             powered_on: false,
         }
@@ -127,16 +136,8 @@ impl ShadowSim {
     /// The GSM Ki and USIM K/OPc are configured from the [`AuthConfig`].
     /// The filesystem uses the provided MF definition.
     pub fn new(config: &AuthConfig, atr: &'static [u8], mf: &'static DfDef) -> Self {
-        let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::SubscriberKey::reclassify(config.ki));
-        let mil = MilenageParams::with_defaults(
-            SubscriberKey::reclassify(config.k),
-            OperatorVariant::reclassify_operator_cipher(config.opc),
-        );
-        let usim = simrs_usim::UsimApp::new(mf, &[], mil);
-        let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
-
         Self {
-            sim,
+            sim: build_sim(config, atr, mf),
             rsp_buf: [0u8; 261],
         }
     }
