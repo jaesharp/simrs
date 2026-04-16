@@ -1,0 +1,24 @@
+[package]
+name        = "simrs-vpcd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "vpcd (Virtual PCD) bridge -- boots a simrs SIM and serves it as a virtual smart card over TCP"
+publish     = false
+
+[[bin]]
+name = "simrs-vpcd"
+path = "src/main.rs"
+
+[dependencies]
+simrs-sim      = { workspace = true, features = ["gsm", "usim"] }
+simrs-gsm      = { workspace = true }
+simrs-usim     = { workspace = true }
+simrs-milenage = { workspace = true }
+simrs-fs       = { workspace = true }
+simrs-card-api = { workspace = true }
+simrs-secret   = { workspace = true }
+clap           = { workspace = true }
+
+[lints]
+workspace = true

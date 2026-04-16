@@ -64,6 +64,7 @@ members = [
     "tools/simrs-differential-tests",
     "tools/simrs-jacc",
     "tools/simrs-swicc",
+    "tools/simrs-vpcd",
 ]
 resolver = "2"
 

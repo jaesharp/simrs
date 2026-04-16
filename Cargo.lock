@@ -2101,6 +2101,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-vpcd"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "simrs-card-api",
+ "simrs-fs",
+ "simrs-gsm",
+ "simrs-milenage",
+ "simrs-secret",
+ "simrs-sim",
+ "simrs-usim",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
