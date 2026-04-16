@@ -22,12 +22,12 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
 
 ## Design
 
-- **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only boundary crates (TCP, OS ioctl, CLI binaries) require `std`.
-- **Zero external runtime deps** -- every cryptographic algorithm is implemented from scratch, validated against NIST/ETSI/3GPP published test vectors, property-tested with proptest, and checked for undefined behavior under Miri
-- **State machine driven** -- `Sim::process(SimEvent) -> SimResponse`; pure function, no callbacks
-- **Information flow security** -- `Secret<T>` enforces classification boundaries at compile time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); `Redact` prevents secrets in log output; uniform error responses close side-channel oracles; DudeCT (Bayesian) validates constant-time properties at runtime
-- **Differential testing against Oracle** -- GP and SCP protocol behavior validated against Oracle's reference JCVM implementation across 100+ APDU scenarios
-- **Spec-linked** -- every public item cites its standard clause
+- **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only boundary crates (TCP, OS ioctl, CLI binaries) require `std`. See [crate index](crates/README.md).
+- **Zero external runtime deps** -- every cryptographic algorithm is implemented from scratch, validated against NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), and checked for undefined behavior under [Miri](https://github.com/rust-lang/miri). See [simrs-ref](crates/simrs-ref/) for reference vectors.
+- **State machine driven** -- [`Sim::process(SimEvent) -> SimResponse`](crates/simrs-sim/); pure function, no callbacks
+- **Information flow security** -- [`Secret<T>`](crates/simrs-secret/) enforces classification boundaries at compile time; [`Redact`](crates/simrs-redact/) prevents secrets in log output; uniform error responses close side-channel oracles; [DudeCT](crates/simrs-consttime-validation/) (Bayesian) validates constant-time properties at runtime
+- **Differential testing against Oracle** -- GP and SCP protocol behavior [validated against Oracle's reference JCVM](tools/simrs-differential-tests/) across 100+ APDU scenarios
+- **Spec-linked** -- every public item cites its standard clause. See [standards map](docs/standards/)
 
 ## Quick start
 
