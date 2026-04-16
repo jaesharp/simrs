@@ -2,18 +2,22 @@
 
 SIM/USIM Emulation and Specification in Pure Embeddable Rust.
 
-## What's in the box
-
-| Area | What | Spec |
-|------|------|------|
-| **SIM / USIM** | GSM 11.11 + 3GPP TS 31.102 applications, filesystem, PIN/PUK, proactive UICC | GSM 11.11, TS 102 221, TS 31.102 |
-| **Authentication** | COMP128v1-v3, Milenage, TUAK, EAP-AKA', 5G SUCI (ECIES A/B) | TS 35.206, TS 35.231, TS 33.501 |
-| **Cryptography** | AES-128, SHA-256, DES/3DES, Keccak, RSA, X25519, HMAC, KDF | FIPS 197, FIPS 180-4, RFC 7748 |
-| **GlobalPlatform** | OPEN, ISD, applet registry, SCP01/SCP02/SCP03, card lifecycle | GP 2.1.1, GP 2.3.1 Amd D |
-| **JavaCard** | JCVM bytecode interpreter, compiler, assembler, decompiler | JC VM 2.1.1, JC RE 2.1.1 |
-| **eUICC** | TCA Profile Package parser (DER to filesystem) | TCA v3.3.1, SGP.22 |
-| **OTA** | Secured packet structure, remote APDU | TS 102 225, TS 102 226 |
-| **Tooling** | Interposer/shadow SIM, differential testing, auth vector CLI, PCAP/GSMTAP | -- |
+- **SIM / USIM** (GSM 11.11, TS 102 221, TS 31.102)
+  - GSM 11.11 + 3GPP TS 31.102 applications, filesystem, PIN/PUK, proactive UICC
+- **Authentication** (TS 35.206, TS 35.231, TS 33.501)
+  - COMP128v1-v3, Milenage, TUAK, EAP-AKA', 5G SUCI (ECIES A/B)
+- **Cryptography** (FIPS 197, FIPS 180-4, RFC 7748)
+  - AES-128, SHA-256, DES/3DES, Keccak, RSA, X25519, HMAC, KDF
+- **GlobalPlatform** (GP 2.1.1, GP 2.3.1 Amd D)
+  - OPEN, ISD, applet registry, SCP01/SCP02/SCP03, card lifecycle
+- **JavaCard** (JC VM 2.1.1, JC RE 2.1.1)
+  - JCVM bytecode interpreter, compiler, assembler, decompiler
+- **eUICC** (TCA v3.3.1, SGP.22)
+  - TCA Profile Package parser (DER to filesystem)
+- **OTA** (TS 102 225, TS 102 226)
+  - Secured packet structure, remote APDU
+- **Tooling**
+  - Interposer/shadow SIM, differential testing, auth vector CLI, PCAP/GSMTAP
 
 ## Design
 
