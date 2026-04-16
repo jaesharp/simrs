@@ -5,3 +5,4 @@ tools/*/target/
 # PDF bookmark extraction data (generated from spec PDFs)
 *_clause_urls.json
 tools/simrs-jcsl/vendor/
+differential-report.*
