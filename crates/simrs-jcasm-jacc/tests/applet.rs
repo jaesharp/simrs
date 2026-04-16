@@ -3,7 +3,7 @@
 //! Each test does a full round-trip: `jcapplet!{}` -> `build_cap_blob` ->
 //! `parse_cap` -> `JcVM::load_package` -> `execute` -> assert `ExecResult`.
 
-use simrs_jcasm_jva::jcapplet;
+use simrs_jcasm_jacc::jcapplet;
 use simrs_jcvm::cap;
 use simrs_jcvm::opcodes::ExecResult;
 use simrs_jcvm::JcVM;

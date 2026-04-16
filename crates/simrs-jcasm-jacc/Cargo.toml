@@ -1,9 +1,9 @@
 [package]
-name        = "simrs-jcasm-jva"
+name        = "simrs-jcasm-jacc"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "JVA smartcard applet compiler -- proc-macro frontend for jcapplet!{}"
+description = "JavaCard applet compiler -- proc-macro frontend for jcapplet!{}"
 
 [lib]
 proc-macro = true

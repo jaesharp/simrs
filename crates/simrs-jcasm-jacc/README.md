@@ -1,4 +1,4 @@
-# simrs-jcasm-jva
+# simrs-jcasm-jacc
 
 JVA smartcard applet compiler proc-macro.
 

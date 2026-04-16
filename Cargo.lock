@@ -1750,7 +1750,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "simrs-jcasm-jva"
+name = "simrs-jcasm-jacc"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",

@@ -57,7 +57,7 @@ let (aid, methods) = jcasm! {
 };
 ```
 
-### jcasm-jva -- proc-macro applet DSL
+### jcasm-jacc -- proc-macro applet DSL
 
 Higher-level Java Card applet definition with fields, methods, control flow, and arithmetic -- compiles through `simrs-jccompile` to JCVM bytecode at macro expansion time.
 
@@ -67,6 +67,20 @@ Higher-level Java Card applet definition with fields, methods, control flow, and
 cargo check --workspace          # build
 cargo test --workspace           # test
 cargo clippy --workspace         # lint (pedantic, zero warnings)
+```
+
+### Compile and run a JavaCard applet
+
+```bash
+# Compile a Java Card source file to a CAP package
+cargo run -p jacc -- applet.java -o applet.cap
+
+# Decompile it back to verify
+cargo run -p jacc -- --decompile applet.cap
+
+# Run the full test suite (includes JCVM execution of compiled applets)
+cargo test -p simrs-jcvm
+cargo test -p jacc
 ```
 
 ### PC/SC (pcscd / pcsc-lite)

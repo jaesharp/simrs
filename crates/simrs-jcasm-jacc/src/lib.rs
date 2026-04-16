@@ -8,7 +8,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use simrs_jcasm_jva::jcapplet;
+//! use simrs_jcasm_jacc::jcapplet;
 //!
 //! let (aid, methods) = jcapplet! {
 //!     applet Wallet(A0_00_00_00_62_01_01) {
