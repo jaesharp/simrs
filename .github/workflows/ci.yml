@@ -158,7 +158,7 @@ jobs:
       - name: Hash crate source
         id: srchash
         run: |
-          HASH=$(find crates/${{ matrix.crate }} -name '*.rs' -o -name 'Cargo.toml' | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
+          HASH=$(find crates/ -name '*.rs' -o -name 'Cargo.toml' | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
 
       - name: Check Miri result cache
