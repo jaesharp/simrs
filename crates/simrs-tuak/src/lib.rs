@@ -109,42 +109,7 @@ const OUT_OFF_CK: usize = 32; // CK: bytes 32..48
 const OUT_OFF_IK: usize = 64; // IK: bytes 64..80
 const OUT_OFF_AK: usize = 96; // AK: bytes 96..102
 
-// ---------------------------------------------------------------------------
-// Snapshot cursor helpers (local -- milenage's are pub(crate))
-// ---------------------------------------------------------------------------
-
-struct SnapWriter<'a> {
-    buf: &'a mut [u8],
-    pos: usize,
-}
-
-impl<'a> SnapWriter<'a> {
-    const fn new(buf: &'a mut [u8]) -> Self {
-        Self { buf, pos: 0 }
-    }
-    fn put_bytes(&mut self, src: &[u8]) {
-        self.buf[self.pos..self.pos + src.len()].copy_from_slice(src);
-        self.pos += src.len();
-    }
-    const fn finish(self) -> usize {
-        self.pos
-    }
-}
-
-struct SnapReader<'a> {
-    buf: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> SnapReader<'a> {
-    const fn new(buf: &'a [u8]) -> Self {
-        Self { buf, pos: 0 }
-    }
-    fn get_bytes(&mut self, dst: &mut [u8]) {
-        dst.copy_from_slice(&self.buf[self.pos..self.pos + dst.len()]);
-        self.pos += dst.len();
-    }
-}
+use simrs_milenage::{SnapReader, SnapWriter};
 
 // ---------------------------------------------------------------------------
 // OperatorVariant

@@ -397,34 +397,41 @@ impl core::fmt::Display for ParamError {
 // Snapshot cursor helpers
 // ---------------------------------------------------------------------------
 
-pub(crate) struct SnapWriter<'a> {
+/// Cursor-style writer for serializing snapshot state into a flat byte buffer.
+pub struct SnapWriter<'a> {
     buf: &'a mut [u8],
     pos: usize,
 }
 
 impl<'a> SnapWriter<'a> {
-    pub(crate) const fn new(buf: &'a mut [u8]) -> Self {
+    /// Create a new writer positioned at the start of `buf`.
+    pub const fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, pos: 0 }
     }
-    pub(crate) fn put_bytes(&mut self, src: &[u8]) {
+    /// Append `src` bytes at the current position and advance.
+    pub fn put_bytes(&mut self, src: &[u8]) {
         self.buf[self.pos..self.pos + src.len()].copy_from_slice(src);
         self.pos += src.len();
     }
-    pub(crate) const fn finish(self) -> usize {
+    /// Consume the writer and return the number of bytes written.
+    pub const fn finish(self) -> usize {
         self.pos
     }
 }
 
-pub(crate) struct SnapReader<'a> {
+/// Cursor-style reader for deserializing snapshot state from a flat byte buffer.
+pub struct SnapReader<'a> {
     buf: &'a [u8],
     pos: usize,
 }
 
 impl<'a> SnapReader<'a> {
-    pub(crate) const fn new(buf: &'a [u8]) -> Self {
+    /// Create a new reader positioned at the start of `buf`.
+    pub const fn new(buf: &'a [u8]) -> Self {
         Self { buf, pos: 0 }
     }
-    pub(crate) fn get_bytes(&mut self, dst: &mut [u8]) {
+    /// Read `dst.len()` bytes from the current position into `dst` and advance.
+    pub fn get_bytes(&mut self, dst: &mut [u8]) {
         dst.copy_from_slice(&self.buf[self.pos..self.pos + dst.len()]);
         self.pos += dst.len();
     }
