@@ -1,0 +1,8 @@
+#!/bin/sh
+# Abort commit if cargo fmt finds formatting issues.
+# Install: git config core.hooksPath .githooks
+
+if ! cargo fmt --all -- --check 2>/dev/null; then
+    echo "pre-commit: formatting issues found. Run 'cargo fmt --all' and re-stage."
+    exit 1
+fi
