@@ -15,7 +15,7 @@
 //! ```
 
 use simrs_card_api::{SimEvent, SimResponse};
-use simrs_differential_tests::{try_create_dual_card, ORACLE_ISD_AID, SIMRS_ISD_AID};
+use simrs_differential_tests::{select_aid, try_create_dual_card, ORACLE_ISD_AID, SIMRS_ISD_AID};
 
 /// Helper macro: skip if `SIMRS_JCSL_BINARY` is not set.
 macro_rules! dual_card {
@@ -62,14 +62,6 @@ fn power_on_both_return_valid_atr() {
 // -----------------------------------------------------------------------
 // SELECT by AID
 // -----------------------------------------------------------------------
-
-/// Build a SELECT-by-AID APDU: 00 A4 04 00 <Lc> <AID>.
-#[allow(clippy::cast_possible_truncation)]
-fn select_aid(aid: &[u8]) -> Vec<u8> {
-    let mut apdu = vec![0x00, 0xA4, 0x04, 0x00, aid.len() as u8];
-    apdu.extend_from_slice(aid);
-    apdu
-}
 
 #[test]
 fn select_isd_simrs_aid_on_both() {

@@ -11,7 +11,7 @@
 //! SIMRS_JCSL_BINARY=/path/to/jcsl cargo test -p simrs-differential-tests --test replay
 //! ```
 
-use simrs_differential_tests::{CompareResult, DiffSession, SIMRS_ISD_AID};
+use simrs_differential_tests::{select_aid, CompareResult, DiffSession, SIMRS_ISD_AID};
 
 /// Helper macro: create a `DiffSession` or skip the test.
 macro_rules! diff_session {
@@ -28,14 +28,6 @@ macro_rules! diff_session {
             }
         }
     };
-}
-
-/// Build a SELECT-by-AID APDU.
-#[allow(clippy::cast_possible_truncation)]
-fn select_aid(aid: &[u8]) -> Vec<u8> {
-    let mut apdu = vec![0x00, 0xA4, 0x04, 0x00, aid.len() as u8];
-    apdu.extend_from_slice(aid);
-    apdu
 }
 
 // -----------------------------------------------------------------------

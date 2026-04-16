@@ -228,6 +228,21 @@ pub const SIMRS_ISD_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
 /// ISD AID used by Oracle jcsl (8 bytes, GP 2.3 default).
 pub const ORACLE_ISD_AID: [u8; 8] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00, 0x00];
 
+/// Build a SELECT-by-AID APDU: `00 A4 04 00 <Lc> <AID>`.
+///
+/// Returns a heap-allocated APDU suitable for use with [`DualCard::exchange`]
+/// and [`DiffSession::replay_one`].
+///
+/// Note: `simrs-gp-tests` has a similar `select_by_aid` that returns a
+/// fixed-size `[u8; 261]` for its stack-buffer BDD harness. The two are
+/// intentionally separate because they target different caller conventions.
+#[allow(clippy::cast_possible_truncation)]
+pub fn select_aid(aid: &[u8]) -> Vec<u8> {
+    let mut apdu = vec![0x00, 0xA4, 0x04, 0x00, aid.len() as u8];
+    apdu.extend_from_slice(aid);
+    apdu
+}
+
 // ---------------------------------------------------------------------------
 // DualCard (low-level harness for individual tests)
 // ---------------------------------------------------------------------------
