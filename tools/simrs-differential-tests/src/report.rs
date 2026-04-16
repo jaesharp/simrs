@@ -93,6 +93,24 @@ fn sw_hex(sw: u16) -> String {
     format!("{sw:04X}")
 }
 
+/// Convert days since Unix epoch to (year, month, day).
+///
+/// Approximate civil calendar conversion -- sufficient for report timestamps.
+const fn epoch_days_to_ymd(days: u64) -> (u64, u64, u64) {
+    // Algorithm from Howard Hinnant's civil_from_days.
+    let z = days + 719_468;
+    let era = z / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
 /// Convert milliseconds to a seconds string with 3 decimal places.
 ///
 /// Precision loss from u64-to-f64 is acceptable here; test durations
@@ -163,6 +181,7 @@ impl DiffReport {
     pub fn to_junit_xml(&self) -> String {
         let mut xml = String::new();
         xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        xml.push_str("<testsuites>\n");
 
         let total = self.cases.len();
         let failures = self
@@ -177,12 +196,21 @@ impl DiffReport {
             .count();
         let elapsed = ms_to_seconds(self.cases.iter().map(|c| c.duration_ms).sum());
 
+        // ISO 8601 timestamp from epoch seconds.
+        let epoch = self.timestamp;
+        let secs = epoch % 60;
+        let mins = (epoch / 60) % 60;
+        let hours = (epoch / 3600) % 24;
+        let days = epoch / 86400;
+        // Approximate date from days since epoch (good enough for reports).
+        let (year, month, day) = epoch_days_to_ymd(days);
+        let iso_ts = format!("{year:04}-{month:02}-{day:02}T{hours:02}:{mins:02}:{secs:02}Z");
+
         let _ = writeln!(
             xml,
-            "<testsuite name=\"differential\" tests=\"{total}\" \
+            "  <testsuite name=\"differential\" tests=\"{total}\" \
              failures=\"{failures}\" skipped=\"{skipped}\" \
-             time=\"{elapsed}\" timestamp=\"{ts}\">",
-            ts = self.timestamp,
+             time=\"{elapsed}\" timestamp=\"{iso_ts}\">",
         );
 
         for case in &self.cases {
@@ -253,7 +281,8 @@ impl DiffReport {
             xml.push_str("  </testcase>\n");
         }
 
-        xml.push_str("</testsuite>\n");
+        xml.push_str("  </testsuite>\n");
+        xml.push_str("</testsuites>\n");
         xml
     }
 
