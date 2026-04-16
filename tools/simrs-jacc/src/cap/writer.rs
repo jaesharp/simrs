@@ -11,9 +11,7 @@
 //!   understood by [`simrs_jcvm::cap::parse_cap`] for `no_std` embedded loading.
 
 use simrs_jccompile::codegen::CompiledClass;
-
-/// CAP file magic number (JCVM 3.1 Section 6.3.1).
-const CAP_MAGIC: u32 = 0xDECA_FFED;
+use simrs_jcvm::cap::{CAP_MAGIC, METHOD_FLAG_STATIC};
 
 /// CAP file format version: Java Card 3.1 (major=3, minor=1).
 const CAP_MAJOR_VERSION: u8 = 3;
@@ -41,9 +39,6 @@ const COMPONENT_SIZE_COUNT: usize = 12;
 
 /// Header component flags.
 const FLAG_HAS_APPLET: u8 = 0x01;
-
-/// Method flags.
-const METHOD_FLAG_STATIC: u8 = 0x08;
 
 /// Method header flags: bit 3 = extended header format.
 const METHOD_HEADER_EXTENDED: u8 = 0x08;
