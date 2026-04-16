@@ -169,7 +169,7 @@ jobs:
         uses: mikepenz/action-junit-report@v6
         if: always()
         with:
-          report_paths: differential-report.xml
+          report_paths: tools/simrs-differential-tests/differential-report.xml
           check_name: Differential Compliance
           include_passed: true
       - uses: actions/upload-artifact@v6
@@ -177,8 +177,8 @@ jobs:
         with:
           name: differential-report
           path: |
-            differential-report.xml
-            differential-report.md
+            tools/simrs-differential-tests/differential-report.xml
+            tools/simrs-differential-tests/differential-report.md
           retention-days: 90
 
   # ---- Layer 3: Miri (depends on tests passing) ----
