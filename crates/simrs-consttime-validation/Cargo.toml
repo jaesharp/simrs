@@ -3,7 +3,7 @@ name        = "simrs-consttime-validation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "DudeCT timing verification utilities for constant-time crypto validation"
+description = "Constant-time timing verification utilities for constant-time crypto validation"
 
 [features]
 default = []

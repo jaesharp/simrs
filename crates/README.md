@@ -11,7 +11,7 @@ graph TB
         INTER["simrs-interposer<br/><i>shadow SIM proxy</i>"]
         AUTH["simrs-auth-cli<br/><i>Milenage auth CLI</i>"]
         PROF["simrs-profile<br/><i>TCA DER parser</i>"]
-        CTV["simrs-consttime-validation<br/><i>DudeCT timing</i>"]
+        CTV["simrs-consttime-validation<br/><i>CT timing</i>"]
     end
 
     subgraph boundary_layer ["Boundary / External Interface"]
@@ -193,7 +193,7 @@ graph TB
 | [`simrs-fuzz`](simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](simrs-hle/), [fs](simrs-fs/), [pcap](simrs-pcap/) | [API](../docs/architecture/#simrs-fuzz) |
 | [`simrs-interposer`](simrs-interposer/) | Meta | **no** | Shadow SIM proxy, APDU interposer with PCAP capture | [sim](simrs-sim/), [transport-tcp](simrs-transport-tcp/), [pcap](simrs-pcap/) | [API](../docs/architecture/#simrs-interposer) |
 | [`simrs-auth-cli`](simrs-auth-cli/) | Meta | **no** | Milenage auth vector CLI for LTE/UMTS test tools | [milenage](simrs-milenage/) | -- |
-| [`simrs-consttime-validation`](simrs-consttime-validation/) | Meta | **no** | DudeCT timing verification for constant-time code | [consttime](simrs-consttime/) | [API](../docs/architecture/#simrs-consttime-validation) |
+| [`simrs-consttime-validation`](simrs-consttime-validation/) | Meta | **no** | Constant-time timing verification for constant-time code | [consttime](simrs-consttime/) | [API](../docs/architecture/#simrs-consttime-validation) |
 | [`simrs-profile`](simrs-profile/) | Meta | **no** | TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem) | [fs](simrs-fs/) | [API](../docs/architecture/#simrs-profile) |
 | [`simrs-ref`](simrs-ref/) | Meta | **no** | Reference test vectors from 3GPP/ETSI specifications | [milenage](simrs-milenage/), [tuak](simrs-tuak/), [comp128](simrs-comp128/) | -- |
 

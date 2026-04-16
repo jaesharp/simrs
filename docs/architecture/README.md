@@ -1005,7 +1005,7 @@ Binary crate (`simrs-auth`). Milenage authentication vector CLI for LTE/UMTS tes
 
 **Deps:** `getrandom`
 
-DudeCT timing verification utilities. Used as a dev-dependency by `simrs-consttime`, `simrs-tuak`, and `simrs-ota` to validate constant-time properties of cryptographic implementations.
+Constant-time timing verification utilities. Used as a dev-dependency by `simrs-consttime`, `simrs-tuak`, and `simrs-ota` to validate constant-time properties of cryptographic implementations.
 
 ---
 

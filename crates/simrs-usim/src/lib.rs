@@ -8450,7 +8450,7 @@ mod proptests {
 }
 
 // ---------------------------------------------------------------------------
-// Constant-time validation (DudeCT)
+// Constant-time validation (tacet)
 //
 //   cargo test -p simrs-usim --features ct-validation --release
 // ---------------------------------------------------------------------------

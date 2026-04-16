@@ -30,7 +30,7 @@ profile-5g   = ["profile-standard"]
 profile-ims  = ["profile-full", "isim"]
 profile-all  = ["profile-full", "isim", "hpsim", "telecom", "gba"]
 
-# Constant-time validation (DudeCT) -- dev/test only
+# Constant-time validation (tacet) -- dev/test only
 ct-validation = []
 
 [dependencies]

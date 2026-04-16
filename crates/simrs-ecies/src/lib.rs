@@ -1027,7 +1027,7 @@ mod proptests {
 }
 
 // ---------------------------------------------------------------------------
-// Constant-time validation (DudeCT)
+// Constant-time validation (tacet)
 //
 //   cargo test -p simrs-ecies --features ct-validation --release
 // ---------------------------------------------------------------------------
@@ -1039,7 +1039,7 @@ mod ct_validation {
     use core::hint::black_box;
     use simrs_consttime_validation::{assert_no_timing_leak, ct_test, Rng};
 
-    /// Generate a valid P-256 scalar from RNG (both `DudeCT` classes use
+    /// Generate a valid P-256 scalar from RNG (both tacet classes use
     /// this so setup cost stays symmetric).
     fn gen_valid_scalar(rng: &mut Rng) -> [u8; 32] {
         let mut s = [0u8; 32];

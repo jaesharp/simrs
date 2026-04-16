@@ -1683,7 +1683,7 @@ mod proptests {
 }
 
 // ---------------------------------------------------------------------------
-// DudeCT constant-time validation tests
+// tacet constant-time validation tests
 // ---------------------------------------------------------------------------
 
 #[cfg(all(test, feature = "ct-validation"))]
