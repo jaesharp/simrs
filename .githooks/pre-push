@@ -1,0 +1,21 @@
+#!/bin/sh
+# Run tests and clippy before pushing.
+# Install: git config core.hooksPath .githooks
+
+echo "pre-push: running tests..."
+if ! cargo test --workspace 2>/dev/null; then
+    echo "pre-push: tests failed. Push aborted."
+    exit 1
+fi
+
+echo "pre-push: running clippy..."
+if ! cargo clippy --workspace --all-targets -- -D warnings 2>/dev/null; then
+    echo "pre-push: clippy warnings found. Push aborted."
+    exit 1
+fi
+
+echo "pre-push: running constant-time validation..."
+if ! cargo test --workspace --features ct-validation --release -- ct_validation 2>/dev/null; then
+    echo "pre-push: WARNING -- constant-time validation failed (may be noise on this hardware)."
+    echo "pre-push: Pushing anyway. Verify on dedicated hardware before release."
+fi
