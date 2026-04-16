@@ -499,6 +499,7 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[cfg(not(miri))]
 #[allow(clippy::cast_possible_truncation)]
 mod proptests {
     use super::*;

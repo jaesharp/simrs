@@ -11,6 +11,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # ---- Layer 1: fast checks (no deps) ----
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
@@ -30,28 +32,93 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  no-std:
+    name: Verify no_std Compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: >
+          cargo check --no-default-features
+          -p simrs-rijndael
+          -p simrs-des
+          -p simrs-sha256
+          -p simrs-kdf
+          -p simrs-consttime
+          -p simrs-bertlv
+          -p simrs-iso7816
+          -p simrs-fs
+          -p simrs-milenage
+          -p simrs-tuak
+          -p simrs-comp128
+          -p simrs-pin
+          -p simrs-proactive
+          -p simrs-usim
+          -p simrs-ecies
+          -p simrs-ota
+          -p simrs-pcap
+          -p simrs-secret
+          -p simrs-redact
+
+  # ---- Layer 2: tests (depends on fmt + clippy) ----
 
   test:
     name: Test
+    needs: [fmt, clippy]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
       - run: cargo test --workspace --exclude simrs-security-tests
+
+  test-features:
+    name: Test (${{ matrix.name }})
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "sim: gsm-only"
+            args: "-p simrs-sim --no-default-features --features gsm"
+          - name: "sim: usim-only"
+            args: "-p simrs-sim --no-default-features --features usim"
+          - name: "sim: gsm+usim+gp-applet"
+            args: "-p simrs-sim --features gsm,usim,gp-applet"
+          - name: "usim: profile-minimal"
+            args: "-p simrs-usim --no-default-features --features profile-minimal"
+          - name: "usim: profile-full+isim+hpsim+gba"
+            args: "-p simrs-usim --features profile-full,isim,hpsim,gba"
+          - name: "gp-card: sim"
+            args: "-p simrs-gp-card --features sim"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test ${{ matrix.args }}
 
   security-tests:
     name: Security tests
+    needs: [fmt, clippy]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
       - run: cargo test -p simrs-security-tests
 
   spec-tests:
     name: Spec tests
+    needs: [fmt, clippy]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -62,8 +129,11 @@ jobs:
       - run: cargo clippy --manifest-path tools/simrs-spec-tests/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --manifest-path tools/simrs-spec-tests/Cargo.toml --test cucumber
 
+  # ---- Layer 3: Miri (depends on tests passing) ----
+
   miri:
     name: Miri (${{ matrix.crate }})
+    needs: [test]
     runs-on: ubuntu-latest
     continue-on-error: true
     strategy:
@@ -96,39 +166,16 @@ jobs:
           PROPTEST_CASES=10
           cargo miri test -p ${{ matrix.crate }}
 
-  no-std:
-    name: no_std
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@nightly
-      - run: >
-          cargo check --no-default-features
-          -p simrs-rijndael
-          -p simrs-des
-          -p simrs-sha256
-          -p simrs-kdf
-          -p simrs-consttime
-          -p simrs-bertlv
-          -p simrs-iso7816
-          -p simrs-fs
-          -p simrs-milenage
-          -p simrs-tuak
-          -p simrs-comp128
-          -p simrs-pin
-          -p simrs-proactive
-          -p simrs-usim
-          -p simrs-ecies
-          -p simrs-ota
-          -p simrs-pcap
-          -p simrs-secret
-          -p simrs-redact
+  # ---- Layer 2 (parallel): build artifacts ----
 
   hle-ffi:
     name: HLE FFI cdylib
+    needs: [fmt, clippy]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
       - run: cargo build --manifest-path tools/simrs-hle-ffi/Cargo.toml --release

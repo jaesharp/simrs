@@ -1587,6 +1587,73 @@ mod tests {
         assert!(mgr.is_access_granted(PIN1));
     }
 
+    // -- PIN value edge cases --
+
+    #[test]
+    fn verify_all_zeros_pin() {
+        // All-zeros PIN: 0x30303030 + 0xFF padding (ASCII "0000").
+        let mut mgr = PinManager::<1>::new();
+        let all_zeros = PinValue::new([0x30, 0x30, 0x30, 0x30, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk = ascii_pin("12345678");
+        mgr.add_pin(PinKey::PIN1, &all_zeros, 3, &puk, 10, true)
+            .unwrap();
+        assert_eq!(mgr.verify(PinKey::PIN1, &all_zeros), PinResult::Success);
+        assert!(mgr.is_verified(PinKey::PIN1));
+        assert_eq!(mgr.retries(PinKey::PIN1), Some(3));
+    }
+
+    #[test]
+    fn verify_all_nines_pin() {
+        // All-nines PIN: 0x39393939 + 0xFF padding (ASCII "9999").
+        let mut mgr = PinManager::<1>::new();
+        let all_nines = PinValue::new([0x39, 0x39, 0x39, 0x39, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let puk = ascii_pin("12345678");
+        mgr.add_pin(PinKey::PIN1, &all_nines, 3, &puk, 10, true)
+            .unwrap();
+        assert_eq!(mgr.verify(PinKey::PIN1, &all_nines), PinResult::Success);
+        assert!(mgr.is_verified(PinKey::PIN1));
+    }
+
+    #[test]
+    fn unblock_with_new_pin_equals_old_pin() {
+        // Unblock where new PIN = old PIN.
+        let mut mgr = PinManager::<1>::new();
+        let pin_val = ascii_pin("1234");
+        let puk = ascii_pin("12345678");
+        mgr.add_pin(PinKey::PIN1, &pin_val, 3, &puk, 10, true)
+            .unwrap();
+        // Block the PIN.
+        for _ in 0..3 {
+            let _ = mgr.verify(PinKey::PIN1, &ascii_pin("0000"));
+        }
+        assert!(mgr.is_blocked(PinKey::PIN1));
+        // Unblock with same PIN value.
+        assert_eq!(
+            mgr.unblock(PinKey::PIN1, &puk, &pin_val),
+            PinResult::Success
+        );
+        assert_eq!(mgr.retries(PinKey::PIN1), Some(3));
+        assert_eq!(mgr.verify(PinKey::PIN1, &pin_val), PinResult::Success);
+    }
+
+    #[test]
+    fn verify_8_digit_max_length_pin() {
+        // 8-digit PIN (max length, no 0xFF padding).
+        let mut mgr = PinManager::<1>::new();
+        let max_pin = PinValue::new([0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]);
+        assert_eq!(max_pin.declassify_len(), 8);
+        let puk = ascii_pin("12345678");
+        mgr.add_pin(PinKey::PIN1, &max_pin, 3, &puk, 10, true)
+            .unwrap();
+        assert_eq!(mgr.verify(PinKey::PIN1, &max_pin), PinResult::Success);
+        assert!(mgr.is_verified(PinKey::PIN1));
+        // A shorter PIN must fail.
+        assert!(matches!(
+            mgr.verify(PinKey::PIN1, &ascii_pin("1234567")),
+            PinResult::WrongPin { .. }
+        ));
+    }
+
     #[test]
     fn pin_error_display_non_empty() {
         let variants: &[PinError] = &[PinError::DuplicateKey, PinError::SlotsFull];
@@ -1605,6 +1672,7 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[cfg(not(miri))]
 mod proptests {
     use super::*;
     use proptest::prelude::*;

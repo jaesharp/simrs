@@ -515,6 +515,64 @@ mod tests {
         assert_eq!(length_of_length(256), 3);
     }
 
+    // -- BER length boundary roundtrips --
+
+    #[test]
+    fn roundtrip_boundary_127_bytes() {
+        let val = [0xAA; 127]; // last short-form length
+        let mut buf = [0u8; 256];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag_length_value(0x81, &val).unwrap();
+        let written = enc.len();
+
+        let mut dec = Decoder::new(&buf[..written]);
+        let obj = dec.next().unwrap().unwrap();
+        assert_eq!(obj.tag, 0x81);
+        assert_eq!(obj.value, &val[..]);
+    }
+
+    #[test]
+    fn roundtrip_boundary_128_bytes() {
+        let val = [0xBB; 128]; // first 0x81 long-form length
+        let mut buf = [0u8; 256];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag_length_value(0x82, &val).unwrap();
+        let written = enc.len();
+
+        let mut dec = Decoder::new(&buf[..written]);
+        let obj = dec.next().unwrap().unwrap();
+        assert_eq!(obj.tag, 0x82);
+        assert_eq!(obj.value, &val[..]);
+    }
+
+    #[test]
+    fn roundtrip_boundary_255_bytes() {
+        let val = [0xCC; 255]; // last 0x81 long-form length
+        let mut buf = [0u8; 512];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag_length_value(0x83, &val).unwrap();
+        let written = enc.len();
+
+        let mut dec = Decoder::new(&buf[..written]);
+        let obj = dec.next().unwrap().unwrap();
+        assert_eq!(obj.tag, 0x83);
+        assert_eq!(obj.value, &val[..]);
+    }
+
+    #[test]
+    fn roundtrip_boundary_256_bytes() {
+        let val = [0xDD; 256]; // first 0x82 long-form length
+        let mut buf = [0u8; 512];
+        let mut enc = Encoder::new(&mut buf);
+        enc.tag_length_value(0x84, &val).unwrap();
+        let written = enc.len();
+
+        let mut dec = Decoder::new(&buf[..written]);
+        let obj = dec.next().unwrap().unwrap();
+        assert_eq!(obj.tag, 0x84);
+        assert_eq!(obj.value, &val[..]);
+    }
+
     // -- BER long-form lengths --
 
     #[test]
@@ -636,6 +694,7 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[cfg(not(miri))]
 mod proptests {
     use super::*;
     use proptest::prelude::*;

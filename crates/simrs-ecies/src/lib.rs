@@ -710,6 +710,115 @@ mod tests {
         assert_ne!(r1.mac, r2.mac);
     }
 
+    // -- X25519 edge case tests --
+
+    #[test]
+    fn x25519_zero_scalar_clamps_to_nonzero() {
+        // X25519 with zero scalar: RFC 7748 clamping sets bits 0,1,2 clear and
+        // bit 254 set, so the effective scalar is never zero. The result should
+        // be a valid non-zero point.
+        let zero_sk = Secret::new([0u8; 32]);
+        let pk = x25519::x25519_base(&zero_sk);
+        // After clamping, the scalar has bit 254 set, so the public key
+        // must not be all zeros.
+        assert_ne!(*pk.as_bytes(), [0u8; 32]);
+    }
+
+    // -- AES-CTR counter boundary tests --
+
+    #[test]
+    fn aes128_ctr_counter_increment_at_0xff_boundary() {
+        // Counter starting at all-0xFF in the last byte. The counter should
+        // carry into the next byte, producing a different keystream block
+        // for the second 16 bytes than a naive non-carrying counter would.
+        let key = Secret::new([0x42u8; 16]);
+        let mut iv = [0u8; 16];
+        iv[15] = 0xFF; // Counter at 0xFF boundary.
+
+        // Encrypt 32 bytes (2 blocks) -- exercises counter carry from 0xFF to 0x00/0x01.
+        let pt = [0u8; 32];
+        let mut ct = [0u8; 32];
+        aes128_ctr(&key, &iv, &pt, &mut ct);
+
+        // Decrypt must recover plaintext.
+        let mut recovered = [0u8; 32];
+        aes128_ctr(&key, &iv, &ct, &mut recovered);
+        assert_eq!(recovered, pt);
+
+        // The two keystream blocks (ct with zero input = raw keystream) must differ.
+        assert_ne!(&ct[..16], &ct[16..]);
+    }
+
+    // -- ECIES Profile A edge case tests --
+
+    #[test]
+    fn ecies_profile_a_scalar_one() {
+        // Profile A roundtrip with scalar = 1 (after clamping, effective scalar
+        // differs from 1, but the operation must succeed and roundtrip).
+        let hn_sk = Secret::new([0x55u8; 32]);
+        let hn_pk = x25519::x25519_base(&hn_sk);
+
+        let mut one = [0u8; 32];
+        one[0] = 1; // little-endian scalar = 1
+        let eph_sk = Secret::new(one);
+        let msin = [0x12, 0x34, 0x56, 0x78, 0x9A];
+
+        let result = ecies_profile_a_encrypt(&hn_pk, &msin, &eph_sk);
+
+        // HN-side decrypt.
+        let shared_secret = x25519::x25519(&hn_sk, &result.ephemeral_pk);
+        let mut kdf_out = [0u8; 64];
+        simrs_kdf::kdf_x963(
+            shared_secret.declassify_ref(),
+            result.ephemeral_pk.as_bytes(),
+            64,
+            &mut kdf_out,
+        );
+        let keys = split_kdf_output(&kdf_out);
+
+        let mut decrypted = [0u8; 16];
+        aes128_ctr(
+            &keys.enc_key,
+            &keys.icb,
+            &result.ciphertext[..result.ct_len],
+            &mut decrypted,
+        );
+        assert_eq!(&decrypted[..msin.len()], &msin);
+    }
+
+    #[test]
+    fn ecies_profile_a_all_ff_ephemeral_key() {
+        // Profile A roundtrip with all-0xFF ephemeral key. X25519 clamping
+        // modifies bits, but the result must still be a valid ECDH exchange.
+        let hn_sk = Secret::new([0x77u8; 32]);
+        let hn_pk = x25519::x25519_base(&hn_sk);
+
+        let eph_sk = Secret::new([0xFF; 32]);
+        let msin = [0xAB, 0xCD, 0xEF, 0x01, 0x23];
+
+        let result = ecies_profile_a_encrypt(&hn_pk, &msin, &eph_sk);
+
+        // HN-side decrypt.
+        let shared_secret = x25519::x25519(&hn_sk, &result.ephemeral_pk);
+        let mut kdf_out = [0u8; 64];
+        simrs_kdf::kdf_x963(
+            shared_secret.declassify_ref(),
+            result.ephemeral_pk.as_bytes(),
+            64,
+            &mut kdf_out,
+        );
+        let keys = split_kdf_output(&kdf_out);
+
+        let mut decrypted = [0u8; 16];
+        aes128_ctr(
+            &keys.enc_key,
+            &keys.icb,
+            &result.ciphertext[..result.ct_len],
+            &mut decrypted,
+        );
+        assert_eq!(&decrypted[..msin.len()], &msin);
+    }
+
     // -- Counter increment tests --
 
     #[test]
@@ -928,6 +1037,7 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[cfg(not(miri))]
 mod proptests {
     use super::*;
     use proptest::prelude::*;

@@ -486,6 +486,65 @@ mod tests {
         let data = [0xEF; 56];
         let _ = sha256(&data);
     }
+
+    // -- Streaming split boundary tests --
+
+    #[test]
+    fn stream_55_bytes_matches_oneshot() {
+        // 55 bytes: padding fits in same block (55 + 1 + 8 = 64).
+        let data = [0xAA; 55];
+        let oneshot = sha256(&data);
+        let mut h = Sha256::new();
+        h.update(&data);
+        assert_eq!(h.finalize(), oneshot);
+    }
+
+    #[test]
+    fn stream_56_bytes_matches_oneshot() {
+        // 56 bytes: padding spills to a second block (56 + 1 + 8 = 65 > 64).
+        let data = [0xBB; 56];
+        let oneshot = sha256(&data);
+        let mut h = Sha256::new();
+        h.update(&data);
+        assert_eq!(h.finalize(), oneshot);
+    }
+
+    #[test]
+    fn stream_63_bytes_matches_oneshot() {
+        // 63 bytes: one byte before block boundary.
+        let data = [0xCC; 63];
+        let oneshot = sha256(&data);
+        let mut h = Sha256::new();
+        h.update(&data);
+        assert_eq!(h.finalize(), oneshot);
+    }
+
+    #[test]
+    fn stream_64_bytes_matches_oneshot() {
+        // 64 bytes: exactly one block.
+        let data = [0xDD; 64];
+        let oneshot = sha256(&data);
+        let mut h = Sha256::new();
+        h.update(&data);
+        assert_eq!(h.finalize(), oneshot);
+    }
+
+    #[test]
+    fn stream_54_then_3_bytes_crosses_padding_boundary() {
+        // 54 bytes + 3 bytes = 57 total (crosses the 55/56 padding boundary
+        // when split across two update calls).
+        let data_a = [0xEE; 54];
+        let data_b = [0xFF; 3];
+        let mut combined = [0u8; 57];
+        combined[..54].copy_from_slice(&data_a);
+        combined[54..].copy_from_slice(&data_b);
+        let oneshot = sha256(&combined);
+
+        let mut h = Sha256::new();
+        h.update(&data_a);
+        h.update(&data_b);
+        assert_eq!(h.finalize(), oneshot);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -493,6 +552,7 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[cfg(not(miri))]
 mod proptests {
     use super::*;
     use proptest::prelude::*;
