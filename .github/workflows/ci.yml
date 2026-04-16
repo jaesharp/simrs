@@ -172,14 +172,21 @@ jobs:
           report_paths: tools/simrs-differential-tests/differential-report.xml
           check_name: Differential Compliance
           include_passed: true
+          require_tests: true
+          fail_on_failure: true
+          fail_on_parse_error: true
+      - name: Verify report files exist
+        run: |
+          test -f tools/simrs-differential-tests/differential-report.xml || { echo "FATAL: JUnit XML report not found"; exit 1; }
+          test -f tools/simrs-differential-tests/differential-report.md || { echo "FATAL: Markdown report not found"; exit 1; }
       - uses: actions/upload-artifact@v6
-        if: always()
         with:
           name: differential-report
           path: |
             tools/simrs-differential-tests/differential-report.xml
             tools/simrs-differential-tests/differential-report.md
           retention-days: 90
+          if-no-files-found: error
 
   # ---- Layer 3: Miri (depends on tests passing) ----
 
