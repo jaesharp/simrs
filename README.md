@@ -28,6 +28,39 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
 - **Information flow security** -- `Secret<T>` enforces classification boundaries at compile time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); `Redact` prevents secrets in log output; uniform error responses close side-channel oracles; DudeCT (Bayesian) validates constant-time properties at runtime
 - **Spec-linked** -- every public item cites its standard clause
 
+## Toolchains
+
+### jacc -- JavaCard-Approximately-Compatible Compiler
+
+Full compilation pipeline from Java Card source to on-card bytecode:
+
+```
+.java / .jva source  -->  jacc  -->  .cap (JCVM bytecode package)
+.class / .jvc file   -->  jacc  -->  .cap
+.cap                 -->  jacc  -->  assembly text (--disasm)
+.cap                 -->  jacc  -->  JVA source (--decompile)
+```
+
+Includes IR with constant folding, dead code elimination, strength reduction, and a branch-aware peephole optimizer with side-effect safety guards. Source maps (`.jvamap`) link bytecode offsets back to source lines.
+
+### jcasm -- proc-macro assembler
+
+Inline JCVM bytecode assembly in Rust tests and build scripts:
+
+```rust
+let (aid, methods) = jcasm! {
+    applet A0_00_00_00_62 {
+        fn process() {
+            sconst_3; sconst_2; sadd; sreturn;
+        }
+    }
+};
+```
+
+### jcasm-jva -- proc-macro applet DSL
+
+Higher-level Java Card applet definition with fields, methods, control flow, and arithmetic -- compiles through `simrs-jccompile` to JCVM bytecode at macro expansion time.
+
 ## Quick start
 
 ```bash
