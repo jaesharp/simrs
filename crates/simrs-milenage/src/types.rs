@@ -363,7 +363,7 @@ pub type Amf = AuthManagementField;
 /// subscriber key K. The network compares it against XRES.
 ///
 /// Per [3GPP TS 33.102 V19.1.0 clause 6.3](../../../docs/specs/3gpp/ts-33.102/ts_133102v190100p.pdf).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct AuthResponse([u8; 8]);
 
 impl AuthResponse {
@@ -385,6 +385,13 @@ impl From<[u8; 8]> for AuthResponse {
     }
 }
 
+impl CtEq for AuthResponse {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> CtBool {
+        self.0.ct_eq(&other.0)
+    }
+}
+
 /// 3GPP abbreviation for [`AuthResponse`].
 ///
 /// The specs (TS 33.102 clause 6.3) use "RES" (Authentication Response).
@@ -403,7 +410,7 @@ pub type Res = AuthResponse;
 /// to authenticate the network. Comparison MUST be constant-time.
 ///
 /// Per [3GPP TS 33.102 V19.1.0 clause 6.3](../../../docs/specs/3gpp/ts-33.102/ts_133102v190100p.pdf).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct NetworkMac([u8; 8]);
 
 impl NetworkMac {
@@ -428,7 +435,7 @@ impl From<[u8; 8]> for NetworkMac {
 impl CtEq for NetworkMac {
     #[inline]
     fn ct_eq(&self, other: &Self) -> CtBool {
-        simrs_consttime::ct_eq(&self.0, &other.0)
+        self.0.ct_eq(&other.0)
     }
 }
 
@@ -450,7 +457,7 @@ pub type MacA = NetworkMac;
 /// out of range. Comparison MUST be constant-time.
 ///
 /// Per [3GPP TS 33.102 V19.1.0 clause 6.3](../../../docs/specs/3gpp/ts-33.102/ts_133102v190100p.pdf).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct ResyncMac([u8; 8]);
 
 impl ResyncMac {
@@ -475,7 +482,7 @@ impl From<[u8; 8]> for ResyncMac {
 impl CtEq for ResyncMac {
     #[inline]
     fn ct_eq(&self, other: &Self) -> CtBool {
-        simrs_consttime::ct_eq(&self.0, &other.0)
+        self.0.ct_eq(&other.0)
     }
 }
 
@@ -600,3 +607,38 @@ impl From<[u8; 16]> for AuthToken {
 /// without requiring 3GPP nomenclature.
 #[deprecated(note = "3GPP AUTN (TS 33.102 6.3) -- prefer AuthToken")]
 pub type Autn = AuthToken;
+
+// ---------------------------------------------------------------------------
+// Test-only PartialEq/Eq for security-sensitive types
+//
+// Production code must use CtEq to avoid timing side-channels.
+// These impls exist only so test assertions (assert_eq!, assert_ne!)
+// work without requiring ct_eq() boilerplate in every test.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+impl PartialEq for NetworkMac {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+#[cfg(test)]
+impl Eq for NetworkMac {}
+
+#[cfg(test)]
+impl PartialEq for ResyncMac {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+#[cfg(test)]
+impl Eq for ResyncMac {}
+
+#[cfg(test)]
+impl PartialEq for AuthResponse {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+#[cfg(test)]
+impl Eq for AuthResponse {}

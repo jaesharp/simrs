@@ -1,26 +1,29 @@
 # simrs
 
 Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embeddable Rust (`no_std`).
+If it's not supported - it's a bug.
 
 - **SIM / USIM / ISIM / HPSIM** (GSM 11.11, TS 102 221, TS 31.102, TS 31.103, TS 31.104)
   - SIM, USIM, ISIM, HPSIM applications with filesystem, PIN/PUK, proactive UICC
-  - Runs standalone or as a GlobalPlatform applet alongside JavaCard bytecode applets
+    - eUICC profiles (TCA v3.3.1, SGP.22)
+      - TCA Profile Package DER parser -- ingest carrier-distributed profiles into a live filesystem
+    - OTA (TS 102 225, TS 102 226)
+      - Secured packet structure, remote APDU
+  - Runs standalone or as a GlobalPlatform applet alongside JavaCard Bytecode or Rust Native Applets
 - **GlobalPlatform card OS** (GP 2.1.1, GP 2.3.1 Amd D)
   - OPEN, ISD, applet registry, SCP01/SCP02/SCP03, card lifecycle
-- **JavaCard toolchain** (JC VM 2.1.1, JC RE 2.1.1)
-  - JCVM bytecode interpreter, `jacc` compiler (IR, optimizer, source maps), proc-macro assembler, decompiler
-- Authentication (TS 35.206, TS 35.231, TS 33.501)
-  - COMP128v1-v3, Milenage, TUAK, EAP-AKA', 5G SUCI (ECIES A/B)
-- Cryptography (FIPS 197, FIPS 180-4, RFC 7748)
-  - AES-128, SHA-256, DES/3DES, Keccak, RSA, X25519, HMAC, KDF
-- eUICC profiles (TCA v3.3.1, SGP.22)
-  - TCA Profile Package DER parser -- ingest carrier-distributed profiles into a live filesystem
-- OTA (TS 102 225, TS 102 226)
-  - Secured packet structure, remote APDU
+- **Complete JavaCard toolchain** (JC VM 2.1.1, JC RE 2.1.1)
+  - JCVM-compatible bytecode interpreter
+  - `jacc` compiler (IR, optimizer, source maps)
+  - Rust-inline Assembler/Compiler Support with macros
+  - Decompiler
 - Tooling
-  - Interposer/shadow SIM, differential testing, auth vector CLI, PCAP/GSMTAP
+  - Interposer/shadow SIM
+    - PCAP/GSMTAP Capture
+  - Differential Testing Framework
+  - and More
 
-## Design
+## Research Flexibility Built to be Deployed in The Real World
 
 - **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only boundary crates (TCP, OS ioctl, CLI binaries) require `std`. See [crate index](crates/README.md).
 - **Zero external runtime deps** -- every cryptographic algorithm is implemented from scratch, validated against NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis), and [adversarially tested](tools/simrs-security-tests/) for protocol-level vulnerabilities. See [simrs-ref](crates/simrs-ref/) for reference test vectors.

@@ -23,6 +23,7 @@
 //! # Example
 //!
 //! ```
+//! use simrs_consttime::CtEq;
 //! use simrs_ecies::{ecies_profile_a_encrypt, MacTag, x25519};
 //! use simrs_secret::Secret;
 //!
@@ -36,7 +37,7 @@
 //! let result = ecies_profile_a_encrypt(&hn_pk, &msin, &eph_sk);
 //!
 //! assert_eq!(result.ct_len, msin.len());
-//! assert_ne!(result.mac, MacTag::new([0u8; 8]));
+//! assert!(!result.mac.ct_eq(&MacTag::new([0u8; 8])).into_bool());
 //! ```
 #![no_std]
 #![allow(clippy::many_single_char_names)]
@@ -48,6 +49,7 @@ extern crate std;
 pub mod p256;
 pub mod x25519;
 
+use simrs_consttime::{CtBool, CtEq};
 use simrs_kdf::{kdf_x963, HmacSha256};
 use simrs_rijndael::Rijndael;
 use simrs_secret::Secret;
@@ -128,7 +130,7 @@ impl From<[u8; 65]> for P256UncompressedPublicKey {
 /// Truncated HMAC-SHA-256 authentication tag (8 bytes).
 ///
 /// Used in ECIES for message authentication per 3GPP TS 33.501 Annex C.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct MacTag([u8; 8]);
 impl MacTag {
     /// Wrap a raw 8-byte array as a truncated MAC tag.
@@ -145,6 +147,13 @@ impl MacTag {
 impl From<[u8; 8]> for MacTag {
     fn from(raw: [u8; 8]) -> Self {
         Self(raw)
+    }
+}
+
+impl CtEq for MacTag {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> CtBool {
+        self.0.ct_eq(&other.0)
     }
 }
 
@@ -414,6 +423,21 @@ pub fn ecies_profile_b_encrypt(
         mac,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Test-only PartialEq/Eq for MacTag
+//
+// Production code must use CtEq to avoid timing side-channels.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+impl PartialEq for MacTag {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+#[cfg(test)]
+impl Eq for MacTag {}
 
 // ---------------------------------------------------------------------------
 // Tests

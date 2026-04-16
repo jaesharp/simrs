@@ -91,8 +91,7 @@ static VECTORS: [TuakVector; 1] = [TuakVector {
 mod tests {
     use super::*;
     use simrs_milenage::{
-        AnonymityKey, AuthChallenge, AuthManagementField, NetworkMac, ResyncMac, SequenceNumber,
-        SubscriberKey,
+        AnonymityKey, AuthChallenge, AuthManagementField, SequenceNumber, SubscriberKey,
     };
     use simrs_tuak::{OperatorVariant, TuakParams};
 
@@ -115,14 +114,14 @@ mod tests {
             let sqn = SequenceNumber::new(v.sqn);
             let amf = AuthManagementField::new(v.amf);
             assert_eq!(
-                p.compute_auth_mac(&rand, &sqn, &amf),
-                NetworkMac::new(v.expected_f1),
+                *p.compute_auth_mac(&rand, &sqn, &amf).as_bytes(),
+                v.expected_f1,
                 "Vector {} f1 mismatch",
                 i
             );
             assert_eq!(
-                p.compute_resync_mac(&rand, &sqn, &amf),
-                ResyncMac::new(v.expected_f1_star),
+                *p.compute_resync_mac(&rand, &sqn, &amf).as_bytes(),
+                v.expected_f1_star,
                 "Vector {} f1* mismatch",
                 i
             );

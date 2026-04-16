@@ -35,6 +35,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+use simrs_consttime::{CtBool, CtEq};
 use simrs_milenage::{AuthChallenge, CipherKey, IntegrityKey};
 use simrs_secret::Secret;
 use simrs_sha256::Sha256;
@@ -949,7 +950,7 @@ pub type PlmnId = NetworkId;
 /// key (AK), used to hide the SQN during authentication.
 ///
 /// Per TS 33.102 clause 6.3.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct ConcealedSequenceNumber([u8; 6]);
 
 impl ConcealedSequenceNumber {
@@ -970,6 +971,13 @@ impl From<[u8; 6]> for ConcealedSequenceNumber {
     }
 }
 
+impl CtEq for ConcealedSequenceNumber {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> CtBool {
+        self.0.ct_eq(&other.0)
+    }
+}
+
 /// 3GPP abbreviation for [`ConcealedSequenceNumber`].
 ///
 /// The specs (TS 33.102 clause 6.3) use "SQN XOR AK". We prefer
@@ -984,7 +992,7 @@ pub type SqnXorAk = ConcealedSequenceNumber;
 /// in the 5G-AKA protocol.
 ///
 /// Per [TS 33.501](../../../docs/specs/3gpp/ts-33.501/ts_133501v170700p.pdf) Annex A.4.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct HashResponse([u8; 16]);
 
 impl HashResponse {
@@ -1005,6 +1013,13 @@ impl From<[u8; 16]> for HashResponse {
     }
 }
 
+impl CtEq for HashResponse {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> CtBool {
+        self.0.ct_eq(&other.0)
+    }
+}
+
 /// 3GPP abbreviation for [`HashResponse`].
 ///
 /// The specs (TS 33.501 Annex A.4) use "RES*" (hashed response).
@@ -1012,6 +1027,30 @@ impl From<[u8; 16]> for HashResponse {
 /// without requiring 3GPP nomenclature.
 #[deprecated(note = "3GPP RES* (TS 33.501 A.4) -- prefer HashResponse")]
 pub type ResStar = HashResponse;
+
+// ---------------------------------------------------------------------------
+// Test-only PartialEq/Eq for security-sensitive types
+//
+// Production code must use CtEq to avoid timing side-channels.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+impl PartialEq for ConcealedSequenceNumber {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+#[cfg(test)]
+impl Eq for ConcealedSequenceNumber {}
+
+#[cfg(test)]
+impl PartialEq for HashResponse {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+#[cfg(test)]
+impl Eq for HashResponse {}
 
 // ---------------------------------------------------------------------------
 // Tests

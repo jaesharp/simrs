@@ -1801,6 +1801,7 @@ name = "simrs-kdf"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "simrs-consttime",
  "simrs-consttime-validation",
  "simrs-milenage",
  "simrs-secret",

@@ -235,8 +235,8 @@ static VECTORS: [MilenageVector; 6] = [
 mod tests {
     use super::*;
     use simrs_milenage::{
-        AnonymityKey, AuthChallenge, AuthManagementField, AuthResponse, MilenageParams, NetworkMac,
-        OperatorVariant, ResyncMac, SequenceNumber, SubscriberKey,
+        AnonymityKey, AuthChallenge, AuthManagementField, MilenageParams, OperatorVariant,
+        SequenceNumber, SubscriberKey,
     };
 
     #[test]
@@ -250,20 +250,20 @@ mod tests {
             let sqn = SequenceNumber::new(v.sqn);
             let amf = AuthManagementField::new(v.amf);
             assert_eq!(
-                p.compute_auth_mac(&rand, &sqn, &amf),
-                NetworkMac::new(v.expected_f1),
+                *p.compute_auth_mac(&rand, &sqn, &amf).as_bytes(),
+                v.expected_f1,
                 "Test Set {} f1 (MAC-A) mismatch",
                 i + 1
             );
             assert_eq!(
-                p.compute_resync_mac(&rand, &sqn, &amf),
-                ResyncMac::new(v.expected_f1_star),
+                *p.compute_resync_mac(&rand, &sqn, &amf).as_bytes(),
+                v.expected_f1_star,
                 "Test Set {} f1* (MAC-S) mismatch",
                 i + 1
             );
             assert_eq!(
-                p.compute_response(&rand),
-                AuthResponse::new(v.expected_f2),
+                *p.compute_response(&rand).as_bytes(),
+                v.expected_f2,
                 "Test Set {} f2 (RES) mismatch",
                 i + 1
             );

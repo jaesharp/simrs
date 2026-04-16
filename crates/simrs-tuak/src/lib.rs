@@ -939,12 +939,13 @@ mod tests {
             OperatorVariant::operator_parameter(TS1_TOP),
         );
         assert_eq!(
-            p.compute_auth_mac(
+            *p.compute_auth_mac(
                 &AuthChallenge::new(TS1_RAND),
                 &SequenceNumber::new(TS1_SQN),
                 &AuthManagementField::new(TS1_AMF)
-            ),
-            NetworkMac::new(TS1_F1)
+            )
+            .as_bytes(),
+            TS1_F1
         );
     }
 
@@ -955,12 +956,13 @@ mod tests {
             OperatorVariant::operator_parameter(TS1_TOP),
         );
         assert_eq!(
-            p.compute_resync_mac(
+            *p.compute_resync_mac(
                 &AuthChallenge::new(TS1_RAND),
                 &SequenceNumber::new(TS1_SQN),
                 &AuthManagementField::new(TS1_AMF)
-            ),
-            ResyncMac::new(TS1_F1_STAR)
+            )
+            .as_bytes(),
+            TS1_F1_STAR
         );
     }
 
@@ -1083,8 +1085,12 @@ mod tests {
             OperatorVariant::operator_cipher(topc),
         );
         assert_eq!(
-            p_top.compute_response(&AuthChallenge::new(TS1_RAND)),
-            p_topc.compute_response(&AuthChallenge::new(TS1_RAND))
+            p_top
+                .compute_response(&AuthChallenge::new(TS1_RAND))
+                .as_bytes(),
+            p_topc
+                .compute_response(&AuthChallenge::new(TS1_RAND))
+                .as_bytes()
         );
     }
 
@@ -1137,8 +1143,9 @@ mod tests {
         );
         let challenge2 = [0x99u8; 16];
         assert_ne!(
-            p.compute_response(&AuthChallenge::new(TS1_RAND)),
-            p.compute_response(&AuthChallenge::new(challenge2))
+            *p.compute_response(&AuthChallenge::new(TS1_RAND)).as_bytes(),
+            *p.compute_response(&AuthChallenge::new(challenge2))
+                .as_bytes()
         );
         assert_ne!(
             *p.compute_cipher_key(&AuthChallenge::new(TS1_RAND))
@@ -1161,8 +1168,8 @@ mod tests {
             OperatorVariant::operator_parameter(TS1_TOP),
         );
         assert_eq!(
-            p.compute_response(&AuthChallenge::new(TS1_RAND)),
-            p.compute_response(&AuthChallenge::new(TS1_RAND))
+            p.compute_response(&AuthChallenge::new(TS1_RAND)).as_bytes(),
+            p.compute_response(&AuthChallenge::new(TS1_RAND)).as_bytes()
         );
         assert_eq!(
             *p.compute_cipher_key(&AuthChallenge::new(TS1_RAND))
@@ -1184,24 +1191,26 @@ mod tests {
             OperatorVariant::operator_parameter(TS1_TOP),
         );
         assert_ne!(
-            p.compute_auth_mac(
+            *p.compute_auth_mac(
                 &AuthChallenge::new(TS1_RAND),
                 &SequenceNumber::new(TS1_SQN),
                 &AuthManagementField::new(TS1_AMF)
-            ),
-            NetworkMac::new([0u8; 8])
+            )
+            .as_bytes(),
+            [0u8; 8]
         );
         assert_ne!(
-            p.compute_resync_mac(
+            *p.compute_resync_mac(
                 &AuthChallenge::new(TS1_RAND),
                 &SequenceNumber::new(TS1_SQN),
                 &AuthManagementField::new(TS1_AMF)
-            ),
-            ResyncMac::new([0u8; 8])
+            )
+            .as_bytes(),
+            [0u8; 8]
         );
         assert_ne!(
-            p.compute_response(&AuthChallenge::new(TS1_RAND)),
-            AuthResponse::new([0u8; 8])
+            *p.compute_response(&AuthChallenge::new(TS1_RAND)).as_bytes(),
+            [0u8; 8]
         );
         assert_ne!(
             *p.compute_cipher_key(&AuthChallenge::new(TS1_RAND))
@@ -1254,7 +1263,10 @@ mod tests {
         let result = p.authenticate(&challenge, &AuthToken::new(auth_token));
         assert!(result.is_ok(), "valid AUTN must authenticate successfully");
         let out = result.unwrap();
-        assert_eq!(out.response, p.compute_response(&challenge));
+        assert_eq!(
+            out.response.as_bytes(),
+            p.compute_response(&challenge).as_bytes()
+        );
         assert_eq!(
             *out.cipher_key.declassify(),
             *p.compute_cipher_key(&challenge).declassify()
@@ -1344,24 +1356,30 @@ mod tests {
 
         // Restored params must produce the same outputs.
         assert_eq!(
-            restored.compute_response(&AuthChallenge::new(TS1_RAND)),
+            restored
+                .compute_response(&AuthChallenge::new(TS1_RAND))
+                .as_bytes(),
             orig.compute_response(&AuthChallenge::new(TS1_RAND))
+                .as_bytes()
         );
         assert_eq!(
             restored.compute_anonymity_key(&AuthChallenge::new(TS1_RAND)),
             orig.compute_anonymity_key(&AuthChallenge::new(TS1_RAND))
         );
         assert_eq!(
-            restored.compute_auth_mac(
-                &AuthChallenge::new(TS1_RAND),
-                &SequenceNumber::new(TS1_SQN),
-                &AuthManagementField::new(TS1_AMF)
-            ),
+            restored
+                .compute_auth_mac(
+                    &AuthChallenge::new(TS1_RAND),
+                    &SequenceNumber::new(TS1_SQN),
+                    &AuthManagementField::new(TS1_AMF)
+                )
+                .as_bytes(),
             orig.compute_auth_mac(
                 &AuthChallenge::new(TS1_RAND),
                 &SequenceNumber::new(TS1_SQN),
                 &AuthManagementField::new(TS1_AMF)
             )
+            .as_bytes()
         );
     }
 
@@ -1484,11 +1502,11 @@ mod tests {
         let amf = AuthManagementField::new(TS1_AMF);
         let trait_auth_mac = AuthenticationAlgorithm::compute_auth_mac(&p, &challenge, &sqn, &amf);
         let inherent_auth_mac = p.compute_auth_mac(&challenge, &sqn, &amf);
-        assert_eq!(trait_auth_mac, inherent_auth_mac);
+        assert_eq!(trait_auth_mac.as_bytes(), inherent_auth_mac.as_bytes());
 
         let trait_response = AuthenticationAlgorithm::compute_response(&p, &challenge);
         let inherent_response = p.compute_response(&challenge);
-        assert_eq!(trait_response, inherent_response);
+        assert_eq!(trait_response.as_bytes(), inherent_response.as_bytes());
     }
 }
 
@@ -1531,7 +1549,7 @@ mod proptests {
             let ak2 = p2.compute_anonymity_key(&challenge);
 
             // At least one of the four outputs must differ.
-            let any_differ = res1 != res2 || ck1 != ck2 || ik1 != ik2 || ak1 != ak2;
+            let any_differ = res1.as_bytes() != res2.as_bytes() || ck1 != ck2 || ik1 != ik2 || ak1 != ak2;
             prop_assert!(any_differ, "different keys must produce different output tuples");
         }
     }
@@ -1563,7 +1581,7 @@ mod proptests {
             let p = make_params(key);
             let res1 = p.compute_response(&challenge);
             let res2 = p.compute_response(&challenge);
-            prop_assert_eq!(res1, res2);
+            prop_assert_eq!(res1.as_bytes(), res2.as_bytes());
 
             let ck1 = *p.compute_cipher_key(&challenge).declassify();
             let ck2 = *p.compute_cipher_key(&challenge).declassify();
@@ -1583,7 +1601,7 @@ mod proptests {
             let p = make_params(key);
             let res1 = p.compute_response(&AuthChallenge::new(r1_raw));
             let res2 = p.compute_response(&AuthChallenge::new(r2_raw));
-            prop_assert_ne!(res1, res2, "different RAND must produce different RES");
+            prop_assert_ne!(res1.as_bytes(), res2.as_bytes(), "different RAND must produce different RES");
         }
     }
 }
