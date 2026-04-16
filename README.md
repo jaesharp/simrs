@@ -26,6 +26,7 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
 - **Zero external runtime deps** -- every cryptographic algorithm is implemented from scratch, validated against NIST/ETSI/3GPP published test vectors, property-tested with proptest, and checked for undefined behavior under Miri
 - **State machine driven** -- `Sim::process(SimEvent) -> SimResponse`; pure function, no callbacks
 - **Information flow security** -- `Secret<T>` enforces classification boundaries at compile time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); `Redact` prevents secrets in log output; uniform error responses close side-channel oracles; DudeCT (Bayesian) validates constant-time properties at runtime
+- **Differential testing against Oracle** -- GP and SCP protocol behavior validated against Oracle's reference JCVM implementation across 100+ APDU scenarios
 - **Spec-linked** -- every public item cites its standard clause
 
 ## Quick start
