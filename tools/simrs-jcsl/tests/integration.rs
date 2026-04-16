@@ -5,7 +5,7 @@
 //! or place it at the XDG cache / workspace-relative location:
 //!
 //! ```bash
-//! SIMRS_JCSL_BINARY=tools/oracle-jcvm-ref/runtime/bin/jcsl \
+//! SIMRS_JCSL_BINARY=tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin/jcsl \
 //!     cargo test -p simrs-jcsl --test integration
 //! ```
 //!

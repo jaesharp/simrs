@@ -11,7 +11,7 @@
 //!
 //! 1. `SIMRS_JCSL_BINARY` environment variable (explicit override)
 //! 2. `$XDG_CACHE_HOME/simrs/jcsl` (default: `~/.cache/simrs/jcsl`)
-//! 3. Workspace-relative `tools/oracle-jcvm-ref/runtime/bin/jcsl.orig`
+//! 3. Workspace-relative `tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin/jcsl.orig`
 //!    (for development, found via `CARGO_MANIFEST_DIR`)
 //!
 //! # Obtaining the Oracle Java Card SDK
@@ -91,7 +91,7 @@ impl fmt::Display for DiscoverySource {
         match self {
             Self::EnvVar => write!(f, "SIMRS_JCSL_BINARY env var"),
             Self::XdgCache => write!(f, "XDG cache (~/.cache/simrs/)"),
-            Self::Workspace => write!(f, "workspace (tools/oracle-jcvm-ref/)"),
+            Self::Workspace => write!(f, "workspace (tools/simrs-jcsl/vendor/oracle-jcvm-ref/)"),
         }
     }
 }
@@ -233,7 +233,7 @@ impl From<ValidationError> for InstallError {
 /// Searches in order:
 /// 1. `SIMRS_JCSL_BINARY` environment variable
 /// 2. `$XDG_CACHE_HOME/simrs/jcsl` (default: `~/.cache/simrs/jcsl`)
-/// 3. Workspace-relative `tools/oracle-jcvm-ref/runtime/bin/jcsl.orig`
+/// 3. Workspace-relative `tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin/jcsl.orig`
 ///
 /// Returns `None` if no candidate exists on disk. Does not validate
 /// the binary contents beyond checking existence; use [`validate()`]
@@ -260,7 +260,8 @@ pub fn discover() -> Option<JcslInstallation> {
         for name in &["jcsl.orig", "jcsl"] {
             let candidate = ws_root
                 .join("tools")
-                .join("oracle-jcvm-ref")
+                .join("simrs-jcsl")
+                .join("vendor")
                 .join("runtime")
                 .join("bin")
                 .join(name);
@@ -557,7 +558,8 @@ pub fn print_status(w: &mut dyn io::Write) -> io::Result<()> {
             for name in &["jcsl.orig", "jcsl"] {
                 let path = ws
                     .join("tools")
-                    .join("oracle-jcvm-ref")
+                    .join("simrs-jcsl")
+                    .join("vendor")
                     .join("runtime")
                     .join("bin")
                     .join(name);
@@ -741,7 +743,7 @@ mod tests {
         );
         assert_eq!(
             DiscoverySource::Workspace.to_string(),
-            "workspace (tools/oracle-jcvm-ref/)"
+            "workspace (tools/simrs-jcsl/vendor/oracle-jcvm-ref/)"
         );
     }
 
@@ -829,8 +831,12 @@ mod tests {
         insta::assert_snapshot!("installation_display_unconfigured", inst.to_string());
 
         let inst2 = JcslInstallation {
-            binary: PathBuf::from("/workspace/tools/oracle-jcvm-ref/runtime/bin/jcsl"),
-            lib_dir: PathBuf::from("/workspace/tools/oracle-jcvm-ref/runtime/bin"),
+            binary: PathBuf::from(
+                "/workspace/tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin/jcsl",
+            ),
+            lib_dir: PathBuf::from(
+                "/workspace/tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin",
+            ),
             source: DiscoverySource::Workspace,
             scp_configured: true,
             pin_configured: true,
@@ -851,7 +857,7 @@ mod tests {
                 "jcsl"
             };
             let suffix = extract_bracket_suffix(line);
-            format!("  3. <workspace>/tools/oracle-jcvm-ref/runtime/bin/{name}{suffix}")
+            format!("  3. <workspace>/tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin/{name}{suffix}")
         } else if line.starts_with("  binary: /") {
             "  binary: <redacted>".to_string()
         } else {

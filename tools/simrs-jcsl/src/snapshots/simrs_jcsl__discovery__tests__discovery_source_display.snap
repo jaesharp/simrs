@@ -4,4 +4,4 @@ expression: output
 ---
 EnvVar: SIMRS_JCSL_BINARY env var
 XdgCache: XDG cache (~/.cache/simrs/)
-Workspace: workspace (tools/oracle-jcvm-ref/)
+Workspace: workspace (tools/simrs-jcsl/vendor/oracle-jcvm-ref/)

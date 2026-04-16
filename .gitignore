@@ -4,4 +4,4 @@ tools/*/target/
 
 # PDF bookmark extraction data (generated from spec PDFs)
 *_clause_urls.json
-tools/oracle-jcvm-ref/
+tools/simrs-jcsl/vendor/

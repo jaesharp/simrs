@@ -21,7 +21,7 @@
 //!
 //! 1. `SIMRS_JCSL_BINARY` environment variable (explicit override)
 //! 2. `$XDG_CACHE_HOME/simrs/jcsl` (default: `~/.cache/simrs/jcsl`)
-//! 3. Workspace-relative `tools/oracle-jcvm-ref/runtime/bin/jcsl.orig`
+//! 3. Workspace-relative `tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin/jcsl.orig`
 //!
 //! If none of these paths exist, all Oracle-dependent tests are skipped.
 //!

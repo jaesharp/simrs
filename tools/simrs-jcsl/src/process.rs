@@ -33,7 +33,7 @@ pub struct JcslConfig {
 impl Default for JcslConfig {
     fn default() -> Self {
         Self {
-            binary_path: PathBuf::from("tools/oracle-jcvm-ref/runtime/bin/jcsl"),
+            binary_path: PathBuf::from("tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin/jcsl"),
             port: DEFAULT_PORT,
             log_level: "info".to_owned(),
             eeprom_in: None,

@@ -3,7 +3,7 @@ source: tools/simrs-jcsl/src/discovery.rs
 expression: inst2.to_string()
 ---
 jcsl installation:
-  binary:     /workspace/tools/oracle-jcvm-ref/runtime/bin/jcsl
-  lib_dir:    /workspace/tools/oracle-jcvm-ref/runtime/bin
-  source:     workspace (tools/oracle-jcvm-ref/)
+  binary:     /workspace/tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin/jcsl
+  lib_dir:    /workspace/tools/simrs-jcsl/vendor/oracle-jcvm-ref/runtime/bin
+  source:     workspace (tools/simrs-jcsl/vendor/oracle-jcvm-ref/)
   configured: scp=yes, pin=yes
