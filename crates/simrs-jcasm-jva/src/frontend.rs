@@ -1027,25 +1027,23 @@ pub fn generate(input: TokenStream) -> TokenStream {
     };
 
     // Compile via simrs-jccompile with optimization configuration.
-    let (compiled, opt_report) = match simrs_jccompile::compile_class_with_config(&class, &opt_config) {
-        Ok(result) => result,
-        Err(errors) => {
-            let msg = errors
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("; ");
-            return syn::Error::new(proc_macro2::Span::call_site(), msg).to_compile_error();
-        }
-    };
+    let (compiled, opt_report) =
+        match simrs_jccompile::compile_class_with_config(&class, &opt_config) {
+            Ok(result) => result,
+            Err(errors) => {
+                let msg = errors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                return syn::Error::new(proc_macro2::Span::call_site(), msg).to_compile_error();
+            }
+        };
 
     // Compile-time reporting (visible in cargo build output).
     if report {
         eprintln!("[jcapplet] AID: {}", applet.aid_hex);
-        eprintln!(
-            "[jcapplet]   IR iterations: {}",
-            opt_report.ir_iterations
-        );
+        eprintln!("[jcapplet]   IR iterations: {}", opt_report.ir_iterations);
         for (i, md) in applet.methods.iter().enumerate() {
             let ct_tag = if md.constant_time {
                 " [constant_time]"

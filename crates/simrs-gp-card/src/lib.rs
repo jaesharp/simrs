@@ -787,7 +787,11 @@ mod sim_tests {
         let rsp = card.process(SimEvent::Apdu(&iu_apdu));
         let iu_data = match rsp {
             SimResponse::Apdu { data, sw } => {
-                assert_eq!(sw.to_bytes(), [0x90, 0x00], "INITIALIZE UPDATE should succeed");
+                assert_eq!(
+                    sw.to_bytes(),
+                    [0x90, 0x00],
+                    "INITIALIZE UPDATE should succeed"
+                );
                 assert!(data.len() >= 28, "INIT UPDATE response must be >= 28 bytes");
                 let mut buf = [0u8; 28];
                 buf.copy_from_slice(&data[..28]);

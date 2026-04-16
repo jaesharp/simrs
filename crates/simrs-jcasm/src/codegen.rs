@@ -62,7 +62,11 @@ pub fn generate(input: TokenStream) -> TokenStream {
     if report {
         eprintln!("[jcasm] AID: {}", applet.aid_hex);
         for (i, method) in applet.methods.iter().enumerate() {
-            let ct_tag = if method.constant_time { " [constant_time]" } else { "" };
+            let ct_tag = if method.constant_time {
+                " [constant_time]"
+            } else {
+                ""
+            };
             eprintln!("[jcasm]   method {i}: {}{ct_tag}", method.name);
         }
     }

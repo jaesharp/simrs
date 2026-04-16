@@ -283,7 +283,10 @@ fn optimize_none_still_produces_correct_result() {
     let pkg = simrs_jcvm::cap::parse_cap(&buf[..len]).unwrap();
     let mut vm = simrs_jcvm::JcVM::<4096, 4>::new();
     let idx = vm.load_package(pkg).unwrap();
-    assert_eq!(vm.execute(idx, 0), simrs_jcvm::opcodes::ExecResult::ReturnShort(42));
+    assert_eq!(
+        vm.execute(idx, 0),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(42)
+    );
 }
 
 #[test]
@@ -313,7 +316,10 @@ fn constant_time_method_compiles() {
     let pkg = simrs_jcvm::cap::parse_cap(&buf[..len]).unwrap();
     let mut vm = simrs_jcvm::JcVM::<4096, 4>::new();
     let idx = vm.load_package(pkg).unwrap();
-    assert_eq!(vm.execute(idx, 0), simrs_jcvm::opcodes::ExecResult::ReturnShort(7));
+    assert_eq!(
+        vm.execute(idx, 0),
+        simrs_jcvm::opcodes::ExecResult::ReturnShort(7)
+    );
 }
 
 #[test]

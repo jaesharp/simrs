@@ -3824,23 +3824,24 @@ mod tests {
 
     #[test]
     fn peephole_config_none_makes_no_changes() {
-        use crate::config::PeepholeConfig;
         use crate::codegen::BytecodeMetadata;
+        use crate::config::PeepholeConfig;
         let mut bytecodes = vec![SCONST_0, SADD, 0x78]; // sconst_0+sadd+sreturn
         let mut metadata = BytecodeMetadata {
             branch_targets: vec![],
             basic_blocks: vec![(0, 3)],
             branches: vec![],
         };
-        let changes = peephole_optimize_with_config(&mut bytecodes, &mut metadata, &PeepholeConfig::none());
+        let changes =
+            peephole_optimize_with_config(&mut bytecodes, &mut metadata, &PeepholeConfig::none());
         assert_eq!(changes, 0);
         assert_eq!(bytecodes, vec![SCONST_0, SADD, 0x78]); // unchanged
     }
 
     #[test]
     fn peephole_config_single_pattern_only_fires_that_pattern() {
-        use crate::config::PeepholeConfig;
         use crate::codegen::BytecodeMetadata;
+        use crate::config::PeepholeConfig;
         // Enable only double_negation, not add_zero_identity.
         let config = PeepholeConfig {
             enabled: true,
@@ -3911,7 +3912,11 @@ mod tests {
         let result = optimize_ir_with_config(&class, &IrConfig::default_config());
         // The If should still be present (not DCE'd to just the then branch).
         match &result.methods[0].body[0] {
-            JcStmt::If { then_body, else_body, .. } => {
+            JcStmt::If {
+                then_body,
+                else_body,
+                ..
+            } => {
                 assert!(!then_body.is_empty());
                 assert!(!else_body.is_empty());
             }

@@ -10,33 +10,56 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
-  check:
-    name: Build, Lint, Test
+  fmt:
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          components: rustfmt, clippy
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-features --exclude simrs-security-tests
+
+  security-tests:
+    name: Security tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p simrs-security-tests --all-features
+
+  spec-tests:
+    name: Spec tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            .
-            tools/simrs-spec-tests
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Clippy (main workspace)
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - name: Test (main workspace)
-        run: cargo test --workspace --all-features --exclude simrs-security-tests
-      - name: Security Tests
-        run: cargo test -p simrs-security-tests --all-features
-      - name: Clippy (spec-tests)
-        run: cargo clippy --manifest-path tools/simrs-spec-tests/Cargo.toml --all-targets -- -D warnings
-      - name: Spec Tests
-        run: cargo test --manifest-path tools/simrs-spec-tests/Cargo.toml --test cucumber
-      - name: Build HLE FFI cdylib
-        run: cargo build --manifest-path tools/simrs-hle-ffi/Cargo.toml --release
+          workspaces: tools/simrs-spec-tests
+      - run: cargo clippy --manifest-path tools/simrs-spec-tests/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path tools/simrs-spec-tests/Cargo.toml --test cucumber
 
   miri:
     name: Miri
@@ -48,8 +71,7 @@ jobs:
         with:
           components: miri
       - uses: Swatinem/rust-cache@v2
-      - name: Miri (pure-Rust crates)
-        run: >
+      - run: >
           cargo miri test
           -p simrs-consttime
           -p simrs-rijndael
@@ -65,13 +87,12 @@ jobs:
           -p simrs-ecies
 
   no-std:
-    name: no_std compatibility
+    name: no_std
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
-      - name: Check no_std builds
-        run: >
+      - run: >
           cargo check --no-default-features
           -p simrs-rijndael
           -p simrs-des
@@ -92,3 +113,22 @@ jobs:
           -p simrs-pcap
           -p simrs-secret
           -p simrs-redact
+
+  hle-ffi:
+    name: HLE FFI cdylib
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --manifest-path tools/simrs-hle-ffi/Cargo.toml --release
+
+  consttime:
+    name: Constant-time validation
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p simrs-consttime-validation --release
