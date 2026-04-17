@@ -1,8 +1,9 @@
 # SimRS
 
-Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embeddable Rust (No Standard Library or Alloc Required).
+Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embeddable Rust (No Standard Library or Alloc
+Required).
 
-_You know - that metallic chip on the punched out card that you shoved into your mobile when you bought it, and on your 
+_You know - that metallic chip on the punched out card that you shoved into your mobile when you bought it, and on your
 ID at the office, and on the banking cards in your wallet. The point is - they're everywhere. This project maps and
 specifies those chips well enough that anyone can make one in any way they want. That's the goal, anyway._
 
@@ -146,15 +147,15 @@ SimRS exposes its high-level engine (HLE) through a single C ABI
 (`libsimrs_hle_capi.so` / `.a` / `simrs.h`). Idiomatic wrappers sit on top
 of that ABI for each supported host language:
 
-| Language    | Directory                                              | Tested Versions                     | Platforms      | Mechanism                                      |
-|-------------|--------------------------------------------------------|-------------------------------------|----------------|------------------------------------------------|
-| C / C++     | [exports/simrs-hle-capi/](exports/simrs-hle-capi/)     | any C99-capable compiler            | Linux x86_64   | cdylib + staticlib + generated `simrs.h`       |
-| Rust        | [exports/simrs-hle-rust/](exports/simrs-hle-rust/)     | nightly (matches workspace)         | Linux x86_64   | Safe, Limited LGPL re-export of `simrs-hle`    |
-| Python      | [exports/simrs-hle-python/](exports/simrs-hle-python/) | 3.10, 3.11, 3.12, 3.13              | Linux x86_64   | ctypes over cdylib, thread-safe by default     |
-| Java/Kotlin | [exports/simrs-hle-java/](exports/simrs-hle-java/)     | JDK 11, 17, 21 (Temurin); Kotlin 2.3 | Linux x86_64   | JNI shim + Kotlin extensions, tested via jbang |
-| Go          | [exports/simrs-hle-go/](exports/simrs-hle-go/)         | 1.23, 1.24                          | Linux x86_64   | cgo over cdylib                                |
-| Swift       | [exports/simrs-hle-swift/](exports/simrs-hle-swift/)   | 5.10, 6.1                           | Linux x86_64   | Swift Package over cdylib via C module map     |
-| C# / .NET   | [exports/simrs-hle-dotnet/](exports/simrs-hle-dotnet/) | 8.0, 9.0                            | Linux x86_64   | P/Invoke over cdylib, thread-safe by default   |
+| Language    | Directory                                              | Tested Versions                      | Platforms    | Mechanism                                      |
+|-------------|--------------------------------------------------------|--------------------------------------|--------------|------------------------------------------------|
+| C / C++     | [exports/simrs-hle-capi/](exports/simrs-hle-capi/)     | any C99-capable compiler             | Linux x86_64 | cdylib + staticlib + generated `simrs.h`       |
+| Rust        | [exports/simrs-hle-rust/](exports/simrs-hle-rust/)     | nightly (matches workspace)          | Linux x86_64 | Safe, Limited LGPL re-export of `simrs-hle`    |
+| Python      | [exports/simrs-hle-python/](exports/simrs-hle-python/) | 3.10, 3.11, 3.12, 3.13               | Linux x86_64 | ctypes over cdylib, thread-safe by default     |
+| Java/Kotlin | [exports/simrs-hle-java/](exports/simrs-hle-java/)     | JDK 11, 17, 21 (Temurin); Kotlin 2.3 | Linux x86_64 | JNI shim + Kotlin extensions, tested via jbang |
+| Go          | [exports/simrs-hle-go/](exports/simrs-hle-go/)         | 1.23, 1.24                           | Linux x86_64 | cgo over cdylib                                |
+| Swift       | [exports/simrs-hle-swift/](exports/simrs-hle-swift/)   | 5.10, 6.1                            | Linux x86_64 | Swift Package over cdylib via C module map     |
+| C# / .NET   | [exports/simrs-hle-dotnet/](exports/simrs-hle-dotnet/) | 8.0, 9.0                             | Linux x86_64 | P/Invoke over cdylib, thread-safe by default   |
 
 CI matrixes `java`/`go`/`swift` on both `dynamic` and `static` linkage of the
 C API; `python`/`dotnet` load the shared library dynamically at runtime
