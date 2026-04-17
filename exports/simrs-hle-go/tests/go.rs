@@ -10,10 +10,14 @@ fn go_bindings() {
     let capi_header_dir = find_header_dir(&manifest_dir);
     let linkage = std::env::var("SIMRS_CAPI_LINKAGE").unwrap_or_else(|_| "dynamic".into());
 
+    // simrs.go embeds `#cgo LDFLAGS: -lsimrs_hle_capi`, so the linker always
+    // sees -lsimrs_hle_capi on the command line. We just need to point it at
+    // a directory where the library can be found and (for static mode) tell
+    // it to prefer the .a over any .so sitting next to it.
     let cgo_ldflags = match linkage.as_str() {
         "static" => format!(
-            "{} -lpthread -ldl -lm",
-            capi_lib_dir.join("libsimrs_hle_capi.a").display()
+            "-L{dir} -Wl,-Bstatic -lsimrs_hle_capi -Wl,-Bdynamic -lpthread -ldl -lm",
+            dir = capi_lib_dir.display()
         ),
         _ => format!("-L{} -lsimrs_hle_capi", capi_lib_dir.display()),
     };
