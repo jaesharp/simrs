@@ -22,18 +22,29 @@ fn python_bindings() {
 }
 
 fn find_cdylib() -> String {
+    let lib_name = if cfg!(target_os = "macos") {
+        "libsimrs_hle_capi.dylib"
+    } else {
+        "libsimrs_hle_capi.so"
+    };
+
+    if let Some(prebuilt) = std::env::var_os("SIMRS_CAPI_PREBUILT_DIR") {
+        let candidate = PathBuf::from(prebuilt).join(lib_name);
+        if candidate.exists() {
+            return candidate.to_string_lossy().into_owned();
+        }
+        panic!(
+            "SIMRS_CAPI_PREBUILT_DIR does not contain {lib_name}: {}",
+            candidate.display()
+        );
+    }
+
     // The cdylib is built in simrs-hle-capi's own target directory
     // (separate workspace from the main simrs workspace).
     let hle_capi_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("simrs-hle-capi")
         .join("target");
-
-    let lib_name = if cfg!(target_os = "macos") {
-        "libsimrs_hle_capi.dylib"
-    } else {
-        "libsimrs_hle_capi.so"
-    };
 
     for profile in ["debug", "release"] {
         let candidate = hle_capi_dir.join(profile).join(lib_name);

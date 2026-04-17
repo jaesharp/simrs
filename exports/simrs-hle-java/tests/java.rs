@@ -20,23 +20,17 @@ fn run_jbang_test(test_path: &str) {
     let test_file = manifest_dir.join(test_path);
     let classes_dir = out_dir.join("classes");
 
+    // With static linkage the JNI shim already contains the capi; dynamic
+    // linkage also needs the capi's .so on the loader search path.
+    let lib_path = format!("{}:{}", out_dir.display(), capi_lib_dir.display());
+
     let status = Command::new("jbang")
         .arg("run")
         .arg("--cp")
         .arg(&classes_dir)
         .arg(&test_file)
-        .env(
-            "JAVA_TOOL_OPTIONS",
-            format!(
-                "-Djava.library.path={}:{}",
-                out_dir.display(),
-                capi_lib_dir.display()
-            ),
-        )
-        .env(
-            "LD_LIBRARY_PATH",
-            format!("{}:{}", out_dir.display(), capi_lib_dir.display()),
-        )
+        .env("JAVA_TOOL_OPTIONS", format!("-Djava.library.path={lib_path}"))
+        .env("LD_LIBRARY_PATH", &lib_path)
         .status()
         .expect("failed to run jbang -- is it installed?");
 
@@ -64,6 +58,9 @@ fn find_out_dir() -> PathBuf {
 }
 
 fn find_capi_lib_dir(manifest_dir: &std::path::Path) -> PathBuf {
+    if let Some(prebuilt) = std::env::var_os("SIMRS_CAPI_PREBUILT_DIR") {
+        return PathBuf::from(prebuilt);
+    }
     let capi_target = manifest_dir.join("../simrs-hle-capi/target");
     for profile in ["debug", "release"] {
         let candidate = capi_target.join(profile);

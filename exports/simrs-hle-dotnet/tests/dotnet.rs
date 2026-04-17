@@ -11,10 +11,7 @@ fn dotnet_bindings() {
     let status = Command::new("dotnet")
         .args(["test", "--verbosity", "normal"])
         .current_dir(&manifest_dir)
-        .env(
-            "LD_LIBRARY_PATH",
-            &capi_lib_dir,
-        )
+        .env("LD_LIBRARY_PATH", &capi_lib_dir)
         .status()
         .expect("failed to run dotnet test -- is the .NET SDK installed?");
 
@@ -22,6 +19,9 @@ fn dotnet_bindings() {
 }
 
 fn find_capi_lib_dir(manifest_dir: &std::path::Path) -> PathBuf {
+    if let Some(prebuilt) = std::env::var_os("SIMRS_CAPI_PREBUILT_DIR") {
+        return PathBuf::from(prebuilt);
+    }
     let capi_target = manifest_dir.join("../simrs-hle-capi/target");
     for profile in ["debug", "release"] {
         let candidate = capi_target.join(profile);

@@ -1,14 +1,23 @@
-/// Ensure the simrs-hle-capi cdylib (.so/.dylib) is built before tests run.
-///
-/// The Cargo dependency on simrs-hle-capi compiles it as an rlib, but the
-/// Python bindings need the cdylib. This build script shells out to cargo
-/// to build the sibling crate's cdylib target.
+//! Ensure the simrs-hle-capi cdylib (.so/.dylib) is built before tests run.
+//!
+//! The Cargo dependency on simrs-hle-capi compiles it as an rlib, but the
+//! Python bindings need the cdylib. This build script shells out to cargo
+//! to build the sibling crate's cdylib target.
+//!
+//! In CI, the caller can set SIMRS_CAPI_PREBUILT_DIR to a directory holding
+//! an already-built libsimrs_hle_capi.{so,dylib} (and simrs.h), in which
+//! case we skip the shellout entirely.
 fn main() {
+    println!("cargo::rerun-if-env-changed=SIMRS_CAPI_PREBUILT_DIR");
+
+    if std::env::var_os("SIMRS_CAPI_PREBUILT_DIR").is_some() {
+        return;
+    }
+
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("simrs-hle-capi")
         .join("Cargo.toml");
-
     println!("cargo::rerun-if-changed={}", manifest.display());
 
     let status = std::process::Command::new("cargo")
