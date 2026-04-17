@@ -753,6 +753,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-apdu-schema"
+version = "0.1.0"
+
+[[package]]
 name = "simrs-bertlv"
 version = "0.1.0"
 
@@ -817,11 +821,15 @@ dependencies = [
 [[package]]
 name = "simrs-iso7816"
 version = "0.1.0"
+dependencies = [
+ "simrs-apdu-schema",
+]
 
 [[package]]
 name = "simrs-kdf"
 version = "0.1.0"
 dependencies = [
+ "simrs-consttime",
  "simrs-milenage",
  "simrs-secret",
  "simrs-sha256",
