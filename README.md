@@ -28,10 +28,10 @@ _If it's not supported - it's a bug._
 
 - **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only boundary crates (TCP, OS ioctl, CLI binaries) require `std`. See [crate index](crates/README.md).
 - **Zero external runtime deps** -- every cryptographic algorithm is self-contained and validated against 
-  NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis), and [adversarially tested](tools/simrs-security-tests/) for protocol-level vulnerabilities. See [simrs-ref](crates/simrs-ref/) for reference test vectors.
+  NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis), and [adversarially tested](crates/simrs-security-tests/) for protocol-level vulnerabilities. See [simrs-ref](crates/simrs-ref/) for reference test vectors.
 - **State machine driven** -- [`Sim::process(SimEvent) -> SimResponse`](crates/simrs-sim/); single entry point, no callbacks
 - **Information flow security** -- [`Secret<T>`](crates/simrs-secret/) enforces classification boundaries at compile time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); [`Redact`](crates/simrs-redact/) prevents secrets in log output; uniform error responses close side-channel oracles
-- **Differential behavioural validation against Oracle's Reference JCVM** -- GP and SCP protocol behavior [validated against Oracle's reference JCVM](tools/simrs-differential-tests/) across 100+ APDU scenarios
+- **Differential behavioural validation against Oracle's Reference JCVM** -- GP and SCP protocol behavior [validated against Oracle's reference JCVM](crates/simrs-differential-tests/) across 100+ APDU scenarios
 - **Spec-linked** -- every public item cites its standard clause. See [standards map](docs/standards/)
 
 ## Quick start
@@ -113,8 +113,8 @@ cargo run -p simrs-jcsl -- guide         # acquisition instructions
 cargo test -p simrs-differential-tests
 
 # Build the C-ABI shared library for embedding
-cargo build --manifest-path tools/simrs-hle-ffi/Cargo.toml --release
-# => tools/simrs-hle-ffi/target/release/libsimrs_hle_ffi.so
+cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release
+# => exports/simrs-hle-capi/target/release/libsimrs_hle_ffi.so
 ```
 
 ## License

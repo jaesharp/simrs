@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.oracle.javacard.sample</groupId>
+    <artifactId>client</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <exec.mainClass>com.oracle.javacard.sample.AMSSignatureMessageRecoveryClient</exec.mainClass>
+        <!--suppress UnresolvedMavenProperty -->
+        <jc.home.simulator>${JC_HOME_SIMULATOR}</jc.home.simulator>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.oracle.javacard</groupId>
+            <artifactId>amservice</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <!--suppress MavenModelInspection -->
+            <systemPath>${jc.home.simulator}/client/AMService/amservice.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.oracle.javacard</groupId>
+            <artifactId>socketprovider</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <!--suppress MavenModelInspection -->
+            <systemPath>${jc.home.simulator}/client/COMService/socketprovider.jar</systemPath>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>${project.basedir}/src</sourceDirectory>
+        <outputDirectory>${project.basedir}/bin</outputDirectory>
+    </build>
+</project>

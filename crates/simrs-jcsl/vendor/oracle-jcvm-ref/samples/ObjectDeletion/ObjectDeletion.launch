@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved. -->
+<launchConfiguration type="org.eclipse.jdt.launching.localJavaApplication">
+    <booleanAttribute key="org.eclipse.debug.core.ATTR_FORCE_SYSTEM_CONSOLE_ENCODING" value="false"/>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
+        <listEntry value="/ObjectDeletion - Client/src/com/oracle/javacard/sample/ClientObjectDeletion.java"/>
+    </listAttribute>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
+        <listEntry value="1"/>
+    </listAttribute>
+    <booleanAttribute key="org.eclipse.jdt.launching.ATTR_ATTR_USE_ARGFILE" value="false"/>
+    <booleanAttribute key="org.eclipse.jdt.launching.ATTR_SHOW_CODEDETAILS_IN_EXCEPTION_MESSAGES" value="true"/>
+    <booleanAttribute key="org.eclipse.jdt.launching.ATTR_USE_CLASSPATH_ONLY_JAR" value="false"/>
+    <booleanAttribute key="org.eclipse.jdt.launching.ATTR_USE_START_ON_FIRST_THREAD" value="true"/>
+    <stringAttribute key="org.eclipse.jdt.launching.MAIN_TYPE" value="com.oracle.javacard.sample.ClientObjectDeletion"/>
+    <stringAttribute key="org.eclipse.jdt.launching.MODULE_NAME" value="ObjectDeletion - Client"/>
+    <stringAttribute key="org.eclipse.jdt.launching.PROGRAM_ARGUMENTS" value="-capA=${env_var:JC_HOME_SIMULATOR}/samples/ObjectDeletion/applet/deliverables/packageA/com/oracle/jcclassic/samples/odsample/packageA/javacard/packageA.cap&#13;&#10;-capB=${env_var:JC_HOME_SIMULATOR}/samples/ObjectDeletion/applet/deliverables/packageB/com/oracle/jcclassic/samples/odsample/packageB/javacard/packageB.cap&#13;&#10;-capC=${env_var:JC_HOME_SIMULATOR}/samples/ObjectDeletion/applet/deliverables/libPackageC/com/oracle/jcclassic/samples/odsample/libPackageC/javacard/libPackageC.cap&#13;&#10;-props=${env_var:JC_HOME_SIMULATOR}/samples/client.config.properties"/>
+    <stringAttribute key="org.eclipse.jdt.launching.PROJECT_ATTR" value="ObjectDeletion - Client"/>
+    <stringAttribute key="org.eclipse.jdt.launching.VM_ARGUMENTS" value="--add-modules ALL-MODULE-PATH"/>
+</launchConfiguration>

@@ -129,9 +129,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: tools/simrs-spec-tests
-      - run: cargo clippy --manifest-path tools/simrs-spec-tests/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --manifest-path tools/simrs-spec-tests/Cargo.toml --test cucumber
+          workspaces: crates/simrs-spec-tests
+      - run: cargo clippy --manifest-path crates/simrs-spec-tests/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path crates/simrs-spec-tests/Cargo.toml --test cucumber
 
   differential:
     name: "Ensure Functions Like Reference Implementation (Oracle's JavaCard Simulator)"
@@ -169,7 +169,7 @@ jobs:
         uses: mikepenz/action-junit-report@v6
         if: always()
         with:
-          report_paths: tools/simrs-differential-tests/differential-report.xml
+          report_paths: crates/simrs-differential-tests/differential-report.xml
           check_name: Differential Compliance
           include_passed: true
           require_tests: true
@@ -177,14 +177,14 @@ jobs:
           fail_on_parse_error: true
       - name: Verify report files exist
         run: |
-          test -f tools/simrs-differential-tests/differential-report.xml || { echo "FATAL: JUnit XML report not found"; exit 1; }
-          test -f tools/simrs-differential-tests/differential-report.md || { echo "FATAL: Markdown report not found"; exit 1; }
+          test -f crates/simrs-differential-tests/differential-report.xml || { echo "FATAL: JUnit XML report not found"; exit 1; }
+          test -f crates/simrs-differential-tests/differential-report.md || { echo "FATAL: Markdown report not found"; exit 1; }
       - uses: actions/upload-artifact@v6
         with:
           name: differential-report
           path: |
-            tools/simrs-differential-tests/differential-report.xml
-            tools/simrs-differential-tests/differential-report.md
+            crates/simrs-differential-tests/differential-report.xml
+            crates/simrs-differential-tests/differential-report.md
           retention-days: 90
           if-no-files-found: error
 
@@ -265,4 +265,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace
-      - run: cargo build --manifest-path tools/simrs-hle-ffi/Cargo.toml --release
+      - run: cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release

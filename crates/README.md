@@ -256,4 +256,4 @@ graph TB
 - **[Architecture & API Reference](../docs/architecture/)** -- full public API surface, Mermaid sequence diagrams
 - **[Diagram Style Guide](../docs/style/diagrams.md)** -- Okabe-Ito palette, semantic colour mapping, WCAG compliance
 - **[Standards Map](../docs/standards/README.md)** -- 4G/5G/GSM standards mapped to crates, generation coverage
-- **[Wireshark Lua Dissector](../tools/simrs-apdu.lua)** -- DLT_USER0 APDU dissector for PCAP captures; GSMTAP captures use Wireshark's built-in `gsmtap` dissector
+- **[Wireshark Lua Dissector](../tools/wireshark-dissectors/simrs-apdu.lua)** -- DLT_USER0 APDU dissector for PCAP captures; GSMTAP captures use Wireshark's built-in `gsmtap` dissector

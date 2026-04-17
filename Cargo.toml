@@ -58,13 +58,13 @@ members = [
     "crates/simrs-consttime-validation",
     "crates/simrs-profile",
     "crates/simrs-ref",
-    "tools/simrs-security-tests",
-    "tools/simrs-gp-tests",
-    "tools/simrs-jcsl",
-    "tools/simrs-differential-tests",
-    "tools/simrs-jacc",
-    "tools/simrs-swicc",
-    "tools/simrs-vpcd",
+    "crates/simrs-security-tests",
+    "crates/simrs-gp-tests",
+    "crates/simrs-jcsl",
+    "crates/simrs-differential-tests",
+    "crates/simrs-jacc",
+    "crates/simrs-swicc",
+    "crates/simrs-vpcd",
 ]
 resolver = "2"
 

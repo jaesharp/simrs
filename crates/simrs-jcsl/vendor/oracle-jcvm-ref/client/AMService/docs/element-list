@@ -1,0 +1,5 @@
+module:com.oracle.javacard.amservice
+com.oracle.javacard.ams
+com.oracle.javacard.ams.config
+com.oracle.javacard.ams.script
+com.oracle.javacard.ams.spi
