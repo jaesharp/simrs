@@ -1,4 +1,4 @@
-name: "Common Security Fault Scan (CODEQL)"
+name: "Scan for Security Weaknesses and Exposures"
 on:
   push:
     branches: [ "main", "dev" ]
