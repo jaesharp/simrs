@@ -60,8 +60,21 @@ fn main() {
         .expect("javac not found -- is a JDK installed?");
     assert!(javac_status.success(), "javac compilation failed");
 
+    // 6. Compile Kotlin extensions.
+    let kotlin_src = manifest_dir.join("src/main/kotlin/com/simrs/SimKotlin.kt");
+    let kotlinc_status = Command::new("kotlinc")
+        .arg("-cp")
+        .arg(&classes_dir)
+        .arg("-d")
+        .arg(&classes_dir)
+        .arg(&kotlin_src)
+        .status()
+        .expect("kotlinc not found -- Kotlin 2.x requires JDK 11+");
+    assert!(kotlinc_status.success(), "kotlinc compilation failed");
+
     println!("cargo::rerun-if-changed=src/main/c/simrs_jni.c");
     println!("cargo::rerun-if-changed=src/main/java/com/simrs/Sim.java");
+    println!("cargo::rerun-if-changed=src/main/kotlin/com/simrs/SimKotlin.kt");
 }
 
 fn find_header_dir(capi_target: &std::path::Path) -> PathBuf {

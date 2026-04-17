@@ -312,7 +312,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        java: ["8", "11", "17", "21"]
+        java: ["11", "17", "21"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
@@ -325,7 +325,30 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
-      - run: curl -Ls https://sh.jbang.dev | bash -s - app setup && export PATH="$HOME/.jbang/bin:$PATH" && cargo test --manifest-path exports/simrs-hle-java/Cargo.toml
+      - name: Cache jbang
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.jbang
+          key: jbang-${{ runner.os }}
+      - name: Install jbang
+        run: |
+          if [ ! -x "$HOME/.jbang/bin/jbang" ]; then
+            curl -Ls https://sh.jbang.dev | bash -s - app setup
+          fi
+      - name: Cache Kotlin compiler
+        id: cache-kotlinc
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/kotlinc
+          key: kotlinc-${{ runner.os }}-2.3.20
+      - name: Install Kotlin compiler
+        if: steps.cache-kotlinc.outputs.cache-hit != 'true'
+        run: |
+          curl -sL https://github.com/JetBrains/kotlin/releases/download/v2.3.20/kotlin-compiler-2.3.20.zip -o /tmp/kotlinc.zip
+          unzip -q /tmp/kotlinc.zip -d $HOME/
+      - name: Add Kotlin to PATH
+        run: echo "$HOME/kotlinc/bin" >> $GITHUB_PATH
+      - run: export PATH="$HOME/.jbang/bin:$PATH" && cargo test --manifest-path exports/simrs-hle-java/Cargo.toml
 
   go-bindings:
     name: "Validate Go Bindings (Go ${{ matrix.go }})"

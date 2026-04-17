@@ -5,14 +5,19 @@ use std::process::Command;
 
 #[test]
 fn java_bindings() {
+    run_jbang_test("src/test/java/com/simrs/SimTest.java");
+}
+
+#[test]
+fn kotlin_bindings() {
+    run_jbang_test("src/test/kotlin/com/simrs/SimKotlinTest.kt");
+}
+
+fn run_jbang_test(test_path: &str) {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let out_dir = find_out_dir();
-
-    // The JNI .so is in OUT_DIR, the capi .so is in the capi target dir.
     let capi_lib_dir = find_capi_lib_dir(&manifest_dir);
-
-    let test_file = manifest_dir.join("src/test/java/com/simrs/SimTest.java");
-
+    let test_file = manifest_dir.join(test_path);
     let classes_dir = out_dir.join("classes");
 
     let status = Command::new("jbang")
@@ -30,16 +35,12 @@ fn java_bindings() {
         )
         .env(
             "LD_LIBRARY_PATH",
-            format!(
-                "{}:{}",
-                out_dir.display(),
-                capi_lib_dir.display()
-            ),
+            format!("{}:{}", out_dir.display(), capi_lib_dir.display()),
         )
         .status()
         .expect("failed to run jbang -- is it installed?");
 
-    assert!(status.success(), "Java tests failed with exit code {status}");
+    assert!(status.success(), "test failed with exit code {status}");
 }
 
 fn find_out_dir() -> PathBuf {
