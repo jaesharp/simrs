@@ -1,9 +1,9 @@
 [workspace]
 
 [package]
-name = "simrs-hle-pythonapi"
+name = "simrs-hle-python"
 version = "0.1.0"
 edition = "2021"
-license = "GPL-2.0-or-later"
+license = "LGPL-2.0-or-later"
 publish = false
 description = "Python bindings for simrs -- test harness that builds the C API and runs pytest via uv"

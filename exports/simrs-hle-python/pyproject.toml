@@ -2,7 +2,7 @@
 name = "simrs"
 version = "0.1.0"
 description = "Python bindings for the SimRS smart card simulator"
-license = "GPL-2.0-or-later"
+license = "LGPL-2.0-or-later"
 requires-python = ">=3.10"
 authors = [
     { name = "J Lynn", email = "j@jaesharp.com" },

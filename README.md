@@ -151,9 +151,9 @@ with Sim.with_credentials(creds) as sim:
     data, sw1, sw2 = sim.apdu_hex("00 A4 04 00 07 A0000000871002")
 ```
 
-Build and test: `cargo test --manifest-path exports/simrs-hle-pythonapi/Cargo.toml`
+Build and test: `cargo test --manifest-path exports/simrs-hle-python/Cargo.toml`
 
-See [exports/simrs-hle-pythonapi/](exports/simrs-hle-pythonapi/) for full documentation.
+See [exports/simrs-hle-python/](exports/simrs-hle-python/) for full documentation.
 
 ## License
 

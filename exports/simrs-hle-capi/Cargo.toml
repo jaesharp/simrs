@@ -2,18 +2,19 @@
 name        = "simrs-hle-capi"
 version     = "0.1.0"
 edition     = "2021"
-license     = "MIT"
-description = "C-ABI cdylib wrapper for simrs-hle -- loads as shared library via ctypes"
+license     = "LGPL-2.0-or-later"
+description = "C-ABI wrapper for simrs-hle -- shared (.so) and static (.a) library with cbindgen header"
 publish     = false
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 simrs-hle     = { path = "../../crates/simrs-hle" }
-simrs-usim    = { path = "../../crates/simrs-usim", features = ["profile-full"] }
-simrs-gsm     = { path = "../../crates/simrs-gsm", features = ["profile-full"] }
 simrs-profile = { path = "../../crates/simrs-profile" }
+
+[build-dependencies]
+cbindgen = "0.29"
 
 # Empty workspace table: prevents cargo from treating this as part of the
 # parent simrs workspace (which enforces `unsafe_code = "forbid"`).

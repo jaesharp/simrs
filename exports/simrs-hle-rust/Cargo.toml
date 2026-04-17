@@ -1,0 +1,12 @@
+[workspace]
+
+[package]
+name = "simrs-hle-rust"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-2.0-or-later"
+publish = false
+description = "LGPL-licensed Rust API for the SimRS smart card simulator"
+
+[dependencies]
+simrs-hle = { path = "../../crates/simrs-hle" }

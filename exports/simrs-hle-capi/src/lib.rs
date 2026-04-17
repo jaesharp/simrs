@@ -15,21 +15,6 @@
 
 use std::cell::Cell;
 
-use simrs_gsm::SubscriberKey as GsmSubscriberKey;
-use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
-
-/// ATR matching a common reference card.
-///
-/// This 4-byte ATR is intentionally incomplete per ISO/IEC 7816-3 encoding
-/// rules (T0=0x9F would declare TA1+TD1 present and 15 historical bytes).
-/// However, the Shannon firmware's USIM driver treats the ATR as opaque
-/// bytes delivered via the peripheral's IRQ-driven byte-pump and does NOT
-/// parse the T0/TA1/historical structure itself. The driver transitions
-/// from WAIT_FOR_ATR to PPS once the peripheral stops raising RXTIDE
-/// interrupts (see USIMPeripheral.write_atr_byte). Therefore this compact
-/// ATR works reliably in practice and matches common reference cards.
-static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
-
 // Thread-local ATR pointer/length. Defaults to the module-level `ATR` static
 // but is overridden when a profile with its own ATR is loaded via
 // `simrs_init_profile`.
@@ -38,7 +23,7 @@ static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
 // `&'static [u8]`, so the raw pointer remains valid for the thread's lifetime.
 thread_local! {
     static CURRENT_ATR: Cell<(*const u8, usize)> = const {
-        Cell::new((ATR.as_ptr(), ATR.len()))
+        Cell::new((simrs_hle::DEFAULT_ATR.as_ptr(), simrs_hle::DEFAULT_ATR.len()))
     };
 }
 
@@ -64,32 +49,8 @@ pub unsafe extern "C" fn simrs_init(
     let k_arr: [u8; 16] = core::slice::from_raw_parts(k, 16).try_into().unwrap();
     let opc_arr: [u8; 16] = core::slice::from_raw_parts(opc, 16).try_into().unwrap();
 
-    CURRENT_ATR.set((ATR.as_ptr(), ATR.len()));
-    simrs_hle::hle_init_with_adf(
-        &ATR,
-        &REFERENCE_MF,
-        GsmSubscriberKey::classify(ki_arr),
-        k_arr,
-        opc_arr,
-        &ADF_TABLE,
-    );
-}
-
-/// Initialize the SIM with default test credentials.
-///
-/// Uses all-zero Ki, K=[0x00..], OPc=[0x00..] for testing.
-/// Equivalent to `simrs_init` with zero keys.
-#[no_mangle]
-pub extern "C" fn simrs_init_default() {
-    CURRENT_ATR.set((ATR.as_ptr(), ATR.len()));
-    simrs_hle::hle_init_with_adf(
-        &ATR,
-        &REFERENCE_MF,
-        GsmSubscriberKey::classify([0u8; 16]),
-        [0u8; 16],
-        [0u8; 16],
-        &ADF_TABLE,
-    );
+    CURRENT_ATR.set((simrs_hle::DEFAULT_ATR.as_ptr(), simrs_hle::DEFAULT_ATR.len()));
+    simrs_hle::hle_init_standard(ki_arr, k_arr, opc_arr);
 }
 
 /// Initialize the SIM from a TCA eUICC Profile Package (DER-encoded).
@@ -212,7 +173,7 @@ pub unsafe extern "C" fn simrs_snapshot_save(
 
 /// Restore SIM state from `buf`. Returns 1 on success, 0 on failure.
 ///
-/// The SIM must already be initialized (via `simrs_init` or `simrs_init_default`)
+/// The SIM must already be initialized (via `simrs_init`)
 /// with the same algorithm that was used when the snapshot was saved.
 ///
 /// # Safety
@@ -252,17 +213,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn init_default_and_reset() {
-        simrs_init_default();
+    fn init_and_reset() {
+        unsafe { simrs_init([0u8; 16].as_ptr(), [0u8; 16].as_ptr(), [0u8; 16].as_ptr()) };
         let mut atr_buf = [0u8; 32];
         let atr_len = unsafe { simrs_reset(atr_buf.as_mut_ptr(), atr_buf.len() as u32) };
-        assert_eq!(atr_len, ATR.len() as u32);
-        assert_eq!(&atr_buf[..atr_len as usize], &ATR);
+        assert_eq!(atr_len, simrs_hle::DEFAULT_ATR.len() as u32);
+        assert_eq!(&atr_buf[..atr_len as usize], &simrs_hle::DEFAULT_ATR);
     }
 
     #[test]
     fn apdu_select_mf() {
-        simrs_init_default();
+        unsafe { simrs_init([0u8; 16].as_ptr(), [0u8; 16].as_ptr(), [0u8; 16].as_ptr()) };
         let mut atr = [0u8; 32];
         unsafe { simrs_reset(atr.as_mut_ptr(), 32) };
 
@@ -279,7 +240,7 @@ mod tests {
 
     #[test]
     fn snapshot_roundtrip() {
-        simrs_init_default();
+        unsafe { simrs_init([0u8; 16].as_ptr(), [0u8; 16].as_ptr(), [0u8; 16].as_ptr()) };
         let mut atr = [0u8; 32];
         unsafe { simrs_reset(atr.as_mut_ptr(), 32) };
 
@@ -297,7 +258,7 @@ mod tests {
         assert!(saved > 0);
 
         // Re-init (wipes state)
-        simrs_init_default();
+        unsafe { simrs_init([0u8; 16].as_ptr(), [0u8; 16].as_ptr(), [0u8; 16].as_ptr()) };
         unsafe { simrs_reset(atr.as_mut_ptr(), 32) };
 
         // Restore
@@ -320,11 +281,11 @@ mod tests {
         let atr_len = unsafe { simrs_reset(atr_buf.as_mut_ptr(), atr_buf.len() as u32) };
 
         // Profile ATR is 18 bytes (simrs_profile::DEFAULT_ATR), not the
-        // 4-byte module-level ATR used by simrs_init / simrs_init_default.
+        // 4-byte default ATR used by simrs_init.
         assert_eq!(atr_len, 18);
         assert_ne!(
             &atr_buf[..atr_len as usize],
-            &ATR[..],
+            &simrs_hle::DEFAULT_ATR[..],
             "profile ATR must differ from the default 4-byte ATR"
         );
         // First byte is always 0x3B (direct convention).

@@ -458,6 +458,43 @@ pub fn hle_state_hash() -> u64 {
 }
 
 // ---------------------------------------------------------------------------
+// Convenience defaults for export crates
+// ---------------------------------------------------------------------------
+
+/// Standard reference ATR.
+///
+/// This 4-byte ATR is intentionally compact. It works reliably with
+/// firmware SIM drivers that treat ATR as opaque bytes rather than
+/// parsing the ISO/IEC 7816-3 T0/TA1/historical structure.
+pub static DEFAULT_ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
+
+/// Initialize the SIM with the standard USIM profile and Milenage auth.
+///
+/// Uses [`DEFAULT_ATR`], the reference MF filesystem, and the full ADF table.
+/// This is the common init path shared by all export crates (C, Rust, Python).
+pub fn hle_init_standard(ki: [u8; 16], k: [u8; 16], opc: [u8; 16]) {
+    hle_init_with_adf(
+        &DEFAULT_ATR,
+        &simrs_usim::profile::REFERENCE_MF,
+        GsmSubscriberKey::classify(ki),
+        k,
+        opc,
+        &simrs_usim::profile::ADF_TABLE,
+    );
+}
+
+/// Initialize the SIM from a TCA eUICC profile DER.
+///
+/// # Errors
+///
+/// Returns `Err(ProfileError)` if the DER is malformed or missing required PEs.
+pub fn hle_init_standard_profile(der: &[u8]) -> Result<(), simrs_profile::ProfileError> {
+    let config = simrs_profile::load_profile(der)?;
+    hle_init_from_profile(&config);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

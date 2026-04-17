@@ -1,4 +1,4 @@
-# simrs-hle-pythonapi
+# simrs-hle-python
 
 Python bindings for the SimRS smart card simulator.
 
@@ -51,7 +51,7 @@ Requires `uv` (for managed Python environment) and the Rust toolchain.
 
 ```sh
 # Build the C shared library and run all Python tests
-cargo test --manifest-path exports/simrs-hle-pythonapi/Cargo.toml
+cargo test --manifest-path exports/simrs-hle-python/Cargo.toml
 ```
 
 The `build.rs` automatically builds the `simrs-hle-capi` cdylib before tests
