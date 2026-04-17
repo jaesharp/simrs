@@ -2,8 +2,6 @@
 
 Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embeddable Rust (`no_std`).
 
-_If it's not supported - it's a bug._
-
 - **SIM / USIM / ISIM / HPSIM** (GSM 11.11, TS 102 221, TS 31.102, TS 31.103, TS 31.104)
   - SIM, USIM, ISIM, HPSIM applications with filesystem, PIN/PUK, proactive UICC
     - eUICC profiles (TCA v3.3.1, SGP.22)
