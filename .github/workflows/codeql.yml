@@ -21,6 +21,8 @@ jobs:
         include:
           - language: actions
             build-mode: none
+          - language: c-cpp
+            build-mode: manual
           - language: python
             build-mode: none
           - language: rust
@@ -33,6 +35,11 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+      - name: Dynamically Build and Inspect C Library/API
+        if: matrix.language == 'c-cpp'
+        run: |
+          rustup default nightly
+          cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release
       - name: Perform CodeQL Code Analysis
         uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 #v4.35.2
         with:
