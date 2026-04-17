@@ -24,11 +24,11 @@ jobs:
           - language: c-cpp
             build-mode: manual
           - language: csharp
-            build-mode: none
+            build-mode: manual
           - language: go
             build-mode: manual
           - language: java-kotlin
-            build-mode: none
+            build-mode: manual
           - language: python
             build-mode: none
           - language: rust
@@ -59,6 +59,21 @@ jobs:
           rustup default nightly
           cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml
           swift build --package-path exports/simrs-hle-swift
+      - name: Build Java/Kotlin Bindings for Analysis
+        if: matrix.language == 'java-kotlin'
+        run: |
+          rustup default nightly
+          curl -sL https://github.com/JetBrains/kotlin/releases/download/v2.3.20/kotlin-compiler-2.3.20.zip -o /tmp/kotlinc.zip
+          unzip -q /tmp/kotlinc.zip -d $HOME/
+          echo "$HOME/kotlinc/bin" >> $GITHUB_PATH
+          export PATH="$HOME/kotlinc/bin:$PATH"
+          cargo test --manifest-path exports/simrs-hle-java/Cargo.toml --no-run
+      - name: Build .NET Bindings for Analysis
+        if: matrix.language == 'csharp'
+        run: |
+          rustup default nightly
+          cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml
+          dotnet build exports/simrs-hle-dotnet/SimRS.sln
       - name: Perform CodeQL Code Analysis
         uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 #v4.35.2
         with:
