@@ -141,7 +141,10 @@ getrandom  = "0.2"
 
 # External test/dev dependencies -- tests run on host (std always available)
 proptest = "1"
-tacet    = "0.4"
+# Fork of agucova/tacet: upgrades statrs to git master (nalgebra 0.34, rand 0.9)
+# to eliminate GHSA-cq8v-f236-94qc (rand 0.8 unsoundness). Revert to crates.io
+# when tacet publishes a release with the updated statrs dependency.
+tacet    = { git = "https://github.com/jaesharp/tacet", branch = "main" }
 cucumber = "0.21"
 tokio    = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures  = "0.3"
