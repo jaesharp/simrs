@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use cucumber::World;
-use simrs_adversarial_countervalidation::{send_apdu, send_apdu_sw, verify_pin1, TestSim};
+use simrs_adversarial_countervalidation::{TestSim, send_apdu, send_apdu_sw, verify_pin1};
 use simrs_iso7816::ins;
 use simrs_pin::PinKey;
 use simrs_sim::{SimEvent, SimResponse};

@@ -12,7 +12,7 @@ use simrs_adversarial_countervalidation::apdu;
 use simrs_ota::{CommandPacketHeader, KeyIdentifier, OtaCryptoKey, OtaError, SecurityParameters};
 use simrs_secret::Secret;
 
-use super::world::{do_send_apdu, reset_state_snapshots, send_terminal_profile, SimWorld};
+use super::world::{SimWorld, do_send_apdu, reset_state_snapshots, send_terminal_profile};
 
 // =========================================================================
 // GIVEN steps

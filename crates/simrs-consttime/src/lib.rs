@@ -89,8 +89,8 @@ pub use simrs_consttime_macros::{CtEq, CtSelect, CtSwap};
 // Re-export core types and traits.
 pub use ctbool::CtBool;
 pub use traits::{
-    ct_is_zero_u64, ct_is_zero_u8, ct_mux_u64, ct_mux_u8, ct_swap_u64, CtEq, CtSelect, CtSwap,
-    CtZero,
+    CtEq, CtSelect, CtSwap, CtZero, ct_is_zero_u8, ct_is_zero_u64, ct_mux_u8, ct_mux_u64,
+    ct_swap_u64,
 };
 
 // ---------------------------------------------------------------------------
@@ -574,7 +574,7 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{assert_no_timing_leak, ct_test, Rng};
+    use simrs_consttime_validation::{Rng, assert_no_timing_leak, ct_test};
 
     #[test]
     fn ct_select_timing() {

@@ -49,9 +49,9 @@ pub use simrs_gp_scp::ScpState;
 
 use simrs_gp_keys::KeyStore;
 use simrs_gp_scp::{
-    process_external_authenticate, process_initialize_update, unwrap_command, ScpError, ScpVersion,
+    ScpError, ScpVersion, process_external_authenticate, process_initialize_update, unwrap_command,
 };
-use simrs_iso7816::{ins, write_data_sw, write_sw, Command, StatusWord};
+use simrs_iso7816::{Command, StatusWord, ins, write_data_sw, write_sw};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -428,47 +428,45 @@ impl<const MAX_APPLETS: usize, const MAX_SDS: usize> GpOpen<MAX_APPLETS, MAX_SDS
         // C-MAC verification: when an authenticated C-MAC session is active,
         // commands requiring auth must include and pass C-MAC verification.
         // GP 2.1.1 clause 8.3.1.
-        if !auth_exempt {
-            if let ScpState::Authenticated {
+        if !auth_exempt
+            && let ScpState::Authenticated {
                 security_level,
                 scp_version,
                 ..
             } = self.scp_state
-            {
-                if security_level & 0x01 != 0 {
-                    let mut uw_data = [0u8; 256];
-                    let uw_result = if scp_version == ScpVersion::Scp03 {
-                        self.scp03_unwrap(raw, &mut uw_data)
+            && security_level & 0x01 != 0
+        {
+            let mut uw_data = [0u8; 256];
+            let uw_result = if scp_version == ScpVersion::Scp03 {
+                self.scp03_unwrap(raw, &mut uw_data)
+            } else {
+                unwrap_command(&mut self.scp_state, raw, &mut uw_data)
+            };
+            match uw_result {
+                Ok(data_len) => {
+                    // Rebuild APDU without C-MAC for dispatch.
+                    let mut uw_apdu = [0u8; 261];
+                    uw_apdu[..4].copy_from_slice(&raw[..4]);
+                    let uw_len = if data_len > 0 {
+                        uw_apdu[4] = data_len as u8;
+                        uw_apdu[5..5 + data_len].copy_from_slice(&uw_data[..data_len]);
+                        5 + data_len
                     } else {
-                        unwrap_command(&mut self.scp_state, raw, &mut uw_data)
+                        4
                     };
-                    match uw_result {
-                        Ok(data_len) => {
-                            // Rebuild APDU without C-MAC for dispatch.
-                            let mut uw_apdu = [0u8; 261];
-                            uw_apdu[..4].copy_from_slice(&raw[..4]);
-                            let uw_len = if data_len > 0 {
-                                uw_apdu[4] = data_len as u8;
-                                uw_apdu[5..5 + data_len].copy_from_slice(&uw_data[..data_len]);
-                                5 + data_len
-                            } else {
-                                4
-                            };
-                            let Ok(uw_cmd) = Command::parse(&uw_apdu[..uw_len]) else {
-                                return write_sw(buf, StatusWord::WrongLength);
-                            };
-                            return self.dispatch_gp(&uw_cmd, buf);
-                        }
-                        Err(ScpError::CmacMismatch) => {
-                            return write_sw(buf, StatusWord::command_not_allowed(0x88));
-                        }
-                        Err(ScpError::SecureMessagingMissing) => {
-                            return write_sw(buf, StatusWord::command_not_allowed(0x87));
-                        }
-                        Err(_) => {
-                            return write_sw(buf, StatusWord::NoPreciseDiagnosis);
-                        }
-                    }
+                    let Ok(uw_cmd) = Command::parse(&uw_apdu[..uw_len]) else {
+                        return write_sw(buf, StatusWord::WrongLength);
+                    };
+                    return self.dispatch_gp(&uw_cmd, buf);
+                }
+                Err(ScpError::CmacMismatch) => {
+                    return write_sw(buf, StatusWord::command_not_allowed(0x88));
+                }
+                Err(ScpError::SecureMessagingMissing) => {
+                    return write_sw(buf, StatusWord::command_not_allowed(0x87));
+                }
+                Err(_) => {
+                    return write_sw(buf, StatusWord::NoPreciseDiagnosis);
                 }
             }
         }
@@ -1198,7 +1196,7 @@ mod tests {
         apdu[2] = 0x00; // security level
         apdu[3] = 0x00;
         apdu[4] = 0x10; // Lc = 16
-                        // 16 bytes of data (host cryptogram + MAC)
+        // 16 bytes of data (host cryptogram + MAC)
         let rsp = gp.handle(&apdu, &mut buf);
         assert_eq!(rsp[0], 0x69); // command not allowed
     }

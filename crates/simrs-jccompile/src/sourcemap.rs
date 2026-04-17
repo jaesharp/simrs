@@ -398,9 +398,11 @@ mod tests {
         let text = "# jacc source map v1\n0000 1:1\n";
         let result = SourceMap::from_text(text);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("source entry before any method declaration"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("source entry before any method declaration")
+        );
     }
 
     #[test]

@@ -17,7 +17,7 @@ use simrs_pin::{PinKey, PinValue};
 use simrs_proactive::{ProactiveCommand, TextCoding};
 use simrs_qemu::{QemuBridge, QemuBridgeError, ShmemMsgType};
 use simrs_sim::{Sim, SimEvent, SimResponse};
-use simrs_transport_shmem::{ring_read, ring_write, ShmemHeader, HEADER_SIZE};
+use simrs_transport_shmem::{HEADER_SIZE, ShmemHeader, ring_read, ring_write};
 use simrs_usim::UsimApp;
 
 // ---------------------------------------------------------------------------

@@ -46,9 +46,9 @@ pub use convert::auth::AuthConfig;
 pub use convert::pin::{PinConfig, PukConfig};
 pub use error::ProfileError;
 
+use convert::MutableTree;
 use convert::auth::extract_auth;
 use convert::pin::{extract_pins, extract_puks};
-use convert::MutableTree;
 use pe::ProfileElement;
 use simrs_fs::{AdfSlot, DfDef};
 

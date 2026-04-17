@@ -16,7 +16,7 @@
 
 use simrs_card_api::{SimEvent, SimResponse};
 use simrs_differential_crossvalidation::{
-    select_aid, try_create_dual_card, ORACLE_ISD_AID, SIMRS_ISD_AID,
+    ORACLE_ISD_AID, SIMRS_ISD_AID, select_aid, try_create_dual_card,
 };
 
 /// Helper macro: skip if `SIMRS_JCSL_BINARY` is not set.

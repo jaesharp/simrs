@@ -30,16 +30,16 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-pub use simrs_card_api::{fnv1a, CardState, SimEvent, SimResponse};
+pub use simrs_card_api::{CardState, SimEvent, SimResponse, fnv1a};
 
 use simrs_gp_keys::KeySet;
 use simrs_gp_open::GpOpen;
 use simrs_iso7816::StatusWord;
 
 #[cfg(feature = "sim")]
-use simrs_gp_open::registry::{self, AppletEntry};
-#[cfg(feature = "sim")]
 use simrs_gp_open::AppletLifecycle;
+#[cfg(feature = "sim")]
+use simrs_gp_open::registry::{self, AppletEntry};
 #[cfg(feature = "sim")]
 use simrs_jcre::{Applet, AppletResult};
 #[cfg(feature = "sim")]
@@ -648,8 +648,8 @@ mod tests {
         let mut card = make_card();
         let mut buf = [0u8; GpCard::<261>::SNAPSHOT_SIZE];
         buf[0] = 0xFF; // invalid card state byte
-                       // Rest is zeros, which will also fail GpOpen restore, but we hit the
-                       // card state check first.
+        // Rest is zeros, which will also fail GpOpen restore, but we hit the
+        // card state check first.
         assert!(!card.restore_state(&buf));
     }
 

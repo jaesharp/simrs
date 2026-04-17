@@ -56,8 +56,8 @@
 
 pub mod profile;
 
-use simrs_comp128::comp128_versioned;
 pub use simrs_comp128::Comp128Version;
+use simrs_comp128::comp128_versioned;
 use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FsData, FsError, SelectedFile, SelectionCtx};
 use simrs_redact::Redact;
 use simrs_secret::Secret;
@@ -98,7 +98,7 @@ const FS_MAX_EFS: usize = 16;
 ))]
 const FS_MAX_EFS: usize = 32;
 use simrs_iso7816::{
-    ins, sw2, write_data_sw, write_sw, write_sw_raw, Command, ResponseQueue, StatusWord,
+    Command, ResponseQueue, StatusWord, ins, sw2, write_data_sw, write_sw, write_sw_raw,
 };
 #[cfg(test)]
 use simrs_pin::PinValue;
@@ -699,7 +699,7 @@ fn build_df_response(df: &DfDef, out: &mut [u8; 23]) {
     out[19] = UNBLOCK_CHV_INIT_10_RETRIES; // UNBLOCK CHV1: initialized, 10 retries
     out[20] = CHV_INIT_3_RETRIES; // CHV2
     out[21] = UNBLOCK_CHV_INIT_10_RETRIES; // UNBLOCK CHV2
-                                           // Byte 22: RFU.
+    // Byte 22: RFU.
 }
 
 /// Build a 15-byte EF SELECT response per [ETSI TS 151 011 V4.15.0 clause 9.2.1](../../../docs/specs/3gpp/ts-51.011/ts_151011v041500p.pdf#%5B%7B%22num%22%3A72%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C733%5D).
@@ -1535,7 +1535,7 @@ mod tests {
         apdu[2] = 0x03; // P1: record 3
         apdu[3] = 0x04; // P2: absolute
         apdu[4] = 0x0E; // Lc: 14 bytes
-                        // Fill record with "Charlie" + padding
+        // Fill record with "Charlie" + padding
         apdu[5] = 0x43; // 'C'
         apdu[6] = 0x68; // 'h'
         apdu[7] = 0x61; // 'a'
@@ -1648,10 +1648,10 @@ mod tests {
         // SELECT MF.
         send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]);
         send(&mut app, &[0xA0, 0xC0, 0x00, 0x00, 0x17]); // consume
-                                                         // SELECT DF.GSM.
+        // SELECT DF.GSM.
         send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
         send(&mut app, &[0xA0, 0xC0, 0x00, 0x00, 0x17]); // consume
-                                                         // SELECT EF.IMSI.
+        // SELECT EF.IMSI.
         send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x07]);
         // READ BINARY.
         let (buf, len) = send(&mut app, &[0xA0, 0xB0, 0x00, 0x00, 0x09]);
@@ -2704,7 +2704,7 @@ mod tests {
         let mut app = ref_app();
         send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
         send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0xAD]); // EF.AD (3 bytes)
-                                                                     // Write 4 bytes at offset 1 = 5 bytes total, exceeds 3.
+        // Write 4 bytes at offset 1 = 5 bytes total, exceeds 3.
         let (buf, len) = send(
             &mut app,
             &[0xA0, 0xD6, 0x00, 0x01, 0x04, 0x01, 0x02, 0x03, 0x04],

@@ -23,9 +23,9 @@
 //! ```
 
 use super::builder::{CapBuilder, MethodBuilder};
+use simrs_jcvm::JcVM;
 use simrs_jcvm::cap::{Package, ParseError};
 use simrs_jcvm::opcodes::ExecResult;
-use simrs_jcvm::JcVM;
 
 /// A pre-execution heap allocation request.
 #[derive(Clone, Debug)]

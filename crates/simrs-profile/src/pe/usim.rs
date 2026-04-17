@@ -125,10 +125,11 @@ impl PeUsim {
         // Collect any extra files beyond tag 25.
         let mut extra_files = Vec::new();
         for tlv in &tlvs {
-            if tlv.class == 2 && tlv.number > 25 {
-                if let Ok(f) = File::from_bytes(tlv.value) {
-                    extra_files.push((tlv.number, f));
-                }
+            if tlv.class == 2
+                && tlv.number > 25
+                && let Ok(f) = File::from_bytes(tlv.value)
+            {
+                extra_files.push((tlv.number, f));
             }
         }
 

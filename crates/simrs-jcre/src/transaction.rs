@@ -174,11 +174,7 @@ impl<const CAP: usize> TransactionJournal<CAP> {
     ///
     /// Per JC RE 2.1.1 clause 7.4: nesting is not supported.
     pub const fn depth(&self) -> u8 {
-        if self.active {
-            1
-        } else {
-            0
-        }
+        if self.active { 1 } else { 0 }
     }
 
     /// Number of journal entries recorded in the current transaction.
@@ -406,7 +402,7 @@ mod tests {
         assert!(!j.restore_state(&[]));
         // Count exceeds capacity.
         assert!(!j.restore_state(&[0, 5, 0])); // count=5 > CAP=4
-                                               // Short data for declared count.
+        // Short data for declared count.
         assert!(!j.restore_state(&[0, 2, 0, 0x0A, 0x00])); // 2 entries declared, only 1 partial
     }
 

@@ -19,7 +19,7 @@ use simrs_gsm::GsmApp;
 #[cfg(feature = "usim")]
 use simrs_usim::UsimApp;
 
-use crate::{classify_cla, ClaFamily};
+use crate::{ClaFamily, classify_cla};
 
 #[cfg(feature = "usim")]
 use simrs_fs::{AdfSlot, DfDef};

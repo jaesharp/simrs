@@ -20,11 +20,11 @@
 // per-AppletEntry JCVM linkage (pkg_idx, process_method) is saved here.
 // The load_buffer is transient and never snapshotted.
 
+use crate::MAX_LOAD_FILES;
 use crate::channel::ChannelState;
 use crate::lifecycle::{AppletLifecycle, CardLifecycle};
-use crate::registry::{AppletEntry, LoadFileEntry, SecurityDomain, MAX_AID_LEN};
-use crate::MAX_LOAD_FILES;
-use simrs_gp_scp::{restore_scp_state, save_scp_state, ScpState, SCP_STATE_SNAPSHOT_SIZE};
+use crate::registry::{AppletEntry, LoadFileEntry, MAX_AID_LEN, SecurityDomain};
+use simrs_gp_scp::{SCP_STATE_SNAPSHOT_SIZE, ScpState, restore_scp_state, save_scp_state};
 
 /// Save a Security Domain / applet entry into `buf` at `off`. Returns new offset.
 #[allow(clippy::cast_possible_truncation)]

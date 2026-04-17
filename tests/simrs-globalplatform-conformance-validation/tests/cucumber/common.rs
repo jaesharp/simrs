@@ -381,10 +381,10 @@ fn given_load_file_instances(
     let registry = world.card.open_mut().registry();
     let mut slots = Vec::new();
     for (i, entry) in registry.iter().enumerate() {
-        if let Some(e) = entry {
-            if e.aid() == inst1.as_slice() || e.aid() == inst2.as_slice() {
-                slots.push(i as u8);
-            }
+        if let Some(e) = entry
+            && (e.aid() == inst1.as_slice() || e.aid() == inst2.as_slice())
+        {
+            slots.push(i as u8);
         }
     }
     let lfs = world.card.open_mut().load_files_mut();
@@ -1202,10 +1202,10 @@ fn when_send_store_data(world: &mut GpWorld) {
         let channel = 0u8;
         if let Some(idx) = world.card.open().selected_applet_index(channel) {
             let reg = world.card.open_mut().registry_mut();
-            if let Some(ref mut entry) = reg[idx as usize] {
-                if let Some(new_lc) = entry.lifecycle().transition(AppletLifecycle::Personalized) {
-                    entry.set_lifecycle(new_lc);
-                }
+            if let Some(ref mut entry) = reg[idx as usize]
+                && let Some(new_lc) = entry.lifecycle().transition(AppletLifecycle::Personalized)
+            {
+                entry.set_lifecycle(new_lc);
             }
         }
     }

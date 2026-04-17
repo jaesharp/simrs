@@ -9,9 +9,9 @@
 //! and the invoke handlers check these before falling through to normal
 //! bytecode dispatch.
 
+use crate::JcVM;
 use crate::heap::ObjRef;
 use crate::opcodes::ExecResult;
-use crate::JcVM;
 
 // =========================================================================
 // Well-known class IDs for javacard.framework classes

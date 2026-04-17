@@ -1249,7 +1249,7 @@ mod tests {
         bytes[2] = 0x00; // P1
         bytes[3] = 0x81; // P2 (UMTS/EPS/5GS context)
         bytes[4] = 0x20; // Lc = 32
-                         // RAND + AUTN = 32 bytes of dummy data
+        // RAND + AUTN = 32 bytes of dummy data
         let cmd = Command::parse(&bytes).unwrap();
         assert_eq!(cmd.ins(), ins::AUTHENTICATE);
         assert_eq!(cmd.p2(), 0x81);

@@ -11,7 +11,7 @@
 //! SIMRS_JCSL_BINARY=/path/to/jcsl cargo test -p simrs-differential-crossvalidation --test replay
 //! ```
 
-use simrs_differential_crossvalidation::{select_aid, CompareResult, DiffSession, SIMRS_ISD_AID};
+use simrs_differential_crossvalidation::{CompareResult, DiffSession, SIMRS_ISD_AID, select_aid};
 
 /// Helper macro: create a `DiffSession` or skip the test.
 macro_rules! diff_session {

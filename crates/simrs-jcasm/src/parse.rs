@@ -13,7 +13,7 @@
 
 use proc_macro2::Span;
 use syn::parse::{Parse, ParseStream};
-use syn::{braced, Ident, LitInt, Result, Token};
+use syn::{Ident, LitInt, Result, Token, braced};
 
 /// A parsed applet definition.
 pub struct AppletDef {

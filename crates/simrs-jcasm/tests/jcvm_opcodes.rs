@@ -22,8 +22,8 @@
 //!   - Section 7.5.9: Method invocation (invokestatic)
 
 use simrs_jcasm::jcasm;
-use simrs_jcvm::opcodes::ExecResult;
 use simrs_jcvm::JcVM;
+use simrs_jcvm::opcodes::ExecResult;
 
 /// Helper: assemble, build CAP, load, execute method 0.
 fn run_applet(aid: &[u8], methods: &[&[u8]]) -> ExecResult {

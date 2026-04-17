@@ -70,9 +70,9 @@ resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "GPL-2.0-or-later"
-# Minimum Rust version: 1.85 (for edition 2024 used by simrs-ref).
+# Minimum Rust version: 1.85 (required for edition 2024).
 # The workspace builds on stable; only the miri CI job installs nightly.
 rust-version = "1.85"
 

@@ -230,16 +230,16 @@ pub fn compare_with_schema(
     right_data: &[u8],
 ) -> SemanticResult {
     // Check expected length if specified.
-    if let Some(expected) = schema.expected_len {
-        if left_data.len() != expected || right_data.len() != expected {
-            return SemanticResult::FieldMismatches(vec![FieldMismatch {
-                field: "response_length",
-                kind: MismatchKind::LengthDiffer {
-                    left: left_data.len(),
-                    right: right_data.len(),
-                },
-            }]);
-        }
+    if let Some(expected) = schema.expected_len
+        && (left_data.len() != expected || right_data.len() != expected)
+    {
+        return SemanticResult::FieldMismatches(vec![FieldMismatch {
+            field: "response_length",
+            kind: MismatchKind::LengthDiffer {
+                left: left_data.len(),
+                right: right_data.len(),
+            },
+        }]);
     }
 
     // Compare each field per its policy.

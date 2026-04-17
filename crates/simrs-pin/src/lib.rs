@@ -873,7 +873,7 @@ impl<const N: usize> PinManager<N> {
 // APDU-level PIN handlers (shared by GSM and USIM apps)
 // ---------------------------------------------------------------------------
 
-use simrs_iso7816::{sw2, write_sw, Command, StatusWord};
+use simrs_iso7816::{Command, StatusWord, sw2, write_sw};
 
 /// PIN data field length (8 bytes, per ETSI TS 102 221 clause 11.1.9).
 pub const PIN_DATA_LEN: usize = 8;

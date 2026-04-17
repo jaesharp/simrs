@@ -11,9 +11,9 @@
 //! ```
 
 use simrs_differential_crossvalidation::{
-    known_divergences,
+    DualResponse, ORACLE_ISD_AID, SIMRS_ISD_AID, known_divergences,
     report::{DiffReport, DiffTestCase, DivergenceCategory},
-    select_aid, try_create_dual_card, DualResponse, ORACLE_ISD_AID, SIMRS_ISD_AID,
+    select_aid, try_create_dual_card,
 };
 use std::fs;
 use std::time::Instant;

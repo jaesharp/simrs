@@ -60,7 +60,7 @@ use simrs_fs::{
     AccessCondition, AdfSlot, DeactivationTracker, DfDef, EfDef, Fid, FsData, FsError,
     SelectedFile, SelectionCtx, Sfi,
 };
-use simrs_iso7816::{fcp, ins, sw2, write_data_sw, write_sw, Command, ResponseQueue, StatusWord};
+use simrs_iso7816::{Command, ResponseQueue, StatusWord, fcp, ins, sw2, write_data_sw, write_sw};
 use simrs_kdf::HmacSha256;
 use simrs_milenage::{
     AuthChallenge, AuthToken, AuthenticationAlgorithm, AuthenticationError, CipherKey,
@@ -1187,17 +1187,17 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 match ctx.select_by_fid(fid) {
                     Ok(sel) => {
                         // Check deactivation warning for EFs.
-                        if let SelectedFile::Ef(ef) = sel {
-                            if self.deactivation.is_deactivated(ef.fid()) {
-                                if no_data {
-                                    // Return warning SW 62 83.
-                                    return write_sw(buf, StatusWord::Other(0x62, 0x83));
-                                }
-                                // Queue FCP but return warning status.
-                                let fcp_len = build_fcp(sel, None, self.rsp_queue.buf_mut());
-                                self.rsp_queue.set_len(fcp_len);
+                        if let SelectedFile::Ef(ef) = sel
+                            && self.deactivation.is_deactivated(ef.fid())
+                        {
+                            if no_data {
+                                // Return warning SW 62 83.
                                 return write_sw(buf, StatusWord::Other(0x62, 0x83));
                             }
+                            // Queue FCP but return warning status.
+                            let fcp_len = build_fcp(sel, None, self.rsp_queue.buf_mut());
+                            self.rsp_queue.set_len(fcp_len);
+                            return write_sw(buf, StatusWord::Other(0x62, 0x83));
                         }
                         if no_data {
                             write_sw(buf, StatusWord::Success)
@@ -2225,7 +2225,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         // Build IMPI: <IMSI>@ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org
         let q = self.rsp_queue.buf_mut();
         let mut pos = 2usize; // skip tag + length (filled last)
-                              // IMSI digits as ASCII.
+        // IMSI digits as ASCII.
         let mut i = 0;
         while i < digit_count {
             q[pos] = imsi_digits[i];
@@ -2515,11 +2515,12 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
         let result = self.proactive.terminal_response(cmd.data());
         // Handle REFRESH action (TS 102 223 clause 6.4.7).
-        if let Some(tr) = result {
-            if tr.cmd_type == 0x01 && tr.general_result == 0x00 {
-                let refresh_qualifier = Self::parse_refresh_qualifier(cmd.data());
-                self.apply_refresh(refresh_qualifier);
-            }
+        if let Some(tr) = result
+            && tr.cmd_type == 0x01
+            && tr.general_result == 0x00
+        {
+            let refresh_qualifier = Self::parse_refresh_qualifier(cmd.data());
+            self.apply_refresh(refresh_qualifier);
         }
         write_sw(buf, StatusWord::Success)
     }
@@ -3076,7 +3077,7 @@ mod tests {
         // Tag 0x80: file size.
         let size_val = find_tlv_tag(inner, 0x80).unwrap();
         assert_eq!(size_val, &[0x00, 0x0A]); // 10 bytes
-                                             // Tag 0x83: FID = 2FE2.
+        // Tag 0x83: FID = 2FE2.
         let fid_val = find_tlv_tag(inner, 0x83).unwrap();
         assert_eq!(fid_val, &[0x2F, 0xE2]);
     }
@@ -3213,7 +3214,7 @@ mod tests {
     fn read_record_mode_absolute() {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
-                                                                     // P2=0x04: absolute mode, P1=2 -> record 2.
+        // P2=0x04: absolute mode, P1=2 -> record 2.
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x02, 0x04, 0x08]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(len, 8 + 2);
@@ -3225,11 +3226,11 @@ mod tests {
     fn read_record_mode_next() {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
-                                                                     // P2=0x02: next mode, P1=0 -> record 1 (first).
+        // P2=0x02: next mode, P1=0 -> record 1 (first).
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x00, 0x02, 0x08]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(buf[0], 0x61); // first record starts with TLV tag
-                                  // P2=0x02: next mode, P1=1 -> record 2.
+        // P2=0x02: next mode, P1=1 -> record 2.
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x02, 0x08]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(buf[0], 0xFF); // second record
@@ -3239,11 +3240,11 @@ mod tests {
     fn read_record_mode_previous() {
         let mut app = app();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
-                                                                     // P2=0x03: previous mode, P1=2 -> record 1.
+        // P2=0x03: previous mode, P1=2 -> record 1.
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x02, 0x03, 0x08]);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         assert_eq!(buf[0], 0x61); // first record
-                                  // P2=0x03: previous mode, P1=1 -> error (no record 0).
+        // P2=0x03: previous mode, P1=1 -> error (no record 0).
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x03, 0x08]);
         assert_eq!(sw(&buf, len), (0x6A, 0x83));
     }
@@ -4400,7 +4401,7 @@ mod tests {
         apdu[2] = 0x01; // P1 = 1
         apdu[3] = 0x02; // P2 = next mode
         apdu[4] = 0x0A; // Lc = 10
-                        // data bytes 5..15 are 0x58 (from initialization)
+        // data bytes 5..15 are 0x58 (from initialization)
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Verify record 2 was written (absolute read).
@@ -4779,7 +4780,7 @@ mod tests {
     fn read_record_without_pin1_rejected() {
         let mut app = app_with_pin1_enabled();
         send(&mut app, &[0x00, 0xA4, 0x00, 0x04, 0x02, 0x2F, 0x00]); // EF.DIR
-                                                                     // READ RECORD without PIN1.
+        // READ RECORD without PIN1.
         let (buf, len) = send(&mut app, &[0x00, 0xB2, 0x01, 0x04, 0x08]);
         assert_eq!(sw(&buf, len), (0x69, 0x82));
     }
@@ -6169,7 +6170,7 @@ mod tests {
         naf_apdu[1] = 0x88;
         naf_apdu[3] = 0x84;
         naf_apdu[4] = 0x0A; // Lc = 10
-                            // NAF_ID_len=4, NAF_ID="test", IMPI_len=4, IMPI="user"
+        // NAF_ID_len=4, NAF_ID="test", IMPI_len=4, IMPI="user"
         naf_apdu[5] = 0x04;
         naf_apdu[6..10].copy_from_slice(b"test");
         naf_apdu[10] = 0x04;
@@ -6691,7 +6692,7 @@ mod tests {
         apdu[4] = 0x22;
         apdu[5] = 0x10; // RAND prefix
         apdu[22] = 0x10; // AUTN prefix
-                         // RAND and AUTN are zeros (invalid AUTN)
+        // RAND and AUTN are zeros (invalid AUTN)
 
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(
@@ -7256,7 +7257,7 @@ mod tests {
         apdu[2] = 0x01; // P1: record 1
         apdu[3] = 0x04; // P2: absolute
         apdu[4] = 0x1E; // Lc: 30
-                        // Payload is 0xA5 repeated
+        // Payload is 0xA5 repeated
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Read back record 1

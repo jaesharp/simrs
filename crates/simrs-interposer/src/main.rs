@@ -1,6 +1,6 @@
 //! CLI binary for the APDU interposer.
 
-use simrs_interposer::mode::{parse_hex, parse_mode, AuthConfig, InterposerConfig, InterposerMode};
+use simrs_interposer::mode::{AuthConfig, InterposerConfig, InterposerMode, parse_hex, parse_mode};
 use simrs_interposer::proxy::ProxyLoop;
 use simrs_pcap::LinkType;
 use simrs_secret::Secret;

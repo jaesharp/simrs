@@ -108,7 +108,7 @@
 
 pub mod gsm7;
 
-use simrs_bertlv::{Decoder, Encoder, BER_LONG_FORM_1, BER_LONG_FORM_2, BER_SHORT_FORM_MAX};
+use simrs_bertlv::{BER_LONG_FORM_1, BER_LONG_FORM_2, BER_SHORT_FORM_MAX, Decoder, Encoder};
 
 // ---------------------------------------------------------------------------
 // Constants per ETSI TS 102 223
@@ -4277,7 +4277,7 @@ mod tests {
         state.start_timer(4, [0x00, 0x00, 0x05]); // 5 seconds
         state.tick(10); // expire it
         let _id = state.take_expired_timer(); // consume from expired queue
-                                              // Attempting to deactivate an already-expired timer must return None.
+        // Attempting to deactivate an already-expired timer must return None.
         assert!(state.deactivate_timer(4).is_none());
     }
 

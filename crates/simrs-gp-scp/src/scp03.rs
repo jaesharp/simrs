@@ -6,7 +6,7 @@
 //! `aes_cmac` from `simrs-iso9797` (RFC 4493).
 
 use simrs_consttime::ct_eq;
-use simrs_iso9797::{aes128_cbc_decrypt, aes128_cbc_encrypt, aes_cmac, pad_method2};
+use simrs_iso9797::{aes_cmac, aes128_cbc_decrypt, aes128_cbc_encrypt, pad_method2};
 use simrs_rijndael::Rijndael;
 use simrs_secret::Secret;
 

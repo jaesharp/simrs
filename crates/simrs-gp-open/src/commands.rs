@@ -4,10 +4,10 @@
 //! response into the provided buffer. Functions return a slice of the buffer
 //! containing `[response_data..., SW1, SW2]`.
 
-use simrs_iso7816::{write_data_sw, write_sw, Command, StatusWord};
+use simrs_iso7816::{Command, StatusWord, write_data_sw, write_sw};
 
 use crate::lifecycle::{AppletLifecycle, CardLifecycle};
-use crate::registry::{self, AppletEntry, LoadFileEntry, SecurityDomain, MAX_AID_LEN};
+use crate::registry::{self, AppletEntry, LoadFileEntry, MAX_AID_LEN, SecurityDomain};
 
 // ---------------------------------------------------------------------------
 // GP INS codes (CLA 0x80/0x84)
@@ -359,28 +359,28 @@ pub fn install<const N: usize, const L: usize>(
     // Link to JCVM package if one with matching load file AID is loaded.
     if load_len > 0 {
         let lf_aid = &data[1..=load_len];
-        if let Some(pkg_idx) = jcvm.find_package_by_aid(lf_aid) {
-            if let Some(entry) = &mut registry[slot] {
-                entry.set_jcvm(pkg_idx, 0);
-            }
+        if let Some(pkg_idx) = jcvm.find_package_by_aid(lf_aid)
+            && let Some(entry) = &mut registry[slot]
+        {
+            entry.set_jcvm(pkg_idx, 0);
         }
     }
 
     // Link instance to its load file, if the load file AID matches.
     if load_len > 0 {
         let lf_aid = &data[1..=load_len];
-        if let Some(lf_idx) = registry::find_load_file(load_files, lf_aid) {
-            if let Some(ref mut lf) = load_files[lf_idx] {
-                let _ = lf.add_instance(slot as u8);
-            }
+        if let Some(lf_idx) = registry::find_load_file(load_files, lf_aid)
+            && let Some(ref mut lf) = load_files[lf_idx]
+        {
+            let _ = lf.add_instance(slot as u8);
         }
     }
 
     // GP 2.1.1 clause 5.1: first INSTALL transitions OP_READY -> INITIALIZED.
-    if *card_lifecycle == CardLifecycle::OpReady {
-        if let Some(new_state) = card_lifecycle.transition(CardLifecycle::Initialized) {
-            *card_lifecycle = new_state;
-        }
+    if *card_lifecycle == CardLifecycle::OpReady
+        && let Some(new_state) = card_lifecycle.transition(CardLifecycle::Initialized)
+    {
+        *card_lifecycle = new_state;
     }
 
     write_sw_raw(buf, StatusWord::Success)
@@ -471,30 +471,30 @@ pub fn delete<const N: usize, const M: usize, const L: usize>(
 
     // Check if AID is an SD.
     for (sd_idx, sd_opt) in sds.iter().enumerate() {
-        if let Some(sd) = sd_opt {
-            if sd.aid() == aid {
-                // SD guard: check for associated applications.
-                let has_apps = registry
-                    .iter()
-                    .flatten()
-                    .any(|e| e.owner_sd_index() == Some(sd_idx as u8));
-                if has_apps {
-                    return write_sw_raw(buf, StatusWord::command_not_allowed(0x85));
-                }
-                // No associated apps -- delete the SD.
-                sds[sd_idx] = None;
-                return write_sw_raw(buf, StatusWord::Success);
+        if let Some(sd) = sd_opt
+            && sd.aid() == aid
+        {
+            // SD guard: check for associated applications.
+            let has_apps = registry
+                .iter()
+                .flatten()
+                .any(|e| e.owner_sd_index() == Some(sd_idx as u8));
+            if has_apps {
+                return write_sw_raw(buf, StatusWord::command_not_allowed(0x85));
             }
+            // No associated apps -- delete the SD.
+            sds[sd_idx] = None;
+            return write_sw_raw(buf, StatusWord::Success);
         }
     }
 
     // Standard delete: search registry.
     for entry in &mut *registry {
-        if let Some(e) = entry {
-            if e.aid() == aid {
-                *entry = None;
-                return write_sw_raw(buf, StatusWord::Success);
-            }
+        if let Some(e) = entry
+            && e.aid() == aid
+        {
+            *entry = None;
+            return write_sw_raw(buf, StatusWord::Success);
         }
     }
 

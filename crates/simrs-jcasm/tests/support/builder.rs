@@ -196,7 +196,7 @@ impl CapBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use simrs_jcvm::cap::{parse_cap, ParseError};
+    use simrs_jcvm::cap::{ParseError, parse_cap};
 
     #[test]
     fn builder_roundtrip_simple_method() {

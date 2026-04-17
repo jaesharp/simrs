@@ -88,17 +88,17 @@ impl MutableTree {
         }
 
         // EF.PL (optional)
-        if let Some(ref f) = pe.ef_pl {
-            if let Some(ef) = Self::file_to_ef(f)? {
-                children.push(MutableChild::Ef(ef));
-            }
+        if let Some(ref f) = pe.ef_pl
+            && let Some(ef) = Self::file_to_ef(f)?
+        {
+            children.push(MutableChild::Ef(ef));
         }
 
         // EF.UMPC (optional)
-        if let Some(ref f) = pe.ef_umpc {
-            if let Some(ef) = Self::file_to_ef(f)? {
-                children.push(MutableChild::Ef(ef));
-            }
+        if let Some(ref f) = pe.ef_umpc
+            && let Some(ef) = Self::file_to_ef(f)?
+        {
+            children.push(MutableChild::Ef(ef));
         }
 
         self.mf = Some(MutableDf {
@@ -563,10 +563,10 @@ impl MutableTree {
             pos += 2;
 
             let found = current.iter_mut().find_map(|child| {
-                if let MutableChild::Df(ref mut df) = child {
-                    if df.fid == fid_obj {
-                        return Some(&mut df.children);
-                    }
+                if let MutableChild::Df(df) = child
+                    && df.fid == fid_obj
+                {
+                    return Some(&mut df.children);
                 }
                 None
             });
@@ -628,14 +628,14 @@ impl MutableTree {
         let data = file.build_data(total_size)?;
 
         // Validate record-based data length.
-        if let Some(expected) = structure.expected_data_len() {
-            if data.len() != expected {
-                return Err(ProfileError::DataLengthMismatch {
-                    fid,
-                    expected,
-                    actual: data.len(),
-                });
-            }
+        if let Some(expected) = structure.expected_data_len()
+            && data.len() != expected
+        {
+            return Err(ProfileError::DataLengthMismatch {
+                fid,
+                expected,
+                actual: data.len(),
+            });
         }
 
         Ok(Some(MutableEf {

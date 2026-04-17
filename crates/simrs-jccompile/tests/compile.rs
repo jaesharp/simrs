@@ -2,10 +2,10 @@
 
 use simrs_jccompile::ir::{Condition, JcClass, JcExpr, JcField, JcMethod, JcStmt, LValue};
 use simrs_jccompile::types::JcType;
-use simrs_jccompile::{compile_class, BinOp};
+use simrs_jccompile::{BinOp, compile_class};
+use simrs_jcvm::JcVM;
 use simrs_jcvm::cap::{build_cap_blob, parse_cap};
 use simrs_jcvm::opcodes::ExecResult;
-use simrs_jcvm::JcVM;
 
 /// Helper: compile a class, build a CAP blob, load into a VM, execute method 0.
 fn compile_and_run(class: &JcClass) -> ExecResult {

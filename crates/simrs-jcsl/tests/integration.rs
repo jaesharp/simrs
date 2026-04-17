@@ -15,7 +15,7 @@
 //! temporary files are created.
 
 use simrs_jcsl::configurator::{GlobalPin, ScpKeyset};
-use simrs_jcsl::{configure_binary, JcslClient, JcslProcess};
+use simrs_jcsl::{JcslClient, JcslProcess, configure_binary};
 use simrs_transport::Transport;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};

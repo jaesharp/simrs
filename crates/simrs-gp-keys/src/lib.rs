@@ -300,11 +300,11 @@ impl<const MAX_VERSIONS: usize> KeyStore<MAX_VERSIONS> {
     /// version exists.
     pub fn remove(&mut self, version: u8) -> Result<(), KeyStoreError> {
         for entry in &mut self.entries {
-            if let Some(e) = entry {
-                if e.version == version {
-                    *entry = None;
-                    return Ok(());
-                }
+            if let Some(e) = entry
+                && e.version == version
+            {
+                *entry = None;
+                return Ok(());
             }
         }
         Err(KeyStoreError::NotFound)

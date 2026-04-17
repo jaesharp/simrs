@@ -10,8 +10,8 @@ use quote::quote;
 use syn::parse2;
 
 use simrs_jccompile::{
-    compute_basic_blocks, parse_aid_hex, peephole_optimize_with_config, BranchInfo,
-    BytecodeMetadata, PeepholeConfig,
+    BranchInfo, BytecodeMetadata, PeepholeConfig, compute_basic_blocks, parse_aid_hex,
+    peephole_optimize_with_config,
 };
 
 use crate::opcodes::{self, ArgKind};

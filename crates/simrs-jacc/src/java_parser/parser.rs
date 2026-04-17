@@ -221,31 +221,32 @@ pub fn parse(tokens: &[SpannedToken]) -> Result<JcClass, String> {
         let _ = (is_public, is_private, is_protected, is_final, is_abstract);
 
         // Constructor: ClassName(...) { ... }
-        if let Token::Ident(name) = p.current() {
-            if *name == class_name && p.peek(1) == &Token::LParen {
-                // This is a constructor -- parse and convert to an init method.
-                p.advance(); // skip class name
-                p.expect(&Token::LParen)?;
-                let params = parse_param_list(&mut p)?;
-                p.expect(&Token::RParen)?;
-                p.expect(&Token::LBrace)?;
-                let body = parse_block_body(&mut p)?;
-                p.expect(&Token::RBrace)?;
+        if let Token::Ident(name) = p.current()
+            && *name == class_name
+            && p.peek(1) == &Token::LParen
+        {
+            // This is a constructor -- parse and convert to an init method.
+            p.advance(); // skip class name
+            p.expect(&Token::LParen)?;
+            let params = parse_param_list(&mut p)?;
+            p.expect(&Token::RParen)?;
+            p.expect(&Token::LBrace)?;
+            let body = parse_block_body(&mut p)?;
+            p.expect(&Token::RBrace)?;
 
-                let locals: Vec<(String, JcType)> =
-                    params.iter().map(|(n, t)| (n.clone(), *t)).collect();
+            let locals: Vec<(String, JcType)> =
+                params.iter().map(|(n, t)| (n.clone(), *t)).collect();
 
-                methods.push(JcMethod {
-                    name: String::from("<init>"),
-                    params,
-                    return_ty: JcType::Void,
-                    locals,
-                    body,
-                    is_static: false,
-                    constant_time: false,
-                });
-                continue;
-            }
+            methods.push(JcMethod {
+                name: String::from("<init>"),
+                params,
+                return_ty: JcType::Void,
+                locals,
+                body,
+                is_static: false,
+                constant_time: false,
+            });
+            continue;
         }
 
         // Parse type.
@@ -690,29 +691,29 @@ fn parse_for(p: &mut Parser<'_>) -> Result<JcStmt, String> {
         // have collected the Let into locals already via collect_locals.
         // For the runtime initialization, we prepend the init to the
         // while's body.
-        if let (Some(init_stmt), Some(while_stmt)) = (result.first(), result.get(1)) {
-            if let JcStmt::While { cond, body } = while_stmt.clone() {
-                let mut new_body = vec![init_stmt.clone()];
-                // But we only want init to run once...
-                // The correct desugar is: { init; while(cond) { body; update; } }
-                // Since we can't return multiple stmts, let's return While with
-                // init prepended to the body but modify the condition to handle
-                // this. Actually, for a simple for loop this is wrong.
-                //
-                // Best approach for the MVP: return just the while and handle
-                // init in the caller's context.  parse_statement is called
-                // from parse_block_body which loops, so we could return
-                // multiple statements by yielding from a Vec.
-                //
-                // Let's just use the simplest approach: since parse_for returns
-                // a single JcStmt, we put init before the while body on the
-                // first iteration. This is actually correct if we don't re-init.
-                new_body.extend(body);
-                return Ok(JcStmt::While {
-                    cond,
-                    body: new_body,
-                });
-            }
+        if let (Some(init_stmt), Some(while_stmt)) = (result.first(), result.get(1))
+            && let JcStmt::While { cond, body } = while_stmt.clone()
+        {
+            let mut new_body = vec![init_stmt.clone()];
+            // But we only want init to run once...
+            // The correct desugar is: { init; while(cond) { body; update; } }
+            // Since we can't return multiple stmts, let's return While with
+            // init prepended to the body but modify the condition to handle
+            // this. Actually, for a simple for loop this is wrong.
+            //
+            // Best approach for the MVP: return just the while and handle
+            // init in the caller's context.  parse_statement is called
+            // from parse_block_body which loops, so we could return
+            // multiple statements by yielding from a Vec.
+            //
+            // Let's just use the simplest approach: since parse_for returns
+            // a single JcStmt, we put init before the while body on the
+            // first iteration. This is actually correct if we don't re-init.
+            new_body.extend(body);
+            return Ok(JcStmt::While {
+                cond,
+                body: new_body,
+            });
         }
         // Fallback -- shouldn't happen.
         Ok(result.into_iter().last().unwrap())

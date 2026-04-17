@@ -235,7 +235,7 @@ impl Fe {
         let e = e.square_n(96); // 3 zero words
         let e = e.square_n(32).mul(x32); // word: FFFFFFFF
         let e = e.square_n(32).mul(x32); // word: FFFFFFFF
-                                         // FFFFFFFD = (2^30-1)*4 + 1
+        // FFFFFFFD = (2^30-1)*4 + 1
         let e = e.square_n(30).mul(x30);
         e.square().square().mul(a)
     }
@@ -1429,7 +1429,9 @@ mod tests {
     #[test]
     fn nist_cavp_ecdh_count0() {
         // NIST CAVP KAS_ECC_CDH_PrimitiveTest, COUNT=0
-        let qcavs = hex65("04700c48f77f56584c5cc632ca65640db91b6bacce3a4df6b42ce7cc838833d287db71e509e3fd9b060ddb20ba5c51dcc5948d46fbf640dfe0441782cab85fa4ac");
+        let qcavs = hex65(
+            "04700c48f77f56584c5cc632ca65640db91b6bacce3a4df6b42ce7cc838833d287db71e509e3fd9b060ddb20ba5c51dcc5948d46fbf640dfe0441782cab85fa4ac",
+        );
         let diut = hex32("7d7dc5f71eb29ddaf80d6214632eeae03d9058af1fb6d22ed80badb62bc1a534");
         let expected_z = hex32("46fc62106420ff012e54a434fbdd2d25ccc5852060561e68040dd7778997bd7b");
 
@@ -1440,7 +1442,9 @@ mod tests {
     #[test]
     fn nist_cavp_ecdh_count1() {
         // NIST CAVP KAS_ECC_CDH_PrimitiveTest, COUNT=1
-        let qcavs = hex65("04809f04289c64348c01515eb03d5ce7ac1a8cb9498f5caa50197e58d43a86a7aeb29d84e811197f25eba8f5194092cb6ff440e26d4421011372461f579271cda3");
+        let qcavs = hex65(
+            "04809f04289c64348c01515eb03d5ce7ac1a8cb9498f5caa50197e58d43a86a7aeb29d84e811197f25eba8f5194092cb6ff440e26d4421011372461f579271cda3",
+        );
         let diut = hex32("38f65d6dce47676044d58ce5139582d568f64bb16098d179dbab07741dd5caf5");
         let expected_z = hex32("057d636096cb80b67a8c038c890e887d1adfa4195e9b3ce241c8a778c59cda67");
 
@@ -1454,7 +1458,9 @@ mod tests {
     fn nist_cavp_pubkey_count0() {
         // Verify public key from COUNT=0 private key.
         let diut = hex32("7d7dc5f71eb29ddaf80d6214632eeae03d9058af1fb6d22ed80badb62bc1a534");
-        let expected = hex65("04ead218590119e8876b29146ff89ca61770c4edbbf97d38ce385ed281d8a6b23028af61281fd35e2fa7002523acc85a429cb06ee6648325389f59edfce1405141");
+        let expected = hex65(
+            "04ead218590119e8876b29146ff89ca61770c4edbbf97d38ce385ed281d8a6b23028af61281fd35e2fa7002523acc85a429cb06ee6648325389f59edfce1405141",
+        );
 
         let pk = p256_pubkey(&Secret::new(diut));
         assert_eq!(*pk.as_bytes(), expected);
@@ -1558,7 +1564,9 @@ mod tests {
     fn ts33501_c44_shared_secret() {
         // Verify ECDH shared secret between ephemeral and HN keys.
         let eph_sk = hex32("99798858a1dc6a2c68637149a4b1dbfd1fdff5addd62a2142f06699ed7602529");
-        let hn_pk = hex65("0472da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd15a7ded52fcbb097a4ed250e036c7b9c8c7004c4eedc4f068cd7bf8d3f900e3b4");
+        let hn_pk = hex65(
+            "0472da71976234ce833a6907425867b82e074d44ef907dfb4b3e21c1c2256ebcd15a7ded52fcbb097a4ed250e036c7b9c8c7004c4eedc4f068cd7bf8d3f900e3b4",
+        );
         let expected_z = hex32("6c7e6518980025b982fbb2ff746e3c2e85a196d252099a7ad23ea7b4c0959cae");
 
         let z = p256_ecdh(&Secret::new(eph_sk), &P256UncompressedPublicKey::new(hn_pk)).unwrap();

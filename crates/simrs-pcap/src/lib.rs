@@ -939,9 +939,11 @@ mod tests {
 
         // Verify payload bytes
         let payload_off = RECORD_HEADER_SIZE + GSMTAP_HEADER_SIZE;
-        assert!(buf[payload_off..payload_off + 258]
-            .iter()
-            .all(|&b| b == 0xAB));
+        assert!(
+            buf[payload_off..payload_off + 258]
+                .iter()
+                .all(|&b| b == 0xAB)
+        );
     }
 
     // -----------------------------------------------------------------------

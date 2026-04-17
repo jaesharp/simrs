@@ -242,10 +242,10 @@ pub fn find_load_file<const L: usize>(
     aid: &[u8],
 ) -> Option<usize> {
     for (i, lf) in load_files.iter().enumerate() {
-        if let Some(lf) = lf {
-            if lf.aid() == aid {
-                return Some(i);
-            }
+        if let Some(lf) = lf
+            && lf.aid() == aid
+        {
+            return Some(i);
         }
     }
     None
@@ -301,26 +301,29 @@ pub fn find_by_aid<const N: usize>(
 ) -> Option<usize> {
     // First pass: exact match among selectable entries.
     for (i, entry) in registry.iter().enumerate() {
-        if let Some(e) = entry {
-            if e.lifecycle().is_selectable() && aid_exact_match(e.aid(), requested_aid) {
-                return Some(i);
-            }
+        if let Some(e) = entry
+            && e.lifecycle().is_selectable()
+            && aid_exact_match(e.aid(), requested_aid)
+        {
+            return Some(i);
         }
     }
     // Second pass: prefix match (registered is prefix of requested).
     for (i, entry) in registry.iter().enumerate() {
-        if let Some(e) = entry {
-            if e.lifecycle().is_selectable() && aid_matches(e.aid(), requested_aid) {
-                return Some(i);
-            }
+        if let Some(e) = entry
+            && e.lifecycle().is_selectable()
+            && aid_matches(e.aid(), requested_aid)
+        {
+            return Some(i);
         }
     }
     // Third pass: partial AID match (requested is prefix of registered).
     for (i, entry) in registry.iter().enumerate() {
-        if let Some(e) = entry {
-            if e.lifecycle().is_selectable() && partial_aid_matches(e.aid(), requested_aid) {
-                return Some(i);
-            }
+        if let Some(e) = entry
+            && e.lifecycle().is_selectable()
+            && partial_aid_matches(e.aid(), requested_aid)
+        {
+            return Some(i);
         }
     }
     None
@@ -339,13 +342,12 @@ pub fn find_by_aid_after<const N: usize>(
         if i <= start_after {
             continue;
         }
-        if let Some(e) = entry {
-            if e.lifecycle().is_selectable()
-                && (aid_exact_match(e.aid(), requested_aid)
-                    || partial_aid_matches(e.aid(), requested_aid))
-            {
-                return Some(i);
-            }
+        if let Some(e) = entry
+            && e.lifecycle().is_selectable()
+            && (aid_exact_match(e.aid(), requested_aid)
+                || partial_aid_matches(e.aid(), requested_aid))
+        {
+            return Some(i);
         }
     }
     None

@@ -37,7 +37,7 @@
 
 use simrs_milenage::AuthenticationAlgorithm;
 use simrs_sim::{Sim, SimEvent, SimResponse};
-use simrs_transport_shmem::{ring_read, ring_write, ShmemHeader, HEADER_SIZE};
+use simrs_transport_shmem::{HEADER_SIZE, ShmemHeader, ring_read, ring_write};
 
 // ---------------------------------------------------------------------------
 // ShmemMsgType
@@ -405,7 +405,7 @@ mod tests {
     use simrs_fs::{DfDef, EfDef, Fid, FileRef};
     use simrs_milenage::MilenageParams;
     use simrs_sim::{Sim, SimEvent, SimResponse};
-    use simrs_transport_shmem::{ShmemHeader, MAGIC, VERSION};
+    use simrs_transport_shmem::{MAGIC, ShmemHeader, VERSION};
 
     const RING_SIZE: u32 = 512;
 

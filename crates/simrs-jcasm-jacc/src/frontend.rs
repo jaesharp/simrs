@@ -7,11 +7,11 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
-use syn::{braced, parenthesized, Ident, LitInt, Result, Token};
+use syn::{Ident, LitInt, Result, Token, braced, parenthesized};
 
 use simrs_jccompile::ir::{BinOp, Condition, JcClass, JcExpr, JcField, JcMethod, JcStmt, LValue};
 use simrs_jccompile::types::JcType;
-use simrs_jccompile::{parse_aid_hex, OptConfig, PeepholeConfig};
+use simrs_jccompile::{OptConfig, PeepholeConfig, parse_aid_hex};
 
 // ---------------------------------------------------------------------------
 // AST types (parsed from the DSL, before conversion to IR)

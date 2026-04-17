@@ -8,4 +8,4 @@
 //! - [`write_cap_full`] / [`CapWriter`]: Full JCVM 3.1 component-based CAP.
 
 pub mod writer;
-pub use writer::{write_cap, write_cap_full, CapWriter, FieldInfo};
+pub use writer::{CapWriter, FieldInfo, write_cap, write_cap_full};

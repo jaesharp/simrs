@@ -153,10 +153,10 @@ impl<'buf> Encoder<'buf> {
     pub fn tag_length_value(&mut self, tag: u8, value: &[u8]) -> Result<(), BerError> {
         // Check total size before writing anything (atomicity).
         let total = 1 + length_of_length(value.len()) + value.len();
-        if let Some(ref buf) = self.buf {
-            if self.pos + total > buf.len() {
-                return Err(BerError::BufferFull);
-            }
+        if let Some(ref buf) = self.buf
+            && self.pos + total > buf.len()
+        {
+            return Err(BerError::BufferFull);
         }
         self.raw(&[tag])?;
         self.write_ber_length(value.len())?;
@@ -175,10 +175,10 @@ impl<'buf> Encoder<'buf> {
         value: &[u8],
     ) -> Result<(), BerError> {
         let total = 2 + length_of_length(value.len()) + value.len();
-        if let Some(ref buf) = self.buf {
-            if self.pos + total > buf.len() {
-                return Err(BerError::BufferFull);
-            }
+        if let Some(ref buf) = self.buf
+            && self.pos + total > buf.len()
+        {
+            return Err(BerError::BufferFull);
         }
         self.raw(&[tag_hi, tag_lo])?;
         self.write_ber_length(value.len())?;
@@ -781,13 +781,13 @@ mod proptests {
         ) {
             let mut buf = [0u8; 2048];
             let mut enc = Encoder::new(&mut buf);
-            for (tag, ref value) in &tlvs {
+            for (tag, value) in &tlvs {
                 enc.tag_length_value(*tag, value).unwrap();
             }
             let written = enc.len();
 
             let mut dec = Decoder::new(&buf[..written]);
-            for (tag, ref value) in &tlvs {
+            for (tag, value) in &tlvs {
                 let obj = dec.next().unwrap().unwrap();
                 prop_assert_eq!(obj.tag, *tag);
                 prop_assert_eq!(obj.value, &value[..]);

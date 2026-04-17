@@ -372,12 +372,12 @@ fn check_expr(
             // Left operand must be int; for shift ops the right operand
             // (shift amount) is a short per JCVM spec.
             let is_shift = matches!(op, BinOp::Shl | BinOp::Shr | BinOp::Ushr);
-            if let Some(lt) = expr_type(left, locals, &class.fields) {
-                if !lt.is_int() {
-                    errors.push(format!(
-                        "left operand of int arithmetic op has non-int type {lt:?}"
-                    ));
-                }
+            if let Some(lt) = expr_type(left, locals, &class.fields)
+                && !lt.is_int()
+            {
+                errors.push(format!(
+                    "left operand of int arithmetic op has non-int type {lt:?}"
+                ));
             }
             if let Some(rt) = expr_type(right, locals, &class.fields) {
                 if is_shift {
@@ -400,10 +400,10 @@ fn check_expr(
         JcExpr::ArrayLoad { array, index } => {
             check_expr(array, local_map, field_map, locals, class, errors);
             check_expr(index, local_map, field_map, locals, class, errors);
-            if let Some(arr_ty) = expr_type(array, locals, &class.fields) {
-                if !arr_ty.is_array() {
-                    errors.push(format!("array load on non-array type {arr_ty:?}"));
-                }
+            if let Some(arr_ty) = expr_type(array, locals, &class.fields)
+                && !arr_ty.is_array()
+            {
+                errors.push(format!("array load on non-array type {arr_ty:?}"));
             }
         }
         JcExpr::Call { args, .. } => {
@@ -521,9 +521,11 @@ mod tests {
         let result = check_class(&cls);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|e| e.message.contains("undefined variable `x`")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("undefined variable `x`"))
+        );
     }
 
     #[test]
@@ -543,9 +545,11 @@ mod tests {
         let result = check_class(&cls);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|e| e.message.contains("undefined field `balance`")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("undefined field `balance`"))
+        );
     }
 
     #[test]
@@ -563,9 +567,11 @@ mod tests {
         let result = check_class(&cls);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|e| e.message.contains("void method cannot return a value")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("void method cannot return a value"))
+        );
     }
 
     #[test]
@@ -642,8 +648,10 @@ mod tests {
         let result = check_class(&cls);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|e| e.message.contains("non-numeric type")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("non-numeric type"))
+        );
     }
 }

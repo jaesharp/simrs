@@ -4,9 +4,9 @@
 //! `parse_cap` -> `JcVM::load_package` -> `execute` -> assert `ExecResult`.
 
 use simrs_jcasm_jacc::jcapplet;
+use simrs_jcvm::JcVM;
 use simrs_jcvm::cap;
 use simrs_jcvm::opcodes::ExecResult;
-use simrs_jcvm::JcVM;
 
 /// Build a CAP blob from macro output, load into a fresh VM, and execute
 /// method 0.

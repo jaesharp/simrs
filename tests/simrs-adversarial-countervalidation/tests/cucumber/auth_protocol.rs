@@ -9,13 +9,13 @@
 
 use cucumber::{given, then, when};
 use simrs_adversarial_countervalidation::{
-    apdu, build_authenticate_apdu, build_valid_autn, parse_hex, TEST_K, TEST_KI, TEST_OPC,
+    TEST_K, TEST_KI, TEST_OPC, apdu, build_authenticate_apdu, build_valid_autn, parse_hex,
 };
 use simrs_milenage::{AuthChallenge, AuthManagementField, MilenageParams, SequenceNumber};
 
 use super::snapshot::{reserve_auth, reserve_rsp_queue};
 use super::world::{
-    do_send_apdu, parse_db_response, reset_state_snapshots, select_adf_usim, Response, SimWorld,
+    Response, SimWorld, do_send_apdu, parse_db_response, reset_state_snapshots, select_adf_usim,
 };
 
 // =========================================================================

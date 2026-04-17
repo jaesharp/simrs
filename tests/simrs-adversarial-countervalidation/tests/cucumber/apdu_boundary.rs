@@ -10,7 +10,7 @@
 use cucumber::{given, then, when};
 use simrs_adversarial_countervalidation::{apdu, parse_hex};
 
-use super::world::{do_send_apdu, ensure_pin1_verified, reset_state_snapshots, SimWorld};
+use super::world::{SimWorld, do_send_apdu, ensure_pin1_verified, reset_state_snapshots};
 
 // =========================================================================
 // GIVEN steps

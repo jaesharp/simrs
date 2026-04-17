@@ -35,8 +35,8 @@ use simrs_milenage::{
 };
 use simrs_pin::{PinKey, PinValue};
 use simrs_sim::{Sim, SimEvent, SimResponse};
-use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
 use simrs_usim::SuciSeed;
+use simrs_usim::profile::{ADF_TABLE, REFERENCE_MF};
 
 /// Type alias for the SIM instance used across all security tests.
 pub type TestSim = Sim<MilenageParams, 256>;

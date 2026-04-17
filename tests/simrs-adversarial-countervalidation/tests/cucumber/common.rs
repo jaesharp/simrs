@@ -11,8 +11,8 @@ use super::snapshot::{
     reserve_proactive, reserve_rsp_queue, reserve_selection_ctx, reserve_terminal_capability,
 };
 use super::world::{
-    do_send_apdu, ensure_pin1_verified, reset_state_snapshots, select_mf_and_consume, Phase,
-    SimWorld,
+    Phase, SimWorld, do_send_apdu, ensure_pin1_verified, reset_state_snapshots,
+    select_mf_and_consume,
 };
 
 // =========================================================================

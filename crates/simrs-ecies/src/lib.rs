@@ -50,7 +50,7 @@ pub mod p256;
 pub mod x25519;
 
 use simrs_consttime::{CtBool, CtEq};
-use simrs_kdf::{kdf_x963, HmacSha256};
+use simrs_kdf::{HmacSha256, kdf_x963};
 use simrs_rijndael::Rijndael;
 use simrs_secret::Secret;
 
@@ -1165,7 +1165,7 @@ mod proptests {
 mod ct_validation {
     use super::*;
     use core::hint::black_box;
-    use simrs_consttime_validation::{assert_no_timing_leak, ct_test, Rng};
+    use simrs_consttime_validation::{Rng, assert_no_timing_leak, ct_test};
 
     /// Generate a valid P-256 scalar from RNG (both tacet classes use
     /// this so setup cost stays symmetric).

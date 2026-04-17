@@ -6,7 +6,7 @@
 use simrs_jccompile::ir::{JcClass, JcExpr, JcField, JcMethod, JcStmt};
 use simrs_jccompile::types::JcType;
 
-use super::reader::{ClassFile, MethodInfo, ACC_STATIC};
+use super::reader::{ACC_STATIC, ClassFile, MethodInfo};
 
 /// Convert a classfile to `JcClass` IR.
 ///

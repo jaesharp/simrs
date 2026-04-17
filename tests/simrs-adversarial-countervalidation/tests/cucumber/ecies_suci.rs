@@ -11,7 +11,7 @@ use simrs_adversarial_countervalidation::{
     apdu, create_sim_powered_on, create_sim_with_suci_powered_on, send_apdu_sw, verify_pin1,
 };
 
-use super::world::{do_send_apdu, reset_state_snapshots, select_adf_usim, Response, SimWorld};
+use super::world::{Response, SimWorld, do_send_apdu, reset_state_snapshots, select_adf_usim};
 
 // =========================================================================
 // Test constants

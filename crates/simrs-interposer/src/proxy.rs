@@ -4,7 +4,7 @@ use simrs_transport::{CardEvent, CardTransport, Transport, TransportError};
 use simrs_transport_tcp::{SwIccClient, SwIccTerminal};
 
 use crate::capture::PcapCapture;
-use crate::divergence::{compare_responses, format_divergence, CompareResult, DivergenceStats};
+use crate::divergence::{CompareResult, DivergenceStats, compare_responses, format_divergence};
 use crate::mode::{InterposerConfig, InterposerMode};
 use crate::shadow::ShadowSim;
 
@@ -247,10 +247,10 @@ impl ProxyLoop {
         });
 
         // Record ATR in PCAP.
-        if let Some(cap) = &mut self.capture {
-            if !atr_data.is_empty() {
-                cap.record_atr(&atr_data)?;
-            }
+        if let Some(cap) = &mut self.capture
+            && !atr_data.is_empty()
+        {
+            cap.record_atr(&atr_data)?;
         }
 
         // Send ATR to modem.
@@ -279,18 +279,18 @@ impl ProxyLoop {
                 card.reset_warm()
             };
             // Use first successful ATR
-            if atr_data.is_empty() {
-                if let Ok(msg) = msg {
-                    atr_data = msg.buf().to_vec();
-                }
+            if atr_data.is_empty()
+                && let Ok(msg) = msg
+            {
+                atr_data = msg.buf().to_vec();
             }
         }
 
         // Record ATR in PCAP.
-        if let Some(cap) = &mut self.capture {
-            if !atr_data.is_empty() {
-                cap.record_atr(&atr_data)?;
-            }
+        if let Some(cap) = &mut self.capture
+            && !atr_data.is_empty()
+        {
+            cap.record_atr(&atr_data)?;
         }
 
         // Send ATR to modem.

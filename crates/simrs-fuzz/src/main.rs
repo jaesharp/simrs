@@ -12,13 +12,13 @@
 //! | `SIMRS_FUZZ_AUTH` | `milenage`, `tuak` | `milenage` (SIM only) |
 //! | `SIMRS_FUZZ_PCAP` | file path | disabled |
 
-use simrs_card_api::{fnv1a, SimEvent, SimResponse};
+use simrs_card_api::{SimEvent, SimResponse, fnv1a};
 use simrs_fs::{DfDef, EfDef, Fid, FileRef, Sfi};
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
 use simrs_hle::{
-    hle_apdu, hle_init, hle_init_from_snapshot, hle_init_tuak, hle_reset, hle_snapshot_save,
-    hle_snapshot_size, hle_state_hash, hle_tick, GsmSubscriberKey,
+    GsmSubscriberKey, hle_apdu, hle_init, hle_init_from_snapshot, hle_init_tuak, hle_reset,
+    hle_snapshot_save, hle_snapshot_size, hle_state_hash, hle_tick,
 };
 use simrs_pcap::{Direction, LinkType, PcapEncoder};
 use std::collections::HashSet;
@@ -644,7 +644,7 @@ fn fuzz_gp(iters: usize, pcap: &mut Option<PcapWriter>) {
 
 /// Record an interesting APDU pair to PCAP if enabled.
 fn record_interesting(pcap: &mut Option<PcapWriter>, cmd: &[u8], rsp: &[u8]) {
-    if let Some(ref mut pcap) = pcap {
+    if let Some(pcap) = pcap {
         let _ = pcap.record_apdu(Direction::Command, cmd);
         if !rsp.is_empty() {
             let _ = pcap.record_apdu(Direction::Response, rsp);

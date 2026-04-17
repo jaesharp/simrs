@@ -37,10 +37,10 @@ pub mod sourcemap;
 pub mod types;
 
 // Re-export primary types for convenience.
-pub use check::{check_class, CheckedClass, CheckedMethod};
+pub use check::{CheckedClass, CheckedMethod, check_class};
 pub use codegen::{
-    compile_class, compile_class_with_config, compute_basic_blocks, BranchInfo, BytecodeMetadata,
-    CompiledClass,
+    BranchInfo, BytecodeMetadata, CompiledClass, compile_class, compile_class_with_config,
+    compute_basic_blocks,
 };
 pub use config::{IrConfig, OptConfig, OptReport, PeepholeConfig};
 pub use error::CompileError;

@@ -5,9 +5,9 @@
 //! is tested, plus end-to-end execution and branch-awareness tests.
 
 use simrs_jcasm::jcasm;
+use simrs_jcvm::JcVM;
 use simrs_jcvm::cap::{build_cap_blob, parse_cap};
 use simrs_jcvm::opcodes::ExecResult;
-use simrs_jcvm::JcVM;
 
 // Opcode byte constants (from JCVM 3.1 spec).
 const SCONST_1: u8 = 0x04;

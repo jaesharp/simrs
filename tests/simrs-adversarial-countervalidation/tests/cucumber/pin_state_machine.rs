@@ -16,7 +16,7 @@ use simrs_pin::PinKey;
 use super::snapshot::{
     reserve_pin_change, reserve_pin_toggle, reserve_pin_unblock, reserve_pin_verify,
 };
-use super::world::{do_send_apdu, query_pin1_retries, query_puk1_retries, SimWorld};
+use super::world::{SimWorld, do_send_apdu, query_pin1_retries, query_puk1_retries};
 
 /// Map a PIN name string to a `PinKey`.
 fn parse_pin_name(name: &str) -> PinKey {

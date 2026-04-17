@@ -4,7 +4,7 @@
 //! TS.48 test suite (via pySim). Each profile is ~12KB of real-world
 //! TCA eUICC Profile Package data.
 
-use simrs_profile::{load_profile, AuthConfig, ProfileError};
+use simrs_profile::{AuthConfig, ProfileError, load_profile};
 
 /// Load a fixture DER profile by name.
 fn fixture(name: &str) -> Vec<u8> {

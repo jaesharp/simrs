@@ -70,14 +70,14 @@
 #![allow(clippy::doc_markdown)]
 
 pub use simrs_card_api::{
-    fnv1a, standard_reset_policy, CardState, ResetEffects, ResetKind, SimEvent, SimResponse,
+    CardState, ResetEffects, ResetKind, SimEvent, SimResponse, fnv1a, standard_reset_policy,
 };
 
 #[cfg(not(any(feature = "gsm", feature = "usim")))]
 use simrs_fs::DfDef;
 #[cfg(feature = "gsm")]
 use simrs_gsm::GsmApp;
-use simrs_iso7816::{write_sw, Command, StatusWord};
+use simrs_iso7816::{Command, StatusWord, write_sw};
 use simrs_milenage::{AuthenticationAlgorithm, MilenageParams};
 #[cfg(feature = "usim")]
 use simrs_usim::UsimApp;
@@ -1325,11 +1325,12 @@ mod tests {
         // Tick 5 seconds -- timer should still be active.
         let rsp = sim.process(SimEvent::Tick(5));
         assert!(matches!(rsp, SimResponse::Ignored));
-        assert!(sim
-            .usim_app_mut()
-            .proactive_state()
-            .get_timer_value(1)
-            .is_some());
+        assert!(
+            sim.usim_app_mut()
+                .proactive_state()
+                .get_timer_value(1)
+                .is_some()
+        );
 
         // Tick 6 more seconds -- timer should expire (5+6 > 10).
         let _ = sim.process(SimEvent::Tick(6));
@@ -2354,8 +2355,10 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!(sw1, 0x90,
-                    "ENVELOPE should succeed when proactive session preserved, got {sw1:02X} {sw2:02X}");
+                assert_eq!(
+                    sw1, 0x90,
+                    "ENVELOPE should succeed when proactive session preserved, got {sw1:02X} {sw2:02X}"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }
@@ -2452,8 +2455,10 @@ mod tests {
         match rsp {
             SimResponse::Apdu { sw, .. } => {
                 let [sw1, sw2] = sw.to_bytes();
-                assert_eq!(sw1, 0x61,
-                    "next-occurrence SELECT should succeed after clearing last_aid_match, got {sw1:02X} {sw2:02X}");
+                assert_eq!(
+                    sw1, 0x61,
+                    "next-occurrence SELECT should succeed after clearing last_aid_match, got {sw1:02X} {sw2:02X}"
+                );
             }
             other => panic!("expected Apdu, got {other:?}"),
         }

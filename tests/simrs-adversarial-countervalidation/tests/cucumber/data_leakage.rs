@@ -9,7 +9,7 @@
 use cucumber::{then, when};
 use simrs_adversarial_countervalidation::parse_hex;
 
-use super::world::{contains_subseq, fcp_find_tag, tlv_read_length, SimWorld};
+use super::world::{SimWorld, contains_subseq, fcp_find_tag, tlv_read_length};
 
 // =========================================================================
 // WHEN steps
@@ -124,14 +124,14 @@ fn then_sw_9000_or_error(world: &mut SimWorld) {
 
 #[then("if SW is 90 00 the response data length is at most SW2 of the preceding 61 XX")]
 fn then_data_at_most_sw2(world: &mut SimWorld) {
-    if world.last_sw() == (0x90, 0x00) {
-        if let Some(expected_max) = world.prev_sw2_61 {
-            assert!(
-                world.last_data().len() <= expected_max as usize,
-                "Response data is {} bytes but preceding 61 XX indicated at most {expected_max}",
-                world.last_data().len(),
-            );
-        }
+    if world.last_sw() == (0x90, 0x00)
+        && let Some(expected_max) = world.prev_sw2_61
+    {
+        assert!(
+            world.last_data().len() <= expected_max as usize,
+            "Response data is {} bytes but preceding 61 XX indicated at most {expected_max}",
+            world.last_data().len(),
+        );
     }
 }
 

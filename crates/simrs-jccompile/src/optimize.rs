@@ -246,15 +246,13 @@ fn optimize_stmt(stmt: &JcStmt, fresh: &mut FreshNameGen, ct: bool) -> Vec<JcStm
             let cond_opt = optimize_condition(cond, &mut hoisted, fresh, true);
             // Constant condition elimination -- NOT CT-safe (removes a
             // branch that may exist for timing equalization).
-            if !ct {
-                if let Some(val) = eval_condition(&cond_opt) {
-                    if val {
-                        hoisted.extend(optimize_stmts(then_body, fresh, ct));
-                    } else {
-                        hoisted.extend(optimize_stmts(else_body, fresh, ct));
-                    }
-                    return hoisted;
+            if !ct && let Some(val) = eval_condition(&cond_opt) {
+                if val {
+                    hoisted.extend(optimize_stmts(then_body, fresh, ct));
+                } else {
+                    hoisted.extend(optimize_stmts(else_body, fresh, ct));
                 }
+                return hoisted;
             }
             hoisted.push(JcStmt::If {
                 cond: cond_opt,
@@ -543,16 +541,16 @@ fn optimize_binop_rules(
                 return Some(r.clone());
             }
             // x * 2 -> x + x  (hoist to avoid duplicating effects)
-            if w.is_lit(r, 2) {
-                if let Some(safe) = hoist_if_needed(l, w, hoisted, fresh, extract) {
-                    return Some(w.make_binop(BinOp::Add, safe.clone(), safe));
-                }
+            if w.is_lit(r, 2)
+                && let Some(safe) = hoist_if_needed(l, w, hoisted, fresh, extract)
+            {
+                return Some(w.make_binop(BinOp::Add, safe.clone(), safe));
             }
             // 2 * x -> x + x  (symmetric)
-            if w.is_lit(l, 2) {
-                if let Some(safe) = hoist_if_needed(r, w, hoisted, fresh, extract) {
-                    return Some(w.make_binop(BinOp::Add, safe.clone(), safe));
-                }
+            if w.is_lit(l, 2)
+                && let Some(safe) = hoist_if_needed(r, w, hoisted, fresh, extract)
+            {
+                return Some(w.make_binop(BinOp::Add, safe.clone(), safe));
             }
         }
         BinOp::Div if w.is_lit(r, 1) => {
@@ -599,10 +597,10 @@ fn optimize_expr(
             let r = optimize_expr(right, hoisted, fresh, extract);
 
             // Constant folding: both sides are literals.
-            if let (JcExpr::Lit(a), JcExpr::Lit(b)) = (&l, &r) {
-                if let Some(result) = fold_short_binop(*op, *a, *b) {
-                    return JcExpr::Lit(result);
-                }
+            if let (JcExpr::Lit(a), JcExpr::Lit(b)) = (&l, &r)
+                && let Some(result) = fold_short_binop(*op, *a, *b)
+            {
+                return JcExpr::Lit(result);
             }
 
             // Identity / annihilator / strength reduction (shared logic).
@@ -625,10 +623,10 @@ fn optimize_expr(
             let r = optimize_expr(right, hoisted, fresh, extract);
 
             // Constant folding: both sides are int literals.
-            if let (JcExpr::IntLit(a), JcExpr::IntLit(b)) = (&l, &r) {
-                if let Some(result) = fold_int_binop(*op, *a, *b) {
-                    return JcExpr::IntLit(result);
-                }
+            if let (JcExpr::IntLit(a), JcExpr::IntLit(b)) = (&l, &r)
+                && let Some(result) = fold_int_binop(*op, *a, *b)
+            {
+                return JcExpr::IntLit(result);
             }
 
             // Identity / annihilator / strength reduction (shared logic).
@@ -1643,8 +1641,8 @@ mod tests {
                 left,
                 right,
             } => {
-                assert!(matches!(left.as_ref(), JcExpr::Var(ref n) if n == "x"));
-                assert!(matches!(right.as_ref(), JcExpr::Var(ref n) if n == "x"));
+                assert!(matches!(left.as_ref(), JcExpr::Var(n) if n == "x"));
+                assert!(matches!(right.as_ref(), JcExpr::Var(n) if n == "x"));
             }
             _ => panic!("expected Add(x, x), got {result:?}"),
         }
@@ -2257,8 +2255,8 @@ mod tests {
         // After removal: [if_scmpeq, offset, sreturn, sreturn]
         assert_eq!(bc.len(), 4);
         assert_eq!(bc[0], 0x6A); // if_scmpeq
-                                 // opcode moved from PC 2 to PC 0, target from PC 5 to PC 3
-                                 // new_offset = 3 - 0 = 3
+        // opcode moved from PC 2 to PC 0, target from PC 5 to PC 3
+        // new_offset = 3 - 0 = 3
         assert_eq!(bc[1], 3_i8 as u8);
         assert_eq!(meta.branches[0].opcode_pc, 0);
         assert_eq!(meta.branches[0].target_pc, 3);
@@ -2268,7 +2266,7 @@ mod tests {
     fn metadata_basic_blocks_computed_correctly() {
         // Verify that compute_basic_blocks produces correct results
         // for a simple if/else pattern.
-        use crate::codegen::{compute_basic_blocks, BranchInfo};
+        use crate::codegen::{BranchInfo, compute_basic_blocks};
 
         let branch_targets = vec![5u16, 10];
         let branches = vec![

@@ -368,11 +368,7 @@ pub fn hle_snapshot_save(buf: &mut [u8]) -> usize {
             SimInstance::Tuak(sim) => sim.save_state(&mut buf[3..]),
             SimInstance::GpMilenage(card) => card.save_state(&mut buf[3..]),
         };
-        if n == 0 {
-            0
-        } else {
-            3 + n
-        }
+        if n == 0 { 0 } else { 3 + n }
     })
 }
 
@@ -703,10 +699,11 @@ mod tests {
         SIM.with(|cell| {
             let mut borrow = cell.borrow_mut();
             if let Some(SimInstance::Milenage(sim)) = borrow.as_mut() {
-                assert!(sim
-                    .usim_app_mut()
-                    .proactive_state()
-                    .start_timer(1, [0x00, 0x00, 0x10]));
+                assert!(
+                    sim.usim_app_mut()
+                        .proactive_state()
+                        .start_timer(1, [0x00, 0x00, 0x10])
+                );
             } else {
                 panic!("expected Milenage instance");
             }

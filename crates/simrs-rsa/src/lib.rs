@@ -31,7 +31,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-use simrs_bignum::{mod_exp, BigUint, MontParams};
+use simrs_bignum::{BigUint, MontParams, mod_exp};
 use simrs_sha1::sha1;
 
 // ---------------------------------------------------------------------------

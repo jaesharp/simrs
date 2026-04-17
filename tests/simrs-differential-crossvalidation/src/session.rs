@@ -18,7 +18,7 @@
 //! session.print_summary();
 //! ```
 
-use crate::{next_port, GpCardTerminal, KEY_BYTES};
+use crate::{GpCardTerminal, KEY_BYTES, next_port};
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
 use simrs_interposer::diff::{DiffEngine, DiffRecord};

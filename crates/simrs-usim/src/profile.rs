@@ -1966,8 +1966,8 @@ static EF_SUCI_CALC_INFO_DATA: [u8; 80] = {
     d[1] = 0x02; // length
     d[2] = 0x00; // protection scheme identifier (0x00 = null scheme)
     d[3] = 0x00; // home network public key index (0x00 = none)
-                 // Bytes 4..80 are 0xFF padding, available for Profile A/B key provisioning
-                 // via UPDATE BINARY. See TS 31.102 V19.4.0 clause 4.4.11.8.
+    // Bytes 4..80 are 0xFF padding, available for Profile A/B key provisioning
+    // via UPDATE BINARY. See TS 31.102 V19.4.0 clause 4.4.11.8.
     d
 };
 
@@ -4195,27 +4195,27 @@ mod tests {
         let mut sfis: [u8; 32] = [0xFF; 32];
         let mut count = 0;
         for child in ADF_USIM_ROOT.children {
-            if let FileRef::Ef(ef) = child {
-                if let Some(sfi) = ef.sfi() {
-                    let val = sfi.value();
-                    assert!(
-                        (1..=30).contains(&val),
-                        "EF {:#06X} SFI {} is outside range 1..=30",
+            if let FileRef::Ef(ef) = child
+                && let Some(sfi) = ef.sfi()
+            {
+                let val = sfi.value();
+                assert!(
+                    (1..=30).contains(&val),
+                    "EF {:#06X} SFI {} is outside range 1..=30",
+                    ef.fid().value(),
+                    val
+                );
+                for s in &sfis[..count] {
+                    assert_ne!(
+                        *s,
+                        val,
+                        "EF {:#06X} has duplicate SFI {} already used by another EF",
                         ef.fid().value(),
                         val
                     );
-                    for s in &sfis[..count] {
-                        assert_ne!(
-                            *s,
-                            val,
-                            "EF {:#06X} has duplicate SFI {} already used by another EF",
-                            ef.fid().value(),
-                            val
-                        );
-                    }
-                    sfis[count] = val;
-                    count += 1;
                 }
+                sfis[count] = val;
+                count += 1;
             }
         }
         // At minimum, IMSI(7), Keys(8), KeysPS(9) should have SFIs
@@ -4228,27 +4228,27 @@ mod tests {
         let mut sfis: [u8; 16] = [0xFF; 16];
         let mut count = 0;
         for child in REFERENCE_MF.children {
-            if let FileRef::Ef(ef) = child {
-                if let Some(sfi) = ef.sfi() {
-                    let val = sfi.value();
-                    assert!(
-                        (1..=30).contains(&val),
-                        "MF EF {:#06X} SFI {} is outside range 1..=30",
+            if let FileRef::Ef(ef) = child
+                && let Some(sfi) = ef.sfi()
+            {
+                let val = sfi.value();
+                assert!(
+                    (1..=30).contains(&val),
+                    "MF EF {:#06X} SFI {} is outside range 1..=30",
+                    ef.fid().value(),
+                    val
+                );
+                for s in &sfis[..count] {
+                    assert_ne!(
+                        *s,
+                        val,
+                        "MF EF {:#06X} has duplicate SFI {}",
                         ef.fid().value(),
                         val
                     );
-                    for s in &sfis[..count] {
-                        assert_ne!(
-                            *s,
-                            val,
-                            "MF EF {:#06X} has duplicate SFI {}",
-                            ef.fid().value(),
-                            val
-                        );
-                    }
-                    sfis[count] = val;
-                    count += 1;
                 }
+                sfis[count] = val;
+                count += 1;
             }
         }
     }
@@ -4511,8 +4511,10 @@ mod tests {
         let expected_records = ADF_TABLE.len();
         match EF_DIR.structure() {
             EfStructure::LinearFixed { num_records, .. } => {
-                assert_eq!(num_records as usize, expected_records,
-                    "EF.DIR num_records ({num_records}) must match ADF_TABLE length ({expected_records})");
+                assert_eq!(
+                    num_records as usize, expected_records,
+                    "EF.DIR num_records ({num_records}) must match ADF_TABLE length ({expected_records})"
+                );
             }
             _ => panic!("EF.DIR must be LinearFixed"),
         }

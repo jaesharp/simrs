@@ -12,8 +12,8 @@ use cucumber::{given, then};
 
 use super::snapshot::{format_diff_report, is_reserved};
 use super::world::{
-    capture_snapshot, ensure_state_before, ins_from_name, CommandMatcher, InterposerRule, Mutation,
-    SimWorld,
+    CommandMatcher, InterposerRule, Mutation, SimWorld, capture_snapshot, ensure_state_before,
+    ins_from_name,
 };
 
 // =========================================================================

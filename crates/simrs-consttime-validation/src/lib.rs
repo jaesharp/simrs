@@ -36,7 +36,7 @@
 
 // Re-export tacet essentials.
 pub use tacet::{
-    assert_constant_time, assert_no_timing_leak, AttackerModel, InputPair, Outcome, TimingOracle,
+    AttackerModel, InputPair, Outcome, TimingOracle, assert_constant_time, assert_no_timing_leak,
 };
 
 // ---------------------------------------------------------------------------

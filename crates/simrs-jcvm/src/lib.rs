@@ -1486,13 +1486,13 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         }
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
+                            return ExecResult::ArrayIndexOutOfBounds;
                         }
                         Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
+                            return ExecResult::ArrayStoreException;
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                     }
                 }
@@ -1519,13 +1519,13 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
+                            return ExecResult::ArrayIndexOutOfBounds;
                         }
                         Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
+                            return ExecResult::ArrayStoreException;
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                     }
                 }
@@ -1548,13 +1548,13 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         }
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
+                            return ExecResult::ArrayIndexOutOfBounds;
                         }
                         Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
+                            return ExecResult::ArrayStoreException;
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                     }
                 }
@@ -1577,13 +1577,13 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
+                            return ExecResult::ArrayIndexOutOfBounds;
                         }
                         Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
+                            return ExecResult::ArrayStoreException;
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                     }
                 }
@@ -1612,7 +1612,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                             }
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                         Err(_) => return ExecResult::NullPointerException,
                     }
@@ -1644,7 +1644,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     ) {
                         Ok(()) => {}
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                         Err(_) => return ExecResult::NullPointerException,
                     }
@@ -1689,13 +1689,13 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         }
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
+                            return ExecResult::ArrayIndexOutOfBounds;
                         }
                         Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
+                            return ExecResult::ArrayStoreException;
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                     }
                 }
@@ -1718,26 +1718,26 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(v) => v,
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
+                            return ExecResult::ArrayIndexOutOfBounds;
                         }
                         Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
+                            return ExecResult::ArrayStoreException;
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                     };
                     let lo = match self.heap.saload(obj, lo_idx, self.current_context) {
                         Ok(v) => v,
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
+                            return ExecResult::ArrayIndexOutOfBounds;
                         }
                         Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
+                            return ExecResult::ArrayStoreException;
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                     };
                     let val = (u32::from(hi.cast_unsigned()) << 16 | u32::from(lo.cast_unsigned()))
@@ -1772,26 +1772,26 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
+                            return ExecResult::ArrayIndexOutOfBounds;
                         }
                         Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
+                            return ExecResult::ArrayStoreException;
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                     }
                     match self.heap.sastore(obj, lo_idx, lo, self.current_context) {
                         Ok(()) => {}
                         Err(heap::AccessError::NullRef) => return ExecResult::NullPointerException,
                         Err(heap::AccessError::OutOfBounds) => {
-                            return ExecResult::ArrayIndexOutOfBounds
+                            return ExecResult::ArrayIndexOutOfBounds;
                         }
                         Err(heap::AccessError::TypeMismatch) => {
-                            return ExecResult::ArrayStoreException
+                            return ExecResult::ArrayStoreException;
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                     }
                 }
@@ -1819,7 +1819,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                             }
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                         Err(_) => return ExecResult::NullPointerException,
                     }
@@ -1849,7 +1849,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     ) {
                         Ok(()) => {}
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                         Err(_) => return ExecResult::NullPointerException,
                     }
@@ -1878,7 +1878,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                             }
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                         Err(_) => return ExecResult::NullPointerException,
                     }
@@ -1908,7 +1908,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     ) {
                         Ok(()) => {}
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                         Err(_) => return ExecResult::NullPointerException,
                     }
@@ -1937,7 +1937,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                             }
                         }
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                         Err(_) => return ExecResult::NullPointerException,
                     }
@@ -1967,7 +1967,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     ) {
                         Ok(()) => {}
                         Err(heap::AccessError::Security(_)) => {
-                            return ExecResult::SecurityException
+                            return ExecResult::SecurityException;
                         }
                         Err(_) => return ExecResult::NullPointerException,
                     }

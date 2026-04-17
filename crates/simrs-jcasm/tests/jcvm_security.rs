@@ -19,9 +19,9 @@ mod support;
 
 use simrs_jcvm::cap::ParseError;
 use simrs_jcvm::opcodes::ExecResult;
+use support::TestApplet;
 use support::builder::{CapBuilder, MethodBuilder};
 use support::expect;
-use support::TestApplet;
 
 // =========================================================================
 // Scenario 6: Descriptor/Class offset mismatch (Lancia & Bouffard CARDIS 2015)

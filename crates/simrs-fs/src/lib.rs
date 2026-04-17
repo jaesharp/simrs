@@ -1466,10 +1466,10 @@ impl SelectionCtx {
     /// EF has the given SFI.
     pub fn find_ef_by_sfi(&self, sfi: Sfi) -> Option<&'static EfDef> {
         for child in self.cur_df.children {
-            if let FileRef::Ef(ef) = child {
-                if ef.sfi == Some(sfi) {
-                    return Some(ef);
-                }
+            if let FileRef::Ef(ef) = child
+                && ef.sfi == Some(sfi)
+            {
+                return Some(ef);
             }
         }
         None
@@ -1537,10 +1537,10 @@ impl SelectionCtx {
             self.cur_ef = None;
         } else {
             let found = self.cur_df.children.iter().find_map(|child| {
-                if let FileRef::Ef(ef) = child {
-                    if ef.fid == ef_fid {
-                        return Some(*ef);
-                    }
+                if let FileRef::Ef(ef) = child
+                    && ef.fid == ef_fid
+                {
+                    return Some(*ef);
                 }
                 None
             });
@@ -1561,10 +1561,10 @@ fn find_df_recursive(df: &'static DfDef, fid: Fid) -> Option<&'static DfDef> {
         return Some(df);
     }
     for child in df.children {
-        if let FileRef::Df(sub) = child {
-            if let Some(found) = find_df_recursive(sub, fid) {
-                return Some(found);
-            }
+        if let FileRef::Df(sub) = child
+            && let Some(found) = find_df_recursive(sub, fid)
+        {
+            return Some(found);
         }
     }
     None
@@ -2330,32 +2330,40 @@ mod tests {
     fn ef_structure_is_binary_accessible() {
         assert!(EfStructure::Transparent.is_binary_accessible());
         assert!(EfStructure::BerTlv.is_binary_accessible());
-        assert!(!EfStructure::LinearFixed {
-            record_size: 10,
-            num_records: 3
-        }
-        .is_binary_accessible());
-        assert!(!EfStructure::Cyclic {
-            record_size: 10,
-            num_records: 3
-        }
-        .is_binary_accessible());
+        assert!(
+            !EfStructure::LinearFixed {
+                record_size: 10,
+                num_records: 3
+            }
+            .is_binary_accessible()
+        );
+        assert!(
+            !EfStructure::Cyclic {
+                record_size: 10,
+                num_records: 3
+            }
+            .is_binary_accessible()
+        );
     }
 
     #[test]
     fn ef_structure_is_record_based() {
         assert!(!EfStructure::Transparent.is_record_based());
         assert!(!EfStructure::BerTlv.is_record_based());
-        assert!(EfStructure::LinearFixed {
-            record_size: 10,
-            num_records: 3
-        }
-        .is_record_based());
-        assert!(EfStructure::Cyclic {
-            record_size: 10,
-            num_records: 3
-        }
-        .is_record_based());
+        assert!(
+            EfStructure::LinearFixed {
+                record_size: 10,
+                num_records: 3
+            }
+            .is_record_based()
+        );
+        assert!(
+            EfStructure::Cyclic {
+                record_size: 10,
+                num_records: 3
+            }
+            .is_record_based()
+        );
     }
 
     #[test]
@@ -2384,16 +2392,20 @@ mod tests {
     fn ef_structure_is_cyclic() {
         assert!(!EfStructure::Transparent.is_cyclic());
         assert!(!EfStructure::BerTlv.is_cyclic());
-        assert!(!EfStructure::LinearFixed {
-            record_size: 10,
-            num_records: 3
-        }
-        .is_cyclic());
-        assert!(EfStructure::Cyclic {
-            record_size: 10,
-            num_records: 3
-        }
-        .is_cyclic());
+        assert!(
+            !EfStructure::LinearFixed {
+                record_size: 10,
+                num_records: 3
+            }
+            .is_cyclic()
+        );
+        assert!(
+            EfStructure::Cyclic {
+                record_size: 10,
+                num_records: 3
+            }
+            .is_cyclic()
+        );
     }
 
     #[test]
