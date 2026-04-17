@@ -21,8 +21,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-apdu-schema"
+version = "0.1.0"
+
+[[package]]
 name = "simrs-bertlv"
 version = "0.1.0"
+
+[[package]]
+name = "simrs-card-api"
+version = "0.1.0"
+dependencies = [
+ "simrs-iso7816",
+]
 
 [[package]]
 name = "simrs-comp128"
@@ -50,6 +61,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-des"
+version = "0.1.0"
+dependencies = [
+ "simrs-consttime",
+ "simrs-redact",
+ "simrs-secret",
+]
+
+[[package]]
 name = "simrs-ecies"
 version = "0.1.0"
 dependencies = [
@@ -62,6 +82,52 @@ dependencies = [
 [[package]]
 name = "simrs-fs"
 version = "0.1.0"
+
+[[package]]
+name = "simrs-gp-card"
+version = "0.1.0"
+dependencies = [
+ "simrs-card-api",
+ "simrs-gp-keys",
+ "simrs-gp-open",
+ "simrs-iso7816",
+ "simrs-jcre",
+ "simrs-milenage",
+ "simrs-sim",
+]
+
+[[package]]
+name = "simrs-gp-keys"
+version = "0.1.0"
+
+[[package]]
+name = "simrs-gp-open"
+version = "0.1.0"
+dependencies = [
+ "simrs-apdu-schema",
+ "simrs-bertlv",
+ "simrs-consttime",
+ "simrs-gp-keys",
+ "simrs-gp-scp",
+ "simrs-iso7816",
+ "simrs-jcre",
+ "simrs-jcvm",
+ "simrs-pin",
+ "simrs-secret",
+]
+
+[[package]]
+name = "simrs-gp-scp"
+version = "0.1.0"
+dependencies = [
+ "simrs-apdu-schema",
+ "simrs-consttime",
+ "simrs-des",
+ "simrs-gp-keys",
+ "simrs-iso9797",
+ "simrs-rijndael",
+ "simrs-secret",
+]
 
 [[package]]
 name = "simrs-gsm"
@@ -80,6 +146,8 @@ name = "simrs-hle"
 version = "0.1.0"
 dependencies = [
  "simrs-fs",
+ "simrs-gp-card",
+ "simrs-gp-keys",
  "simrs-gsm",
  "simrs-milenage",
  "simrs-profile",
@@ -90,7 +158,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "simrs-hle-ffi"
+name = "simrs-hle-capi"
 version = "0.1.0"
 dependencies = [
  "simrs-gsm",
@@ -102,11 +170,45 @@ dependencies = [
 [[package]]
 name = "simrs-iso7816"
 version = "0.1.0"
+dependencies = [
+ "simrs-apdu-schema",
+]
+
+[[package]]
+name = "simrs-iso9797"
+version = "0.1.0"
+dependencies = [
+ "simrs-des",
+ "simrs-rijndael",
+ "simrs-secret",
+]
+
+[[package]]
+name = "simrs-jcre"
+version = "0.1.0"
+dependencies = [
+ "simrs-iso7816",
+]
+
+[[package]]
+name = "simrs-jcvm"
+version = "0.1.0"
+dependencies = [
+ "simrs-consttime",
+ "simrs-iso7816",
+ "simrs-jcre",
+ "simrs-jcvm-opcodes",
+]
+
+[[package]]
+name = "simrs-jcvm-opcodes"
+version = "0.1.0"
 
 [[package]]
 name = "simrs-kdf"
 version = "0.1.0"
 dependencies = [
+ "simrs-consttime",
  "simrs-milenage",
  "simrs-secret",
  "simrs-sha256",
@@ -178,9 +280,11 @@ version = "0.1.0"
 name = "simrs-sim"
 version = "0.1.0"
 dependencies = [
+ "simrs-card-api",
  "simrs-fs",
  "simrs-gsm",
  "simrs-iso7816",
+ "simrs-jcre",
  "simrs-milenage",
  "simrs-pin",
  "simrs-secret",

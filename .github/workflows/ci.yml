@@ -266,3 +266,16 @@ jobs:
         with:
           shared-key: workspace
       - run: cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release
+
+  python-bindings:
+    name: Validate Python Bindings
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
+      - uses: astral-sh/setup-uv@v6
+      - run: cargo test --manifest-path exports/simrs-hle-pythonapi/Cargo.toml

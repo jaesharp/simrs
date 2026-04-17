@@ -1,5 +1,10 @@
 /target/
 tools/*/target/
+exports/*/target/
+exports/*/.venv/
+exports/*/__pycache__/
+exports/*/.pytest_cache/
+*.egg-info/
 .claude/
 
 # PDF bookmark extraction data (generated from spec PDFs)

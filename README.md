@@ -11,7 +11,7 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
   - Runs standalone or as a GlobalPlatform-Compatible applet alongside JavaCard Bytecode or Rust Native Applets
 - **GlobalPlatform-Compatible card OS** (GP 2.1.1, GP 2.3.1 Amd D)
   - OPEN, ISD, applet registry, SCP01/SCP02/SCP03, card lifecycle
-- **Complete JavaCard-Compatible toolchain** (JC VM 2.1.1, JC RE 2.1.1)
+- **Complete JavaCard-Compatible toolchain** (JavaCard v2.1.1 Compatible, v3.2.0 Compatibility Planned)
   - Interpreter (Full Instrumentation and Introspection)
   - Assembler (HLA support)
   - Compiler (Fully Optimising HLL IR with Source Maps)
@@ -38,7 +38,7 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
   time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); [`Redact`](crates/simrs-redact/) prevents secrets in log
   output; uniform error responses close side-channel oracles
 - **Differential behavioural validation against Oracle's Reference JCVM** -- GP and SCP protocol
-  behavior [validated against Oracle's reference JCVM](crates/simrs-differential-tests/) across 100+ APDU scenarios
+  behavior [validated against Oracle's reference JCVM](crates/simrs-differential-tests/)
 - **Spec-linked** -- every public item cites its standard clause. See [standards map](docs/standards/)
 
 ## Project Maturity
@@ -132,8 +132,23 @@ cargo test -p simrs-differential-tests
 
 # Build the C-ABI shared library for embedding
 cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release
-# => exports/simrs-hle-capi/target/release/libsimrs_hle_ffi.so
+# => exports/simrs-hle-capi/target/release/libsimrs_hle_capi.so
 ```
+
+### Python API
+
+```python
+from simrs import Sim, generate_credentials
+
+creds = generate_credentials(seed=42)
+with Sim.with_credentials(creds) as sim:
+    atr = sim.reset()
+    data, sw1, sw2 = sim.apdu_hex("00 A4 04 00 07 A0000000871002")
+```
+
+Build and test: `cargo test --manifest-path exports/simrs-hle-pythonapi/Cargo.toml`
+
+See [exports/simrs-hle-pythonapi/](exports/simrs-hle-pythonapi/) for full documentation.
 
 ## License
 
