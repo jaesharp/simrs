@@ -3,7 +3,6 @@ use std::process::Command;
 
 fn main() {
     println!("cargo::rerun-if-env-changed=SIMRS_CAPI_PREBUILT_DIR");
-    println!("cargo::rerun-if-env-changed=SIMRS_CAPI_LINKAGE");
     println!("cargo::rerun-if-changed=simrs.go");
     println!("cargo::rerun-if-changed=simrs_test.go");
 

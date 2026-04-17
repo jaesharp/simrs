@@ -8,27 +8,13 @@ fn swift_bindings() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let capi_lib_dir = find_capi_lib_dir(&manifest_dir);
     let capi_header_dir = find_header_dir(&manifest_dir);
-    let linkage = std::env::var("SIMRS_CAPI_LINKAGE").unwrap_or_else(|_| "dynamic".into());
 
-    let mut cmd = Command::new("swift");
-    cmd.args(["test"])
+    let status = Command::new("swift")
+        .args(["test"])
         .current_dir(&manifest_dir)
         .env("LIBRARY_PATH", &capi_lib_dir)
         .env("LD_LIBRARY_PATH", &capi_lib_dir)
-        .env("C_INCLUDE_PATH", &capi_header_dir);
-
-    if linkage == "static" {
-        // Force the linker to resolve against the static archive.
-        cmd.env(
-            "LDFLAGS",
-            format!(
-                "-Wl,-Bstatic -L{} -lsimrs_hle_capi -Wl,-Bdynamic -lpthread -ldl -lm",
-                capi_lib_dir.display()
-            ),
-        );
-    }
-
-    let status = cmd
+        .env("C_INCLUDE_PATH", &capi_header_dir)
         .status()
         .expect("failed to run swift test -- is Swift installed?");
 

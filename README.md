@@ -47,10 +47,11 @@ requirement). Other SimRS modules otherwise not specified remain GPL-2.0-or-late
 | Swift       | [exports/simrs-hle-swift/](exports/simrs-hle-swift/)   | 5.10, 6.1                            | Linux x86_64     | Swift Package over cdylib via C module map     |
 | C# / .NET   | [exports/simrs-hle-dotnet/](exports/simrs-hle-dotnet/) | 8.0, 9.0                             | Linux x86_64     | P/Invoke over cdylib, thread-safe by default   |
 
-CI matrixes `java`/`go`/`swift` on both `dynamic` and `static` linkage of the
-C API; `python`/`dotnet` load the shared library dynamically at runtime
-(ctypes / P/Invoke). Platforms other than `linux-x86_64` should work (the
-code has no Linux-specific dependencies) but are not exercised in CI yet.
+All bindings link dynamically against `libsimrs_hle_capi.so` at runtime:
+`python`/`dotnet` via ctypes / P/Invoke, `java`/`go`/`swift` via JNI / cgo /
+Swift's C module auto-linking. Platforms other than `linux-x86_64` should
+work (the code has no Linux-specific dependencies) but are not exercised in
+CI yet.
 
 See [exports/README.md](exports/README.md) for build instructions, the
 shared 8-function API surface, and thread-safety notes.

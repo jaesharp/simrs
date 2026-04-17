@@ -3,7 +3,6 @@ use std::process::Command;
 
 fn main() {
     println!("cargo::rerun-if-env-changed=SIMRS_CAPI_PREBUILT_DIR");
-    println!("cargo::rerun-if-env-changed=SIMRS_CAPI_LINKAGE");
     println!("cargo::rerun-if-changed=src/main/c/simrs_jni.c");
     println!("cargo::rerun-if-changed=src/main/java/com/simrs/Sim.java");
     println!("cargo::rerun-if-changed=src/main/kotlin/com/simrs/SimKotlin.kt");
@@ -19,34 +18,17 @@ fn main() {
 
     let jni_c = manifest_dir.join("src/main/c/simrs_jni.c");
     let jni_so = out_dir.join("libsimrs_jni.so");
-    let linkage = std::env::var("SIMRS_CAPI_LINKAGE").unwrap_or_else(|_| "dynamic".into());
 
-    let mut cc_cmd = Command::new("cc");
-    cc_cmd
+    let cc_status = Command::new("cc")
         .args(["-shared", "-fPIC", "-o"])
         .arg(&jni_so)
         .arg(&jni_c)
         .arg(format!("-I{}", jni_include.display()))
         .arg(format!("-I{}", jni_include_linux.display()))
-        .arg(format!("-I{}", capi_header_dir.display()));
-
-    match linkage.as_str() {
-        "static" => {
-            cc_cmd
-                .arg("-Wl,--whole-archive")
-                .arg(capi_lib_dir.join("libsimrs_hle_capi.a"))
-                .arg("-Wl,--no-whole-archive")
-                .args(["-lpthread", "-ldl", "-lm", "-lgcc_s"]);
-        }
-        _ => {
-            cc_cmd
-                .arg(format!("-L{}", capi_lib_dir.display()))
-                .arg("-lsimrs_hle_capi")
-                .arg(format!("-Wl,-rpath,{}", capi_lib_dir.display()));
-        }
-    }
-
-    let cc_status = cc_cmd
+        .arg(format!("-I{}", capi_header_dir.display()))
+        .arg(format!("-L{}", capi_lib_dir.display()))
+        .arg("-lsimrs_hle_capi")
+        .arg(format!("-Wl,-rpath,{}", capi_lib_dir.display()))
         .status()
         .expect("failed to compile JNI shim (is a C compiler installed?)");
     assert!(cc_status.success(), "JNI shim compilation failed");

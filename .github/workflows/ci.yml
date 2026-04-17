@@ -282,13 +282,12 @@ jobs:
   #   test  ->  hle-ffi  ->  {java,go,swift,dotnet,python}-bindings
   #        \->  rust-bindings (pure Rust rlib, no capi needed)
   #
-  # hle-ffi compiles the C API (cdylib + staticlib) once. Each downstream
-  # foreign-language binding downloads the prebuilt artifact, points
+  # hle-ffi compiles the C API (cdylib) once and uploads a prebuilt
+  # artifact. Each foreign-language binding downloads that artifact, points
   # build.rs at it via SIMRS_CAPI_PREBUILT_DIR, and only compiles the small
-  # glue layer. SIMRS_CAPI_LINKAGE drives dynamic vs static linking for
-  # java/go/swift. Python and .NET are dynamic-only (ctypes / P/Invoke load
-  # .so at runtime). The Rust binding is a pure-Rust LGPL re-export of
-  # simrs-hle and doesn't involve the C API, so it skips the capi stage.
+  # glue layer -- all linking dynamically against libsimrs_hle_capi.so.
+  # The Rust binding is a pure-Rust LGPL re-export of simrs-hle and doesn't
+  # involve the C API, so it skips the capi stage entirely.
 
   rust-bindings:
     name: "Validate Rust Bindings (LGPL re-export, ${{ matrix.toolchain }})"
@@ -318,7 +317,7 @@ jobs:
         run: cargo test --manifest-path exports/simrs-hle-rust/Cargo.toml --all-features
 
   hle-ffi:
-    name: Validate C Bindings (dynamic + static)
+    name: Validate C Bindings
     needs: [test]
     runs-on: ubuntu-24.04
     steps:
@@ -329,13 +328,12 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: workspace
-      - name: Build cdylib + staticlib (--release)
+      - name: Build cdylib (--release)
         run: cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release
-      - name: Stage prebuilt outputs (.so, .a, .h)
+      - name: Stage prebuilt outputs (.so, .h)
         run: |
           mkdir -p capi-prebuilt
           cp exports/simrs-hle-capi/target/release/libsimrs_hle_capi.so capi-prebuilt/
-          cp exports/simrs-hle-capi/target/release/libsimrs_hle_capi.a  capi-prebuilt/
           cp exports/simrs-hle-capi/target/release/build/simrs-hle-capi-*/out/simrs.h capi-prebuilt/
       - name: Upload prebuilt (intermediate for downstream binding jobs)
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -344,23 +342,13 @@ jobs:
           path: capi-prebuilt/
           retention-days: 1
           if-no-files-found: error
-      - name: Upload release (dynamic)
+      - name: Upload release artifact
         if: env.DEBUG_BUILD != 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: simrs-hle-capi-linux-x86_64-dynamic
+          name: simrs-hle-capi-linux-x86_64
           path: |
             capi-prebuilt/libsimrs_hle_capi.so
-            capi-prebuilt/simrs.h
-          retention-days: 90
-          if-no-files-found: error
-      - name: Upload release (static)
-        if: env.DEBUG_BUILD != 'true'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: simrs-hle-capi-linux-x86_64-static
-          path: |
-            capi-prebuilt/libsimrs_hle_capi.a
             capi-prebuilt/simrs.h
           retention-days: 90
           if-no-files-found: error
@@ -381,8 +369,6 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12", "3.13"]
-    env:
-      SIMRS_CAPI_LINKAGE: dynamic
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
@@ -420,16 +406,13 @@ jobs:
           if-no-files-found: warn
 
   java-bindings:
-    name: "Validate Java/Kotlin Bindings (JDK ${{ matrix.java }}, ${{ matrix.linkage }})"
+    name: "Validate Java/Kotlin Bindings (JDK ${{ matrix.java }})"
     needs: [hle-ffi]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         java: ["11", "17", "21"]
-        linkage: [dynamic, static]
-    env:
-      SIMRS_CAPI_LINKAGE: ${{ matrix.linkage }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
@@ -479,28 +462,23 @@ jobs:
           mkdir -p dist
           (cd "$CLASSES_DIR" && jar cf "$GITHUB_WORKSPACE/dist/simrs-hle.jar" .)
           cp "$JNI_SO" dist/
-          if [ "${{ matrix.linkage }}" = "dynamic" ]; then
-            cp "$SIMRS_CAPI_PREBUILT_DIR/libsimrs_hle_capi.so" dist/
-          fi
+          cp "$SIMRS_CAPI_PREBUILT_DIR/libsimrs_hle_capi.so" dist/
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: env.DEBUG_BUILD != 'true'
         with:
-          name: simrs-hle-java-jdk${{ matrix.java }}-${{ matrix.linkage }}
+          name: simrs-hle-java-jdk${{ matrix.java }}
           path: dist/
           retention-days: 90
           if-no-files-found: error
 
   go-bindings:
-    name: "Validate Go Bindings (Go ${{ matrix.go }}, ${{ matrix.linkage }})"
+    name: "Validate Go Bindings (Go ${{ matrix.go }})"
     needs: [hle-ffi]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         go: ["1.23", "1.24"]
-        linkage: [dynamic, static]
-    env:
-      SIMRS_CAPI_LINKAGE: ${{ matrix.linkage }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
@@ -525,15 +503,11 @@ jobs:
           mkdir -p dist
           cp exports/simrs-hle-go/{go.mod,simrs.go,simrs_test.go} dist/
           cp "$SIMRS_CAPI_PREBUILT_DIR/simrs.h" dist/
-          if [ "${{ matrix.linkage }}" = "dynamic" ]; then
-            cp "$SIMRS_CAPI_PREBUILT_DIR/libsimrs_hle_capi.so" dist/
-          else
-            cp "$SIMRS_CAPI_PREBUILT_DIR/libsimrs_hle_capi.a" dist/
-          fi
+          cp "$SIMRS_CAPI_PREBUILT_DIR/libsimrs_hle_capi.so" dist/
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: env.DEBUG_BUILD != 'true'
         with:
-          name: simrs-hle-go-go${{ matrix.go }}-${{ matrix.linkage }}
+          name: simrs-hle-go-go${{ matrix.go }}
           path: dist/
           retention-days: 90
           if-no-files-found: error
@@ -546,8 +520,6 @@ jobs:
       fail-fast: false
       matrix:
         dotnet: ["8.0", "9.0"]
-    env:
-      SIMRS_CAPI_LINKAGE: dynamic
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
@@ -583,16 +555,13 @@ jobs:
           if-no-files-found: warn
 
   swift-bindings:
-    name: "Validate Swift Bindings (Swift ${{ matrix.swift }}, ${{ matrix.linkage }})"
+    name: "Validate Swift Bindings (Swift ${{ matrix.swift }})"
     needs: [hle-ffi]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         swift: ["5.10", "6.1"]
-        linkage: [dynamic, static]
-    env:
-      SIMRS_CAPI_LINKAGE: ${{ matrix.linkage }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
@@ -614,21 +583,17 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: exports/simrs-hle-swift/.build
-          key: swift-${{ runner.os }}-${{ matrix.swift }}-${{ matrix.linkage }}-${{ hashFiles('exports/simrs-hle-swift/Package.swift') }}
+          key: swift-${{ runner.os }}-${{ matrix.swift }}-${{ hashFiles('exports/simrs-hle-swift/Package.swift') }}
       - run: cargo test --manifest-path exports/simrs-hle-swift/Cargo.toml
       - name: Package Swift bindings
         run: |
           mkdir -p dist
           cp -r exports/simrs-hle-swift/{Package.swift,Sources} dist/
-          if [ "${{ matrix.linkage }}" = "dynamic" ]; then
-            cp "$SIMRS_CAPI_PREBUILT_DIR/libsimrs_hle_capi.so" dist/
-          else
-            cp "$SIMRS_CAPI_PREBUILT_DIR/libsimrs_hle_capi.a" dist/
-          fi
+          cp "$SIMRS_CAPI_PREBUILT_DIR/libsimrs_hle_capi.so" dist/
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: env.DEBUG_BUILD != 'true'
         with:
-          name: simrs-hle-swift-swift${{ matrix.swift }}-${{ matrix.linkage }}
+          name: simrs-hle-swift-swift${{ matrix.swift }}
           path: dist/
           retention-days: 90
           if-no-files-found: error

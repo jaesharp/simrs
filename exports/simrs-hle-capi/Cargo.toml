@@ -7,7 +7,7 @@ description = "C-ABI wrapper for simrs-hle -- shared (.so) and static (.a) libra
 publish     = false
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 simrs-hle     = { path = "../../crates/simrs-hle" }

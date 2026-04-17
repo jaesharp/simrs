@@ -3,7 +3,6 @@ use std::process::Command;
 
 fn main() {
     println!("cargo::rerun-if-env-changed=SIMRS_CAPI_PREBUILT_DIR");
-    println!("cargo::rerun-if-env-changed=SIMRS_CAPI_LINKAGE");
     println!("cargo::rerun-if-changed=Sources/SimRS/Sim.swift");
     println!("cargo::rerun-if-changed=Tests/SimRSTests/SimTests.swift");
 
