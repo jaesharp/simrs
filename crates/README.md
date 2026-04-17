@@ -1,4 +1,4 @@
-# simrs Crate Index
+# SimRS Crate Index
 
 ## Architecture at a Glance
 
@@ -200,8 +200,8 @@ graph TB
 ^opt^ = optional feature gate
 
 **Test harnesses:**
-- [`simrs-security-tests`](../tools/simrs-security-tests/) -- Cucumber BDD security regression harness *(workspace member)*
-- [`simrs-spec-tests`](../tools/simrs-spec-tests/) -- Cucumber BDD functional test harness *(external, not a workspace member)*
+- [`simrs-adversarial-countervalidation`](../tests/simrs-adversarial-countervalidation/) -- Cucumber BDD security regression harness *(workspace member)*
+- [`simrs-standards-integration-validation`](../tests/simrs-standards-integration-validation/) -- Cucumber BDD functional test harness *(external, not a workspace member)*
 
 ## Standards Coverage
 

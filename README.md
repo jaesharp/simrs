@@ -1,6 +1,12 @@
-# simrs
+# SimRS
 
-Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embeddable Rust (`no_std`).
+Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embeddable Rust (No Standard Library or Alloc Required).
+
+_You know - that metallic chip on the punched out card that you shoved into your mobile when you bought it, and on your 
+ID at the office, and on the banking cards in your wallet. The point is - they're everywhere. This project maps and
+specifies those chips well enough that anyone can make one in any way they want. That's the goal, anyway._
+
+## Features
 
 - **SIM / USIM / ISIM / HPSIM** (GSM 11.11, TS 102 221, TS 31.102, TS 31.103, TS 31.104)
   - SIM, USIM, ISIM, HPSIM applications with filesystem, PIN/PUK, proactive UICC
@@ -20,7 +26,6 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
   - Interposer/shadow machine-in-the-middle virtual card
     - PCAP/GSMTAP Capture/Replay
   - Differential Testing Framework
-  - ...
 
 ## Research Flexibility Built to be Deployed in Hard Reality
 
@@ -30,7 +35,7 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
   NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for
   undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution
   with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis),
-  and [adversarially tested](crates/simrs-security-tests/) for protocol-level vulnerabilities.
+  and [adversarially tested](tests/simrs-adversarial-countervalidation/) for protocol-level vulnerabilities.
   See [simrs-ref](crates/simrs-ref/) for reference test vectors.
 - **State machine driven** -- [`Sim::process(SimEvent) -> SimResponse`](crates/simrs-sim/); single entry point, no
   callbacks
@@ -38,10 +43,10 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
   time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); [`Redact`](crates/simrs-redact/) prevents secrets in log
   output; uniform error responses close side-channel oracles
 - **Differential behavioural validation against Oracle's Reference JCVM** -- GP and SCP protocol
-  behavior [validated against Oracle's reference JCVM](crates/simrs-differential-tests/)
+  behavior [validated against Oracle's reference JCVM](tests/simrs-differential-crossvalidation/)
 - **Spec-linked** -- every public item cites its standard clause. See [standards map](docs/standards/)
 
-## Project Maturity
+## Maturity
 
 SimRS is pre-1.0 and under active development. It has not undergone independent
 security audit. While significant effort goes into correctness -- constant-time
@@ -128,7 +133,7 @@ cargo run -p simrs-jcsl -- status        # show installation
 cargo run -p simrs-jcsl -- guide         # acquisition instructions
 
 # Run differential tests against Oracle jcsl
-cargo test -p simrs-differential-tests
+cargo test -p simrs-differential-crossvalidation
 
 # Build the C-ABI shared library for embedding
 cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release

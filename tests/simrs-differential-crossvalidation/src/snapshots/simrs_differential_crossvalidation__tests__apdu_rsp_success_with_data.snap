@@ -1,0 +1,5 @@
+---
+source: tests/simrs-differential-crossvalidation/src/lib.rs
+expression: "format!(\"{rsp:?}\")"
+---
+ApduResponse { data[17]: [66, 10, 73, 0e, 06, 07, 2a, 86, 48, 86, fc, 6b, 01, 60, 03, 01, 02], sw: 9000 }

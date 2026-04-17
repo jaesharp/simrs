@@ -5,7 +5,7 @@
 //!
 //! These are positive tests - verifying correct behavior against known-good
 //! reference outputs. Negative tests (vulnerability detection) are handled
-//! by simrs-security-tests.
+//! by simrs-adversarial-countervalidation.
 
 use crate::ReferenceSource;
 

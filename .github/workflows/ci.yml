@@ -86,7 +86,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: workspace
-      - run: cargo test --workspace --exclude simrs-security-tests
+      - run: cargo test --workspace --exclude simrs-adversarial-countervalidation
 
   test-features:
     name: "Validate All SimRS Feature Configuration Permutations (${{ matrix.name }})"
@@ -128,7 +128,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: workspace
-      - run: cargo test -p simrs-security-tests
+      - run: cargo test -p simrs-adversarial-countervalidation
 
   spec-tests:
     name: Ensure Standards Compliance
@@ -141,9 +141,9 @@ jobs:
           toolchain: nightly
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          workspaces: crates/simrs-spec-tests
-      - run: cargo clippy --manifest-path crates/simrs-spec-tests/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --manifest-path crates/simrs-spec-tests/Cargo.toml --test cucumber
+          workspaces: tests/simrs-standards-integration-validation
+      - run: cargo clippy --manifest-path tests/simrs-standards-integration-validation/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path tests/simrs-standards-integration-validation/Cargo.toml --test cucumber
 
   differential:
     name: "Ensure Functions Like Reference Implementation (Oracle's JavaCard Simulator)"
@@ -174,16 +174,16 @@ jobs:
           sudo apt-get install -y -qq libc6:i386 libstdc++6:i386 zlib1g:i386
           cargo run -p simrs-jcsl -- install "$ARCHIVE"
       - name: Run differential tests
-        run: cargo test -p simrs-differential-tests -- --nocapture
+        run: cargo test -p simrs-differential-crossvalidation -- --nocapture
       - name: Run replay tests
-        run: cargo test -p simrs-differential-tests --test replay -- --nocapture
+        run: cargo test -p simrs-differential-crossvalidation --test replay -- --nocapture
       - name: Generate differential report
-        run: cargo test -p simrs-differential-tests --test report_gen -- --nocapture
+        run: cargo test -p simrs-differential-crossvalidation --test report_gen -- --nocapture
       - name: Publish JUnit report
         uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # v6
         if: always()
         with:
-          report_paths: crates/simrs-differential-tests/differential-report.xml
+          report_paths: tests/simrs-differential-crossvalidation/differential-report.xml
           check_name: Differential Compliance
           include_passed: true
           require_tests: true
@@ -191,14 +191,14 @@ jobs:
           fail_on_parse_error: true
       - name: Verify report files exist
         run: |
-          test -f crates/simrs-differential-tests/differential-report.xml || { echo "FATAL: JUnit XML report not found"; exit 1; }
-          test -f crates/simrs-differential-tests/differential-report.md || { echo "FATAL: Markdown report not found"; exit 1; }
+          test -f tests/simrs-differential-crossvalidation/differential-report.xml || { echo "FATAL: JUnit XML report not found"; exit 1; }
+          test -f tests/simrs-differential-crossvalidation/differential-report.md || { echo "FATAL: Markdown report not found"; exit 1; }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: differential-report
           path: |
-            crates/simrs-differential-tests/differential-report.xml
-            crates/simrs-differential-tests/differential-report.md
+            tests/simrs-differential-crossvalidation/differential-report.xml
+            tests/simrs-differential-crossvalidation/differential-report.md
           retention-days: 90
           if-no-files-found: error
 

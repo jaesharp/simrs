@@ -35,7 +35,11 @@ releases or backport branches yet.
 
 ## Reporting a Vulnerability
 
-Report security issues privately to **j@jaesharp.com**.
+Report security issues privately via either:
+
+- **GitHub private vulnerability reporting** at
+  [github.com/jaesharp/simrs/security/advisories/new](https://github.com/jaesharp/simrs/security/advisories/new)
+- **Email** to **j@jaesharp.com**
 
 Please include:
 

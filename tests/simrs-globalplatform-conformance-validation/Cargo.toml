@@ -1,0 +1,37 @@
+[package]
+name        = "simrs-globalplatform-conformance-validation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GlobalPlatform BDD test suite for simrs GP card emulator"
+publish     = false
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+simrs-iso7816  = { workspace = true }
+simrs-bertlv   = { workspace = true }
+simrs-des      = { workspace = true }
+simrs-secret   = { workspace = true }
+
+[dev-dependencies]
+cucumber    = { workspace = true }
+tokio       = { workspace = true }
+futures     = { workspace = true }
+simrs-gp-card = { workspace = true }
+simrs-gp-keys = { workspace = true }
+simrs-gp-open = { workspace = true }
+simrs-gp-scp  = { workspace = true }
+simrs-card-api = { workspace = true }
+simrs-iso9797 = { workspace = true }
+simrs-secret  = { workspace = true }
+simrs-jcvm    = { workspace = true }
+simrs-jcasm   = { workspace = true }
+
+[[test]]
+name    = "cucumber"
+harness = false
+
+[lints]
+workspace = true

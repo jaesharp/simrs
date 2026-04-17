@@ -741,8 +741,8 @@ fn xdg_cache_dir() -> Option<PathBuf> {
 
 fn workspace_root() -> Option<PathBuf> {
     // CARGO_MANIFEST_DIR points to the crate's directory. For simrs-jcsl,
-    // that's tools/simrs-jcsl/. The workspace root is two levels up.
-    // For simrs-differential-tests, it's also tools/<name>/.
+    // that's crates/simrs-jcsl/. The workspace root is two levels up.
+    // For simrs-differential-crossvalidation, it's tests/<name>/.
     // We try both patterns.
     std::env::var_os("CARGO_MANIFEST_DIR")
         .map(PathBuf::from)

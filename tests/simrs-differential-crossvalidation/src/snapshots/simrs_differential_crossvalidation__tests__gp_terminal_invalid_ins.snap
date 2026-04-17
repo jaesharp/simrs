@@ -1,0 +1,5 @@
+---
+source: tests/simrs-differential-crossvalidation/src/lib.rs
+expression: "format!(\"{parsed:?}\")"
+---
+ApduResponse { data[0]: [], sw: 6D00 }

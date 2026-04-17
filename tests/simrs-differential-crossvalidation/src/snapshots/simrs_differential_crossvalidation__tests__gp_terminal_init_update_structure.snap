@@ -1,0 +1,5 @@
+---
+source: tests/simrs-differential-crossvalidation/src/lib.rs
+expression: stable
+---
+sw=9000 data_len=28 success=true

@@ -1,0 +1,8 @@
+---
+source: tests/simrs-differential-crossvalidation/src/lib.rs
+expression: output
+---
+simrs: ApduResponse { data[0]: [], sw: 9000 }
+oracle: ApduResponse { data[0]: [], sw: 9000 }
+sw_match: true
+sw1_match: true

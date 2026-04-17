@@ -1,0 +1,58 @@
+[package]
+name        = "simrs-standards-integration-validation"
+version     = "0.1.0"
+edition     = "2021"
+license     = "GPL-2.0-or-later"
+description = "Cucumber BDD test suite wiring specs/*.feature to step definitions"
+publish     = false
+
+[workspace]
+
+# This crate lives OUTSIDE the simrs workspace because:
+# 1. It is test-only with no library consumers
+# 2. It depends on many workspace crates simultaneously
+#
+# Multi-version testing:
+# To test against a different version of any simrs crate, override the
+# path dependency below or use Cargo's [patch] mechanism:
+#
+#   [patch.crates-io]
+#   simrs-sim = { path = "/path/to/other/version/crates/simrs-sim" }
+#
+# Or change the `path = ...` entries below to point at a different checkout.
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+simrs-bertlv       = { path = "../../crates/simrs-bertlv" }
+simrs-comp128      = { path = "../../crates/simrs-comp128" }
+simrs-fs           = { path = "../../crates/simrs-fs" }
+simrs-gsm          = { path = "../../crates/simrs-gsm" }
+simrs-iso7816      = { path = "../../crates/simrs-iso7816" }
+simrs-milenage     = { path = "../../crates/simrs-milenage" }
+simrs-pin          = { path = "../../crates/simrs-pin", features = ["std"] }
+simrs-proactive    = { path = "../../crates/simrs-proactive" }
+simrs-secret       = { path = "../../crates/simrs-secret" }
+simrs-sim          = { path = "../../crates/simrs-sim", features = ["usim", "gsm"] }
+simrs-transport    = { path = "../../crates/simrs-transport" }
+simrs-transport-tcp = { path = "../../crates/simrs-transport-tcp" }
+simrs-usim         = { path = "../../crates/simrs-usim" }
+
+[dev-dependencies]
+cucumber = "0.21"
+tokio    = { version = "1", features = ["macros", "rt-multi-thread"] }
+futures  = "0.3"
+
+[[test]]
+name    = "cucumber"
+harness = false
+
+[lints.rust]
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery  = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+module_name_repetitions = "allow"

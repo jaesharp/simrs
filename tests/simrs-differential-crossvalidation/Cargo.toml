@@ -1,0 +1,24 @@
+[package]
+name        = "simrs-differential-crossvalidation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Differential tests: simrs GpCard vs Oracle jcsl reference simulator"
+publish     = false
+
+[dependencies]
+simrs-gp-card    = { workspace = true }
+simrs-gp-keys    = { workspace = true }
+simrs-gp-scp     = { workspace = true }
+simrs-card-api   = { workspace = true }
+simrs-transport  = { workspace = true }
+simrs-interposer = { workspace = true }
+simrs-jcsl       = { path = "../../crates/simrs-jcsl" }
+
+[dev-dependencies]
+insta = { workspace = true }
+simrs-gp-scp  = { workspace = true }
+simrs-gp-keys = { workspace = true }
+
+[lints]
+workspace = true
