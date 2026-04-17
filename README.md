@@ -24,13 +24,31 @@ Electronic Embedded Card Simulation, Emulation, and Specification in Pure Embedd
 
 ## Research Flexibility Built to be Deployed in Hard Reality
 
-- **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only boundary crates (TCP, OS ioctl, CLI binaries) require `std`. See [crate index](crates/README.md).
-- **Zero external runtime deps** -- every cryptographic algorithm is self-contained and validated against 
-  NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis), and [adversarially tested](crates/simrs-security-tests/) for protocol-level vulnerabilities. See [simrs-ref](crates/simrs-ref/) for reference test vectors.
-- **State machine driven** -- [`Sim::process(SimEvent) -> SimResponse`](crates/simrs-sim/); single entry point, no callbacks
-- **Information flow security** -- [`Secret<T>`](crates/simrs-secret/) enforces classification boundaries at compile time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); [`Redact`](crates/simrs-redact/) prevents secrets in log output; uniform error responses close side-channel oracles
-- **Differential behavioural validation against Oracle's Reference JCVM** -- GP and SCP protocol behavior [validated against Oracle's reference JCVM](crates/simrs-differential-tests/) across 100+ APDU scenarios
+- **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only
+  boundary crates (TCP, OS ioctl, CLI binaries) require `std`. See [crate index](crates/README.md).
+- **Zero external runtime deps** -- every cryptographic algorithm is self-contained and validated against
+  NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for
+  undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution
+  with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis),
+  and [adversarially tested](crates/simrs-security-tests/) for protocol-level vulnerabilities.
+  See [simrs-ref](crates/simrs-ref/) for reference test vectors.
+- **State machine driven** -- [`Sim::process(SimEvent) -> SimResponse`](crates/simrs-sim/); single entry point, no
+  callbacks
+- **Information flow security** -- [`Secret<T>`](crates/simrs-secret/) enforces classification boundaries at compile
+  time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); [`Redact`](crates/simrs-redact/) prevents secrets in log
+  output; uniform error responses close side-channel oracles
+- **Differential behavioural validation against Oracle's Reference JCVM** -- GP and SCP protocol
+  behavior [validated against Oracle's reference JCVM](crates/simrs-differential-tests/) across 100+ APDU scenarios
 - **Spec-linked** -- every public item cites its standard clause. See [standards map](docs/standards/)
+
+## Project Maturity
+
+SimRS is pre-1.0 and under active development. It has not undergone independent
+security audit. While significant effort goes into correctness -- constant-time
+enforcement, information flow controls, Miri validation, adversarial testing,
+and differential compliance against reference implementations -- this project
+should not be used in production security-critical applications without
+independent review.
 
 ## Quick start
 
@@ -56,7 +74,9 @@ cargo run -p simrs-vpcd -- -v --port 35964
 ```
 
 Install a pcscd reader driver to bridge PC/SC tools to the virtual card:
-- **vpcd**: `apt install vsmartcard-vpcd` (some distros) or [build from source](https://frankmorgner.github.io/vsmartcard/)
+
+- **vpcd**: `apt install vsmartcard-vpcd` (some distros)
+  or [build from source](https://frankmorgner.github.io/vsmartcard/)
 - **swICC**: [build from source](https://github.com/nickg/swicc)
 
 Then standard tools connect directly:
