@@ -1,0 +1,39 @@
+name: "Common Security Fault Scan (CODEQL)"
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+  schedule:
+    # Regular Scan for Issues (Updated CVEs, CWE detection fingerprints, etc.)
+    - cron: '35 02,14 * * *'
+permissions:
+  security-events: write
+  packages: read
+  actions: read
+  contents: read
+jobs:
+  analyze:
+    name: Check for Common CWEs/Security Issues in (${{ matrix.language }}) Source Code
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-15') || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: python
+            build-mode: none
+          - language: rust
+            build-mode: none
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6
+      - name: Initialize CodeQL Code Scanning
+        uses: github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 #v4.35.2
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - name: Perform CodeQL Code Analysis
+        uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 #v4.35.2
+        with:
+          category: "/language:${{matrix.language}}"
