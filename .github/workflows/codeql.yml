@@ -35,11 +35,11 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-      - name: Dynamically Build and Inspect C Library/API
+      - name: Build C API and JNI Shim for Analysis
         if: matrix.language == 'c-cpp'
         run: |
           rustup default nightly
-          cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release
+          cargo test --manifest-path exports/simrs-hle-java/Cargo.toml --no-run
       - name: Perform CodeQL Code Analysis
         uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 #v4.35.2
         with:

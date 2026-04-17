@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimRS", "SimRS\SimRS.csproj", "{79C8C315-21EA-480F-A58B-2BD6BFAC5B14}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimRS.Tests", "SimRS.Tests\SimRS.Tests.csproj", "{BA017D39-A907-4189-BC5C-B608D9E58B81}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{79C8C315-21EA-480F-A58B-2BD6BFAC5B14}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79C8C315-21EA-480F-A58B-2BD6BFAC5B14}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79C8C315-21EA-480F-A58B-2BD6BFAC5B14}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79C8C315-21EA-480F-A58B-2BD6BFAC5B14}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BA017D39-A907-4189-BC5C-B608D9E58B81}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA017D39-A907-4189-BC5C-B608D9E58B81}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BA017D39-A907-4189-BC5C-B608D9E58B81}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BA017D39-A907-4189-BC5C-B608D9E58B81}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

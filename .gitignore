@@ -6,6 +6,10 @@ exports/*/.venv/
 __pycache__/
 exports/*/.pytest_cache/
 *.egg-info/
+**/bin/Debug/
+**/bin/Release/
+**/obj/
+.build/
 .claude/
 
 # PDF bookmark extraction data (generated from spec PDFs)

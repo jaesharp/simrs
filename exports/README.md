@@ -16,6 +16,8 @@ The SimRS core library (under `crates/`) remains GPL-2.0-or-later.
 | [simrs-hle-python](simrs-hle-python/) | Python   | ctypes over cdylib, thread-safe by default                                       | Stable |
 | [simrs-hle-java](simrs-hle-java/)     | Java     | JNI shim over cdylib, tested via jbang + JUnit 5                                 | Stable |
 | [simrs-hle-go](simrs-hle-go/)         | Go       | cgo over cdylib with idiomatic Go wrapper                                        | Stable |
+| [simrs-hle-swift](simrs-hle-swift/)   | Swift    | Swift Package over cdylib via C module map                                       | Stable |
+| [simrs-hle-dotnet](simrs-hle-dotnet/) | C#/.NET  | P/Invoke over cdylib, thread-safe by default                                     | Stable |
 
 ## Building
 

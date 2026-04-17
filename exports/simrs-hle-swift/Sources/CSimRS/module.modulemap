@@ -1,0 +1,5 @@
+module CSimRS {
+    header "shim.h"
+    link "simrs_hle_capi"
+    export *
+}
