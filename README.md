@@ -28,32 +28,32 @@ specifies those chips well enough that anyone can make one in any way they want.
     - PCAP/GSMTAP Capture/Replay
   - Differential Testing Framework
 
-## Language Bindings
+## Language Bindings (LGPL-2.0-or-later)
 
 SimRS exposes its high-level engine (HLE) through a single C ABI
 (`libsimrs_hle_capi.so` / `.a` / `simrs.h`). Idiomatic wrappers sit on top
-of that ABI for each supported host language:
+of that ABI for each supported host language. **All bindings in
+[`exports/`](exports/) are released under LGPL-2.0-or-later**, so proprietary
+applications can link against them (subject to the LGPL's relinking
+requirement). Other SimRS modules otherwise not specified remain GPL-2.0-or-later.
 
-| Language    | Directory                                              | Tested Versions                      | Platforms    | Mechanism                                      |
-|-------------|--------------------------------------------------------|--------------------------------------|--------------|------------------------------------------------|
-| C / C++     | [exports/simrs-hle-capi/](exports/simrs-hle-capi/)     | any C99-capable compiler             | Linux x86_64 | cdylib + staticlib + generated `simrs.h`       |
-| Rust        | [exports/simrs-hle-rust/](exports/simrs-hle-rust/)     | nightly (matches workspace)          | Linux x86_64 | Safe, Limited LGPL re-export of `simrs-hle`    |
-| Python      | [exports/simrs-hle-python/](exports/simrs-hle-python/) | 3.10, 3.11, 3.12, 3.13               | Linux x86_64 | ctypes over cdylib, thread-safe by default     |
-| Java/Kotlin | [exports/simrs-hle-java/](exports/simrs-hle-java/)     | JDK 11, 17, 21 (Temurin); Kotlin 2.3 | Linux x86_64 | JNI shim + Kotlin extensions, tested via jbang |
-| Go          | [exports/simrs-hle-go/](exports/simrs-hle-go/)         | 1.23, 1.24                           | Linux x86_64 | cgo over cdylib                                |
-| Swift       | [exports/simrs-hle-swift/](exports/simrs-hle-swift/)   | 5.10, 6.1                            | Linux x86_64 | Swift Package over cdylib via C module map     |
-| C# / .NET   | [exports/simrs-hle-dotnet/](exports/simrs-hle-dotnet/) | 8.0, 9.0                             | Linux x86_64 | P/Invoke over cdylib, thread-safe by default   |
+| Language    | Directory                                              | Tested Versions                      | Tested Platforms | Mechanism                                      |
+|-------------|--------------------------------------------------------|--------------------------------------|------------------|------------------------------------------------|
+| C / C++     | [exports/simrs-hle-capi/](exports/simrs-hle-capi/)     | any C99-capable compiler             | Linux x86_64     | cdylib + staticlib + generated `simrs.h`       |
+| Rust        | [exports/simrs-hle-rust/](exports/simrs-hle-rust/)     | nightly (matches workspace)          | Linux x86_64     | Safe, Limited LGPL re-export of `simrs-hle`    |
+| Python      | [exports/simrs-hle-python/](exports/simrs-hle-python/) | 3.10, 3.11, 3.12, 3.13               | Linux x86_64     | ctypes over cdylib, thread-safe by default     |
+| Java/Kotlin | [exports/simrs-hle-java/](exports/simrs-hle-java/)     | JDK 11, 17, 21 (Temurin); Kotlin 2.3 | Linux x86_64     | JNI shim + Kotlin extensions, tested via jbang |
+| Go          | [exports/simrs-hle-go/](exports/simrs-hle-go/)         | 1.23, 1.24                           | Linux x86_64     | cgo over cdylib                                |
+| Swift       | [exports/simrs-hle-swift/](exports/simrs-hle-swift/)   | 5.10, 6.1                            | Linux x86_64     | Swift Package over cdylib via C module map     |
+| C# / .NET   | [exports/simrs-hle-dotnet/](exports/simrs-hle-dotnet/) | 8.0, 9.0                             | Linux x86_64     | P/Invoke over cdylib, thread-safe by default   |
 
 CI matrixes `java`/`go`/`swift` on both `dynamic` and `static` linkage of the
 C API; `python`/`dotnet` load the shared library dynamically at runtime
 (ctypes / P/Invoke). Platforms other than `linux-x86_64` should work (the
 code has no Linux-specific dependencies) but are not exercised in CI yet.
 
-All bindings in `exports/` are licensed under LGPL-2.0-or-later so they
-can be linked into proprietary applications. The SimRS core under `crates/`
-remains GPL-2.0-or-later. See [exports/README.md](exports/README.md) for
-build instructions, the shared 8-function API surface, and thread-safety
-notes.
+See [exports/README.md](exports/README.md) for build instructions, the
+shared 8-function API surface, and thread-safety notes.
 
 ```python
 # Example: Python
@@ -67,8 +67,9 @@ with Sim.with_credentials(creds) as sim:
 
 ## Research Flexibility Built to be Deployed in Hard Reality
 
-- **`no_std` core** -- all crypto, protocol, filesystem, and card logic compiles without `std` or an allocator. Only
-  boundary crates (TCP, OS ioctl, CLI binaries) require `std`. See [crate index](crates/README.md).
+- **no standard/alloc core** -- all crypto, protocol, filesystem, and card logic can go absolutely anywhere -
+  including microcontrollers. Only boundary crates (TCP, OS ioctl, CLI binaries) require `std` or an allocator. See
+  [crate index](crates/README.md) for more details.
 - **Zero external runtime deps** -- every cryptographic algorithm is self-contained and validated against
   NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for
   undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution
