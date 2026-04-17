@@ -1,6 +1,12 @@
 #!/bin/sh
-# Run tests and clippy before pushing.
+# Run fmt, tests, and clippy before pushing.
 # Install: git config core.hooksPath .githooks
+
+echo "pre-push: checking formatting..."
+if ! cargo fmt --all -- --check; then
+    echo "pre-push: formatting issues found. Run 'cargo fmt --all'."
+    exit 1
+fi
 
 echo "pre-push: running tests..."
 if ! cargo test --workspace; then
