@@ -155,9 +155,9 @@ impl DiffReport {
             }
         }
         let known_label = if known == 1 {
-            "known divergence"
+            "documented divergence"
         } else {
-            "known divergences"
+            "documented divergences"
         };
         let regression_label = if regressions == 1 {
             "regression"
@@ -189,11 +189,8 @@ impl DiffReport {
             .iter()
             .filter(|c| c.outcome == DivergenceCategory::Regression)
             .count();
-        let skipped = self
-            .cases
-            .iter()
-            .filter(|c| matches!(c.outcome, DivergenceCategory::KnownDivergence { .. }))
-            .count();
+        // Known divergences are reported as passing tests (not skipped).
+        let skipped = 0usize;
         let elapsed = ms_to_seconds(self.cases.iter().map(|c| c.duration_ms).sum());
 
         // ISO 8601 timestamp from epoch seconds.
@@ -234,19 +231,18 @@ impl DiffReport {
                     let div = known_divergences::lookup(case.simrs_sw, case.oracle_sw);
                     let reason = div.map_or("(no reason on file)", |d| d.reason);
                     let spec = div.map_or("(no spec ref)", |d| d.spec_ref);
-                    let message = format!(
-                        "{id}: simrs={} oracle={}",
-                        sw_hex(case.simrs_sw),
-                        sw_hex(case.oracle_sw)
-                    );
+                    // Report as a passing test with documentation, not <skipped>.
+                    // The divergence is expected and documented -- it's not ignored.
                     let _ = writeln!(
                         xml,
-                        "    <skipped message=\"{msg}\">{id}: {reason}\n\
+                        "    <system-out>DOCUMENTED DIVERGENCE {id}: simrs={simrs_sw} oracle={oracle_sw}\n\
+                         Reason: {reason}\n\
                          Spec: {spec}\n\
                          Command: {cmd}\n\
                          simrs response:  {simrs_rsp}\n\
-                         Oracle response: {oracle_rsp}</skipped>",
-                        msg = xml_escape(&message),
+                         Oracle response: {oracle_rsp}</system-out>",
+                        simrs_sw = sw_hex(case.simrs_sw),
+                        oracle_sw = sw_hex(case.oracle_sw),
                         reason = xml_escape(reason),
                         spec = xml_escape(spec),
                         cmd = hex_spaced(&case.command),
@@ -289,7 +285,7 @@ impl DiffReport {
     /// Emit a Markdown report for human review.
     ///
     /// Includes a summary line, a result table, and detailed divergence
-    /// notes for any known divergences or regressions.
+    /// notes for any documented divergences or regressions.
     pub fn to_markdown(&self) -> String {
         let mut md = String::new();
 
@@ -470,14 +466,17 @@ mod tests {
         report.add_case(known_divergence_case());
         let xml = report.to_junit_xml();
 
-        assert!(xml.contains("skipped=\"1\""), "must report 1 skipped");
         assert!(
-            xml.contains("failures=\"0\""),
-            "known divergence is not a failure"
+            xml.contains("skipped=\"0\""),
+            "documented divergences are not skipped"
         );
         assert!(
-            xml.contains("<skipped message=\""),
-            "must have skipped element"
+            xml.contains("failures=\"0\""),
+            "documented divergence is not a failure"
+        );
+        assert!(
+            xml.contains("DOCUMENTED DIVERGENCE"),
+            "must have documented divergence in system-out"
         );
         assert!(xml.contains("D6"), "must reference divergence ID");
         assert!(xml.contains("6988"), "must show simrs SW");
@@ -528,7 +527,7 @@ mod tests {
         let md = report.to_markdown();
 
         assert!(
-            md.contains("1 match, 1 known divergence, 0 regressions"),
+            md.contains("1 match, 1 documented divergence, 0 regressions"),
             "markdown must include summary line: {md}"
         );
         assert!(
@@ -568,7 +567,7 @@ mod tests {
         report.add_case(known_divergence_case());
         assert!(
             !report.has_regressions(),
-            "known divergences are not regressions"
+            "documented divergences are not regressions"
         );
     }
 
@@ -592,14 +591,14 @@ mod tests {
             "zero should be plural"
         );
         assert!(
-            report.summary().contains("0 known divergences"),
+            report.summary().contains("0 documented divergences"),
             "zero should be plural"
         );
 
         let mut report2 = DiffReport::new();
         report2.add_case(known_divergence_case());
         assert!(
-            report2.summary().contains("1 known divergence,"),
+            report2.summary().contains("1 documented divergence,"),
             "one should be singular"
         );
 

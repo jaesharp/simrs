@@ -1,4 +1,4 @@
-# specs/milenage.feature
+# tools/simrs-spec-tests/features/milenage.feature
 #
 # BDD specification for Milenage UMTS authentication algorithm set (f1-f5, f1*, f5*).
 #

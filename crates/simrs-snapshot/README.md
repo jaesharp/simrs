@@ -16,14 +16,13 @@ graph LR
     style FUZZ fill:#AA4499,stroke:#333,color:#fff,stroke-dasharray:5 5
 ```
 
-## API (planned)
+## API
 
 ```rust
-pub trait Snapshot: Sized {
-    const BLOB_SIZE: usize;
-    fn save(&self, buf: &mut [u8; Self::BLOB_SIZE]);
-    fn restore(buf: &[u8; Self::BLOB_SIZE]) -> Self;
-    fn state_hash(&self) -> u64;
+pub trait Snapshot {
+    const SIZE: usize;
+    fn save(&self, buf: &mut [u8]) -> usize;
+    fn restore(&mut self, buf: &[u8]) -> bool;
 }
 ```
 

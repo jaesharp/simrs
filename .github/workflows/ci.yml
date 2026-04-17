@@ -18,7 +18,7 @@ jobs:
   # ---- Layer 1: fast checks (no deps) ----
 
   fmt:
-    name: Format
+    name: Verify Correct Source Code Formatting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -28,7 +28,7 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
-    name: Clippy
+    name: Verify Rust Code Meets Current Best Practices
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -41,7 +41,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   no-std:
-    name: Verify no_std Compatibility
+    name: "Ensure Core Builds Without Rust Standard Library/Allocator"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -71,7 +71,7 @@ jobs:
   # ---- Layer 2: tests (depends on fmt + clippy) ----
 
   test:
-    name: Test
+    name: Test All Components Independently
     needs: [fmt, clippy]
     runs-on: ubuntu-latest
     steps:
@@ -83,7 +83,7 @@ jobs:
       - run: cargo test --workspace --exclude simrs-security-tests
 
   test-features:
-    name: Test (${{ matrix.name }})
+    name: "Validate All SimRS Feature Configuration Permutations (${{ matrix.name }})"
     needs: [fmt, clippy]
     runs-on: ubuntu-latest
     strategy:
@@ -109,7 +109,7 @@ jobs:
       - run: cargo test ${{ matrix.args }}
 
   security-tests:
-    name: Security tests
+    name: Ensure Adversarial Testing Fails
     needs: [fmt, clippy]
     runs-on: ubuntu-latest
     steps:
@@ -121,7 +121,7 @@ jobs:
       - run: cargo test -p simrs-security-tests
 
   spec-tests:
-    name: Spec tests
+    name: Ensure Standards Compliance
     needs: [fmt, clippy]
     runs-on: ubuntu-latest
     steps:
@@ -134,7 +134,7 @@ jobs:
       - run: cargo test --manifest-path tools/simrs-spec-tests/Cargo.toml --test cucumber
 
   differential:
-    name: Differential (Oracle JCVM)
+    name: "Ensure Functions Like Reference Implementation (Oracle's JavaCard Simulator)"
     needs: [test]
     runs-on: ubuntu-latest
     steps:
@@ -191,7 +191,7 @@ jobs:
   # ---- Layer 3: Miri (depends on tests passing) ----
 
   miri:
-    name: Miri (${{ matrix.crate }})
+    name: "Detect Undefined Usage of Rust Language (${{ matrix.crate }})"
     needs: [test]
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -256,7 +256,7 @@ jobs:
   # ---- Layer 2 (parallel): build artifacts ----
 
   hle-ffi:
-    name: HLE FFI cdylib
+    name: Validate Shared Object HLE FFI Library
     needs: [fmt, clippy]
     runs-on: ubuntu-latest
     steps:

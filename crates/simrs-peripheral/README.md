@@ -16,7 +16,7 @@ graph TD
     style OSEM fill:#C35400,stroke:#333,color:#fff,stroke-dasharray:5 5
 ```
 
-## API (planned)
+## API
 
 ```rust
 pub trait SimPeripheral {

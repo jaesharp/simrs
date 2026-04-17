@@ -2,7 +2,7 @@
 
 Milenage UMTS authentication (f1--f5, f1\*, f5\*) over AES-128.
 
-**Layer:** Composition | **`no_std`:** yes | **Status:** Docs + BDD (impl pending)
+**Layer:** Composition | **`no_std`:** yes | **Status:** Implemented
 
 ```mermaid
 graph LR

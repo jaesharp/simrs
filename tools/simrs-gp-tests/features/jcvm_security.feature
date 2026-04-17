@@ -3,8 +3,6 @@
 # Security regression tests for JavaCard Virtual Machine (JCVM) based on
 # known bytecode-level attacks from the academic literature.
 #
-# These scenarios define the contract that a conforming JCVM implementation
-# must satisfy to defend against demonstrated attack classes. All scenarios
 # These scenarios define the security contract that the simrs JCVM
 # implementation must satisfy to defend against demonstrated attack classes.
 #

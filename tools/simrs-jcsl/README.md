@@ -6,7 +6,7 @@ Oracle Java Card Simulator (jcsl) binary discovery, configuration, and process m
 
 ```
 cargo run -p simrs-jcsl -- status              # show jcsl installation status
-cargo run -p simrs-jcsl -- install <path>       # install from Oracle SDK directory or binary
+cargo run -p simrs-jcsl -- install <path>       # install from Oracle SDK archive, directory, or binary
 cargo run -p simrs-jcsl -- validate <path>      # validate a jcsl binary
 cargo run -p simrs-jcsl -- guide                # print acquisition instructions
 ```

@@ -1,4 +1,4 @@
-# specs/fs.feature
+# tools/simrs-spec-tests/features/fs.feature
 #
 # BDD specification for ICC filesystem model.
 #

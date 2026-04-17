@@ -18,7 +18,7 @@ graph TD
     style VIO fill:#C35400,stroke:#333,color:#fff
 ```
 
-## API (planned)
+## API
 
 ```rust
 pub trait Transport {

@@ -1,4 +1,4 @@
-# specs/usim.feature
+# tools/simrs-spec-tests/features/usim.feature
 #
 # BDD specification for 3GPP USIM application layer.
 #

@@ -1,4 +1,4 @@
-//! Integration tests for jvac source compilation.
+//! Integration tests for simrs-jacc source compilation.
 //!
 //! Tests the full pipeline: Java/JVA source -> parse -> compile -> CAP -> VM execute.
 

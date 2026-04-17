@@ -1,4 +1,4 @@
-# specs/iso7816.feature
+# tools/simrs-spec-tests/features/iso7816.feature
 #
 # BDD specification for ISO/IEC 7816 APDU types and parsing.
 #

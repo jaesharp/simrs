@@ -1,4 +1,4 @@
-//! Integration tests for the jvac decompiler.
+//! Integration tests for the simrs-jacc decompiler.
 //!
 //! Tests the disassembly and decompilation of CAP bytecodes back to
 //! assembly text and high-level JVA source.
@@ -420,7 +420,7 @@ fn roundtrip_execution_while_loop() {
     );
 }
 
-/// Full pipeline roundtrip: .java -> jvac compile -> .cap -> GP LOAD -> INSTALL ->
+/// Full pipeline roundtrip: .java -> simrs-jacc compile -> .cap -> GP LOAD -> INSTALL ->
 /// SELECT -> APDU -> JCVM execute -> result.
 /// Then decompile the .cap and verify it's readable.
 #[test]

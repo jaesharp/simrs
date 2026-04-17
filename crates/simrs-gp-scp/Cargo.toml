@@ -3,7 +3,7 @@ name        = "simrs-gp-scp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "GlobalPlatform SCP01/SCP02 secure channel protocol -- no_std, no_alloc"
+description = "GlobalPlatform SCP01/SCP02/SCP03 secure channel protocols -- no_std, no_alloc"
 
 [features]
 default = []

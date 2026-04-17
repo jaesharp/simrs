@@ -1,6 +1,6 @@
 # simrs-rijndael
 
-AES-128 (Rijndael) block cipher -- encryption only, `const fn`.
+AES-128 (Rijndael) block cipher -- encrypt and decrypt, `const fn`.
 
 **Layer:** Foundation | **`no_std`:** yes | **Status:** Implemented
 
@@ -8,7 +8,7 @@ AES-128 (Rijndael) block cipher -- encryption only, `const fn`.
 
 | Spec | Clause | Coverage |
 |------|--------|----------|
-| NIST FIPS 197 | all | AES-128 encrypt |
+| NIST FIPS 197 | all | AES-128 encrypt + decrypt |
 | ETSI TS 135 206 V19.0.0 | Annex 3 | Rijndael for Milenage |
 
 ## Dependencies
@@ -23,8 +23,9 @@ None (leaf crate).
 
 ## API
 
-- `Rijndael::new(&[u8; 16]) -> Self` -- `const fn` key schedule
+- `Rijndael::new(&Secret<[u8; 16]>) -> Self` -- `const fn` key schedule
 - `Rijndael::encrypt(&self, &[u8; 16]) -> [u8; 16]` -- `const fn` encryption
+- `Rijndael::decrypt(&self, &[u8; 16]) -> [u8; 16]` -- `const fn` decryption
 
 Both functions are `const fn` -- key schedule can run at compile time.
 

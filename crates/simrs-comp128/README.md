@@ -2,7 +2,7 @@
 
 `COMP128v1` (A3/A8) GSM authentication algorithm.
 
-**Layer:** Foundation | **`no_std`:** yes | **Status:** Docs + BDD (impl pending)
+**Layer:** Foundation | **`no_std`:** yes | **Status:** Implemented
 
 ## Standards
 
@@ -23,8 +23,13 @@ None (leaf crate).
 
 ## API
 
-- `comp128(&Secret<[u8; 16]>, &[u8; 16]) -> Comp128Result` -- Ki + RAND -> SRES + Kc
-- `Comp128Result { sres: [u8; 4], kc: [u8; 8] }`
+- `comp128(&Secret<[u8; 16]>, &[u8; 16]) -> GsmAuthResult` -- COMP128v1: Ki + RAND -> SRES + Kc
+- `comp128v2(&Secret<[u8; 16]>, &[u8; 16]) -> GsmAuthResult` -- COMP128v2
+- `comp128v3(&Secret<[u8; 16]>, &[u8; 16]) -> GsmAuthResult` -- COMP128v3
+- `comp128_versioned(Comp128Version, &Secret<[u8; 16]>, &[u8; 16]) -> GsmAuthResult` -- version-dispatched
+- `Comp128Version` -- `V1`, `V2`, `V3` enum
+- `SignedResponse` -- 4-byte SRES wrapper
+- `GsmAuthResult { sres: SignedResponse, kc: [u8; 8] }`
 
 ## Specs
 

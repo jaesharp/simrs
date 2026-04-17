@@ -1,4 +1,4 @@
-# specs/comp128.feature
+# tools/simrs-spec-tests/features/comp128.feature
 #
 # BDD specification for COMP128v1 (A3/A8) GSM authentication algorithm.
 #

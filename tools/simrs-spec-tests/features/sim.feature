@@ -1,4 +1,4 @@
-# specs/sim.feature
+# tools/simrs-spec-tests/features/sim.feature
 #
 # BDD specification for SIM/USIM orchestrator.
 #

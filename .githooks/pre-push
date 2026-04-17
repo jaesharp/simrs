@@ -3,13 +3,13 @@
 # Install: git config core.hooksPath .githooks
 
 echo "pre-push: running tests..."
-if ! cargo test --workspace 2>/dev/null; then
+if ! cargo test --workspace; then
     echo "pre-push: tests failed. Push aborted."
     exit 1
 fi
 
 echo "pre-push: running clippy..."
-if ! cargo clippy --workspace --all-targets -- -D warnings 2>/dev/null; then
+if ! cargo clippy --workspace --all-targets -- -D warnings; then
     echo "pre-push: clippy warnings found. Push aborted."
     exit 1
 fi

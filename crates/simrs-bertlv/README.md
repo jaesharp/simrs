@@ -24,7 +24,7 @@ None (leaf crate).
 | [simrs-proactive](../simrs-proactive/) | Proactive command encoding |
 | [simrs-usim](../simrs-usim/) | FCP BER-TLV, AUTHENTICATE response |
 
-## API (planned)
+## API
 
 - `Tag { class, constructed, number }` -- tag representation
 - `Encoder` -- write TLV into caller buffer; dry-run mode counts bytes

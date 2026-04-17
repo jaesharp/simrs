@@ -30,5 +30,6 @@ Three layers, from high-level to low-level:
 
 ## Modules
 
-- `scp03` -- SCP03 secure channel differential tests
 - `session` -- `DiffSession` builder and replay engine
+- `known_divergences` -- catalog of known Oracle/simrs behavioral differences
+- `report` -- divergence report formatting

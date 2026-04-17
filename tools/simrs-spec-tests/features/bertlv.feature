@@ -1,4 +1,4 @@
-# specs/bertlv.feature
+# tools/simrs-spec-tests/features/bertlv.feature
 #
 # BDD specification for BER-TLV encoding and decoding.
 #

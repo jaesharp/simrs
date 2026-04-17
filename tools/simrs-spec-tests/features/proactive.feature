@@ -1,4 +1,4 @@
-# specs/proactive.feature
+# tools/simrs-spec-tests/features/proactive.feature
 #
 # BDD specification for proactive UICC command encoding and state machine.
 #

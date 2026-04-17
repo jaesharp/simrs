@@ -1,4 +1,4 @@
-# specs/gsm.feature
+# tools/simrs-spec-tests/features/gsm.feature
 #
 # BDD specification for GSM 11.11 SIM application layer.
 #
