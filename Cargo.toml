@@ -72,7 +72,9 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-2.0-or-later"
-# No rust-version field: this workspace requires nightly (see rust-toolchain.toml)
+# Minimum Rust version: 1.85 (for edition 2024 used by simrs-ref).
+# The workspace builds on stable; only the miri CI job installs nightly.
+rust-version = "1.85"
 
 [workspace.dependencies]
 # Internal crates (path references keep versions in one place)
