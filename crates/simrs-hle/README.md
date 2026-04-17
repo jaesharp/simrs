@@ -25,7 +25,7 @@ void   simrs_hle_reset(void);
 int    simrs_hle_apdu(const uint8_t *cmd, size_t cmd_len,
                             uint8_t *rsp, size_t rsp_cap, size_t *rsp_len);
 size_t simrs_hle_snapshot_save(uint8_t *buf, size_t cap);
-int    simrs_hle_snapshot_restore(const uint8_t *buf, size_t len);
+int    simrs_hle_init_from_snapshot(const uint8_t *buf, size_t len);
 ```
 
 ## Dependencies

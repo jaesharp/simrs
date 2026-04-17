@@ -50,14 +50,16 @@ pub fn snapshot_save(buf: &mut [u8]) -> usize {
     simrs_hle::hle_snapshot_save(buf)
 }
 
-/// Restore SIM state from a buffer.
+/// Construct a fresh SIM from a previously-saved snapshot.
 ///
-/// The SIM must have been initialized with the same algorithm
-/// (Milenage/TUAK) as when the snapshot was saved.
+/// The snapshot contains all state including credentials and the profile
+/// identifier. No prior `init` call is required.
 ///
-/// Returns `true` on success, `false` on failure.
-pub fn snapshot_restore(buf: &[u8]) -> bool {
-    simrs_hle::hle_snapshot_restore(buf)
+/// Returns `true` on success, `false` if the snapshot is malformed or
+/// references an unknown profile.
+#[must_use]
+pub fn init_from_snapshot(buf: &[u8]) -> bool {
+    simrs_hle::hle_init_from_snapshot(buf)
 }
 
 /// Maximum snapshot buffer size required (constant).
@@ -98,9 +100,7 @@ mod tests {
         assert!(n > 0);
 
         let h1 = state_hash();
-        init([0u8; 16], [0u8; 16], [0u8; 16]);
-        reset();
-        assert!(snapshot_restore(&snap[..n]));
+        assert!(init_from_snapshot(&snap[..n]));
         assert_eq!(state_hash(), h1);
     }
 

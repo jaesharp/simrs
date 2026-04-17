@@ -171,21 +171,23 @@ pub unsafe extern "C" fn simrs_snapshot_save(
     simrs_hle::hle_snapshot_save(slice) as u32
 }
 
-/// Restore SIM state from `buf`. Returns 1 on success, 0 on failure.
+/// Construct a fresh SIM from a previously-saved snapshot.
 ///
-/// The SIM must already be initialized (via `simrs_init`)
-/// with the same algorithm that was used when the snapshot was saved.
+/// The snapshot contains all state including credentials and profile
+/// identifier; no prior `simrs_init` is required. Returns 1 on success,
+/// 0 if the snapshot is malformed or references an unknown profile.
 ///
 /// # Safety
 ///
 /// `buf` must point to at least `buf_len` readable bytes.
 #[no_mangle]
-pub unsafe extern "C" fn simrs_snapshot_restore(
+pub unsafe extern "C" fn simrs_init_from_snapshot(
     buf: *const u8,
     buf_len: u32,
 ) -> u32 {
     let slice = core::slice::from_raw_parts(buf, buf_len as usize);
-    if simrs_hle::hle_snapshot_restore(slice) { 1 } else { 0 }
+    CURRENT_ATR.set((simrs_hle::DEFAULT_ATR.as_ptr(), simrs_hle::DEFAULT_ATR.len()));
+    if simrs_hle::hle_init_from_snapshot(slice) { 1 } else { 0 }
 }
 
 /// Maximum snapshot buffer size required (constant).

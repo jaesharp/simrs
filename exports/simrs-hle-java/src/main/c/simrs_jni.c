@@ -36,10 +36,22 @@ Java_com_simrs_Sim_nativeInitProfile(JNIEnv *env, jclass cls, jbyteArray jder)
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_simrs_Sim_nativeInitFromSnapshot(JNIEnv *env, jclass cls, jbyteArray jsnap)
+{
+    jsize len = (*env)->GetArrayLength(env, jsnap);
+    jbyte *snap = (*env)->GetByteArrayElements(env, jsnap, NULL);
+
+    uint32_t ok = simrs_init_from_snapshot((const uint8_t *)snap, (uint32_t)len);
+
+    (*env)->ReleaseByteArrayElements(env, jsnap, snap, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
 /* --- Reset --- */
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_simrs_Sim_nativeReset(JNIEnv *env, jobject self)
+Java_com_simrs_Sim_nativeReset(JNIEnv *env, jclass cls)
 {
     uint8_t atr_buf[64];
     uint32_t atr_len = simrs_reset(atr_buf, sizeof(atr_buf));
@@ -53,7 +65,7 @@ Java_com_simrs_Sim_nativeReset(JNIEnv *env, jobject self)
 /* --- APDU --- */
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_simrs_Sim_nativeApdu(JNIEnv *env, jobject self, jbyteArray jcmd)
+Java_com_simrs_Sim_nativeApdu(JNIEnv *env, jclass cls, jbyteArray jcmd)
 {
     jsize cmd_len = (*env)->GetArrayLength(env, jcmd);
     jbyte *cmd = (*env)->GetByteArrayElements(env, jcmd, NULL);
@@ -74,7 +86,7 @@ Java_com_simrs_Sim_nativeApdu(JNIEnv *env, jobject self, jbyteArray jcmd)
 /* --- Snapshot --- */
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_simrs_Sim_nativeSnapshotSave(JNIEnv *env, jobject self)
+Java_com_simrs_Sim_nativeSnapshotSave(JNIEnv *env, jclass cls)
 {
     uint32_t size = simrs_snapshot_size();
     uint8_t *buf = (uint8_t *)malloc(size);
@@ -92,18 +104,6 @@ Java_com_simrs_Sim_nativeSnapshotSave(JNIEnv *env, jobject self)
     return result;
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_simrs_Sim_nativeSnapshotRestore(JNIEnv *env, jobject self, jbyteArray jsnap)
-{
-    jsize len = (*env)->GetArrayLength(env, jsnap);
-    jbyte *snap = (*env)->GetByteArrayElements(env, jsnap, NULL);
-
-    uint32_t ok = simrs_snapshot_restore((const uint8_t *)snap, (uint32_t)len);
-
-    (*env)->ReleaseByteArrayElements(env, jsnap, snap, JNI_ABORT);
-    return ok ? JNI_TRUE : JNI_FALSE;
-}
-
 JNIEXPORT jint JNICALL
 Java_com_simrs_Sim_nativeSnapshotSize(JNIEnv *env, jclass cls)
 {
@@ -113,7 +113,7 @@ Java_com_simrs_Sim_nativeSnapshotSize(JNIEnv *env, jclass cls)
 /* --- State hash --- */
 
 JNIEXPORT jlong JNICALL
-Java_com_simrs_Sim_nativeStateHash(JNIEnv *env, jobject self)
+Java_com_simrs_Sim_nativeStateHash(JNIEnv *env, jclass cls)
 {
     return (jlong)simrs_state_hash();
 }

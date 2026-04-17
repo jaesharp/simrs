@@ -17,7 +17,7 @@ use simrs_fs::{DfDef, EfDef, Fid, FileRef, Sfi};
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
 use simrs_hle::{
-    hle_apdu, hle_init, hle_init_tuak, hle_reset, hle_snapshot_restore, hle_snapshot_save,
+    hle_apdu, hle_init, hle_init_from_snapshot, hle_init_tuak, hle_reset, hle_snapshot_save,
     hle_snapshot_size, hle_state_hash, hle_tick, GsmSubscriberKey,
 };
 use simrs_pcap::{Direction, LinkType, PcapEncoder};
@@ -508,7 +508,7 @@ fn fuzz_sim(iters: usize, use_tuak: bool, pcap: &mut Option<PcapWriter>) {
 
     for i in 0..iters {
         assert!(
-            hle_snapshot_restore(&snapshot[..n]),
+            hle_init_from_snapshot(&snapshot[..n]),
             "snapshot restore failed at iter {i}"
         );
 
@@ -764,7 +764,7 @@ mod tests {
         ];
 
         for seq in sequences {
-            hle_snapshot_restore(&snapshot[..n]);
+            let _ = hle_init_from_snapshot(&snapshot[..n]);
             let _ = hle_apdu(seq, &mut rsp_buf);
             let h = hle_state_hash();
             if h != 0 {
@@ -776,7 +776,7 @@ mod tests {
         let mut rng = Rng::new(0x1234);
         let mut apdu_buf = [0u8; 261];
         for _ in 0..100 {
-            hle_snapshot_restore(&snapshot[..n]);
+            let _ = hle_init_from_snapshot(&snapshot[..n]);
             let apdu_len = generate_apdu(&mut rng, &mut apdu_buf);
             let _ = hle_apdu(&apdu_buf[..apdu_len], &mut rsp_buf);
             let _ = hle_tick(5); // exercise timer paths

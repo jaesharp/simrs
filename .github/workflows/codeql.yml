@@ -23,10 +23,18 @@ jobs:
             build-mode: none
           - language: c-cpp
             build-mode: manual
+          - language: csharp
+            build-mode: none
+          - language: go
+            build-mode: manual
+          - language: java-kotlin
+            build-mode: none
           - language: python
             build-mode: none
           - language: rust
             build-mode: none
+          - language: swift
+            build-mode: manual
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6
@@ -40,6 +48,17 @@ jobs:
         run: |
           rustup default nightly
           cargo test --manifest-path exports/simrs-hle-java/Cargo.toml --no-run
+      - name: Build Go Package for Analysis
+        if: matrix.language == 'go'
+        run: |
+          rustup default nightly
+          cargo test --manifest-path exports/simrs-hle-go/Cargo.toml --no-run
+      - name: Build Swift Package for Analysis
+        if: matrix.language == 'swift'
+        run: |
+          rustup default nightly
+          cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml
+          swift build --package-path exports/simrs-hle-swift
       - name: Perform CodeQL Code Analysis
         uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 #v4.35.2
         with:

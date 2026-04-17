@@ -33,6 +33,8 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod profile_registry;
+
 use core::cell::RefCell;
 use simrs_fs::{AdfSlot, DfDef};
 use simrs_gp_card::GpCard;
@@ -68,6 +70,22 @@ enum SimInstance {
 
 thread_local! {
     static SIM: RefCell<Option<SimInstance>> = const { RefCell::new(None) };
+    static PROFILE_ID: core::cell::Cell<u16> = const { core::cell::Cell::new(0) };
+}
+
+/// Detect profile ID from static references, for init functions that take
+/// raw `&'static DfDef` and `&'static [AdfSlot]`. Returns 0 (unregistered)
+/// if no registered profile matches.
+fn detect_profile_id(mf: &'static DfDef, adf_table: &'static [AdfSlot]) -> u16 {
+    for profile in profile_registry::PROFILES {
+        if core::ptr::eq(profile.mf, mf)
+            && core::ptr::eq(profile.adf_table.as_ptr(), adf_table.as_ptr())
+            && profile.adf_table.len() == adf_table.len()
+        {
+            return profile.id;
+        }
+    }
+    0
 }
 
 // ---------------------------------------------------------------------------
@@ -96,8 +114,10 @@ macro_rules! with_sim {
 // Maximum snapshot size
 // ---------------------------------------------------------------------------
 
-/// Maximum snapshot size across all card types (includes 1-byte discriminant).
-pub const MAX_SNAPSHOT_SIZE: usize = 1 + {
+/// Maximum snapshot size across all card types.
+///
+/// Header: 1-byte algorithm discriminant + 2-byte profile ID (little-endian).
+pub const MAX_SNAPSHOT_SIZE: usize = 3 + {
     let mil = Sim::<MilenageParams, 256>::SNAPSHOT_SIZE;
     let tuak = Sim::<TuakParams, 256>::SNAPSHOT_SIZE;
     let gp = GpCard::<261>::SNAPSHOT_SIZE;
@@ -137,6 +157,7 @@ pub fn hle_init(
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
     });
+    PROFILE_ID.with(|id| id.set(detect_profile_id(mf, &[])));
 }
 
 /// Initialize the thread-local SIM instance with TUAK authentication.
@@ -159,6 +180,7 @@ pub fn hle_init_tuak(
         let sim = Sim::<TuakParams, 256>::new(atr, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
     });
+    PROFILE_ID.with(|id| id.set(detect_profile_id(mf, &[])));
 }
 
 /// Initialize with Milenage authentication and a custom ADF table.
@@ -181,6 +203,7 @@ pub fn hle_init_with_adf(
         let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
     });
+    PROFILE_ID.with(|id| id.set(detect_profile_id(mf, adf_table)));
 }
 
 /// Initialize with TUAK authentication and a custom ADF table.
@@ -202,6 +225,7 @@ pub fn hle_init_tuak_with_adf(
         let sim = Sim::<TuakParams, 256>::new(atr, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
     });
+    PROFILE_ID.with(|id| id.set(detect_profile_id(mf, adf_table)));
 }
 
 /// Initialize the thread-local SIM as a `GlobalPlatform` card with a SIM applet.
@@ -233,6 +257,7 @@ pub fn hle_init_gp(
     SIM.with(|cell| {
         *cell.borrow_mut() = Some(SimInstance::GpMilenage(card));
     });
+    PROFILE_ID.with(|id| id.set(detect_profile_id(mf, adfs)));
 }
 
 /// Initialize the thread-local SIM from a parsed [`ProfileConfig`].
@@ -320,67 +345,95 @@ pub fn hle_apdu(cmd: &[u8], rsp: &mut [u8]) -> Option<(usize, u8, u8)> {
 /// Returns the number of bytes written (including discriminant), or 0 if
 /// not initialized or `buf` is too small.
 pub fn hle_snapshot_save(buf: &mut [u8]) -> usize {
+    let profile_id = PROFILE_ID.with(core::cell::Cell::get);
+    let [pid_lo, pid_hi] = profile_id.to_le_bytes();
     SIM.with(|cell| {
         let mut borrow = cell.borrow_mut();
-        match borrow.as_mut() {
-            Some(SimInstance::Milenage(sim)) => {
-                if buf.len() < 1 + Sim::<MilenageParams, 256>::SNAPSHOT_SIZE {
-                    return 0;
-                }
-                buf[0] = 0x00; // Milenage discriminant
-                let n = sim.save_state(&mut buf[1..]);
-                if n == 0 {
-                    0
-                } else {
-                    1 + n
-                }
-            }
-            Some(SimInstance::Tuak(sim)) => {
-                if buf.len() < 1 + Sim::<TuakParams, 256>::SNAPSHOT_SIZE {
-                    return 0;
-                }
-                buf[0] = 0x01; // TUAK discriminant
-                let n = sim.save_state(&mut buf[1..]);
-                if n == 0 {
-                    0
-                } else {
-                    1 + n
-                }
-            }
-            Some(SimInstance::GpMilenage(card)) => {
-                if buf.len() < 1 + GpCard::<261>::SNAPSHOT_SIZE {
-                    return 0;
-                }
-                buf[0] = 0x02; // GP+Milenage discriminant
-                let n = card.save_state(&mut buf[1..]);
-                if n == 0 {
-                    0
-                } else {
-                    1 + n
-                }
-            }
-            None => 0,
+        let Some(instance) = borrow.as_mut() else {
+            return 0;
+        };
+        let (discriminant, inner_size) = match instance {
+            SimInstance::Milenage(_) => (0x00u8, Sim::<MilenageParams, 256>::SNAPSHOT_SIZE),
+            SimInstance::Tuak(_) => (0x01u8, Sim::<TuakParams, 256>::SNAPSHOT_SIZE),
+            SimInstance::GpMilenage(_) => (0x02u8, GpCard::<261>::SNAPSHOT_SIZE),
+        };
+        if buf.len() < 3 + inner_size {
+            return 0;
+        }
+        buf[0] = discriminant;
+        buf[1] = pid_lo;
+        buf[2] = pid_hi;
+        let n = match instance {
+            SimInstance::Milenage(sim) => sim.save_state(&mut buf[3..]),
+            SimInstance::Tuak(sim) => sim.save_state(&mut buf[3..]),
+            SimInstance::GpMilenage(card) => card.save_state(&mut buf[3..]),
+        };
+        if n == 0 {
+            0
+        } else {
+            3 + n
         }
     })
 }
 
-/// Restore the SIM state from `buf`.
+/// Construct a fresh SIM from a previously-saved snapshot.
 ///
-/// The first byte must match the discriminant of the current instance
-/// (0x00 = Milenage, 0x01 = TUAK, 0x02 = GP+Milenage). Returns `true`
-/// on success, `false` if the buffer is empty, discriminant mismatches,
-/// or the SIM is not initialized.
-pub fn hle_snapshot_restore(buf: &[u8]) -> bool {
-    if buf.is_empty() {
+/// The snapshot's embedded profile ID is looked up in the registry to
+/// reattach the correct static MF and ADF table references. No prior
+/// `hle_init*` call is needed -- this is the single-step init path for
+/// transferring SIM state across threads or processes.
+///
+/// Returns `false` if the snapshot is malformed, too short, or references
+/// an unknown profile (e.g. a dynamic DER-loaded profile that isn't
+/// registered in this process).
+#[must_use]
+pub fn hle_init_from_snapshot(buf: &[u8]) -> bool {
+    if buf.len() < 3 {
         return false;
     }
+    let discriminant = buf[0];
+    let profile_id = u16::from_le_bytes([buf[1], buf[2]]);
+    let Some(profile) = profile_registry::lookup(profile_id) else {
+        return false;
+    };
+    match discriminant {
+        0x00 => hle_init_with_adf(
+            profile.atr,
+            profile.mf,
+            GsmSubscriberKey::classify([0u8; 16]),
+            [0u8; 16],
+            [0u8; 16],
+            profile.adf_table,
+        ),
+        0x01 => hle_init_tuak_with_adf(
+            profile.atr,
+            profile.mf,
+            GsmSubscriberKey::classify([0u8; 16]),
+            [0u8; 16],
+            [0u8; 32],
+            profile.adf_table,
+        ),
+        0x02 => hle_init_gp(
+            profile.atr,
+            [0u8; 16],
+            [0u8; 16],
+            [0u8; 16],
+            profile.mf,
+            profile.adf_table,
+            [0u8; 16],
+            [0u8; 16],
+            [0u8; 16],
+        ),
+        _ => return false,
+    }
+    let _ = hle_reset();
     SIM.with(|cell| {
         let mut borrow = cell.borrow_mut();
-        match (buf[0], borrow.as_mut()) {
-            (0x00, Some(SimInstance::Milenage(sim))) => sim.restore_state(&buf[1..]),
-            (0x01, Some(SimInstance::Tuak(sim))) => sim.restore_state(&buf[1..]),
-            (0x02, Some(SimInstance::GpMilenage(card))) => card.restore_state(&buf[1..]),
-            _ => false, // discriminant mismatch or not initialized
+        match (discriminant, borrow.as_mut()) {
+            (0x00, Some(SimInstance::Milenage(sim))) => sim.restore_state(&buf[3..]),
+            (0x01, Some(SimInstance::Tuak(sim))) => sim.restore_state(&buf[3..]),
+            (0x02, Some(SimInstance::GpMilenage(card))) => card.restore_state(&buf[3..]),
+            _ => false,
         }
     })
 }
@@ -399,9 +452,9 @@ pub fn hle_snapshot_size_current() -> usize {
     SIM.with(|cell| {
         let borrow = cell.borrow();
         match borrow.as_ref() {
-            Some(SimInstance::Milenage(_)) => 1 + Sim::<MilenageParams, 256>::SNAPSHOT_SIZE,
-            Some(SimInstance::Tuak(_)) => 1 + Sim::<TuakParams, 256>::SNAPSHOT_SIZE,
-            Some(SimInstance::GpMilenage(_)) => 1 + GpCard::<261>::SNAPSHOT_SIZE,
+            Some(SimInstance::Milenage(_)) => 3 + Sim::<MilenageParams, 256>::SNAPSHOT_SIZE,
+            Some(SimInstance::Tuak(_)) => 3 + Sim::<TuakParams, 256>::SNAPSHOT_SIZE,
+            Some(SimInstance::GpMilenage(_)) => 3 + GpCard::<261>::SNAPSHOT_SIZE,
             None => 0,
         }
     })
@@ -517,22 +570,19 @@ mod tests {
     static ATR: [u8; 2] = [0x3B, 0x00];
 
     fn init() {
-        hle_init(
-            &ATR,
-            &MF,
-            GsmSubscriberKey::classify([0x11; 16]),
-            [0x22; 16],
-            [0x33; 16],
-        );
+        // Use hle_init_standard so snapshots embed the reference profile ID
+        // and hle_init_from_snapshot can reconstruct the Sim.
+        hle_init_standard([0x11; 16], [0x22; 16], [0x33; 16]);
     }
 
     fn init_tuak() {
-        hle_init_tuak(
-            &ATR,
-            &MF,
+        hle_init_tuak_with_adf(
+            &DEFAULT_ATR,
+            &simrs_usim::profile::REFERENCE_MF,
             GsmSubscriberKey::classify([0x11; 16]),
             [0x22; 16],
             [0x33; 32],
+            &simrs_usim::profile::ADF_TABLE,
         );
     }
 
@@ -550,7 +600,7 @@ mod tests {
     fn init_and_reset() {
         init();
         let atr_len = hle_reset();
-        assert_eq!(atr_len, ATR.len());
+        assert_eq!(atr_len, DEFAULT_ATR.len());
     }
 
     #[test]
@@ -593,7 +643,7 @@ mod tests {
 
         // Re-init (wipes state).
         init();
-        assert!(hle_snapshot_restore(&snap[..n]));
+        assert!(hle_init_from_snapshot(&snap[..n]));
 
         // Card should be Ready after restore.
         let result = hle_apdu(&[0xF0, 0xA4, 0x00, 0x00], &mut rsp);
@@ -699,7 +749,7 @@ mod tests {
         let atr_len = hle_reset();
         assert_eq!(
             atr_len,
-            ATR.len(),
+            DEFAULT_ATR.len(),
             "TUAK sim should reset with correct ATR length"
         );
     }
@@ -728,7 +778,7 @@ mod tests {
 
         // Re-init with TUAK (wipes state).
         init_tuak();
-        assert!(hle_snapshot_restore(&snap[..n]));
+        assert!(hle_init_from_snapshot(&snap[..n]));
 
         // Card should be Ready after restore.
         let result = hle_apdu(&[0xF0, 0xA4, 0x00, 0x00], &mut rsp);
@@ -758,8 +808,8 @@ mod tests {
         // Reset twice should work.
         let len1 = hle_reset();
         let len2 = hle_reset();
-        assert_eq!(len1, ATR.len());
-        assert_eq!(len2, ATR.len());
+        assert_eq!(len1, DEFAULT_ATR.len());
+        assert_eq!(len2, DEFAULT_ATR.len());
     }
 
     #[test]
@@ -783,20 +833,30 @@ mod tests {
     }
 
     #[test]
-    fn hle_snapshot_cross_algorithm_restore_fails() {
-        // Init with Milenage, save snapshot.
-        init();
+    fn hle_init_from_snapshot_switches_algorithm() {
+        // Save a TUAK snapshot, then reconstruct in a fresh context.
+        init_tuak();
         hle_reset();
         let mut snap = vec![0u8; hle_snapshot_size()];
         let n = hle_snapshot_save(&mut snap);
         assert!(n > 0);
+        let tuak_hash = hle_state_hash();
 
-        // Switch to TUAK, try to restore Milenage snapshot -> must fail.
-        init_tuak();
-        assert!(
-            !hle_snapshot_restore(&snap[..n]),
-            "restoring Milenage snapshot into TUAK instance must fail"
-        );
+        // Clear state, then reconstruct from snapshot -- should pick TUAK
+        // from the discriminant, no prior init needed.
+        SIM.with(|cell| *cell.borrow_mut() = None);
+        assert!(hle_init_from_snapshot(&snap[..n]));
+        assert_eq!(hle_state_hash(), tuak_hash);
+    }
+
+    #[test]
+    fn hle_init_from_snapshot_unknown_profile_fails() {
+        let mut snap = vec![0u8; 10];
+        snap[0] = 0x00; // Milenage
+        snap[1] = 0xFF; // unregistered profile ID
+        snap[2] = 0xFF;
+        SIM.with(|cell| *cell.borrow_mut() = None);
+        assert!(!hle_init_from_snapshot(&snap));
     }
 
     // -------------------------------------------------------------------
@@ -847,8 +907,14 @@ mod tests {
 
     #[test]
     fn hle_init_default_no_adf() {
-        // Standard init passes empty ADF table; SELECT by AID should fail.
-        init();
+        // hle_init passes empty ADF table; SELECT by AID should fail.
+        hle_init(
+            &DEFAULT_ATR,
+            &simrs_usim::profile::REFERENCE_MF,
+            GsmSubscriberKey::classify([0x11; 16]),
+            [0x22; 16],
+            [0x33; 16],
+        );
         hle_reset();
         let mut rsp = [0u8; 256];
         let mut cmd = [0u8; 4 + 1 + 7 + 1];
@@ -873,14 +939,15 @@ mod tests {
     // GP card (GpMilenage) tests
     // -------------------------------------------------------------------
 
-    static GP_ATR: [u8; 3] = [0x3B, 0x90, 0x00];
-
     fn init_gp() {
         hle_init_gp(
-            &GP_ATR, [0x40; 16], // ISD ENC
+            &DEFAULT_ATR,
+            [0x40; 16], // ISD ENC
             [0x40; 16], // ISD MAC
             [0x40; 16], // ISD DEK
-            &MF, &ADF_TABLE, [0x11; 16], // Ki
+            &simrs_usim::profile::REFERENCE_MF,
+            &simrs_usim::profile::ADF_TABLE,
+            [0x11; 16], // Ki
             [0x22; 16], // K
             [0x33; 16], // OPc
         );
@@ -897,7 +964,7 @@ mod tests {
     fn hle_reset_gp_returns_atr() {
         init_gp();
         let atr_len = hle_reset();
-        assert_eq!(atr_len, GP_ATR.len());
+        assert_eq!(atr_len, DEFAULT_ATR.len());
     }
 
     #[test]
@@ -942,7 +1009,7 @@ mod tests {
 
         // Re-init (wipes state).
         init_gp();
-        assert!(hle_snapshot_restore(&snap[..n]));
+        assert!(hle_init_from_snapshot(&snap[..n]));
 
         // Card should be ready after restore.
         let result = hle_apdu(&cmd, &mut rsp);
@@ -965,20 +1032,17 @@ mod tests {
     }
 
     #[test]
-    fn hle_snapshot_cross_gp_restore_fails() {
-        // Init with GP, save snapshot.
+    fn hle_init_from_snapshot_reconstructs_gp() {
         init_gp();
         hle_reset();
         let mut snap = vec![0u8; hle_snapshot_size()];
         let n = hle_snapshot_save(&mut snap);
         assert!(n > 0);
+        let gp_hash = hle_state_hash();
 
-        // Switch to Milenage, try to restore GP snapshot -> must fail.
-        init();
-        assert!(
-            !hle_snapshot_restore(&snap[..n]),
-            "restoring GP snapshot into Milenage instance must fail"
-        );
+        SIM.with(|cell| *cell.borrow_mut() = None);
+        assert!(hle_init_from_snapshot(&snap[..n]));
+        assert_eq!(hle_state_hash(), gp_hash);
     }
 
     #[test]

@@ -75,7 +75,7 @@ public final class Sim {
     public func restore(_ snapshot: [UInt8]) -> Bool {
         return queue.sync {
             snapshot.withUnsafeBufferPointer { ptr in
-                simrs_snapshot_restore(ptr.baseAddress!, UInt32(snapshot.count)) != 0
+                simrs_init_from_snapshot(ptr.baseAddress!, UInt32(snapshot.count)) != 0
             }
         }
     }

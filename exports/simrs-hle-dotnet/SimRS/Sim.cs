@@ -169,7 +169,7 @@ public sealed class Sim : IDisposable
     [DllImport("simrs_hle_capi", EntryPoint = "simrs_snapshot_save")]
     private static extern uint NativeSnapshotSave(byte[] buf, uint bufLen);
 
-    [DllImport("simrs_hle_capi", EntryPoint = "simrs_snapshot_restore")]
+    [DllImport("simrs_hle_capi", EntryPoint = "simrs_init_from_snapshot")]
     private static extern uint NativeSnapshotRestore(byte[] buf, uint bufLen);
 
     [DllImport("simrs_hle_capi", EntryPoint = "simrs_snapshot_size")]

@@ -94,7 +94,7 @@ func SnapshotSave() ([]byte, error) {
 
 // SnapshotRestore restores SIM state from a previous snapshot.
 func SnapshotRestore(snap []byte) error {
-	result := C.simrs_snapshot_restore(
+	result := C.simrs_init_from_snapshot(
 		(*C.uint8_t)(unsafe.Pointer(&snap[0])),
 		C.uint32_t(len(snap)),
 	)

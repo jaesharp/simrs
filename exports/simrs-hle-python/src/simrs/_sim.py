@@ -145,8 +145,8 @@ def _load_library(path: str | None = None) -> ctypes.CDLL:
     lib.simrs_snapshot_save.argtypes = [ctypes.c_char_p, ctypes.c_uint32]
     lib.simrs_snapshot_save.restype = ctypes.c_uint32
 
-    lib.simrs_snapshot_restore.argtypes = [ctypes.c_char_p, ctypes.c_uint32]
-    lib.simrs_snapshot_restore.restype = ctypes.c_uint32
+    lib.simrs_init_from_snapshot.argtypes = [ctypes.c_char_p, ctypes.c_uint32]
+    lib.simrs_init_from_snapshot.restype = ctypes.c_uint32
 
     lib.simrs_snapshot_size.argtypes = []
     lib.simrs_snapshot_size.restype = ctypes.c_uint32
@@ -344,7 +344,7 @@ class Sim:
             SimError: If restoration fails (algorithm mismatch, corrupt data).
         """
         self._check_initialized()
-        result = self._call(self._lib.simrs_snapshot_restore, snapshot, len(snapshot))
+        result = self._call(self._lib.simrs_init_from_snapshot, snapshot, len(snapshot))
         if result == 0:
             raise SimError(
                 "Snapshot restore failed (algorithm mismatch or corrupt data)"

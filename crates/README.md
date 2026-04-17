@@ -154,20 +154,28 @@ graph TB
 
 **Legend:** Solid border = `no_std`. Dashed border = requires `std`. Thick border = primary entry point. Heavy arrows (`==>`) = hot path. Dotted arrows (`-.->`) = feature-gated.
 
+**Note:** The diagram shows the core SIM/USIM stack. GP, JavaCard VM/RE/compiler, and auxiliary protocol crates (T=0, swICC, vpcd) are listed in the Crate Reference table below.
+
 ## Crate Reference
 
 | Crate | Layer | `no_std` | Description | Dependencies | Detail |
 |-------|-------|----------|-------------|--------------|--------|
 | [`simrs-iso7816`](simrs-iso7816/) | Foundation | yes | APDU types, CLA parsing, status words, INS constants | -- | [API](../docs/architecture/#simrs-iso7816) |
 | [`simrs-bertlv`](simrs-bertlv/) | Foundation | yes | BER-TLV encoder/decoder with dry-run mode | -- | [API](../docs/architecture/#simrs-bertlv) |
+| [`simrs-apdu-schema`](simrs-apdu-schema/) | Foundation | yes | APDU schema types for shared cross-crate APDU definitions | -- | -- |
+| [`simrs-card-api`](simrs-card-api/) | Foundation | yes | Common card API abstractions (`SimEvent`, `SimResponse`, `StatusWord`) | -- | -- |
 | [`simrs-rijndael`](simrs-rijndael/) | Foundation | yes | AES-128 block cipher (encrypt only, `const fn` key sched) | -- | [API](../docs/architecture/#simrs-rijndael) |
-| [`simrs-comp128`](simrs-comp128/) | Foundation | yes | `COMP128v1` GSM A3/A8 authentication | -- | [API](../docs/architecture/#simrs-comp128) |
+| [`simrs-des`](simrs-des/) | Foundation | yes | DES / 3DES block cipher for SCP01/SCP02 | -- | -- |
+| [`simrs-comp128`](simrs-comp128/) | Foundation | yes | `COMP128v1`/v2/v3 GSM A3/A8 authentication | -- | [API](../docs/architecture/#simrs-comp128) |
 | [`simrs-keccak`](simrs-keccak/) | Foundation | yes | Keccak-f[1600] permutation for TUAK | -- | [API](../docs/architecture/#simrs-keccak) |
 | [`simrs-pcap`](simrs-pcap/) | Foundation | yes | PCAP file + GSMTAP SIM frame encoding | -- | [API](../docs/architecture/#simrs-pcap) |
 | [`simrs-consttime-macros`](simrs-consttime-macros/) | Foundation | yes | `#[derive(CtEq)]` proc macro for constant-time equality | -- | [API](../docs/architecture/#simrs-consttime-macros) |
 | [`simrs-consttime`](simrs-consttime/) | Foundation | yes | Constant-time primitives (table lookup, comparison, GF(2^8)) | [consttime-macros](simrs-consttime-macros/) | [API](../docs/architecture/#simrs-consttime) |
 | [`simrs-redact`](simrs-redact/) | Foundation | yes | Feature-gated `Debug`/`Display` redaction for secret byte arrays | -- | -- |
+| [`simrs-sha1`](simrs-sha1/) | Foundation | yes | SHA-1 hash per NIST FIPS 180-1 (legacy JCVM support) | -- | -- |
 | [`simrs-sha256`](simrs-sha256/) | Foundation | yes | SHA-256 hash per NIST FIPS 180-4 | -- | -- |
+| [`simrs-md5`](simrs-md5/) | Foundation | yes | MD5 hash per RFC 1321 (legacy JCVM support) | -- | -- |
+| [`simrs-bignum`](simrs-bignum/) | Foundation | yes | Big-integer arithmetic for RSA modular operations | -- | -- |
 | [`simrs-secret`](simrs-secret/) | Composition | yes | `Secret<T>` and `CtOption<T>` -- zero-cost compile-time constant-time boundary enforcement | [consttime](simrs-consttime/), [redact](simrs-redact/) | -- |
 | [`simrs-kdf`](simrs-kdf/) | Composition | yes | HMAC-SHA-256 and 3GPP KDFs (TS 33.220/33.401/33.501) | [sha256](simrs-sha256/), [secret](simrs-secret/) | -- |
 | [`simrs-ecies`](simrs-ecies/) | Composition | yes | ECIES Profiles A & B (X25519/P-256 + AES-128-CTR + HMAC-SHA-256) for SUCI per TS 33.501 | [consttime](simrs-consttime/), [kdf](simrs-kdf/), [rijndael](simrs-rijndael/), [secret](simrs-secret/) | -- |
@@ -177,6 +185,20 @@ graph TB
 | [`simrs-pin`](simrs-pin/) | Composition | yes | PIN/PUK state machine (verify, change, unblock) | [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-pin) |
 | [`simrs-proactive`](simrs-proactive/) | Composition | yes | Proactive UICC / CAT command encoding | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/) | [API](../docs/architecture/#simrs-proactive) |
 | [`simrs-ota`](simrs-ota/) | Composition | yes | OTA secured packets (TS 102 225/226) | [rijndael](simrs-rijndael/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-ota) |
+| [`simrs-iso9797`](simrs-iso9797/) | Composition | yes | ISO 9797-1 DES/AES CBC-MAC (algorithms 1/3, CMAC) | [des](simrs-des/), [rijndael](simrs-rijndael/) | -- |
+| [`simrs-rsa`](simrs-rsa/) | Composition | yes | RSA public-key crypto (512-2048 bits, PKCS#1) | [bignum](simrs-bignum/), [sha1](simrs-sha1/), [sha256](simrs-sha256/) | -- |
+| [`simrs-gp-keys`](simrs-gp-keys/) | Composition | yes | GlobalPlatform key set types (ENC/MAC/DEK) | [secret](simrs-secret/) | -- |
+| [`simrs-gp-scp`](simrs-gp-scp/) | Composition | yes | SCP01/SCP02/SCP03 secure channel protocols (GP 2.1.1 + Amd D) | [des](simrs-des/), [rijndael](simrs-rijndael/), [iso9797](simrs-iso9797/), [gp-keys](simrs-gp-keys/) | -- |
+| [`simrs-gp-open`](simrs-gp-open/) | Composition | yes | GlobalPlatform OPEN card manager, applet registry, lifecycle | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/), [gp-keys](simrs-gp-keys/), [gp-scp](simrs-gp-scp/) | -- |
+| [`simrs-gp-card`](simrs-gp-card/) | Composition | yes | GP card composition (ISD + applet registry + SCP session) | [gp-open](simrs-gp-open/), [jcre](simrs-jcre/)^opt^ | -- |
+| [`simrs-jcvm-opcodes`](simrs-jcvm-opcodes/) | Composition | yes | JavaCard bytecode opcode constants (shared by VM and compiler) | -- | -- |
+| [`simrs-jcvm`](simrs-jcvm/) | Composition | yes | JavaCard Virtual Machine 2.1.1 interpreter | [jcvm-opcodes](simrs-jcvm-opcodes/) | -- |
+| [`simrs-jcre`](simrs-jcre/) | Composition | yes | JavaCard Runtime Environment (applet lifecycle, firewall, transactions) | [jcvm](simrs-jcvm/), [iso7816](simrs-iso7816/) | -- |
+| [`simrs-jcasm`](simrs-jcasm/) | Composition | **no** | JavaCard Assembler (HLA syntax, CAP emission) | [jcvm-opcodes](simrs-jcvm-opcodes/) | -- |
+| [`simrs-jcasm-jacc`](simrs-jcasm-jacc/) | Composition | **no** | JavaCard Assembler frontend for the jacc compiler | [jcasm](simrs-jcasm/) | -- |
+| [`simrs-jccompile`](simrs-jccompile/) | Composition | **no** | JavaCard HLL compiler (Java source -> bytecode IR) | [jcasm](simrs-jcasm/), [jcvm-opcodes](simrs-jcvm-opcodes/) | -- |
+| [`simrs-jacc`](simrs-jacc/) | Composition | **no** | JavaCard-Approximately-Compatible Compiler CLI (frontend + emitter) | [jccompile](simrs-jccompile/), [jcasm-jacc](simrs-jcasm-jacc/) | -- |
+| [`simrs-jcop-profile`](simrs-jcop-profile/) | Composition | yes | IBM JCOP family card profile metadata | -- | -- |
 | [`simrs-gsm`](simrs-gsm/) | Application | yes | GSM 11.11 SIM app (SELECT, RUN GSM ALGO, STATUS). Profile tiers: `profile-minimal` (9 EFs), `profile-standard` (19 EFs, default). | [iso7816](simrs-iso7816/), [comp128](simrs-comp128/), [fs](simrs-fs/), [pin](simrs-pin/) | [API](../docs/architecture/#simrs-gsm) |
 | [`simrs-usim`](simrs-usim/) | Application | yes | 3GPP USIM app (FCP, AUTH, TERMINAL PROFILE, FETCH). Profile tiers: `profile-minimal` (33 EFs), `profile-standard` (58 EFs, default), `profile-full` (207 EFs). Full profile: 115 ADF.USIM EFs + 19 DF_5GS EFs + 11 sub-DFs (88 child EFs) + 4 MF EFs. Optional ADFs: `isim` (ISIM, 10 EFs, TS 31.103), `hpsim` (HPSIM, 3 EFs, TS 31.104). Optional: `telecom` (DF.TELECOM, 12 EFs). Meta flags: `profile-lte`, `profile-5g`, `profile-ims`, `profile-all`. | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/), [milenage](simrs-milenage/), [fs](simrs-fs/), [pin](simrs-pin/), [proactive](simrs-proactive/) | [API](../docs/architecture/#simrs-usim) |
 | [`simrs-sim`](simrs-sim/) | Application | yes | Top-level `Sim` state machine, event-driven entry point | [iso7816](simrs-iso7816/), [fs](simrs-fs/), [pin](simrs-pin/), [gsm](simrs-gsm/)^opt^, [usim](simrs-usim/)^opt^ | [API](../docs/architecture/#simrs-sim) |
@@ -188,6 +210,9 @@ graph TB
 | [`simrs-peripheral-shannon`](simrs-peripheral-shannon/) | Boundary | yes | Shannon baseband SIM controller (MMIO + `VirtIO`) | [peripheral](simrs-peripheral/), [virtio](simrs-transport-virtio/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-peripheral-shannon) |
 | [`simrs-peripheral-osembed`](simrs-peripheral-osembed/) | Boundary | **no** | Linux/Android SIM ioctl interface | [peripheral](simrs-peripheral/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-peripheral-osembed) |
 | [`simrs-qemu`](simrs-qemu/) | Boundary | **no** | QEMU virtual smart card bridge (shmem + chardev) | [sim](simrs-sim/), [shmem](simrs-transport-shmem/) | [API](../docs/architecture/#simrs-qemu) |
+| [`simrs-t0`](simrs-t0/) | Boundary | yes | ISO 7816-3 T=0 electrical protocol encoder/decoder | [iso7816](simrs-iso7816/) | -- |
+| [`simrs-swicc`](simrs-swicc/) | Boundary | **no** | swICC PC/SC virtual smart card reader server (port 37324) | [sim](simrs-sim/), [transport-tcp](simrs-transport-tcp/) | -- |
+| [`simrs-vpcd`](simrs-vpcd/) | Boundary | **no** | vpcd virtual smart card reader server (port 35963) | [sim](simrs-sim/) | -- |
 | [`simrs-snapshot`](simrs-snapshot/) | Meta | yes | Deterministic state serialization (`Snapshot` trait) | [sim](simrs-sim/) | [API](../docs/architecture/#simrs-snapshot) |
 | [`simrs-hle`](simrs-hle/) | Meta | **no** | HLE SIM peripheral, C-ABI `cdylib` for QEMU | [sim](simrs-sim/), [snapshot](simrs-snapshot/), [iso7816](simrs-iso7816/) | [API](../docs/architecture/#simrs-hle) |
 | [`simrs-fuzz`](simrs-fuzz/) | Meta | **no** | APDU-aware snapshot fuzzer harness | [hle](simrs-hle/), [fs](simrs-fs/), [pcap](simrs-pcap/) | [API](../docs/architecture/#simrs-fuzz) |
@@ -195,13 +220,25 @@ graph TB
 | [`simrs-auth-cli`](simrs-auth-cli/) | Meta | **no** | Milenage auth vector CLI for LTE/UMTS test tools | [milenage](simrs-milenage/) | -- |
 | [`simrs-consttime-validation`](simrs-consttime-validation/) | Meta | **no** | Constant-time timing verification for constant-time code | [consttime](simrs-consttime/) | [API](../docs/architecture/#simrs-consttime-validation) |
 | [`simrs-profile`](simrs-profile/) | Meta | **no** | TCA eUICC Profile Package parser (DER ASN.1 to simrs filesystem) | [fs](simrs-fs/) | [API](../docs/architecture/#simrs-profile) |
-| [`simrs-ref`](simrs-ref/) | Meta | **no** | Reference test vectors from 3GPP/ETSI specifications | [milenage](simrs-milenage/), [tuak](simrs-tuak/), [comp128](simrs-comp128/) | -- |
+| [`simrs-ref`](simrs-ref/) | Meta | yes | Reference test vectors and spec citations from 3GPP/ETSI | [milenage](simrs-milenage/)^opt^, [tuak](simrs-tuak/)^opt^, [comp128](simrs-comp128/)^opt^ | -- |
+| [`simrs-jcsl`](simrs-jcsl/) | Meta | **no** | Oracle JavaCard Simulator (jcsl) installer and launcher for differential testing | -- | -- |
 
 ^opt^ = optional feature gate
 
 **Test harnesses:**
 - [`simrs-adversarial-countervalidation`](../tests/simrs-adversarial-countervalidation/) -- Cucumber BDD security regression harness *(workspace member)*
+- [`simrs-globalplatform-conformance-validation`](../tests/simrs-globalplatform-conformance-validation/) -- GlobalPlatform BDD conformance tests *(workspace member)*
+- [`simrs-differential-crossvalidation`](../tests/simrs-differential-crossvalidation/) -- Differential tests against Oracle jcsl reference simulator *(workspace member)*
 - [`simrs-standards-integration-validation`](../tests/simrs-standards-integration-validation/) -- Cucumber BDD functional test harness *(external, not a workspace member)*
+
+**Language bindings** (LGPL-2.0-or-later, all separate workspaces):
+- [`simrs-hle-capi`](../exports/simrs-hle-capi/) -- C API cdylib + cbindgen header
+- [`simrs-hle-rust`](../exports/simrs-hle-rust/) -- Safe Rust re-export
+- [`simrs-hle-python`](../exports/simrs-hle-python/) -- Python ctypes bindings (thread-safe by default)
+- [`simrs-hle-java`](../exports/simrs-hle-java/) -- Java/Kotlin JNI bindings (thread-safe by default)
+- [`simrs-hle-go`](../exports/simrs-hle-go/) -- Go cgo bindings
+- [`simrs-hle-swift`](../exports/simrs-hle-swift/) -- Swift Package bindings (DispatchQueue-based thread safety)
+- [`simrs-hle-dotnet`](../exports/simrs-hle-dotnet/) -- C#/.NET P/Invoke bindings (thread-safe by default)
 
 ## Standards Coverage
 
@@ -237,19 +274,21 @@ graph TB
 | TCA eUICC Profile Package v3.3.1 | [profile](simrs-profile/) | Profile Element parsing, DER-to-filesystem |
 | GSMA SGP.22 v2.6 | [profile](simrs-profile/) | UPP format reference |
 | GSMA TS.48 v1.0 | [profile](simrs-profile/) | Generic test profile fixtures |
-| GP Card Spec v2.1.1 (GPC_SPE_006) | gp-open, gp-scp, gp-keys | Card Manager, OPEN, SCP01/SCP02 (planned) |
-| GP Card Spec v2.3.1 (GPC_SPE_034) | gp-scp | SCP03 forward compatibility (planned) |
-| GP Amendment A v1.2 (GPC_SPE_007) | gp-open | DAP verification, delegated management (planned) |
-| GP Amendment D v1.1.2 (GPC_SPE_014) | gp-scp | SCP03 AES-CMAC secure channel (planned) |
-| JavaCard VM Spec 2.1.1 | jcvm | ~185 bytecodes, CAP format, type system (planned) |
-| JavaCard RE Spec 2.1.1 | jcre | Applet lifecycle, firewall, transactions (planned) |
-| JavaCard API 2.1.1 | jcre | Framework classes, crypto API (planned) |
-| NIST FIPS 180-1 | sha1 | SHA-1 hash (planned) |
-| RFC 1321 | md5 | MD5 hash (planned) |
-| PKCS#1 / RFC 2437 | rsa | RSA 512-2048 (planned) |
-| ISO 9797-1 | iso9797 | DES/AES CBC-MAC (planned) |
+| GP Card Spec v2.1.1 (GPC_SPE_006) | [gp-open](simrs-gp-open/), [gp-scp](simrs-gp-scp/), [gp-keys](simrs-gp-keys/) | Card Manager, OPEN, SCP01/SCP02 |
+| GP Card Spec v2.3.1 (GPC_SPE_034) | [gp-scp](simrs-gp-scp/) | SCP03 AES-CMAC secure channel |
+| GP Amendment A v1.2 (GPC_SPE_007) | [gp-open](simrs-gp-open/) | DAP verification, delegated management (planned) |
+| GP Amendment D v1.1.2 (GPC_SPE_014) | [gp-scp](simrs-gp-scp/) | SCP03 extensions |
+| JavaCard VM Spec 2.1.1 | [jcvm](simrs-jcvm/) | ~185 bytecodes, CAP format, type system |
+| JavaCard RE Spec 2.1.1 | [jcre](simrs-jcre/) | Applet lifecycle, firewall, transactions |
+| JavaCard API 2.1.1 | [jcre](simrs-jcre/) | Framework classes, crypto API |
+| JavaCard VM Spec 3.2.0 | [jcvm](simrs-jcvm/) | JavaCard v3.2 compatibility (planned) |
+| NIST FIPS 180-1 | [sha1](simrs-sha1/) | SHA-1 hash |
+| RFC 1321 | [md5](simrs-md5/) | MD5 hash |
+| PKCS#1 / RFC 2437 | [rsa](simrs-rsa/) | RSA 512-2048 |
+| ISO 9797-1 | [iso9797](simrs-iso9797/) | DES/AES CBC-MAC (algorithms 1, 3, CMAC) |
+| ISO/IEC 7816-3 | [t0](simrs-t0/) | T=0 electrical protocol |
 | EMV v4.3 Books 1-4 | gp-applet-emv | Payment application (planned) |
-| IBM JCOP Family | jcop-profile | JCOP10-31bio variant profiles (planned) |
+| IBM JCOP Family | [jcop-profile](simrs-jcop-profile/) | JCOP10-31bio variant profiles |
 
 ## Further Reading
 

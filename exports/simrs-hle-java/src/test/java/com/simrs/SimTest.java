@@ -71,9 +71,7 @@ class SimTest {
 
         long h1 = sim.stateHash();
 
-        Sim sim2 = createSim();
-        sim2.reset();
-        sim2.restore(snap);
+        Sim sim2 = Sim.fromSnapshot(snap);
         assertEquals(h1, sim2.stateHash());
     }
 
@@ -96,10 +94,8 @@ class SimTest {
 
     @Test
     void badSnapshotThrows() {
-        Sim sim = createSim();
-        sim.reset();
-        assertThrows(IllegalStateException.class, () ->
-            sim.restore(new byte[]{(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF}));
+        assertThrows(IllegalArgumentException.class, () ->
+            Sim.fromSnapshot(new byte[]{(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF}));
     }
 
     // --- Main: run tests via JUnit Platform Launcher ---
