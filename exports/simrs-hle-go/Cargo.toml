@@ -1,0 +1,9 @@
+[workspace]
+
+[package]
+name = "simrs-hle-go"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-2.0-or-later"
+publish = false
+description = "Go bindings for SimRS -- builds C API and runs go test"
