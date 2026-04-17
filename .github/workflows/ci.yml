@@ -4,6 +4,12 @@ on:
   push:
     branches: [main, dev]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: "Debug mode: verbose output, preserve intermediates, full artifacts"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -13,6 +19,10 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Debug mode enables verbose output and preserves build intermediates in artifacts.
+  DEBUG_BUILD: ${{ inputs.debug && 'true' || 'false' }}
+  CARGO_TERM_VERBOSE: ${{ inputs.debug && 'true' || 'false' }}
+  RUST_BACKTRACE: ${{ inputs.debug && 'full' || '1' }}
 
 jobs:
   # ---- Layer 1: fast checks (no deps) ----
@@ -283,6 +293,24 @@ jobs:
         with:
           shared-key: workspace
       - run: cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release
+      - name: Locate generated C header
+        run: cp exports/simrs-hle-capi/target/release/build/simrs-hle-capi-*/out/simrs.h exports/simrs-hle-capi/target/release/ || true
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: env.DEBUG_BUILD != 'true'
+        with:
+          name: simrs-hle-capi-linux-x86_64
+          path: |
+            exports/simrs-hle-capi/target/release/libsimrs_hle_capi.so
+            exports/simrs-hle-capi/target/release/simrs.h
+          retention-days: 90
+          if-no-files-found: error
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: env.DEBUG_BUILD == 'true'
+        with:
+          name: simrs-hle-capi-linux-x86_64-debug
+          path: exports/simrs-hle-capi/target/
+          retention-days: 30
+          if-no-files-found: error
 
   python-bindings:
     name: "Validate Python Bindings (Python ${{ matrix.python }})"
@@ -301,9 +329,25 @@ jobs:
         with:
           shared-key: workspace
       - uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        with:
+          enable-cache: true
+      - name: Cache Python venv
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: exports/simrs-hle-python/.venv
+          key: uv-venv-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('exports/simrs-hle-python/uv.lock') }}
       - run: cargo test --manifest-path exports/simrs-hle-python/Cargo.toml
         env:
           UV_PYTHON: ${{ matrix.python }}
+      - name: Build Python wheel
+        working-directory: exports/simrs-hle-python
+        run: uv build --wheel
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: simrs-hle-python-py${{ matrix.python }}
+          path: exports/simrs-hle-python/dist/*.whl
+          retention-days: 90
+          if-no-files-found: warn
 
   java-bindings:
     name: "Validate Java Bindings (JDK ${{ matrix.java }})"
@@ -349,6 +393,20 @@ jobs:
       - name: Add Kotlin to PATH
         run: echo "$HOME/kotlinc/bin" >> $GITHUB_PATH
       - run: export PATH="$HOME/.jbang/bin:$PATH" && cargo test --manifest-path exports/simrs-hle-java/Cargo.toml
+      - name: Package Java/Kotlin classes into JAR
+        run: |
+          CLASSES_DIR=$(find exports/simrs-hle-java/target -type d -path '*/out/classes' | head -1)
+          JNI_SO=$(find exports/simrs-hle-java/target -name 'libsimrs_jni.so' | head -1)
+          CAPI_SO=$(find exports/simrs-hle-capi/target -name 'libsimrs_hle_capi.so' | head -1)
+          mkdir -p dist
+          (cd "$CLASSES_DIR" && jar cf "$GITHUB_WORKSPACE/dist/simrs-hle.jar" .)
+          cp "$JNI_SO" "$CAPI_SO" dist/
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: simrs-hle-java-jdk${{ matrix.java }}
+          path: dist/
+          retention-days: 90
+          if-no-files-found: error
 
   go-bindings:
     name: "Validate Go Bindings (Go ${{ matrix.go }})"
@@ -369,7 +427,20 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
+          cache-dependency-path: exports/simrs-hle-go/go.sum
       - run: cargo test --manifest-path exports/simrs-hle-go/Cargo.toml
+      - name: Package Go bindings
+        run: |
+          mkdir -p dist
+          cp exports/simrs-hle-go/{go.mod,simrs.go,simrs_test.go} dist/
+          cp $(find exports/simrs-hle-capi/target -name 'libsimrs_hle_capi.so' | head -1) dist/
+          cp $(find exports/simrs-hle-capi/target -name 'simrs.h' | head -1) dist/
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: simrs-hle-go-go${{ matrix.go }}
+          path: dist/
+          retention-days: 90
+          if-no-files-found: error
 
   dotnet-bindings:
     name: "Validate C#/.NET Bindings (.NET ${{ matrix.dotnet }})"
@@ -390,7 +461,21 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ matrix.dotnet }}
+      - name: Cache NuGet packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-net${{ matrix.dotnet }}-${{ hashFiles('exports/simrs-hle-dotnet/**/*.csproj') }}
       - run: cargo test --manifest-path exports/simrs-hle-dotnet/Cargo.toml
+      - name: Pack NuGet package
+        working-directory: exports/simrs-hle-dotnet
+        run: dotnet pack SimRS/SimRS.csproj -c Release -o dist
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: simrs-hle-dotnet-net${{ matrix.dotnet }}
+          path: exports/simrs-hle-dotnet/dist/*.nupkg
+          retention-days: 90
+          if-no-files-found: warn
 
   swift-bindings:
     name: "Validate Swift Bindings (Swift ${{ matrix.swift }})"
@@ -411,4 +496,20 @@ jobs:
       - uses: swift-actions/setup-swift@v2
         with:
           swift-version: ${{ matrix.swift }}
+      - name: Cache Swift build artifacts
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: exports/simrs-hle-swift/.build
+          key: swift-${{ runner.os }}-${{ matrix.swift }}-${{ hashFiles('exports/simrs-hle-swift/Package.swift') }}
       - run: cargo test --manifest-path exports/simrs-hle-swift/Cargo.toml
+      - name: Package Swift bindings
+        run: |
+          mkdir -p dist
+          cp -r exports/simrs-hle-swift/{Package.swift,Sources} dist/
+          cp $(find exports/simrs-hle-capi/target -name 'libsimrs_hle_capi.so' | head -1) dist/
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: simrs-hle-swift-swift${{ matrix.swift }}
+          path: dist/
+          retention-days: 90
+          if-no-files-found: error
