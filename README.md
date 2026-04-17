@@ -39,7 +39,7 @@ requirement). Other SimRS modules otherwise not specified remain GPL-2.0-or-late
 
 | Language    | Directory                                              | Tested Versions                      | Tested Platforms | Mechanism                                      |
 |-------------|--------------------------------------------------------|--------------------------------------|------------------|------------------------------------------------|
-| C / C++     | [exports/simrs-hle-capi/](exports/simrs-hle-capi/)     | any C99-capable compiler             | Linux x86_64     | cdylib + staticlib + generated `simrs.h`       |
+| C / C++     | [exports/simrs-hle-capi/](exports/simrs-hle-capi/)     | any C99-capable compiler             | Linux x86_64     | cdylib + generated `simrs.h`                   |
 | Rust        | [exports/simrs-hle-rust/](exports/simrs-hle-rust/)     | nightly (matches workspace)          | Linux x86_64     | Safe, Limited LGPL re-export of `simrs-hle`    |
 | Python      | [exports/simrs-hle-python/](exports/simrs-hle-python/) | 3.10, 3.11, 3.12, 3.13               | Linux x86_64     | ctypes over cdylib, thread-safe by default     |
 | Java/Kotlin | [exports/simrs-hle-java/](exports/simrs-hle-java/)     | JDK 11, 17, 21 (Temurin); Kotlin 2.3 | Linux x86_64     | JNI shim + Kotlin extensions, tested via jbang |

@@ -20,8 +20,8 @@ fn run_jbang_test(test_path: &str) {
     let test_file = manifest_dir.join(test_path);
     let classes_dir = out_dir.join("classes");
 
-    // With static linkage the JNI shim already contains the capi; dynamic
-    // linkage also needs the capi's .so on the loader search path.
+    // libsimrs_jni.so lives in out_dir; its dlopen of libsimrs_hle_capi.so
+    // at load time resolves against capi_lib_dir.
     let lib_path = format!("{}:{}", out_dir.display(), capi_lib_dir.display());
 
     let status = Command::new("jbang")
