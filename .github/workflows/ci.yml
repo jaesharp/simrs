@@ -722,7 +722,11 @@ jobs:
         if: runner.os != 'macOS'
         shell: bash
         run: gpg --import .github/keys/swift-signing-keys.asc
-      - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3.0.0-beta.1 (Node 24, aarch64 Linux support)
+      # Fork of swift-actions/setup-swift@v3.0.0-beta.1 with only the
+      # action.yml 'using: node20' bumped to 'using: node24'; upstream
+      # is still Node 20 (Node 20 is deprecated on GH runners). Revert
+      # once upstream cuts a Node 24 release.
+      - uses: jaesharp/setup-swift@581ce62c7197de0ae71d260b3d654ee68b848cf1 # node24-fix branch
         with:
           swift-version: ${{ matrix.swift }}
       - name: Cache Swift build artifacts
