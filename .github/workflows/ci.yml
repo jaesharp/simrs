@@ -85,9 +85,19 @@ jobs:
   # ---- Layer 2: tests (depends on fmt + clippy) ----
 
   test:
-    name: Test All Components Independently
+    name: "Test All Components Independently (${{ matrix.artifact-suffix }})"
     needs: [fmt, clippy]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            artifact-suffix: linux-x86_64
+          - os: ubuntu-24.04-arm
+            artifact-suffix: linux-aarch64
+          - os: macos-15
+            artifact-suffix: macos-aarch64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
@@ -95,7 +105,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          shared-key: workspace
+          shared-key: workspace-${{ matrix.artifact-suffix }}
       - run: cargo test --workspace --exclude simrs-adversarial-countervalidation
 
   sim-card-profiles:
