@@ -37,21 +37,26 @@ of that ABI for each supported host language. **All bindings in
 applications can link against them (subject to the LGPL's relinking
 requirement). Other SimRS modules otherwise not specified remain GPL-2.0-or-later.
 
-| Language    | Directory                                              | Tested Versions                      | Tested Platforms | Mechanism                                      |
-|-------------|--------------------------------------------------------|--------------------------------------|------------------|------------------------------------------------|
-| C / C++     | [exports/simrs-hle-capi/](exports/simrs-hle-capi/)     | any C99-capable compiler             | Linux x86_64     | cdylib + generated `simrs.h`                   |
-| Rust        | [exports/simrs-hle-rust/](exports/simrs-hle-rust/)     | nightly (matches workspace)          | Linux x86_64     | Safe, Limited LGPL re-export of `simrs-hle`    |
-| Python      | [exports/simrs-hle-python/](exports/simrs-hle-python/) | 3.10, 3.11, 3.12, 3.13               | Linux x86_64     | ctypes over cdylib, thread-safe by default     |
-| Java/Kotlin | [exports/simrs-hle-java/](exports/simrs-hle-java/)     | JDK 11, 17, 21 (Temurin); Kotlin 2.3 | Linux x86_64     | JNI shim + Kotlin extensions, tested via jbang |
-| Go          | [exports/simrs-hle-go/](exports/simrs-hle-go/)         | 1.23, 1.24                           | Linux x86_64     | cgo over cdylib                                |
-| Swift       | [exports/simrs-hle-swift/](exports/simrs-hle-swift/)   | 5.10.1, 6.1.3                        | Linux x86_64     | Swift Package over cdylib via C module map     |
-| C# / .NET   | [exports/simrs-hle-dotnet/](exports/simrs-hle-dotnet/) | 8.0, 9.0                             | Linux x86_64     | P/Invoke over cdylib, thread-safe by default   |
+| Language    | Directory                                              | Tested Versions                               | Tested Platforms                                        | Mechanism                                      |
+|-------------|--------------------------------------------------------|-----------------------------------------------|---------------------------------------------------------|------------------------------------------------|
+| C / C++     | [exports/simrs-hle-capi/](exports/simrs-hle-capi/)     | any C99-capable compiler                      | Linux x86_64, Linux aarch64, macOS arm64                | cdylib + generated `simrs.h`                   |
+| Rust        | [exports/simrs-hle-rust/](exports/simrs-hle-rust/)     | stable, beta, nightly                         | Linux x86_64, Linux aarch64, macOS arm64                | Safe, Limited LGPL re-export of `simrs-hle`    |
+| Python      | [exports/simrs-hle-python/](exports/simrs-hle-python/) | 3.10, 3.11, 3.12, 3.13                        | Linux x86_64, Linux aarch64, macOS arm64                | ctypes over cdylib, thread-safe by default     |
+| Java/Kotlin | [exports/simrs-hle-java/](exports/simrs-hle-java/)     | JDK 11, 17, 21 (Temurin); Kotlin 2.3          | Linux x86_64, Linux aarch64, macOS arm64                | JNI shim + Kotlin extensions, tested via jbang |
+| Go          | [exports/simrs-hle-go/](exports/simrs-hle-go/)         | 1.23, 1.24                                    | Linux x86_64, Linux aarch64, macOS arm64                | cgo over cdylib                                |
+| Swift       | [exports/simrs-hle-swift/](exports/simrs-hle-swift/)   | 5.10.1 (Xcode 15), 6.1.3 (Xcode 16)           | Linux x86_64, Linux aarch64, macOS arm64 (see note)     | Swift Package over cdylib via C module map     |
+| C# / .NET   | [exports/simrs-hle-dotnet/](exports/simrs-hle-dotnet/) | 8.0, 9.0                                      | Linux x86_64, Linux aarch64, macOS arm64                | P/Invoke over cdylib, thread-safe by default   |
 
-All bindings link dynamically against `libsimrs_hle_capi.so` at runtime:
+Swift note: 5.10.1 is tested on `macos-14` (bundled Xcode 15), 6.1.3 on
+`macos-15` (bundled Xcode 16). Swift 5.10 is incompatible with Xcode 16's
+SDK module system; 5.10 coverage on macOS requires a macOS 14 toolchain.
+
+All bindings link dynamically against the capi cdylib at runtime
+(`libsimrs_hle_capi.so` on Linux, `libsimrs_hle_capi.dylib` on macOS):
 `python`/`dotnet` via ctypes / P/Invoke, `java`/`go`/`swift` via JNI / cgo /
-Swift's C module auto-linking. Platforms other than `linux-x86_64` should
-work (the code has no Linux-specific dependencies) but are not exercised in
-CI yet.
+Swift's C module auto-linking. Windows and other platforms should work in
+principle (no Linux/macOS-specific code paths in the capi) but aren't
+exercised in CI yet.
 
 See [exports/README.md](exports/README.md) for build instructions, the
 shared 8-function API surface, and thread-safety notes.
