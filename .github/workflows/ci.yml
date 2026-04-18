@@ -697,6 +697,13 @@ jobs:
             artifact-suffix: linux-aarch64
           - os: macos-15
             artifact-suffix: macos-aarch64
+        exclude:
+          # macos-15 ships Xcode 16 (MacOSX15.sdk); Swift 5.10 predates
+          # that SDK and fails with "_stddef requires feature
+          # found_incompatible_headers__check_search_paths". Swift 5.10
+          # on macOS needs Xcode 15.x, not available on GH arm64 runners.
+          - swift: "5.10.1"
+            os: macos-15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
