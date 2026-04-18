@@ -602,7 +602,7 @@ jobs:
           name: capi-prebuilt-${{ github.run_id }}-${{ matrix.artifact-suffix }}
           path: ${{ runner.temp }}/capi-prebuilt
       - run: echo "SIMRS_CAPI_PREBUILT_DIR=${{ runner.temp }}/capi-prebuilt" >> $GITHUB_ENV
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version: ${{ matrix.go }}
           cache-dependency-path: exports/simrs-hle-go/go.sum
@@ -707,6 +707,9 @@ jobs:
       - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3.0.0-beta.1 (Node 24, aarch64 Linux support)
         with:
           swift-version: ${{ matrix.swift }}
+          # GH runners don't have Swift's PGP signing key imported; the
+          # HTTPS download from swift.org already authenticates the source.
+          skip-verify-signature: true
       - name: Cache Swift build artifacts
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
