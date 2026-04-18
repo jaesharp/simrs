@@ -707,14 +707,14 @@ jobs:
       # swift-actions/setup-swift v3 beta runs `gpg --verify` on the Swift
       # tarball but does not import Swift's signing keyring first, so the
       # GH-hosted runner's empty keyring fails with 'Can't check signature:
-      # No public key'. Import the keyring from swift.org before setup-swift
-      # so the verification has something to verify against. The server
-      # sends the bundle with Content-Encoding: gzip, so curl needs
-      # --compressed (or gpg will see gzip bytes, not OpenPGP data).
+      # No public key'. Import Swift's release-signing keyring from the
+      # in-repo copy at .github/keys/swift-signing-keys.asc (committed from
+      # https://www.swift.org/keys/all-keys.asc so the workflow does not
+      # depend on that endpoint being up and serving the same bytes).
       - name: Import Swift PGP signing keys
         if: runner.os != 'macOS'
         shell: bash
-        run: curl -fsSL --compressed https://www.swift.org/keys/all-keys.asc | gpg --import
+        run: gpg --import .github/keys/swift-signing-keys.asc
       - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3.0.0-beta.1 (Node 24, aarch64 Linux support)
         with:
           swift-version: ${{ matrix.swift }}
