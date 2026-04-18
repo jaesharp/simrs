@@ -320,7 +320,7 @@ impl SwIccConn {
         let n = msg.encode(&mut self.wire_buf)?;
         self.stream
             .write_all(&self.wire_buf[..n])
-            .map_err(|_| TransportError::IoError)
+            .map_err(|e| map_io_err(&e))
     }
 
     /// Receive a [`SwIccMessage`] from the wire.
@@ -351,13 +351,24 @@ impl SwIccConn {
 
 /// Read exactly `buf.len()` bytes from the stream.
 fn read_exact(stream: &mut TcpStream, buf: &mut [u8]) -> Result<(), TransportError> {
-    stream.read_exact(buf).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::UnexpectedEof {
+    stream.read_exact(buf).map_err(|e| map_io_err(&e))
+}
+
+/// Map a [`std::io::Error`] to a [`TransportError`].
+///
+/// Peer-closed signals -- `UnexpectedEof`, `ConnectionReset`,
+/// `ConnectionAborted`, `BrokenPipe` -- all collapse to
+/// [`TransportError::Disconnected`]. Linux typically surfaces the drop as
+/// `UnexpectedEof` on the next read; macOS tends to return `BrokenPipe` on
+/// the next write. Callers don't care which side of the socket noticed.
+fn map_io_err(e: &std::io::Error) -> TransportError {
+    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset, UnexpectedEof};
+    match e.kind() {
+        UnexpectedEof | ConnectionReset | ConnectionAborted | BrokenPipe => {
             TransportError::Disconnected
-        } else {
-            TransportError::IoError
         }
-    })
+        _ => TransportError::IoError,
+    }
 }
 
 // ---------------------------------------------------------------------------
