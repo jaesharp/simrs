@@ -14,7 +14,9 @@ permissions:
 jobs:
   analyze:
     name: Check for Common CWEs/Security Issues in (${{ matrix.language }}) Source Code
-    runs-on: ubuntu-24.04
+    # CodeQL's Swift extractor is macOS-only (Linux support was removed); route
+    # Swift matrix cell to macos-15. Everything else runs on ubuntu-24.04.
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-15') || 'ubuntu-24.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -47,13 +49,6 @@ jobs:
         with:
           go-version: "1.24"
           cache-dependency-path: exports/simrs-hle-go/go.sum
-      # Same constraint as Go: Swift must be on PATH before CodeQL inits so
-      # its tracer can wrap `swift`/`swiftc`.
-      - name: Set up Swift
-        if: matrix.language == 'swift'
-        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
-        with:
-          swift-version: "6.1"
       - name: Initialize CodeQL Code Scanning
         uses: github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 #v4.35.2
         with:
