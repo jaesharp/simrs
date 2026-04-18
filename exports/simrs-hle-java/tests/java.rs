@@ -1,17 +1,16 @@
 //! Integration test that runs Java tests via jbang.
 
+use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 use std::path::PathBuf;
 use std::process::Command;
 
-#[cfg(target_os = "macos")]
-const CAPI_LIB: &str = "libsimrs_hle_capi.dylib";
-#[cfg(not(target_os = "macos"))]
-const CAPI_LIB: &str = "libsimrs_hle_capi.so";
+fn capi_lib() -> String {
+    format!("{DLL_PREFIX}simrs_hle_capi{DLL_SUFFIX}")
+}
 
-#[cfg(target_os = "macos")]
-const JNI_LIB: &str = "libsimrs_jni.dylib";
-#[cfg(not(target_os = "macos"))]
-const JNI_LIB: &str = "libsimrs_jni.so";
+fn jni_lib() -> String {
+    format!("{DLL_PREFIX}simrs_jni{DLL_SUFFIX}")
+}
 
 #[test]
 fn java_bindings() {
@@ -34,6 +33,7 @@ fn run_jbang_test(test_path: &str) {
     // time resolves against capi_lib_dir.
     let lib_path = format!("{}:{}", out_dir.display(), capi_lib_dir.display());
 
+    // LD_LIBRARY_PATH for Linux, DYLD_LIBRARY_PATH for macOS.
     let status = Command::new("jbang")
         .arg("run")
         .arg("--cp")
@@ -41,6 +41,7 @@ fn run_jbang_test(test_path: &str) {
         .arg(&test_file)
         .env("JAVA_TOOL_OPTIONS", format!("-Djava.library.path={lib_path}"))
         .env("LD_LIBRARY_PATH", &lib_path)
+        .env("DYLD_LIBRARY_PATH", &lib_path)
         .status()
         .expect("failed to run jbang -- is it installed?");
 
@@ -50,20 +51,21 @@ fn run_jbang_test(test_path: &str) {
 fn find_out_dir() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let target_dir = manifest_dir.join("target");
+    let jni = jni_lib();
 
     for profile in ["debug", "release"] {
         let build_dir = target_dir.join(profile).join("build");
         if let Ok(entries) = std::fs::read_dir(&build_dir) {
             for entry in entries.flatten() {
                 if entry.file_name().to_string_lossy().starts_with("simrs-hle-java")
-                    && entry.path().join("out").join(JNI_LIB).exists()
+                    && entry.path().join("out").join(&jni).exists()
                 {
                     return entry.path().join("out");
                 }
             }
         }
     }
-    panic!("Could not find {JNI_LIB} in target/build/simrs-hle-java-*/out/");
+    panic!("Could not find {jni} in target/build/simrs-hle-java-*/out/");
 }
 
 fn find_capi_lib_dir(manifest_dir: &std::path::Path) -> PathBuf {
@@ -71,11 +73,12 @@ fn find_capi_lib_dir(manifest_dir: &std::path::Path) -> PathBuf {
         return PathBuf::from(prebuilt);
     }
     let capi_target = manifest_dir.join("../simrs-hle-capi/target");
+    let capi = capi_lib();
     for profile in ["debug", "release"] {
         let candidate = capi_target.join(profile);
-        if candidate.join(CAPI_LIB).exists() {
+        if candidate.join(&capi).exists() {
             return candidate;
         }
     }
-    panic!("Could not find {CAPI_LIB}");
+    panic!("Could not find {capi}");
 }

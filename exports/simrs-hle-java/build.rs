@@ -1,18 +1,14 @@
+use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Platform-dependent filename of the capi shared library.
-#[cfg(target_os = "macos")]
-const CAPI_LIB: &str = "libsimrs_hle_capi.dylib";
-#[cfg(not(target_os = "macos"))]
-const CAPI_LIB: &str = "libsimrs_hle_capi.so";
+fn capi_lib() -> String {
+    format!("{DLL_PREFIX}simrs_hle_capi{DLL_SUFFIX}")
+}
 
-/// Platform-dependent filename of the JNI shim (the JVM accepts both `.so`
-/// and `.dylib` on macOS, but Rust/cc conventions produce `.dylib`).
-#[cfg(target_os = "macos")]
-const JNI_LIB: &str = "libsimrs_jni.dylib";
-#[cfg(not(target_os = "macos"))]
-const JNI_LIB: &str = "libsimrs_jni.so";
+fn jni_lib() -> String {
+    format!("{DLL_PREFIX}simrs_jni{DLL_SUFFIX}")
+}
 
 /// Sub-directory under `$JAVA_HOME/include` containing platform-specific JNI headers.
 #[cfg(target_os = "macos")]
@@ -42,7 +38,7 @@ fn main() {
     let jni_md_include = jni_include.join(JNI_MD_SUBDIR);
 
     let jni_c = manifest_dir.join("src/main/c/simrs_jni.c");
-    let jni_out = out_dir.join(JNI_LIB);
+    let jni_out = out_dir.join(jni_lib());
 
     // Both clang (macOS) and gcc (Linux) accept -shared; macOS clang treats
     // it as an alias for -dynamiclib. rpath with a relative origin lets the
@@ -108,7 +104,8 @@ fn resolve_capi(manifest_dir: &Path) -> (PathBuf, PathBuf) {
     assert!(status.success(), "simrs-hle-capi build failed");
 
     let capi_target = manifest_dir.join("../simrs-hle-capi/target");
-    let lib_dir = if capi_target.join("release").join(CAPI_LIB).exists() {
+    let capi = capi_lib();
+    let lib_dir = if capi_target.join("release").join(&capi).exists() {
         capi_target.join("release")
     } else {
         capi_target.join("debug")

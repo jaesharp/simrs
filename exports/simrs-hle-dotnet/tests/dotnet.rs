@@ -1,12 +1,12 @@
 //! Integration test that runs .NET tests via `dotnet test`.
 
+use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 use std::path::PathBuf;
 use std::process::Command;
 
-#[cfg(target_os = "macos")]
-const CAPI_LIB: &str = "libsimrs_hle_capi.dylib";
-#[cfg(not(target_os = "macos"))]
-const CAPI_LIB: &str = "libsimrs_hle_capi.so";
+fn capi_lib() -> String {
+    format!("{DLL_PREFIX}simrs_hle_capi{DLL_SUFFIX}")
+}
 
 #[test]
 fn dotnet_bindings() {
@@ -31,11 +31,12 @@ fn find_capi_lib_dir(manifest_dir: &std::path::Path) -> PathBuf {
         return PathBuf::from(prebuilt);
     }
     let capi_target = manifest_dir.join("../simrs-hle-capi/target");
+    let capi = capi_lib();
     for profile in ["debug", "release"] {
         let candidate = capi_target.join(profile);
-        if candidate.join(CAPI_LIB).exists() {
+        if candidate.join(&capi).exists() {
             return candidate;
         }
     }
-    panic!("Could not find {CAPI_LIB}");
+    panic!("Could not find {capi}");
 }
