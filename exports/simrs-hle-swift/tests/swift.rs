@@ -3,6 +3,11 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(target_os = "macos")]
+const CAPI_LIB: &str = "libsimrs_hle_capi.dylib";
+#[cfg(not(target_os = "macos"))]
+const CAPI_LIB: &str = "libsimrs_hle_capi.so";
+
 #[test]
 fn swift_bindings() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -13,7 +18,9 @@ fn swift_bindings() {
         .args(["test"])
         .current_dir(&manifest_dir)
         .env("LIBRARY_PATH", &capi_lib_dir)
+        // LD_LIBRARY_PATH for Linux, DYLD_LIBRARY_PATH for macOS.
         .env("LD_LIBRARY_PATH", &capi_lib_dir)
+        .env("DYLD_LIBRARY_PATH", &capi_lib_dir)
         .env("C_INCLUDE_PATH", &capi_header_dir)
         .status()
         .expect("failed to run swift test -- is Swift installed?");
@@ -28,11 +35,11 @@ fn find_capi_lib_dir(manifest_dir: &std::path::Path) -> PathBuf {
     let capi_target = manifest_dir.join("../simrs-hle-capi/target");
     for profile in ["debug", "release"] {
         let candidate = capi_target.join(profile);
-        if candidate.join("libsimrs_hle_capi.so").exists() {
+        if candidate.join(CAPI_LIB).exists() {
             return candidate;
         }
     }
-    panic!("Could not find libsimrs_hle_capi.so");
+    panic!("Could not find {CAPI_LIB}");
 }
 
 fn find_header_dir(manifest_dir: &std::path::Path) -> PathBuf {

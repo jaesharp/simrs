@@ -1,6 +1,31 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Platform-dependent filename of the capi shared library.
+#[cfg(target_os = "macos")]
+const CAPI_LIB: &str = "libsimrs_hle_capi.dylib";
+#[cfg(not(target_os = "macos"))]
+const CAPI_LIB: &str = "libsimrs_hle_capi.so";
+
+/// Platform-dependent filename of the JNI shim (the JVM accepts both `.so`
+/// and `.dylib` on macOS, but Rust/cc conventions produce `.dylib`).
+#[cfg(target_os = "macos")]
+const JNI_LIB: &str = "libsimrs_jni.dylib";
+#[cfg(not(target_os = "macos"))]
+const JNI_LIB: &str = "libsimrs_jni.so";
+
+/// Sub-directory under `$JAVA_HOME/include` containing platform-specific JNI headers.
+#[cfg(target_os = "macos")]
+const JNI_MD_SUBDIR: &str = "darwin";
+#[cfg(not(target_os = "macos"))]
+const JNI_MD_SUBDIR: &str = "linux";
+
+/// Runtime rpath token the dynamic loader expands to the directory of the loading image.
+#[cfg(target_os = "macos")]
+const RPATH_ORIGIN: &str = "@loader_path";
+#[cfg(not(target_os = "macos"))]
+const RPATH_ORIGIN: &str = "$ORIGIN";
+
 fn main() {
     println!("cargo::rerun-if-env-changed=SIMRS_CAPI_PREBUILT_DIR");
     println!("cargo::rerun-if-changed=src/main/c/simrs_jni.c");
@@ -14,20 +39,24 @@ fn main() {
 
     let java_home = std::env::var("JAVA_HOME").unwrap_or_else(|_| find_java_home());
     let jni_include = PathBuf::from(&java_home).join("include");
-    let jni_include_linux = jni_include.join("linux");
+    let jni_md_include = jni_include.join(JNI_MD_SUBDIR);
 
     let jni_c = manifest_dir.join("src/main/c/simrs_jni.c");
-    let jni_so = out_dir.join("libsimrs_jni.so");
+    let jni_out = out_dir.join(JNI_LIB);
 
+    // Both clang (macOS) and gcc (Linux) accept -shared; macOS clang treats
+    // it as an alias for -dynamiclib. rpath with a relative origin lets the
+    // JNI shim locate the capi next to itself + also in capi_lib_dir.
     let cc_status = Command::new("cc")
         .args(["-shared", "-fPIC", "-o"])
-        .arg(&jni_so)
+        .arg(&jni_out)
         .arg(&jni_c)
         .arg(format!("-I{}", jni_include.display()))
-        .arg(format!("-I{}", jni_include_linux.display()))
+        .arg(format!("-I{}", jni_md_include.display()))
         .arg(format!("-I{}", capi_header_dir.display()))
         .arg(format!("-L{}", capi_lib_dir.display()))
         .arg("-lsimrs_hle_capi")
+        .arg(format!("-Wl,-rpath,{RPATH_ORIGIN}"))
         .arg(format!("-Wl,-rpath,{}", capi_lib_dir.display()))
         .status()
         .expect("failed to compile JNI shim (is a C compiler installed?)");
@@ -79,7 +108,7 @@ fn resolve_capi(manifest_dir: &Path) -> (PathBuf, PathBuf) {
     assert!(status.success(), "simrs-hle-capi build failed");
 
     let capi_target = manifest_dir.join("../simrs-hle-capi/target");
-    let lib_dir = if capi_target.join("release/libsimrs_hle_capi.so").exists() {
+    let lib_dir = if capi_target.join("release").join(CAPI_LIB).exists() {
         capi_target.join("release")
     } else {
         capi_target.join("debug")

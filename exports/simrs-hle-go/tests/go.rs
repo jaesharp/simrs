@@ -3,12 +3,19 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(target_os = "macos")]
+const CAPI_LIB: &str = "libsimrs_hle_capi.dylib";
+#[cfg(not(target_os = "macos"))]
+const CAPI_LIB: &str = "libsimrs_hle_capi.so";
+
 #[test]
 fn go_bindings() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let capi_lib_dir = find_capi_lib_dir(&manifest_dir);
     let capi_header_dir = find_header_dir(&manifest_dir);
 
+    // macOS uses DYLD_LIBRARY_PATH at runtime; Linux uses LD_LIBRARY_PATH.
+    // Set both so the test harness is platform-independent.
     let status = Command::new("go")
         .args(["test", "-v", "-count=1", "./..."])
         .current_dir(&manifest_dir)
@@ -18,6 +25,7 @@ fn go_bindings() {
         )
         .env("CGO_CFLAGS", format!("-I{}", capi_header_dir.display()))
         .env("LD_LIBRARY_PATH", &capi_lib_dir)
+        .env("DYLD_LIBRARY_PATH", &capi_lib_dir)
         .status()
         .expect("failed to run go test -- is Go installed?");
 
@@ -31,11 +39,11 @@ fn find_capi_lib_dir(manifest_dir: &std::path::Path) -> PathBuf {
     let capi_target = manifest_dir.join("../simrs-hle-capi/target");
     for profile in ["debug", "release"] {
         let candidate = capi_target.join(profile);
-        if candidate.join("libsimrs_hle_capi.so").exists() {
+        if candidate.join(CAPI_LIB).exists() {
             return candidate;
         }
     }
-    panic!("Could not find libsimrs_hle_capi.so");
+    panic!("Could not find {CAPI_LIB}");
 }
 
 fn find_header_dir(manifest_dir: &std::path::Path) -> PathBuf {
