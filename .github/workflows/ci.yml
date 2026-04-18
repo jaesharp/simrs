@@ -106,7 +106,17 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: workspace-${{ matrix.artifact-suffix }}
-      - run: cargo test --workspace --exclude simrs-adversarial-countervalidation
+      # simrs-jcsl transitively depends on the memfd crate (Linux-only
+      # syscall), and the Oracle JCDK it wraps is a 32-bit Linux-x86
+      # binary -- so exclude the jcsl stack on non-Linux runners.
+      - name: Run workspace tests
+        shell: bash
+        run: |
+          EXTRA_EXCLUDES=""
+          if [ "${{ runner.os }}" != "Linux" ]; then
+            EXTRA_EXCLUDES="--exclude simrs-jcsl --exclude simrs-differential-crossvalidation"
+          fi
+          cargo test --workspace --exclude simrs-adversarial-countervalidation $EXTRA_EXCLUDES
 
   sim-card-profiles:
     name: "Validate SIM Card Profiles (${{ matrix.profile.name }}, ${{ matrix.artifact-suffix }})"
