@@ -44,7 +44,7 @@ requirement). Other SimRS modules otherwise not specified remain GPL-2.0-or-late
 | Python      | [exports/simrs-hle-python/](exports/simrs-hle-python/) | 3.10, 3.11, 3.12, 3.13               | Linux x86_64     | ctypes over cdylib, thread-safe by default     |
 | Java/Kotlin | [exports/simrs-hle-java/](exports/simrs-hle-java/)     | JDK 11, 17, 21 (Temurin); Kotlin 2.3 | Linux x86_64     | JNI shim + Kotlin extensions, tested via jbang |
 | Go          | [exports/simrs-hle-go/](exports/simrs-hle-go/)         | 1.23, 1.24                           | Linux x86_64     | cgo over cdylib                                |
-| Swift       | [exports/simrs-hle-swift/](exports/simrs-hle-swift/)   | 5.10, 6.1                            | Linux x86_64     | Swift Package over cdylib via C module map     |
+| Swift       | [exports/simrs-hle-swift/](exports/simrs-hle-swift/)   | 5.10.1, 6.1.3                        | Linux x86_64     | Swift Package over cdylib via C module map     |
 | C# / .NET   | [exports/simrs-hle-dotnet/](exports/simrs-hle-dotnet/) | 8.0, 9.0                             | Linux x86_64     | P/Invoke over cdylib, thread-safe by default   |
 
 All bindings link dynamically against `libsimrs_hle_capi.so` at runtime:
