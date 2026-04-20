@@ -4,6 +4,12 @@
 #   armv7a-none-eabi          -- Shannon (ARM Cortex-A, bare metal)
 #   thumbv7em-none-eabihf     -- ARM Cortex-M with FPU
 #   aarch64-unknown-none      -- AArch64 bare metal
+#
+# `-D warnings` used to live in CI workflow env RUSTFLAGS, but that env
+# var overrides (mutually excludes) the target-scoped rustflags below,
+# which made our Windows /STACK bump silently vanish. Moved here so the
+# target-scoped entries can combine it with their own flags.
+rustflags = ["-D", "warnings"]
 
 [alias]
 xt  = "nextest run"
@@ -12,8 +18,9 @@ xtc = "nextest run --profile ci"
 # Windows main-thread stack defaults to 1 MiB, which is too small for
 # some of our test binaries (cucumber in the globalplatform-conformance
 # crate overflows during harness setup). Bump to 8 MiB to match the
-# effective Linux/macOS default.
+# effective Linux/macOS default. Repeats `-D warnings` because
+# `target.<cfg>.rustflags` REPLACES `build.rustflags`, not extends it.
 [target.'cfg(all(windows, target_env = "msvc"))']
-rustflags = ["-C", "link-arg=/STACK:8388608"]
+rustflags = ["-D", "warnings", "-C", "link-arg=/STACK:8388608"]
 [target.'cfg(all(windows, target_env = "gnu"))']
-rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
+rustflags = ["-D", "warnings", "-C", "link-arg=-Wl,--stack,8388608"]

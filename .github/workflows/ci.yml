@@ -17,7 +17,11 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
+  # RUSTFLAGS env var is intentionally NOT set here. Cargo's rustflags
+  # precedence is strictly highest-wins (mutually exclusive), so an env
+  # RUSTFLAGS would override .cargo/config.toml's target-scoped entries
+  # that ship the Windows /STACK linker arg. '-D warnings' is set via
+  # build.rustflags in .cargo/config.toml instead.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Debug mode enables verbose output and preserves build intermediates in artifacts.
   DEBUG_BUILD: ${{ inputs.debug && 'true' || 'false' }}
