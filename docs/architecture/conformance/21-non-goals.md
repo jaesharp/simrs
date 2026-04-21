@@ -90,7 +90,7 @@ exposed via the controlplane probes for simrs-only tests. The
 conformance engine consumes them as observations but does not require
 them for reference backends. We will not port controlplane probes to
 a GP-loadable CAP file (as discussed before the design re-frame;
-the right answer turned out to be the CardFrontend abstraction).
+the right answer turned out to be the Frontend abstraction).
 
 ### Hardware side channels
 

@@ -49,7 +49,7 @@
      │  AUTHORING SURFACES                                          │
      │                                                              │
      │  #[adr(42, cite = gp(V2_3, "11.4.3"),                        │
-     │         governs = rule::sw_6a82_for_unknown_aid)]            │
+     │         governs = rule::sw_6a82_for_unknown_select)]         │
      │  impl GpCard for SimrsCard { … }                             │
      │                                                              │
      │  @spec:gp_2_3  @binds:11.4.3                                 │
@@ -126,18 +126,23 @@ is typed; drift surfaces at build time; the output is self-proving.
 The pipeline is staged so each boundary has a typed artefact on either
 side, and each stage is independently testable:
 
-| Stage            | Input                                   | Output                                   |
-|------------------|-----------------------------------------|------------------------------------------|
-| Transcribe       | `&Path` to source media                 | `TranscriptionResult`                    |
-| Slice            | `&TranscriptionResult`                  | `Vec<Slice>`                             |
-| Transform        | `&Slice`                                | `TransformResult<Constraint>`            |
-| Spec emit        | `Vec<Slice> + Vec<Constraint>`          | `&'static Spec` / `&'static [Clause]`    |
-| Scenario expand  | `&Scenario`                             | `Vec<CaseQuery>`                         |
-| Execute          | `CaseQuery + Frontend`                  | `Report`                                 |
-| Diff             | `Vec<Report>`                           | `Vec<Divergence>`                        |
-| Classify         | `Vec<Divergence> + RuleSet + Claims`    | `Vec<Outcome>`                           |
-| Validate (build) | `AdrGraph + CfgSpace + Claims`          | `Vec<ValidationReport>`                  |
-| Render (book)    | everything above                        | static site + `provenance.json`          |
+| Stage            | Input                                                    | Output                                   |
+|------------------|----------------------------------------------------------|------------------------------------------|
+| Transcribe       | `&Path` to source media                                  | `TranscriptionResult`                    |
+| Slice            | `&TranscriptionResult`                                   | `Vec<Slice>`                             |
+| Transform        | `&Slice`                                                 | `TransformResult<Constraint>`            |
+| Spec emit        | `Vec<Slice> + Vec<Constraint>`                           | `&'static Spec` / `&'static [Clause]`    |
+| Scenario expand  | `&Scenario`                                              | `impl Iterator<Item = CaseQuery>`        |
+| Execute          | `CaseQuery + Frontend + &FrontendClaim + RunContext`     | `Report`                                 |
+| Diff             | `&[Report] + &ClauseRegistry`                            | `Vec<Divergence>`                        |
+| Classify         | `&[Divergence] + &RuleSet + &[FrontendClaim]`            | `Vec<ClassifiedOutcome>`                 |
+| Validate (xtask) | `AdrGraph + CfgSpace + Claims`                           | `Vec<ValidationReport>`                  |
+| Render (book)    | everything above                                         | static site + `provenance.json`          |
+
+Workspace-scoped validation (confluence, compatibility, product
+variants) runs as an `xtask` / CI step, not `cargo build`, because
+`cargo` builds one crate at a time and the AdrGraph requires all
+crates' contributions to be collected together. See chapter 17.
 
 No stage depends on a stage below it. Any stage can be replaced or
 tested in isolation.

@@ -76,7 +76,7 @@ values, minus any cases ruled out by axis constraints.
 
 ### 6. Execute
 
-Each `CaseQuery` runs against each `Frontend` (a `CardFrontend`-trait
+Each `CaseQuery` runs against each `Frontend` (a `Frontend`-trait
 adapter over simrs, jcsl, JCardEngine, or any Transport). The
 execution produces one `Report` per `(CaseQuery, Frontend)` pair,
 recording the per-step `World` transitions, the `Transform`

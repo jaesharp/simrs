@@ -82,6 +82,7 @@ each other; the glossary (appendix D) pins every term.
 - [19 — Crate Layout](19-crate-layout.md): all new crates, naming, dependency direction
 - [20 — Phases](20-phases.md): Phase A/B/C/D scope and sequencing
 - [21 — Non-Goals](21-non-goals.md): explicit out-of-scope
+- [22 — Review Amendments](22-review-amendments.md): authoritative corrections to earlier chapters from design-review passes
 
 ### Appendices
 

@@ -60,7 +60,7 @@ pipeline, proven by three GP 2.3 clauses flowing through every stage.
 
 - Migrating existing differential / replay tests to the new pipeline
   (Phase B).
-- Retargeting BDD suites onto the CardFrontend abstraction (Phase B).
+- Retargeting BDD suites onto the Frontend abstraction (Phase B).
 - Additional spec crates beyond GP 2.3 + ISO 7816-4 (Phase C).
 - Advanced transcribers (OCR, audio) (Phase D).
 

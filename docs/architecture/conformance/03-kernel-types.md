@@ -17,6 +17,22 @@ pub enum SpecId {
     Custom(&'static str),      // for domain-specific standards
 }
 
+/// Per-frontend classification surface.
+///
+/// Three-way divergences (three reports, three different values) need
+/// per-frontend outcomes, not one outcome per divergence. The
+/// classifier emits one `ClassifiedOutcome` per `(divergence, frontend)`
+/// pair.
+pub struct ClassifiedOutcome {
+    pub divergence_id: DivergenceId,
+    pub frontend: FrontendId,
+    pub outcome: Outcome,
+    pub matched_rule: Option<RuleId>,
+    pub citation_chain: CitationChain,
+}
+
+pub struct DivergenceId(pub u64);
+
 pub enum Version {
     Gp(GpVersion),             // V2_1_1, V2_2, V2_3, V2_3_1
     Iso7816(IsoYear, IsoPart), // IsoYear(2005), IsoPart(4)
@@ -97,8 +113,11 @@ pub enum ConstraintShape {
     ResponseLayout,
     TransitionTo,
     InvariantOver,
+    Table,
     ProseOnly,
-    // …grows as spec crates add constraint kinds
+    // Additional variants require a kernel minor version bump; each
+    // spec crate that needs a new shape contributes the enum variant
+    // via a `#[non_exhaustive]`-governed PR.
 }
 
 pub struct ClauseProvenance {
@@ -158,10 +177,11 @@ pub struct Rule {
 }
 
 pub struct RuleScope {
-    pub specs: Option<&'static [SpecId]>,     // restrict by standard
-    pub versions: Option<&'static [Version]>,  // restrict by version
-    pub frontends: Option<&'static [FrontendId]>, // restrict by frontend
-    pub axes: Option<AxisGuard>,               // restrict by axis values
+    pub specs: Option<&'static [SpecId]>,         // restrict by standard
+    pub versions_from: Option<Version>,            // inclusive lower bound in DAG
+    pub versions_to: Option<Version>,              // inclusive upper bound in DAG
+    pub frontends: Option<&'static [FrontendId]>,  // restrict by frontend
+    pub axes: Option<AxisGuard>,                   // restrict by axis values
 }
 
 pub enum Outcome {
@@ -203,13 +223,26 @@ pub struct FrontendId(&'static str);
 pub struct FrontendClaim {
     pub frontend: FrontendId,
     pub standards: Vec<ClaimedStandard>,
+    pub profile_bundles: Vec<ProfileBundle>,
+    pub cfg_scope: Option<CfgAssignment>,
 }
 
 pub struct ClaimedStandard {
     pub spec: SpecId,
     pub version: Version,
+    pub range: VersionRange,
     pub profiles: Vec<ProfileId>,
-    pub effective_under_cfg: CfgAssignment,
+}
+
+pub enum VersionRange {
+    Exact(Version),
+    Inclusive { low: Version, high: Version },
+    ForwardCompat { from: Version },
+}
+
+pub struct ProfileBundle {
+    pub name: ProfileId,
+    pub requires: Vec<ClaimedStandard>,
 }
 ```
 
@@ -261,8 +294,10 @@ pub struct Report {
     pub case: CaseQuery,
     pub frontend: FrontendId,
     pub claims: Vec<ClaimedStandard>,
+    pub started_at: Timestamp,
+    pub finished_at: Timestamp,
     pub steps: Vec<Step>,
-    pub ran_at: Timestamp,
+    pub provenance: RunProvenance,
 }
 
 pub struct Step {
@@ -327,29 +362,50 @@ counters without touching the kernel.
 ```rust
 pub enum Divergence {
     WorldField {
+        case: CaseQuery,
         step: StepId,
         field: WorldField,
         per_report: BTreeMap<FrontendId, WorldValue>,
+        agreement: AgreementGroups,
     },
     Observation {
+        case: CaseQuery,
         step: StepId,
-        per_report: BTreeMap<FrontendId, ObservationKind>,
+        kind: ObservationKind,
+        per_report: BTreeMap<FrontendId, Vec<Observation>>,
     },
     StepMissing {
+        case: CaseQuery,
         step: StepId,
-        reports_missing: Vec<FrontendId>,
+        present_in: Vec<FrontendId>,
+        missing_in: Vec<FrontendId>,
+    },
+    StepExtra {
+        case: CaseQuery,
+        step: StepId,
+        extra_in: Vec<FrontendId>,
     },
     ConstraintUnsatisfied {
+        case: CaseQuery,
         step: StepId,
         clause: DocumentRef,
         per_report: BTreeMap<FrontendId, SatisfactionResult>,
     },
+    TransformDiverge {
+        case: CaseQuery,
+        step: StepId,
+        per_report: BTreeMap<FrontendId, TransformSummary>,
+    },
+}
+
+pub struct AgreementGroups {
+    pub groups: Vec<BTreeSet<FrontendId>>,
 }
 
 pub struct DiffEngine;
 
 impl DiffEngine {
-    pub fn compare(reports: &[Report]) -> Vec<Divergence>;
+    pub fn compare(reports: &[Report], clauses: &ClauseRegistry) -> Vec<Divergence>;
 }
 ```
 
