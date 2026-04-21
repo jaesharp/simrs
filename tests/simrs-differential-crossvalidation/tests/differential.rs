@@ -1019,104 +1019,35 @@ apdu_test!(diff_scp03_init_update_simrs, "diff-scp03-iu", |dc| {
     );
 });
 
-/// SCP03 full mutual auth on simrs with authenticated GET STATUS.
-///
-/// simrs-only test (reference is set up but unused); matrixed so both
-/// backend cells exercise the simrs SCP03 path uniformly.
-#[allow(clippy::too_many_lines)]
-fn diff_scp03_full_auth_simrs_body<B: ReferenceBackend>(mut dc: DualCard<B>) {
-    dc.power_on();
-
-    let sel_s = select_aid(&SIMRS_ISD_AID);
-    let _ = dc.simrs.process(SimEvent::Apdu(&sel_s));
-
-    let hc: [u8; 8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-    let mut iu = vec![0x80, 0x50, 0x03, 0x00, 0x08]; // KV=0x03 for SCP03
-    iu.extend_from_slice(&hc);
-    let simrs_iu = match dc.simrs.process(SimEvent::Apdu(&iu)) {
-        SimResponse::Apdu { data, sw } => {
-            assert_eq!(sw.to_bytes(), [0x90, 0x00]);
-            data.to_vec()
-        }
-        other => panic!("unexpected: {other:?}"),
-    };
-
-    assert_eq!(simrs_iu[11], 0x03, "simrs should report SCP03");
-
-    // Parse SCP03 INIT UPDATE response.
-    let mut cc = [0u8; 8];
-    cc.copy_from_slice(&simrs_iu[13..21]);
-
-    // Derive SCP03 session keys using the same function as the card.
-    let (_s_enc, s_mac, _s_rmac) = simrs_gp_scp::derive_scp03_session_keys(
-        &simrs_differential_crossvalidation::KEY_BYTES,
-        &simrs_differential_crossvalidation::KEY_BYTES,
-        &hc,
-        &cc,
-    );
-
-    // Verify card cryptogram.
-    let expected_card_crypto = simrs_gp_scp::compute_scp03_card_cryptogram(&s_mac, &hc, &cc);
-    assert_eq!(
-        &simrs_iu[21..29],
-        &expected_card_crypto,
-        "card cryptogram mismatch"
-    );
-
-    // Compute host cryptogram.
-    let host_crypto = simrs_gp_scp::compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
-
-    // Compute C-MAC for EXT AUTH.
-    let (ea_cmac, new_cv) = simrs_gp_scp::scp03_generate_cmac(
+// SCP03 full mutual auth on simrs with authenticated GET STATUS for
+// the ISD (P1=0x80). simrs-only test; matrixed so both backend cells
+// exercise the simrs SCP03 path uniformly. Shares the handshake with
+// scp03_open_simrs_session — that helper does the cryptographic
+// correctness checks (card cryptogram, SCP identifier); this test
+// exercises the post-auth command path.
+apdu_test!(diff_scp03_full_auth_simrs, "diff-scp03-auth", |dc| {
+    let (s_mac, icv) = scp03_open_simrs_session(&mut dc);
+    let (data, sw, _) = scp03_authenticated_exchange(
+        &mut dc,
         &s_mac,
-        &[0u8; 16],
-        &[0x84, 0x82, 0x01, 0x00],
-        &host_crypto,
+        &icv,
+        [0x80, 0xF2, 0x80, 0x00],
+        &[0x4F, 0x00],
     );
 
-    let mut ea = vec![0x84, 0x82, 0x01, 0x00, 0x10];
-    ea.extend_from_slice(&host_crypto);
-    ea.extend_from_slice(&ea_cmac);
-    let simrs_ea = dc.simrs.process(SimEvent::Apdu(&ea));
-    assert!(
-        matches!(simrs_ea, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]),
-        "simrs SCP03 EXT AUTH failed: {simrs_ea:?}"
+    eprintln!(
+        "simrs SCP03 GET STATUS (ISD): SW={:02X}{:02X} data_len={}",
+        sw[0],
+        sw[1],
+        data.len()
     );
-
-    // Send authenticated GET STATUS with SCP03 C-MAC.
-    let gs_data = [0x4F, 0x00];
-    let (gs_cmac, _) =
-        simrs_gp_scp::scp03_generate_cmac(&s_mac, &new_cv, &[0x80, 0xF2, 0x80, 0x00], &gs_data);
-    let mut gs_apdu = vec![0x84, 0xF2, 0x80, 0x00, 0x0A, 0x4F, 0x00];
-    gs_apdu.extend_from_slice(&gs_cmac);
-    let simrs_gs = match dc.simrs.process(SimEvent::Apdu(&gs_apdu)) {
-        SimResponse::Apdu { data, sw } => {
-            eprintln!(
-                "simrs SCP03 GET STATUS: SW={:02X}{:02X} data_len={}",
-                sw.to_bytes()[0],
-                sw.to_bytes()[1],
-                data.len()
-            );
-            (data.to_vec(), sw.to_bytes())
-        }
-        other => panic!("unexpected: {other:?}"),
-    };
 
     assert_eq!(
-        simrs_gs.1,
+        sw,
         [0x90, 0x00],
         "SCP03 authenticated GET STATUS should succeed"
     );
-    assert!(!simrs_gs.0.is_empty(), "GET STATUS should return ISD data");
-    eprintln!(
-        "SCP03 authenticated GET STATUS data[{}]: {:02X?}",
-        simrs_gs.0.len(),
-        &simrs_gs.0
-    );
-}
-
-apdu_test!(diff_scp03_full_auth_simrs, "diff-scp03-auth", |dc| {
-    diff_scp03_full_auth_simrs_body(dc);
+    assert!(!data.is_empty(), "GET STATUS should return ISD data");
 });
 
 /// Open a SCP03 session on the simrs side and return the derived MAC
@@ -1147,6 +1078,13 @@ fn scp03_open_simrs_session<B: ReferenceBackend>(dc: &mut DualCard<B>) -> ([u8; 
         other => panic!("unexpected simrs INIT UPDATE response: {other:?}"),
     };
 
+    // SCP identifier at byte 11 must be 0x03 for SCP03.
+    assert_eq!(
+        iu_resp[11], 0x03,
+        "simrs SCP03 INIT UPDATE: expected SCP=0x03, got {:02X}",
+        iu_resp[11]
+    );
+
     let mut cc = [0u8; 8];
     cc.copy_from_slice(&iu_resp[13..21]);
 
@@ -1155,6 +1093,14 @@ fn scp03_open_simrs_session<B: ReferenceBackend>(dc: &mut DualCard<B>) -> ([u8; 
         &simrs_differential_crossvalidation::KEY_BYTES,
         &hc,
         &cc,
+    );
+
+    // Verify the card's cryptogram against what our host-side derivation expects.
+    let expected_card_crypto = simrs_gp_scp::compute_scp03_card_cryptogram(&s_mac, &hc, &cc);
+    assert_eq!(
+        &iu_resp[21..29],
+        &expected_card_crypto,
+        "SCP03 card cryptogram mismatch — key derivation drift"
     );
 
     let host_crypto = simrs_gp_scp::compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
