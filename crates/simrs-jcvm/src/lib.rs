@@ -31,13 +31,37 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+/// Force the compiler to treat the referenced memory location as
+/// observable, preventing store-to-dead-field elimination of the
+/// null-hypervisor counters when no public accessor is compiled in.
+///
+/// Crucial to the null-hypervisor timing contract: a build with the
+/// `controlplane-hooks` feature off must execute the same stores as
+/// a build with the feature on, so tests cannot fingerprint which
+/// configuration is running from timing alone.
+// `#[inline(always)]` is intentional: the wrapper must disappear
+// so the `black_box` is applied at the caller's site, not behind an
+// extra call-frame that would change the measured timing shape.
+#[allow(clippy::inline_always)]
+#[inline(always)]
+const fn pin_observation<T>(t: &T) -> &T {
+    core::hint::black_box(t)
+}
+
 pub mod cap;
 pub mod firewall;
 pub mod frame;
 pub mod heap;
+#[cfg(feature = "controlplane-hooks")]
+pub mod hypervisor;
 pub mod native;
 pub mod opcodes;
+pub mod ring_buffer;
 pub mod transaction;
+
+#[cfg(feature = "controlplane-hooks")]
+pub use hypervisor::{Hypervisor, NullHypervisor};
+pub use ring_buffer::{Event, RingBuffer};
 
 use cap::Package;
 use frame::{CallFrame, MAX_FRAMES, MAX_LOCALS, MAX_STACK};
@@ -93,6 +117,22 @@ pub struct JcVM<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> {
     current_context: u8,
     /// Process method index (set during install).
     process_method: u8,
+
+    // --- Null-hypervisor observation counters ---
+    // Always present and always updated. These are the "default
+    // hypervisor" view of guest execution -- a simulator always has
+    // the information needed to answer these questions, so there is
+    // no reason to make observing it a paravirt mode. Public access
+    // to the values (inherent accessors + `Hypervisor` trait impl)
+    // is gated by the `controlplane-hooks` feature so production
+    // crates can refuse to expose the surface.
+    /// Per-opcode execution count. Indexed by the raw opcode byte.
+    opcode_counts: [u64; 256],
+    /// Total instructions executed across the VM's lifetime.
+    total_instructions: u64,
+    /// High-water mark of `frame_ptr + 1` (i.e. method-call depth)
+    /// observed across the VM's lifetime.
+    max_frame_depth: u32,
 }
 
 impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACKAGES> {
@@ -113,7 +153,46 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
             pc: 0,
             current_context: 0,
             process_method: 0,
+            opcode_counts: [0; 256],
+            total_instructions: 0,
+            max_frame_depth: 0,
         }
+    }
+
+    // ---- Null-hypervisor observation accessors --------------------------
+    // Public surface gated by `controlplane-hooks`. The underlying
+    // counters are always present and always updated; this gate only
+    // controls whether downstream crates can read them. Returning
+    // by-value keeps the accessors cheap to cross crate boundaries.
+
+    /// Per-opcode execution counts. Indexed by the raw opcode byte.
+    #[cfg(feature = "controlplane-hooks")]
+    #[must_use]
+    pub const fn opcode_counts(&self) -> [u64; 256] {
+        self.opcode_counts
+    }
+
+    /// Total instructions executed since the VM was constructed.
+    #[cfg(feature = "controlplane-hooks")]
+    #[must_use]
+    pub const fn total_instructions(&self) -> u64 {
+        self.total_instructions
+    }
+
+    /// High-water mark of method-call depth seen during execution.
+    #[cfg(feature = "controlplane-hooks")]
+    #[must_use]
+    pub const fn max_frame_depth(&self) -> u32 {
+        self.max_frame_depth
+    }
+
+    /// Reset all null-hypervisor counters to zero. Dom0 can call
+    /// this to bracket a measurement window.
+    #[cfg(feature = "controlplane-hooks")]
+    pub const fn reset_controlplane_counters(&mut self) {
+        self.opcode_counts = [0; 256];
+        self.total_instructions = 0;
+        self.max_frame_depth = 0;
     }
 
     /// Load a parsed package into the next available slot.
@@ -207,6 +286,17 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
 
             let opcode = bytecode[self.pc as usize];
             self.pc += 1;
+
+            // Null-hypervisor observation: always tallied regardless
+            // of feature flag. Pinned via black_box so a build
+            // without the `controlplane-hooks` feature still executes
+            // the stores (timing must be indistinguishable from the
+            // feature-on build).
+            self.opcode_counts[opcode as usize] =
+                self.opcode_counts[opcode as usize].saturating_add(1);
+            self.total_instructions = self.total_instructions.saturating_add(1);
+            let _ = pin_observation(&self.opcode_counts);
+            let _ = pin_observation(&self.total_instructions);
 
             match opcode {
                 // --- NOP ---
@@ -2380,6 +2470,15 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
             stack_base: self.stack_ptr,
         };
         self.frame_ptr += 1;
+
+        // Null-hypervisor depth tracker. Unconditional, branchless
+        // (`u32::max` lowers to `cmov`) and pinned via black_box so
+        // feature-off builds still execute the store -- keeping the
+        // invoke-path timing identical regardless of whether a
+        // public accessor was compiled in.
+        let depth = u32::from(self.frame_ptr);
+        self.max_frame_depth = u32::max(self.max_frame_depth, depth);
+        let _ = pin_observation(&self.max_frame_depth);
 
         self.current_pkg = target_pkg;
         self.current_method = target_method;

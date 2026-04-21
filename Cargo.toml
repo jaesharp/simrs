@@ -62,6 +62,7 @@ members = [
     "tests/simrs-globalplatform-conformance-validation",
     "crates/simrs-jcsl",
     "crates/simrs-jcardengine",
+    "crates/simrs-controlplane",
     "tests/simrs-differential-crossvalidation",
     "crates/simrs-jacc",
     "crates/simrs-swicc",

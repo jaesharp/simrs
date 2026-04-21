@@ -8,6 +8,15 @@ description = "JavaCard Virtual Machine bytecode interpreter -- no_std, no_alloc
 [features]
 default = []
 std     = []
+# Gates the *public* introspection surface (the `Hypervisor` trait and
+# its `impl Hypervisor for JcVM`, plus the inherent accessors
+# `opcode_counts`, `total_instructions`, `max_frame_depth`,
+# `reset_controlplane_counters`). The underlying counter fields and
+# their dispatch-loop updates are unconditional: observation is the
+# "null hypervisor" default, no paravirtualisation required. This
+# feature only controls whether downstream crates can see the
+# counters.
+controlplane-hooks = []
 
 [dependencies]
 simrs-jcvm-opcodes = { workspace = true }
