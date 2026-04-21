@@ -1161,3 +1161,262 @@ apdu_test!(select_then_get_data_sequence, "seq-sel-gd", |dc| {
         );
     }
 });
+
+// -----------------------------------------------------------------------
+// GP lifecycle: INSTALL / LOAD / DELETE without authenticated SCP
+// -----------------------------------------------------------------------
+//
+// GP 2.x requires INSTALL / LOAD / DELETE to be carried inside a
+// secured channel (SCP01/02/03 with at least C-MAC). Sending them
+// outside an authenticated session must be rejected. The exact
+// reject SW differs per implementation (69 82, 69 85, 69 87) but
+// the error class (0x69 — security conditions) is invariant.
+
+// INSTALL [for Load] — P1=0x02.
+apdu_test!(
+    lifecycle_install_for_load_unauthenticated_rejected,
+    "lc-install-load",
+    |dc| {
+        dc.power_on();
+        let _ = dc
+            .simrs
+            .process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
+        let _ = dc.reference.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
+
+        // Data: LFAID(7) + empty SDAID + empty hash + empty params + empty token.
+        let apdu = [
+            0x80, 0xE6, 0x02, 0x00, 0x0C, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x62, 0x03, 0x01, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        let dr = dc.exchange(&apdu);
+
+        eprintln!(
+            "INSTALL [for Load] unauth: simrs={:04X}, reference={:04X}",
+            dr.simrs.sw16(),
+            dr.reference.sw16()
+        );
+
+        assert!(
+            !dr.simrs.is_success(),
+            "simrs should reject unauthenticated INSTALL [for Load]: {:04X}",
+            dr.simrs.sw16()
+        );
+        assert!(
+            !dr.reference.is_success(),
+            "reference should reject unauthenticated INSTALL [for Load]"
+        );
+    }
+);
+
+// INSTALL [for Install and Make Selectable] — P1=0x0C.
+apdu_test!(
+    lifecycle_install_for_install_unauthenticated_rejected,
+    "lc-install-inst",
+    |dc| {
+        dc.power_on();
+        let _ = dc
+            .simrs
+            .process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
+        let _ = dc.reference.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
+
+        // Data: ELF AID(7) + EM AID(7) + Instance AID(5) + Privs(0) + Install params(3) + Token(0).
+        let apdu = [
+            0x80, 0xE6, 0x0C, 0x00, 0x1B, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x62, 0x03, 0x01, 0x07,
+            0xA0, 0x00, 0x00, 0x00, 0x62, 0x03, 0x01, 0x05, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x00,
+            0x02, 0xC9, 0x00, 0x00,
+        ];
+        let dr = dc.exchange(&apdu);
+
+        eprintln!(
+            "INSTALL [for Inst+MS] unauth: simrs={:04X}, reference={:04X}",
+            dr.simrs.sw16(),
+            dr.reference.sw16()
+        );
+
+        assert!(!dr.simrs.is_success());
+        assert!(!dr.reference.is_success());
+    }
+);
+
+// LOAD command — P1=0x80 (last block).
+apdu_test!(lifecycle_load_unauthenticated_rejected, "lc-load", |dc| {
+    dc.power_on();
+    let _ = dc
+        .simrs
+        .process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
+    let _ = dc.reference.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
+
+    // LOAD data: tag C4 (load file data) + length + bogus payload.
+    let apdu = [
+        0x80, 0xE8, 0x80, 0x00, 0x05, 0xC4, 0x03, 0xDE, 0xAD, 0xBE, 0x00,
+    ];
+    let dr = dc.exchange(&apdu);
+
+    eprintln!(
+        "LOAD unauth: simrs={:04X}, reference={:04X}",
+        dr.simrs.sw16(),
+        dr.reference.sw16()
+    );
+
+    assert!(
+        !dr.simrs.is_success(),
+        "simrs should reject unauthenticated LOAD"
+    );
+    assert!(
+        !dr.reference.is_success(),
+        "reference should reject unauthenticated LOAD"
+    );
+});
+
+// DELETE [application].
+apdu_test!(
+    lifecycle_delete_unauthenticated_rejected,
+    "lc-delete",
+    |dc| {
+        dc.power_on();
+        let _ = dc
+            .simrs
+            .process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
+        let _ = dc.reference.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
+
+        // DELETE application: TLV tag 4F + length + AID.
+        let apdu = [
+            0x80, 0xE4, 0x00, 0x00, 0x09, 0x4F, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x62, 0x03, 0x01,
+            0x00,
+        ];
+        let dr = dc.exchange(&apdu);
+
+        eprintln!(
+            "DELETE unauth: simrs={:04X}, reference={:04X}",
+            dr.simrs.sw16(),
+            dr.reference.sw16()
+        );
+
+        assert!(
+            !dr.simrs.is_success(),
+            "simrs should reject unauthenticated DELETE"
+        );
+        assert!(
+            !dr.reference.is_success(),
+            "reference should reject unauthenticated DELETE"
+        );
+    }
+);
+
+// INSTALL with a P1 value that is not any defined GP 2.x combination.
+//
+// simrs validates P1 strictly and rejects 0xFF. jcsl silently
+// accepts the command (returns 9000) — it treats P1 as a permissive
+// bitmask rather than a closed set, which is a reference-side
+// laxity we catalog rather than enforce. Assertion is simrs-only.
+apdu_test!(
+    lifecycle_install_invalid_p1_rejected,
+    "lc-install-bad-p1",
+    |dc| {
+        dc.power_on();
+        let _ = dc
+            .simrs
+            .process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
+        let _ = dc.reference.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
+
+        // P1=0xFF is not a valid INSTALL combination under GP 2.1.1 or 2.3.
+        let apdu = [0x80, 0xE6, 0xFF, 0x00, 0x00];
+        let dr = dc.exchange(&apdu);
+
+        eprintln!(
+            "INSTALL bad P1: simrs={:04X}, reference={:04X}",
+            dr.simrs.sw16(),
+            dr.reference.sw16()
+        );
+
+        assert!(
+            !dr.simrs.is_success(),
+            "simrs must reject INSTALL with P1=0xFF"
+        );
+    }
+);
+
+// -----------------------------------------------------------------------
+// MANAGE CHANNEL — multi-channel and error handling
+// -----------------------------------------------------------------------
+
+// Open multiple logical channels in sequence. Card must assign
+// distinct non-zero channel numbers. GP 2.x supports up to four
+// logical channels (0..=3); implementations may support fewer.
+apdu_test!(manage_channel_multiple_opens, "mc-multi-open", |dc| {
+    dc.power_on();
+
+    // Open channel #1
+    let open_ch = [0x00, 0x70, 0x00, 0x00, 0x01];
+    let dr1 = dc.exchange(&open_ch);
+    eprintln!(
+        "Open #1: simrs={:04X} data={:02X?}, reference={:04X} data={:02X?}",
+        dr1.simrs.sw16(),
+        dr1.simrs.data,
+        dr1.reference.sw16(),
+        dr1.reference.data
+    );
+
+    if !dr1.simrs.is_success() {
+        eprintln!("simrs does not support MANAGE CHANNEL — skipping multi-open");
+        return;
+    }
+
+    // Open channel #2
+    let dr2 = dc.exchange(&open_ch);
+    eprintln!(
+        "Open #2: simrs={:04X} data={:02X?}, reference={:04X}",
+        dr2.simrs.sw16(),
+        dr2.simrs.data,
+        dr2.reference.sw16()
+    );
+
+    if dr2.simrs.is_success() && !dr1.simrs.data.is_empty() && !dr2.simrs.data.is_empty() {
+        assert_ne!(
+            dr1.simrs.data[0], dr2.simrs.data[0],
+            "simrs must assign distinct channel numbers across successive opens"
+        );
+    }
+});
+
+// Close a channel that was never opened must be rejected.
+apdu_test!(manage_channel_close_nonexistent, "mc-close-none", |dc| {
+    dc.power_on();
+
+    // Close channel 5 (does not exist; GP 2.x supports ch 0..=3).
+    let close_unknown = [0x00, 0x70, 0x80, 0x05];
+    let dr = dc.exchange(&close_unknown);
+
+    eprintln!(
+        "Close unknown channel 5: simrs={:04X}, reference={:04X}",
+        dr.simrs.sw16(),
+        dr.reference.sw16()
+    );
+
+    assert!(
+        !dr.simrs.is_success(),
+        "simrs should reject close of non-existent channel"
+    );
+    assert!(
+        !dr.reference.is_success(),
+        "reference should reject close of non-existent channel"
+    );
+});
+
+// MANAGE CHANNEL with an invalid P1 value (neither open=0x00 nor
+// close=0x80). Must be rejected with 6A86 / 6A81 / 6D00 per impl.
+apdu_test!(manage_channel_invalid_p1, "mc-bad-p1", |dc| {
+    dc.power_on();
+
+    let apdu = [0x00, 0x70, 0x7F, 0x00, 0x01];
+    let dr = dc.exchange(&apdu);
+
+    eprintln!(
+        "MANAGE CHANNEL bad P1: simrs={:04X}, reference={:04X}",
+        dr.simrs.sw16(),
+        dr.reference.sw16()
+    );
+
+    assert!(!dr.simrs.is_success());
+    assert!(!dr.reference.is_success());
+});
