@@ -42,6 +42,16 @@ pub struct JcardengineConfig {
     pub applet_class: String,
     /// Hex-encoded AID the applet is installed + selected under.
     pub applet_aid_hex: String,
+    /// Optional hex-encoded SCP03 master key passed to the bridge.
+    ///
+    /// When set, the bridge constructs its `Simulator` with a
+    /// `GlobalPlatform` instance seeded with
+    /// `SCPConfig.SCP03(parseHex(value))` so the installed
+    /// `GlobalPlatformApplet` participates in SCP03 with matching
+    /// keys. When unset, the bridge uses the default simulator
+    /// (sufficient for non-GP applets such as the bundled
+    /// `HelloWorldApplet`).
+    pub gp_master_key_hex: Option<String>,
     /// Extra classpath entries appended after bridge + engine.
     pub extra_classpath: Vec<PathBuf>,
     /// Maximum wall-clock wait for `LISTENING <port>`.
@@ -59,6 +69,7 @@ impl JcardengineConfig {
             port: DEFAULT_PORT,
             applet_class: String::new(),
             applet_aid_hex: String::new(),
+            gp_master_key_hex: None,
             extra_classpath: Vec::new(),
             startup_timeout: Duration::from_secs(15),
             java_binary: PathBuf::from("java"),
@@ -108,7 +119,8 @@ impl JcardengineProcess {
 
         let classpath = build_classpath(config);
 
-        let mut child = Command::new(&config.java_binary)
+        let mut command = Command::new(&config.java_binary);
+        command
             .arg("-cp")
             .arg(&classpath)
             .arg("com.simrs.jcardengine.Bridge")
@@ -117,7 +129,11 @@ impl JcardengineProcess {
             .arg("--applet-class")
             .arg(&config.applet_class)
             .arg("--applet-aid")
-            .arg(&config.applet_aid_hex)
+            .arg(&config.applet_aid_hex);
+        if let Some(hex) = &config.gp_master_key_hex {
+            command.arg("--gp-master-key-hex").arg(hex);
+        }
+        let mut child = command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

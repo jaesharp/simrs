@@ -18,3 +18,5 @@ tools/simrs-jcsl/vendor/
 tools/jcardengine-bridge/build/
 tools/jcardengine-bridge/.gradle/
 differential-report.*
+differential-report-*.xml
+differential-report-*.md

@@ -35,12 +35,12 @@ pub struct DiffTestCase {
     pub command: Vec<u8>,
     /// Full response from simrs (data + SW).
     pub simrs_response: Vec<u8>,
-    /// Full response from Oracle jcsl (data + SW).
-    pub oracle_response: Vec<u8>,
+    /// Full response from the reference backend (data + SW).
+    pub reference_response: Vec<u8>,
     /// simrs status word.
     pub simrs_sw: u16,
-    /// Oracle status word.
-    pub oracle_sw: u16,
+    /// Reference-backend status word.
+    pub reference_sw: u16,
     /// Test outcome classification.
     pub outcome: DivergenceCategory,
     /// Execution time in milliseconds.
@@ -53,10 +53,20 @@ pub struct DiffTestCase {
 /// integration or Markdown for human review.
 #[derive(Debug)]
 pub struct DiffReport {
+    /// Identifier of the reference backend that produced this report
+    /// (`"jcsl"`, `"jcardengine"`). Empty string on old reports that
+    /// predate the backend parameterisation.
+    pub backend: String,
     /// UTC timestamp as seconds since epoch.
     pub timestamp: u64,
     /// Individual test cases.
     pub cases: Vec<DiffTestCase>,
+    /// Ordered key/value pairs describing how this report was
+    /// produced: backend binary/jar version, applet class, AID, key
+    /// material, etc. Renders as an "Environment" section in Markdown
+    /// and as a `<properties>` block in the `JUnit` XML so the combined
+    /// report can surface each backend's setup alongside its cells.
+    pub context: Vec<(String, String)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -120,21 +130,175 @@ fn ms_to_seconds(ms: u64) -> String {
     format!("{:.3}", ms as f64 / 1000.0)
 }
 
+/// Emit a single `<testcase>` element (open tag, body, close tag)
+/// for the given case. Split out from [`DiffReport::to_junit_xml`]
+/// so that function stays under clippy's `too_many_lines` threshold
+/// without silencing the lint.
+fn emit_junit_testcase(xml: &mut String, case: &DiffTestCase, classname: &str) {
+    let case_time = ms_to_seconds(case.duration_ms);
+    let name_escaped = xml_escape(&case.name);
+    // Emit simrs-sw and reference-sw as attributes so the combiner
+    // can render a proper cross-backend table without re-parsing
+    // every <failure>/<system-out> body.
+    let _ = writeln!(
+        xml,
+        "  <testcase name=\"{name_escaped}\" \
+         classname=\"{class}\" time=\"{case_time}\" \
+         simrs-sw=\"{simrs_sw}\" reference-sw=\"{reference_sw}\">",
+        class = xml_escape(classname),
+        simrs_sw = sw_hex(case.simrs_sw),
+        reference_sw = sw_hex(case.reference_sw),
+    );
+
+    match &case.outcome {
+        DivergenceCategory::Match => {
+            let _ = writeln!(
+                xml,
+                "    <system-out>SW match: {}</system-out>",
+                sw_hex(case.simrs_sw),
+            );
+        }
+        DivergenceCategory::KnownDivergence { id } => {
+            let div = known_divergences::lookup_by_id(id);
+            let reason = div.map_or("(no reason on file)", |d| d.reason);
+            let spec = div.map_or("(no spec ref)", |d| d.spec_ref);
+            // Report as a passing test with documentation, not <skipped>.
+            // The divergence is expected and documented -- it's not ignored.
+            let _ = writeln!(
+                xml,
+                "    <system-out>DOCUMENTED DIVERGENCE {id}: simrs={simrs_sw} reference={reference_sw}\n\
+                 Reason: {reason}\n\
+                 Spec: {spec}\n\
+                 Command: {cmd}\n\
+                 simrs response:     {simrs_rsp}\n\
+                 Reference response: {reference_rsp}</system-out>",
+                simrs_sw = sw_hex(case.simrs_sw),
+                reference_sw = sw_hex(case.reference_sw),
+                reason = xml_escape(reason),
+                spec = xml_escape(spec),
+                cmd = hex_spaced(&case.command),
+                simrs_rsp = hex_spaced(&case.simrs_response),
+                reference_rsp = hex_spaced(&case.reference_response),
+            );
+        }
+        DivergenceCategory::Regression => {
+            let message = format!(
+                "SW mismatch: simrs={} reference={}",
+                sw_hex(case.simrs_sw),
+                sw_hex(case.reference_sw),
+            );
+            let _ = writeln!(
+                xml,
+                "    <failure message=\"{msg}\">\
+                 Command: {cmd}\n\
+                 simrs SW:     {simrs_sw}\n\
+                 Reference SW: {reference_sw}\n\
+                 simrs response:     {simrs_rsp}\n\
+                 Reference response: {reference_rsp}</failure>",
+                msg = xml_escape(&message),
+                cmd = hex_spaced(&case.command),
+                simrs_sw = sw_hex(case.simrs_sw),
+                reference_sw = sw_hex(case.reference_sw),
+                simrs_rsp = hex_spaced(&case.simrs_response),
+                reference_rsp = hex_spaced(&case.reference_response),
+            );
+        }
+    }
+
+    xml.push_str("  </testcase>\n");
+}
+
+/// Render the divergence-detail section of the Markdown report. Split
+/// from [`DiffReport::to_markdown`] for the same line-budget reason.
+fn render_divergences_md(md: &mut String, cases: &[DiffTestCase], reference_label: &str) {
+    let divergences: Vec<_> = cases
+        .iter()
+        .filter(|c| c.outcome != DivergenceCategory::Match)
+        .collect();
+    if divergences.is_empty() {
+        return;
+    }
+    md.push_str("\n## Divergences\n\n");
+    for case in divergences {
+        match &case.outcome {
+            DivergenceCategory::KnownDivergence { id } => {
+                let _ = writeln!(md, "### {} ({})\n", case.name, id);
+                if let Some(div) = known_divergences::lookup_by_id(id) {
+                    let _ = writeln!(md, "- **Reason:** {}", div.reason);
+                    let _ = writeln!(md, "- **Spec:** {}", div.spec_ref);
+                }
+                let _ = writeln!(md, "- **Command:** `{}`", hex_spaced(&case.command));
+                let _ = writeln!(
+                    md,
+                    "- **simrs:** {} | **{reference_label}:** {}\n",
+                    sw_hex(case.simrs_sw),
+                    sw_hex(case.reference_sw),
+                );
+            }
+            DivergenceCategory::Regression => {
+                let _ = writeln!(md, "### {} (REGRESSION)\n", case.name);
+                let _ = writeln!(md, "- **Command:** `{}`", hex_spaced(&case.command));
+                let _ = writeln!(
+                    md,
+                    "- **simrs:** {} | **{reference_label}:** {}",
+                    sw_hex(case.simrs_sw),
+                    sw_hex(case.reference_sw),
+                );
+                let _ = writeln!(
+                    md,
+                    "- **simrs response:** `{}`",
+                    hex_spaced(&case.simrs_response)
+                );
+                let _ = writeln!(
+                    md,
+                    "- **{reference_label} response:** `{}`\n",
+                    hex_spaced(&case.reference_response)
+                );
+            }
+            DivergenceCategory::Match => {}
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // DiffReport implementation
 // ---------------------------------------------------------------------------
 
 impl DiffReport {
     /// Create a new empty report, capturing the current UTC time.
+    ///
+    /// Prefer [`new_for_backend`](Self::new_for_backend) -- this
+    /// shim leaves [`backend`](Self::backend) empty and is only
+    /// retained for older callers.
     pub fn new() -> Self {
+        Self::new_for_backend("")
+    }
+
+    /// Create a new empty report tagged with a reference-backend
+    /// identifier (`"jcsl"`, `"jcardengine"`).
+    pub fn new_for_backend(backend: &str) -> Self {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
         Self {
+            backend: backend.to_owned(),
             timestamp,
             cases: Vec::new(),
+            context: Vec::new(),
         }
+    }
+
+    /// Append an environment/context entry (key, value).
+    ///
+    /// Keys should be short and machine-friendly (e.g.
+    /// `"applet.class"`); values are rendered verbatim so hex,
+    /// versions, paths all work. Order is preserved -- callers decide
+    /// display order. Use this to record backend-specific setup:
+    /// binary path, jar version, SCP master key, installed applet,
+    /// key derivation family, etc.
+    pub fn add_context(&mut self, key: &str, value: &str) {
+        self.context.push((key.to_owned(), value.to_owned()));
     }
 
     /// Add a test case to the report.
@@ -203,78 +367,38 @@ impl DiffReport {
         let (year, month, day) = epoch_days_to_ymd(days);
         let iso_ts = format!("{year:04}-{month:02}-{day:02}T{hours:02}:{mins:02}:{secs:02}Z");
 
+        let suite_name = if self.backend.is_empty() {
+            "differential".to_string()
+        } else {
+            format!("differential-{}", self.backend)
+        };
+        let suite_classname = &suite_name;
         let _ = writeln!(
             xml,
-            "  <testsuite name=\"differential\" tests=\"{total}\" \
+            "  <testsuite name=\"{suite}\" tests=\"{total}\" \
              failures=\"{failures}\" skipped=\"{skipped}\" \
              time=\"{elapsed}\" timestamp=\"{iso_ts}\">",
+            suite = xml_escape(&suite_name),
         );
 
-        for case in &self.cases {
-            let case_time = ms_to_seconds(case.duration_ms);
-            let name_escaped = xml_escape(&case.name);
-            let _ = writeln!(
-                xml,
-                "  <testcase name=\"{name_escaped}\" \
-                 classname=\"differential\" time=\"{case_time}\">"
-            );
-
-            match &case.outcome {
-                DivergenceCategory::Match => {
-                    let _ = writeln!(
-                        xml,
-                        "    <system-out>SW match: {}</system-out>",
-                        sw_hex(case.simrs_sw),
-                    );
-                }
-                DivergenceCategory::KnownDivergence { id } => {
-                    let div = known_divergences::lookup(case.simrs_sw, case.oracle_sw);
-                    let reason = div.map_or("(no reason on file)", |d| d.reason);
-                    let spec = div.map_or("(no spec ref)", |d| d.spec_ref);
-                    // Report as a passing test with documentation, not <skipped>.
-                    // The divergence is expected and documented -- it's not ignored.
-                    let _ = writeln!(
-                        xml,
-                        "    <system-out>DOCUMENTED DIVERGENCE {id}: simrs={simrs_sw} oracle={oracle_sw}\n\
-                         Reason: {reason}\n\
-                         Spec: {spec}\n\
-                         Command: {cmd}\n\
-                         simrs response:  {simrs_rsp}\n\
-                         Oracle response: {oracle_rsp}</system-out>",
-                        simrs_sw = sw_hex(case.simrs_sw),
-                        oracle_sw = sw_hex(case.oracle_sw),
-                        reason = xml_escape(reason),
-                        spec = xml_escape(spec),
-                        cmd = hex_spaced(&case.command),
-                        simrs_rsp = hex_spaced(&case.simrs_response),
-                        oracle_rsp = hex_spaced(&case.oracle_response),
-                    );
-                }
-                DivergenceCategory::Regression => {
-                    let message = format!(
-                        "SW mismatch: simrs={} oracle={}",
-                        sw_hex(case.simrs_sw),
-                        sw_hex(case.oracle_sw),
-                    );
-                    let _ = writeln!(
-                        xml,
-                        "    <failure message=\"{msg}\">\
-                         Command: {cmd}\n\
-                         simrs SW:  {simrs_sw}\n\
-                         Oracle SW: {oracle_sw}\n\
-                         simrs response:  {simrs_rsp}\n\
-                         Oracle response: {oracle_rsp}</failure>",
-                        msg = xml_escape(&message),
-                        cmd = hex_spaced(&case.command),
-                        simrs_sw = sw_hex(case.simrs_sw),
-                        oracle_sw = sw_hex(case.oracle_sw),
-                        simrs_rsp = hex_spaced(&case.simrs_response),
-                        oracle_rsp = hex_spaced(&case.oracle_response),
-                    );
-                }
+        // Environment / backend context. Emitted as a `<properties>`
+        // block inside the testsuite so the combiner (or any JUnit
+        // consumer) can associate each property with its backend.
+        if !self.context.is_empty() {
+            xml.push_str("    <properties>\n");
+            for (k, v) in &self.context {
+                let _ = writeln!(
+                    xml,
+                    "      <property name=\"{k}\" value=\"{v}\"/>",
+                    k = xml_escape(k),
+                    v = xml_escape(v),
+                );
             }
+            xml.push_str("    </properties>\n");
+        }
 
-            xml.push_str("  </testcase>\n");
+        for case in &self.cases {
+            emit_junit_testcase(&mut xml, case, suite_classname);
         }
 
         xml.push_str("  </testsuite>\n");
@@ -289,11 +413,39 @@ impl DiffReport {
     pub fn to_markdown(&self) -> String {
         let mut md = String::new();
 
-        md.push_str("# Differential Test Report\n\n");
+        if self.backend.is_empty() {
+            md.push_str("# Differential Test Report\n\n");
+        } else {
+            let _ = writeln!(
+                md,
+                "# Differential Test Report ({backend})\n",
+                backend = self.backend
+            );
+        }
         let _ = writeln!(md, "**Summary:** {}\n", self.summary());
 
-        // Result table
-        md.push_str("| # | Test | simrs SW | Oracle SW | Status | Note |\n");
+        // Environment / context section -- records how this backend
+        // was wired up for the run. Skipped when no context has been
+        // recorded.
+        if !self.context.is_empty() {
+            md.push_str("## Environment\n\n");
+            for (k, v) in &self.context {
+                let _ = writeln!(md, "- **{k}:** {v}");
+            }
+            md.push('\n');
+        }
+
+        // Result table -- the "Reference" column header is explicit about
+        // which backend produced the reference column.
+        let reference_col = if self.backend.is_empty() {
+            "Reference SW".to_string()
+        } else {
+            format!("{} SW", self.backend)
+        };
+        let _ = writeln!(
+            md,
+            "| # | Test | simrs SW | {reference_col} | Status | Note |"
+        );
         md.push_str("|---|------|----------|-----------|--------|------|\n");
 
         for (i, case) in self.cases.iter().enumerate() {
@@ -313,60 +465,17 @@ impl DiffReport {
                 "| {idx} | {} | {} | {} | {status} | {note} |",
                 case.name,
                 sw_hex(case.simrs_sw),
-                sw_hex(case.oracle_sw),
+                sw_hex(case.reference_sw),
             );
         }
 
         // Detailed divergence notes
-        let divergences: Vec<_> = self
-            .cases
-            .iter()
-            .filter(|c| c.outcome != DivergenceCategory::Match)
-            .collect();
-
-        if !divergences.is_empty() {
-            md.push_str("\n## Divergences\n\n");
-            for case in divergences {
-                match &case.outcome {
-                    DivergenceCategory::KnownDivergence { id } => {
-                        let _ = writeln!(md, "### {} ({})\n", case.name, id);
-                        if let Some(div) = known_divergences::lookup(case.simrs_sw, case.oracle_sw)
-                        {
-                            let _ = writeln!(md, "- **Reason:** {}", div.reason);
-                            let _ = writeln!(md, "- **Spec:** {}", div.spec_ref);
-                        }
-                        let _ = writeln!(md, "- **Command:** `{}`", hex_spaced(&case.command));
-                        let _ = writeln!(
-                            md,
-                            "- **simrs:** {} | **Oracle:** {}\n",
-                            sw_hex(case.simrs_sw),
-                            sw_hex(case.oracle_sw),
-                        );
-                    }
-                    DivergenceCategory::Regression => {
-                        let _ = writeln!(md, "### {} (REGRESSION)\n", case.name);
-                        let _ = writeln!(md, "- **Command:** `{}`", hex_spaced(&case.command));
-                        let _ = writeln!(
-                            md,
-                            "- **simrs:** {} | **Oracle:** {}",
-                            sw_hex(case.simrs_sw),
-                            sw_hex(case.oracle_sw),
-                        );
-                        let _ = writeln!(
-                            md,
-                            "- **simrs response:** `{}`",
-                            hex_spaced(&case.simrs_response)
-                        );
-                        let _ = writeln!(
-                            md,
-                            "- **Oracle response:** `{}`\n",
-                            hex_spaced(&case.oracle_response)
-                        );
-                    }
-                    DivergenceCategory::Match => {}
-                }
-            }
-        }
+        let reference_label = if self.backend.is_empty() {
+            "Reference".to_string()
+        } else {
+            self.backend.clone()
+        };
+        render_divergences_md(&mut md, &self.cases, &reference_label);
 
         md
     }
@@ -394,9 +503,9 @@ mod tests {
                 0x00, 0xA4, 0x04, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00,
             ],
             simrs_response: vec![0x90, 0x00],
-            oracle_response: vec![0x90, 0x00],
+            reference_response: vec![0x90, 0x00],
             simrs_sw: 0x9000,
-            oracle_sw: 0x9000,
+            reference_sw: 0x9000,
             outcome: DivergenceCategory::Match,
             duration_ms: 5,
         }
@@ -410,9 +519,9 @@ mod tests {
                 0x84, 0x82, 0x03, 0x00, 0x08, 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
             ],
             simrs_response: vec![0x69, 0x88],
-            oracle_response: vec![0x69, 0x85],
+            reference_response: vec![0x69, 0x85],
             simrs_sw: 0x6988,
-            oracle_sw: 0x6985,
+            reference_sw: 0x6985,
             outcome: DivergenceCategory::KnownDivergence { id: "D6" },
             duration_ms: 12,
         }
@@ -424,9 +533,9 @@ mod tests {
             name: "GET STATUS".to_string(),
             command: vec![0x80, 0xF2, 0x40, 0x00, 0x02, 0x4F, 0x00],
             simrs_response: vec![0x6A, 0x88],
-            oracle_response: vec![0x6A, 0x82],
+            reference_response: vec![0x6A, 0x82],
             simrs_sw: 0x6A88,
-            oracle_sw: 0x6A82,
+            reference_sw: 0x6A82,
             outcome: DivergenceCategory::Regression,
             duration_ms: 3,
         }
@@ -480,7 +589,7 @@ mod tests {
         );
         assert!(xml.contains("D6"), "must reference divergence ID");
         assert!(xml.contains("6988"), "must show simrs SW");
-        assert!(xml.contains("6985"), "must show oracle SW");
+        assert!(xml.contains("6985"), "must show reference SW");
         assert!(xml.contains("padding oracle"), "must include reason text");
     }
 
@@ -496,7 +605,7 @@ mod tests {
             "must have failure element"
         );
         assert!(xml.contains("6A88"), "must show simrs SW in failure");
-        assert!(xml.contains("6A82"), "must show oracle SW in failure");
+        assert!(xml.contains("6A82"), "must show reference SW in failure");
         assert!(
             xml.contains("SW mismatch"),
             "failure message must describe mismatch"

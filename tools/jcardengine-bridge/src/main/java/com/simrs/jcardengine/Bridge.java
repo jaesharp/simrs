@@ -5,6 +5,9 @@ import com.licel.jcardsim.utils.AIDUtil;
 
 import javacard.framework.AID;
 
+import pro.javacard.engine.globalplatform.GlobalPlatform;
+import pro.javacard.engine.globalplatform.SCPConfig;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -34,13 +37,34 @@ import java.net.Socket;
  * uncaught exception stack trace -- the Rust launcher drains stderr
  * on a background thread and includes the tail in failure messages.
  *
+ * <p>Optional GP configuration: when {@code --gp-master-key-hex} is
+ * supplied, the {@link Simulator} is constructed with a
+ * {@link GlobalPlatform} instance backed by {@link SCPConfig.SCP03}
+ * using the given master key, and the chosen applet class is
+ * installed in that simulator. This is how the differential-parity
+ * path turns {@code pro.javacard.engine.globalplatform.GlobalPlatformApplet}
+ * into an Issuer Security Domain whose key material matches the
+ * Oracle jcsl setup.
+ *
+ * <p>When {@code --gp-master-key-hex} is absent, the simulator uses
+ * the default (no-arg) configuration. HelloWorldApplet smoke tests
+ * don't care about GP state so this keeps the smoke path lightweight.
+ *
  * <p>Usage:
  *
  * <pre>
+ *   # Smoke test: bundled HelloWorldApplet
  *   java -cp jcardengine-26.04.06.jar:bridge.jar com.simrs.jcardengine.Bridge \
  *     --port 9225 \
  *     --applet-class com.simrs.jcardengine.HelloWorldApplet \
  *     --applet-aid F000000001
+ *
+ *   # GP ISD parity (differential testing)
+ *   java -cp jcardengine-26.04.06.jar:bridge.jar com.simrs.jcardengine.Bridge \
+ *     --port 9225 \
+ *     --applet-class pro.javacard.engine.globalplatform.GlobalPlatformApplet \
+ *     --applet-aid A000000151000000 \
+ *     --gp-master-key-hex 404142434445464748494A4B4C4D4E4F
  * </pre>
  */
 public final class Bridge {
@@ -69,7 +93,7 @@ public final class Bridge {
     private static void runOrThrow(String[] args) throws Exception {
         Args parsed = Args.parse(args);
 
-        Simulator simulator = new Simulator();
+        Simulator simulator = buildSimulator(parsed);
         AID aid = AIDUtil.create(parsed.appletAidHex);
         Class<?> appletClass = Class.forName(parsed.appletClass);
         @SuppressWarnings("unchecked")
@@ -93,6 +117,25 @@ public final class Bridge {
                 serve(simulator, aid, client);
             }
         }
+    }
+
+    /**
+     * Build the {@link Simulator} according to parsed CLI args.
+     *
+     * <p>If {@code --gp-master-key-hex} is present, constructs a
+     * {@link GlobalPlatform} seeded with {@link SCPConfig.SCP03} using
+     * that master key, then wires it into the simulator so the
+     * installed GP applet sees the configured keys. Otherwise uses
+     * the default no-arg {@code Simulator()} constructor.
+     */
+    private static Simulator buildSimulator(Args parsed) {
+        if (parsed.gpMasterKeyHex == null) {
+            return new Simulator();
+        }
+        byte[] masterKey = parseHex(parsed.gpMasterKeyHex);
+        SCPConfig scp = new SCPConfig.SCP03(masterKey);
+        GlobalPlatform gp = new GlobalPlatform(scp);
+        return new Simulator(Bridge.class.getClassLoader(), null, gp);
     }
 
     private static void serve(Simulator simulator, AID aid, Socket client) throws IOException {
@@ -156,11 +199,31 @@ public final class Bridge {
         out.flush();
     }
 
+    /** Decode a hex string into bytes. Rejects odd-length / non-hex input. */
+    private static byte[] parseHex(String hex) {
+        String trimmed = hex.trim();
+        int len = trimmed.length();
+        if ((len & 1) != 0) {
+            throw new IllegalArgumentException("hex string must have even length: " + hex);
+        }
+        byte[] out = new byte[len / 2];
+        for (int i = 0; i < out.length; i++) {
+            int hi = Character.digit(trimmed.charAt(i * 2), 16);
+            int lo = Character.digit(trimmed.charAt(i * 2 + 1), 16);
+            if (hi < 0 || lo < 0) {
+                throw new IllegalArgumentException("not a hex string: " + hex);
+            }
+            out[i] = (byte) ((hi << 4) | lo);
+        }
+        return out;
+    }
+
     /** Minimal CLI-arg parser -- no external dep. */
     private static final class Args {
         int port = 9225;
         String appletClass;
         String appletAidHex;
+        String gpMasterKeyHex;
 
         static Args parse(String[] argv) {
             Args a = new Args();
@@ -175,13 +238,16 @@ public final class Bridge {
                     case "--applet-aid":
                         a.appletAidHex = argv[++i];
                         break;
+                    case "--gp-master-key-hex":
+                        a.gpMasterKeyHex = argv[++i];
+                        break;
                     default:
                         throw new IllegalArgumentException("unknown argument: " + argv[i]);
                 }
             }
             if (a.appletClass == null || a.appletAidHex == null) {
                 throw new IllegalArgumentException(
-                        "usage: --port <n> --applet-class <FQCN> --applet-aid <hex>");
+                        "usage: --port <n> --applet-class <FQCN> --applet-aid <hex> [--gp-master-key-hex <hex>]");
             }
             return a;
         }

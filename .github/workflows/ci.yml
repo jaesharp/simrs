@@ -219,22 +219,36 @@ jobs:
       - run: cargo test --manifest-path tests/simrs-standards-integration-validation/Cargo.toml --test cucumber
 
   differential:
-    name: "Ensure Functions Like Reference Implementation (Oracle's JavaCard Simulator)"
+    name: "Ensure Functions Like Reference (${{ matrix.display-name }})"
     needs: [test]
     runs-on: ubuntu-24.04
+    strategy:
+      # Each backend runs independently. A broken jcardengine bridge
+      # should not suppress the jcsl cell's signal (or vice versa).
+      fail-fast: false
+      matrix:
+        include:
+          - backend: jcsl
+            display-name: "Oracle jcsl"
+          - backend: jcardengine
+            display-name: "martinpaljak JCardEngine"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           submodules: true
-      - name: Fetch Oracle JCDK archive (LFS)
-        run: cd docs/specs && git lfs pull --include="reference-implementations/java_card_devkit_simulator-linux-bin-*"
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: workspace
+
+      # ---- jcsl-specific install ----
+      - name: Fetch Oracle JCDK archive (LFS)
+        if: matrix.backend == 'jcsl'
+        run: cd docs/specs && git lfs pull --include="reference-implementations/java_card_devkit_simulator-linux-bin-*"
       - name: Install Oracle JCDK from submodule
+        if: matrix.backend == 'jcsl'
         run: |
           ARCHIVE=$(ls docs/specs/reference-implementations/java_card_devkit_simulator-linux-bin-*.tar.gz 2>/dev/null | head -1)
           if [ -z "$ARCHIVE" ]; then
@@ -246,30 +260,115 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libc6:i386 libstdc++6:i386 zlib1g:i386
           cargo run -p simrs-jcsl -- install "$ARCHIVE"
-      - name: Run differential tests
-        run: cargo test -p simrs-differential-crossvalidation -- --nocapture
-      - name: Run replay tests
-        run: cargo test -p simrs-differential-crossvalidation --test replay -- --nocapture
+
+      # ---- jcardengine-specific install ----
+      - name: Set up JDK 17 (jcardengine)
+        if: matrix.backend == 'jcardengine'
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Gradle (jcardengine)
+        if: matrix.backend == 'jcardengine'
+        uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
+      - name: Build JCardEngine bridge JAR
+        if: matrix.backend == 'jcardengine'
+        run: gradle --project-dir tools/jcardengine-bridge --no-daemon build
+
+      # ---- jcsl-only: run the full differential suite + replay tests ----
+      # These tests are jcsl-specific (hardcoded applet behaviour
+      # expectations, JcslProcess::start_configured). Skipping on the
+      # jcardengine cell avoids noisy skips and isolates the matrix.
+      - name: Run full differential test suite (jcsl only)
+        if: matrix.backend == 'jcsl'
+        run: |
+          cargo test -p simrs-differential-crossvalidation -- --nocapture
+          cargo test -p simrs-differential-crossvalidation --test replay -- --nocapture
+
+      # ---- both cells: generate the backend's report ----
       - name: Generate differential report
+        env:
+          SIMRS_DIFF_BACKEND: ${{ matrix.backend }}
         run: cargo test -p simrs-differential-crossvalidation --test report_gen -- --nocapture
-      # The JUnit + Markdown reports are uploaded as artifacts below. We do
-      # NOT feed them into mikepenz/action-junit-report: that action creates a
-      # standalone Check Run attached to the commit SHA, which ends up listed
-      # under every workflow that touches the commit (including the unrelated
-      # CodeQL scan workflow). `cargo test` already fails the job on any
-      # failed test, so the junit-report check was purely decorative.
+
       - name: Verify report files exist
         run: |
-          test -f tests/simrs-differential-crossvalidation/differential-report.xml || { echo "FATAL: JUnit XML report not found"; exit 1; }
-          test -f tests/simrs-differential-crossvalidation/differential-report.md || { echo "FATAL: Markdown report not found"; exit 1; }
+          test -f target/differential-reports/differential-report-${{ matrix.backend }}.xml \
+            || { echo "FATAL: JUnit XML report not found"; exit 1; }
+          test -f target/differential-reports/differential-report-${{ matrix.backend }}.md \
+            || { echo "FATAL: Markdown report not found"; exit 1; }
+
+      # Per-backend artifacts feed the downstream differential-combine
+      # job. They are NOT surfaced as a separate CI Check (only the
+      # combined report is): attaching junit checks for each backend
+      # would clutter the PR "Checks" list without adding signal the
+      # combined report doesn't already convey.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: differential-report
+          name: differential-report-${{ matrix.backend }}
           path: |
-            tests/simrs-differential-crossvalidation/differential-report.xml
-            tests/simrs-differential-crossvalidation/differential-report.md
+            target/differential-reports/differential-report-${{ matrix.backend }}.xml
+            target/differential-reports/differential-report-${{ matrix.backend }}.md
           retention-days: 90
           if-no-files-found: error
+
+  differential-combine:
+    name: "Cross-backend Differential Report"
+    needs: [differential]
+    # Run even when one matrix cell fails: the combined report is most
+    # useful precisely when backends disagree. The combiner treats a
+    # missing per-backend file as "that backend didn't run" (`-` cell).
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # nightly
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: workspace
+
+      - name: Download per-backend reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: differential-report-*
+          path: downloaded-reports/
+      - name: Stage reports into workspace target dir
+        run: |
+          mkdir -p target/differential-reports
+          # download-artifact lays each artifact out under its own
+          # subdirectory; flatten the *.xml / *.md files into the
+          # single directory the combiner expects.
+          find downloaded-reports -type f \( -name 'differential-report-*.xml' -o -name 'differential-report-*.md' \) \
+            -exec cp {} target/differential-reports/ \;
+          ls -la target/differential-reports/
+
+      - name: Combine reports
+        run: cargo test -p simrs-differential-crossvalidation --test report_combine -- --nocapture
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: differential-report-combined
+          path: |
+            target/differential-reports/differential-report-combined.xml
+            target/differential-reports/differential-report-combined.md
+          retention-days: 90
+          if-no-files-found: error
+
+      # Surface the combined Markdown report in the workflow's build
+      # summary. This is deliberately the only differential report
+      # written to the summary -- per-backend reports stay as
+      # downloadable artifacts so reviewers can drill in on demand
+      # without every backend adding its own section to every PR.
+      - name: Add combined report to build summary
+        if: always()
+        run: |
+          {
+            echo "## Differential Test Report (combined)"
+            echo ""
+            cat target/differential-reports/differential-report-combined.md
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Layer 3: Miri (depends on tests passing) ----
 
