@@ -27,6 +27,19 @@ specifies those chips well enough that anyone can make one in any way they want.
   - Interposer/shadow machine-in-the-middle virtual card
     - PCAP/GSMTAP Capture/Replay
   - Differential Testing Framework
+    - APDU-matrixed across Oracle `jcsl` and martinpaljak `JCardEngine`
+      reference simulators (runtime-switchable via `SIMRS_DIFF_BACKEND`)
+    - 60+ per-cell scenarios: power-on / SELECT / GET DATA / lifecycle /
+      MANAGE CHANNEL / SCP02+SCP03 handshakes / authenticated operations
+    - Per-backend markdown + JUnit reports + cross-backend combined
+      report; known-divergence catalog with typed SW / backend-version
+      citations
+  - Conformance Engine (design phase — see [design suite](docs/architecture/conformance/))
+    - Typed normative-standards pipeline: Source → Transcribe → Slice →
+      Transform → Clause → Rule → Outcome → Book
+    - eADR-style attribute macros (`#[adr]`, `#[cite]`, `#[governs]`)
+      with typed `DocumentRef` citations; build-time confluence +
+      compatibility validators; product-variant enumeration
 
 ## Language Bindings (LGPL-2.0-or-later)
 
@@ -90,8 +103,10 @@ with Sim.with_credentials(creds) as sim:
 - **Information flow security** -- [`Secret<T>`](crates/simrs-secret/) enforces classification boundaries at compile
   time (blocks `PartialEq`, `Hash`, `Display`, `Deref`); [`Redact`](crates/simrs-redact/) prevents secrets in log
   output; uniform error responses close side-channel oracles
-- **Differential behavioural validation against Oracle's Reference JCVM** -- GP and SCP protocol
-  behavior [validated against Oracle's reference JCVM](tests/simrs-differential-crossvalidation/)
+- **Differential behavioural validation across multiple reference JCVMs** -- GP and SCP protocol
+  behaviour [validated against Oracle's `jcsl` and martinpaljak's
+  `JCardEngine`](tests/simrs-differential-crossvalidation/), runtime-
+  switchable, with a shared known-divergence catalog
 - **Spec-linked** -- every public item cites its standard clause. See [standards map](docs/standards/)
 
 ## Maturity
@@ -180,8 +195,16 @@ cargo run -p simrs-auth-cli -- gen-vector \
 cargo run -p simrs-jcsl -- status        # show installation
 cargo run -p simrs-jcsl -- guide         # acquisition instructions
 
-# Run differential tests against Oracle jcsl
+# Manage the martinpaljak JCardEngine bridge (second reference)
+cargo run -p simrs-jcardengine -- status
+cargo run -p simrs-jcardengine -- guide
+
+# Run differential tests (Oracle jcsl default)
 cargo test -p simrs-differential-crossvalidation
+
+# Or against JCardEngine
+SIMRS_DIFF_BACKEND=jcardengine \
+    cargo test -p simrs-differential-crossvalidation
 
 # Build the C-ABI shared library for embedding
 cargo build --manifest-path exports/simrs-hle-capi/Cargo.toml --release

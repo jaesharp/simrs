@@ -1119,6 +1119,169 @@ apdu_test!(diff_scp03_full_auth_simrs, "diff-scp03-auth", |dc| {
     diff_scp03_full_auth_simrs_body(dc);
 });
 
+/// Open a SCP03 session on the simrs side and return the derived MAC
+/// session key plus the ICV to use on the next authenticated command.
+///
+/// Reusable helper for the SCP03-authenticated batch of tests below.
+/// Shares the handshake shape with
+/// [`diff_scp03_full_auth_simrs_body`] so the cryptographic path is
+/// exercised identically; callers supply the follow-up commands.
+fn scp03_open_simrs_session<B: ReferenceBackend>(dc: &mut DualCard<B>) -> ([u8; 16], [u8; 16]) {
+    dc.power_on();
+    let sel = select_aid(&SIMRS_ISD_AID);
+    let _ = dc.simrs.process(SimEvent::Apdu(&sel));
+
+    let hc: [u8; 8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let mut iu = vec![0x80, 0x50, 0x03, 0x00, 0x08];
+    iu.extend_from_slice(&hc);
+
+    let iu_resp = match dc.simrs.process(SimEvent::Apdu(&iu)) {
+        SimResponse::Apdu { data, sw } => {
+            assert_eq!(
+                sw.to_bytes(),
+                [0x90, 0x00],
+                "simrs SCP03 INIT UPDATE failed"
+            );
+            data.to_vec()
+        }
+        other => panic!("unexpected simrs INIT UPDATE response: {other:?}"),
+    };
+
+    let mut cc = [0u8; 8];
+    cc.copy_from_slice(&iu_resp[13..21]);
+
+    let (_enc, s_mac, _rmac) = simrs_gp_scp::derive_scp03_session_keys(
+        &simrs_differential_crossvalidation::KEY_BYTES,
+        &simrs_differential_crossvalidation::KEY_BYTES,
+        &hc,
+        &cc,
+    );
+
+    let host_crypto = simrs_gp_scp::compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
+    let (ea_cmac, next_icv) = simrs_gp_scp::scp03_generate_cmac(
+        &s_mac,
+        &[0u8; 16],
+        &[0x84, 0x82, 0x01, 0x00],
+        &host_crypto,
+    );
+
+    let mut ea = vec![0x84, 0x82, 0x01, 0x00, 0x10];
+    ea.extend_from_slice(&host_crypto);
+    ea.extend_from_slice(&ea_cmac);
+    match dc.simrs.process(SimEvent::Apdu(&ea)) {
+        SimResponse::Apdu { sw, .. } => {
+            assert_eq!(sw.to_bytes(), [0x90, 0x00], "simrs SCP03 EXT AUTH failed");
+        }
+        other => panic!("unexpected simrs EXT AUTH response: {other:?}"),
+    }
+
+    (s_mac, next_icv)
+}
+
+/// Send one C-MAC'd APDU under an open SCP03 session. Returns
+/// `(data_without_sw, sw_bytes, new_icv_for_next_command)`.
+fn scp03_authenticated_exchange<B: ReferenceBackend>(
+    dc: &mut DualCard<B>,
+    s_mac: &[u8; 16],
+    icv: &[u8; 16],
+    header: [u8; 4],
+    data: &[u8],
+) -> (Vec<u8>, [u8; 2], [u8; 16]) {
+    let (cmac, new_icv) = simrs_gp_scp::scp03_generate_cmac(s_mac, icv, &header, data);
+    // secured CLA = original CLA with bit 0x04 set
+    let secured_cla = header[0] | 0x04;
+    let lc = u8::try_from(data.len() + 8).expect("APDU data fits in one byte");
+    let mut apdu = vec![secured_cla, header[1], header[2], header[3], lc];
+    apdu.extend_from_slice(data);
+    apdu.extend_from_slice(&cmac);
+
+    match dc.simrs.process(SimEvent::Apdu(&apdu)) {
+        SimResponse::Apdu { data, sw } => (data.to_vec(), sw.to_bytes(), new_icv),
+        other => panic!("unexpected authenticated response: {other:?}"),
+    }
+}
+
+// GET DATA 9F7F (CPLC) under an authenticated SCP03 session.
+apdu_test!(scp03_auth_get_data_cplc, "scp03-auth-cplc", |dc| {
+    let (s_mac, icv) = scp03_open_simrs_session(&mut dc);
+    let (data, sw, _) =
+        scp03_authenticated_exchange(&mut dc, &s_mac, &icv, [0x80, 0xCA, 0x9F, 0x7F], &[]);
+
+    eprintln!(
+        "SCP03 auth GET DATA CPLC: sw={:02X}{:02X} data_len={}",
+        sw[0],
+        sw[1],
+        data.len()
+    );
+
+    assert_eq!(sw, [0x90, 0x00], "authenticated CPLC should succeed");
+    assert!(!data.is_empty(), "CPLC must have payload");
+});
+
+// GET DATA 0042 (ISD IIN) under an authenticated SCP03 session.
+apdu_test!(scp03_auth_get_data_iin, "scp03-auth-iin", |dc| {
+    let (s_mac, icv) = scp03_open_simrs_session(&mut dc);
+    let (data, sw, _) =
+        scp03_authenticated_exchange(&mut dc, &s_mac, &icv, [0x80, 0xCA, 0x00, 0x42], &[]);
+
+    eprintln!(
+        "SCP03 auth GET DATA IIN: sw={:02X}{:02X} data={:02X?}",
+        sw[0], sw[1], data
+    );
+
+    assert_eq!(sw, [0x90, 0x00], "authenticated IIN should succeed");
+    assert!(!data.is_empty(), "IIN must have payload");
+});
+
+// GET STATUS P1=0x20 (Executable Load Files / packages) authenticated.
+apdu_test!(scp03_auth_get_status_packages, "scp03-auth-gs-pkg", |dc| {
+    let (s_mac, icv) = scp03_open_simrs_session(&mut dc);
+    let (data, sw, _) = scp03_authenticated_exchange(
+        &mut dc,
+        &s_mac,
+        &icv,
+        [0x80, 0xF2, 0x20, 0x00],
+        &[0x4F, 0x00],
+    );
+
+    eprintln!(
+        "SCP03 auth GET STATUS (packages): sw={:02X}{:02X} data_len={}",
+        sw[0],
+        sw[1],
+        data.len()
+    );
+
+    // 9000 (have entries) or 6A88 (no entries in this slot) both valid.
+    assert!(
+        sw == [0x90, 0x00] || sw == [0x6A, 0x88],
+        "packages GET STATUS unexpected SW: {sw:02X?}"
+    );
+});
+
+// GET STATUS P1=0x40 (Applications / applets) authenticated.
+apdu_test!(scp03_auth_get_status_applets, "scp03-auth-gs-app", |dc| {
+    let (s_mac, icv) = scp03_open_simrs_session(&mut dc);
+    let (data, sw, _) = scp03_authenticated_exchange(
+        &mut dc,
+        &s_mac,
+        &icv,
+        [0x80, 0xF2, 0x40, 0x00],
+        &[0x4F, 0x00],
+    );
+
+    eprintln!(
+        "SCP03 auth GET STATUS (applets): sw={:02X}{:02X} data_len={}",
+        sw[0],
+        sw[1],
+        data.len()
+    );
+
+    assert!(
+        sw == [0x90, 0x00] || sw == [0x6A, 0x88],
+        "applets GET STATUS unexpected SW: {sw:02X?}"
+    );
+});
+
 // -----------------------------------------------------------------------
 // APDU sequence: SELECT then GET DATA
 // -----------------------------------------------------------------------
