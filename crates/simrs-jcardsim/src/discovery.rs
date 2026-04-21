@@ -188,6 +188,153 @@ fn find_jcardsim_in_dir(dir: &Path) -> Option<PathBuf> {
     })
 }
 
+// ---------------------------------------------------------------------------
+// Installation + status helpers (used by the simrs-jcardsim CLI)
+// ---------------------------------------------------------------------------
+
+/// Print a human-readable summary of the current installation state.
+///
+/// # Errors
+///
+/// Returns the writer's error if writing fails.
+pub fn print_status<W: std::io::Write>(w: &mut W) -> std::io::Result<()> {
+    writeln!(w, "jcardsim installation status")?;
+    writeln!(w, "============================")?;
+    writeln!(w)?;
+    writeln!(w, "Search order:")?;
+    writeln!(w, "  1. {ENV_BRIDGE} (+ {ENV_LIB}) env vars")?;
+    writeln!(w, "  2. XDG cache (~/.cache/simrs/jcardsim/)")?;
+    writeln!(w, "  3. workspace (tools/jcardsim-bridge/build/libs/)")?;
+    writeln!(w)?;
+    match discover_bridge() {
+        Some(inst) => write!(w, "{inst}"),
+        None => writeln!(
+            w,
+            "No installation found. Run `simrs-jcardsim guide` for instructions."
+        ),
+    }
+}
+
+/// Errors from [`install_from_directory`].
+#[derive(Debug)]
+pub enum InstallError {
+    /// Source directory doesn't exist or isn't a directory.
+    NotADirectory(PathBuf),
+    /// Source directory doesn't contain both required JARs.
+    MissingJars {
+        /// The source directory searched.
+        dir: PathBuf,
+        /// True iff the bridge JAR was missing.
+        missing_bridge: bool,
+        /// True iff the jcardsim library JAR was missing.
+        missing_jcardsim: bool,
+    },
+    /// I/O error during copy.
+    Io(std::io::Error),
+    /// `$XDG_CACHE_HOME` / `$HOME` were both unset.
+    NoCacheRoot,
+}
+
+impl fmt::Display for InstallError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotADirectory(p) => write!(f, "not a directory: {}", p.display()),
+            Self::MissingJars {
+                dir,
+                missing_bridge,
+                missing_jcardsim,
+            } => {
+                let mut parts = Vec::new();
+                if *missing_bridge {
+                    parts.push(BRIDGE_JAR);
+                }
+                if *missing_jcardsim {
+                    parts.push("jcardsim-*.jar");
+                }
+                write!(
+                    f,
+                    "{} does not contain {}",
+                    dir.display(),
+                    parts.join(" and ")
+                )
+            }
+            Self::Io(e) => write!(f, "I/O error: {e}"),
+            Self::NoCacheRoot => write!(f, "neither $XDG_CACHE_HOME nor $HOME is set"),
+        }
+    }
+}
+
+impl std::error::Error for InstallError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for InstallError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+/// Copy `bridge.jar` + `jcardsim-*.jar` from `src_dir` into
+/// `~/.cache/simrs/jcardsim/`.
+///
+/// # Errors
+///
+/// Returns [`InstallError`] on I/O failure, a missing source, or if
+/// neither `XDG_CACHE_HOME` nor `HOME` is set.
+pub fn install_from_directory(src_dir: &Path) -> Result<BridgeInstallation, InstallError> {
+    if !src_dir.is_dir() {
+        return Err(InstallError::NotADirectory(src_dir.to_path_buf()));
+    }
+    let src_bridge = src_dir.join(BRIDGE_JAR);
+    let src_jcardsim_opt = find_jcardsim_in_dir(src_dir);
+    let (src_bridge, src_jcardsim) = match (src_bridge.is_file(), src_jcardsim_opt) {
+        (true, Some(j)) => (src_bridge, j),
+        (bridge_ok, jcardsim_opt) => {
+            return Err(InstallError::MissingJars {
+                dir: src_dir.to_path_buf(),
+                missing_bridge: !bridge_ok,
+                missing_jcardsim: jcardsim_opt.is_none(),
+            });
+        }
+    };
+    // find_jcardsim_in_dir only returns paths with a file_name component,
+    // but tighten the invariant at the type level so we never have to
+    // call .unwrap()/.expect().
+    let Some(jcardsim_filename) = src_jcardsim.file_name() else {
+        return Err(InstallError::MissingJars {
+            dir: src_dir.to_path_buf(),
+            missing_bridge: false,
+            missing_jcardsim: true,
+        });
+    };
+
+    let cache_root = std::env::var_os("XDG_CACHE_HOME").map_or_else(
+        || std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")),
+        |x| Some(PathBuf::from(x)),
+    );
+    let Some(cache_root) = cache_root else {
+        return Err(InstallError::NoCacheRoot);
+    };
+    let dst_dir = cache_root.join("simrs").join("jcardsim");
+    std::fs::create_dir_all(&dst_dir)?;
+
+    let dst_bridge = dst_dir.join(BRIDGE_JAR);
+    let dst_jcardsim = dst_dir.join(jcardsim_filename);
+    std::fs::copy(&src_bridge, &dst_bridge)?;
+    std::fs::copy(&src_jcardsim, &dst_jcardsim)?;
+
+    Ok(BridgeInstallation {
+        bridge_jar: dst_bridge,
+        jcardsim_jar: dst_jcardsim,
+        source: DiscoverySource::XdgCache,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
