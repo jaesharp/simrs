@@ -34,6 +34,7 @@
 //! cargo test -p simrs-differential-crossvalidation
 //! ```
 
+pub mod combine;
 pub mod known_divergences;
 pub mod reference;
 pub mod report;

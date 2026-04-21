@@ -34,7 +34,9 @@
 //! [`BackendId`]: simrs_differential_crossvalidation::BackendId
 
 use simrs_differential_crossvalidation::{
-    BackendId, default_report_dir,
+    BackendId,
+    combine::{self as combine_lib, BackendReport as LibBackendReport, Status as LibStatus},
+    default_report_dir,
     known_divergences::{self, CATALOG_PATH},
 };
 use std::collections::BTreeMap;
@@ -46,162 +48,16 @@ use std::path::Path;
 /// is deterministic and alphabetical.
 const BACKENDS: &[BackendId] = &[BackendId::Jcardengine, BackendId::Jcsl];
 
-/// Per-test outcome as parsed back out of a `JUnit` XML.
-///
-/// The string carries enough detail (SW hex, divergence id) for the
-/// Markdown rendering; `Status` captures the high-level bucket.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Status {
-    /// `<system-out>SW match: NNNN</system-out>` or equivalent.
-    Match,
-    /// `<system-out>DOCUMENTED DIVERGENCE <id>...` -- catalog entry
-    /// applies; divergence expected.
-    Known(String),
-    /// `<failure ...>` element present -- uncataloged regression.
-    Regression,
-}
+/// Re-exports from the library so this test file uses the same
+/// parser as the round-trip consistency tests in `report::tests`.
+/// Drift between the two would defeat the whole purpose of the
+/// combined report; sharing the implementation makes drift
+/// impossible by construction.
+type Status = LibStatus;
+type BackendReport = LibBackendReport;
 
-impl Status {
-    const fn symbol(&self) -> &'static str {
-        match self {
-            Self::Match => "PASS",
-            Self::Known(_) => "KNOWN",
-            Self::Regression => "FAIL",
-        }
-    }
-}
-
-/// One parsed `<testcase>`, with both raw SWs and the outcome bucket.
-#[derive(Debug, Clone)]
-struct CaseRow {
-    simrs_sw: String,
-    reference_sw: String,
-    status: Status,
-}
-
-/// All cases extracted from one backend's `JUnit` XML, plus the
-/// environment/context properties emitted by the backend.
-#[derive(Debug, Default)]
-struct BackendReport {
-    /// Map of case name -> row. `BTreeMap` so iteration is
-    /// deterministic across runs.
-    cases: BTreeMap<String, CaseRow>,
-    /// Ordered environment entries extracted from the `<properties>`
-    /// block inside the testsuite, preserving emission order.
-    context: Vec<(String, String)>,
-}
-
-/// Minimal tag-and-body extractor for our single-purpose `JUnit`
-/// subset. Avoids pulling in an XML parser for the ~10-line shape we
-/// control: `<testcase name="..." simrs-sw="..." reference-sw="..."> ... </testcase>`
-/// with one `<system-out>` or `<failure>` child.
 fn parse_junit(xml: &str) -> BackendReport {
-    let mut report = BackendReport {
-        context: parse_properties(xml),
-        ..BackendReport::default()
-    };
-    let mut cursor = 0usize;
-    while let Some(start) = xml[cursor..].find("<testcase ") {
-        let open = cursor + start;
-        let Some(close) = xml[open..].find("</testcase>") else {
-            break;
-        };
-        let end = open + close;
-        let block = &xml[open..end];
-
-        // Extract the name="..." attribute (single-quoted not supported
-        // -- our emitter always uses double quotes).
-        let Some(name) = extract_attr(block, "name") else {
-            cursor = end;
-            continue;
-        };
-        let simrs_sw = extract_attr(block, "simrs-sw").unwrap_or_else(|| "----".to_string());
-        let reference_sw =
-            extract_attr(block, "reference-sw").unwrap_or_else(|| "----".to_string());
-
-        // Status: <failure> wins over <system-out> classification.
-        let status = if block.contains("<failure ") {
-            Status::Regression
-        } else if let Some(divergence) = extract_known_divergence(block) {
-            Status::Known(divergence)
-        } else {
-            Status::Match
-        };
-
-        report.cases.insert(
-            name,
-            CaseRow {
-                simrs_sw,
-                reference_sw,
-                status,
-            },
-        );
-        cursor = end + "</testcase>".len();
-    }
-    report
-}
-
-/// Extract the value of `attr="..."` from a block. Returns unescaped
-/// text (reverses the `&amp;` / `&lt;` / etc. encoding used by
-/// `report::xml_escape`).
-fn extract_attr(block: &str, attr: &str) -> Option<String> {
-    let key = format!("{attr}=\"");
-    let start = block.find(&key)? + key.len();
-    let rest = &block[start..];
-    let end = rest.find('"')?;
-    Some(xml_unescape(&rest[..end]))
-}
-
-fn xml_unescape(s: &str) -> String {
-    s.replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-}
-
-/// Pull every `<property name="..." value="..."/>` entry out of the
-/// testsuite's `<properties>` block. Preserves emission order so the
-/// combined report renders context entries the way each backend wrote
-/// them. Returns an empty vector when the block is absent or empty.
-fn parse_properties(xml: &str) -> Vec<(String, String)> {
-    let Some(open) = xml.find("<properties>") else {
-        return Vec::new();
-    };
-    let Some(close_rel) = xml[open..].find("</properties>") else {
-        return Vec::new();
-    };
-    let block = &xml[open..open + close_rel];
-
-    let mut out = Vec::new();
-    let mut cursor = 0usize;
-    while let Some(prop_start) = block[cursor..].find("<property ") {
-        let abs = cursor + prop_start;
-        let slice = &block[abs..];
-        // Accept both self-closing `<property .../>` and the paired form.
-        let end = slice.find("/>").or_else(|| slice.find('>'));
-        let Some(end) = end else {
-            break;
-        };
-        let head = &slice[..end];
-        let name = extract_attr(head, "name");
-        let value = extract_attr(head, "value");
-        if let (Some(n), Some(v)) = (name, value) {
-            out.push((n, v));
-        }
-        cursor = abs + end + 1;
-    }
-    out
-}
-
-/// Pull the divergence id out of a `DOCUMENTED DIVERGENCE <id>: ...`
-/// system-out payload. Returns `None` if the block isn't a documented
-/// divergence.
-fn extract_known_divergence(block: &str) -> Option<String> {
-    let anchor = block.find("DOCUMENTED DIVERGENCE ")? + "DOCUMENTED DIVERGENCE ".len();
-    let rest = &block[anchor..];
-    let end = rest.find(':').unwrap_or(rest.len());
-    Some(rest[..end].trim().to_string())
+    combine_lib::parse_junit(xml)
 }
 
 /// Load `differential-report-<backend>.xml` from `dir`. Returns
@@ -667,7 +523,7 @@ Spec: GP 2.1.1 Table 9-9</system-out>
     fn xml_escape_roundtrip() {
         let original = "a & b < c > d \" e ' f";
         let escaped = xml_escape(original);
-        let unescaped = xml_unescape(&escaped);
+        let unescaped = combine_lib::xml_unescape(&escaped);
         assert_eq!(unescaped, original);
     }
 }

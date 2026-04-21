@@ -1034,4 +1034,140 @@ mod tests {
             r.to_junit_xml_with_config(&ReportConfig::default())
         );
     }
+
+    // -----------------------------------------------------------------
+    // Round-trip consistency: every case survives XML render → parse
+    // with its Status bucket preserved. Protects the invariant that
+    // combined-report rendering (which parses these XMLs) stays in sync
+    // with per-backend rendering.
+    // -----------------------------------------------------------------
+
+    use crate::combine::{self, Status as CombinedStatus};
+
+    fn expected_combined_status(cat: &DivergenceCategory) -> CombinedStatus {
+        match cat {
+            DivergenceCategory::Match => CombinedStatus::Match,
+            DivergenceCategory::KnownDivergence { id } => CombinedStatus::Known((*id).to_string()),
+            DivergenceCategory::Regression => CombinedStatus::Regression,
+        }
+    }
+
+    /// Render + parse round-trip preserves case classification.
+    ///
+    /// For each `ReportConfig` preset, rendering a known fixture to
+    /// `JUnit` XML then parsing it back with `combine::parse_junit`
+    /// must preserve the status classification of every case the
+    /// config let through. This is the "combined rendering matches
+    /// independent rendering" invariant: the combiner reads XML
+    /// produced by per-backend renderers; if the two sides ever
+    /// drift, this test catches it.
+    fn round_trip_preserves_status(cfg: &ReportConfig) {
+        let report = three_case_report();
+        let xml = report.to_junit_xml_with_config(cfg);
+        let parsed = combine::parse_junit(&xml);
+
+        let kept: Vec<&DiffTestCase> = report.filtered_cases(cfg);
+        assert_eq!(
+            parsed.cases.len(),
+            kept.len(),
+            "parsed case count must match the filtered set; cfg={cfg:?}"
+        );
+
+        for case in kept {
+            let parsed_row = parsed
+                .cases
+                .get(&case.name)
+                .unwrap_or_else(|| panic!("case {} not in parsed XML", case.name));
+            assert_eq!(
+                parsed_row.status,
+                expected_combined_status(&case.outcome),
+                "status drift for case {} under cfg {cfg:?}",
+                case.name
+            );
+            assert_eq!(
+                parsed_row.simrs_sw,
+                format!("{:04X}", case.simrs_sw),
+                "simrs SW drift for case {}",
+                case.name
+            );
+            assert_eq!(
+                parsed_row.reference_sw,
+                format!("{:04X}", case.reference_sw),
+                "reference SW drift for case {}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn combined_round_trip_default() {
+        round_trip_preserves_status(&ReportConfig::default());
+    }
+
+    #[test]
+    fn combined_round_trip_audit() {
+        round_trip_preserves_status(&ReportConfig::audit());
+    }
+
+    #[test]
+    fn combined_round_trip_diff_only() {
+        round_trip_preserves_status(&ReportConfig::diff_only());
+    }
+
+    #[test]
+    fn combined_round_trip_no_context() {
+        round_trip_preserves_status(&ReportConfig {
+            include_context: false,
+            ..ReportConfig::default()
+        });
+    }
+
+    #[test]
+    fn combined_round_trip_no_matches() {
+        round_trip_preserves_status(&ReportConfig {
+            include_matches: false,
+            ..ReportConfig::default()
+        });
+    }
+
+    #[test]
+    fn combined_round_trip_no_known() {
+        round_trip_preserves_status(&ReportConfig {
+            include_known_divergences: false,
+            ..ReportConfig::default()
+        });
+    }
+
+    #[test]
+    fn combined_round_trip_hide_missing_runtime() {
+        round_trip_preserves_status(&ReportConfig {
+            hide_missing_runtime_divergences: true,
+            ..ReportConfig::default()
+        });
+    }
+
+    /// Context (environment properties) round-trips through the
+    /// `JUnit` `<properties>` block when `include_context` is on;
+    /// disappears when it's off.
+    #[test]
+    fn combined_round_trip_context() {
+        let report = three_case_report();
+        let xml_on = report.to_junit_xml_with_config(&ReportConfig::default());
+        let parsed_on = combine::parse_junit(&xml_on);
+        assert!(
+            !parsed_on.context.is_empty(),
+            "context must survive render+parse when include_context=true"
+        );
+        assert!(parsed_on.context.iter().any(|(k, _)| k == "backend"));
+
+        let xml_off = report.to_junit_xml_with_config(&ReportConfig {
+            include_context: false,
+            ..ReportConfig::default()
+        });
+        let parsed_off = combine::parse_junit(&xml_off);
+        assert!(
+            parsed_off.context.is_empty(),
+            "context must disappear when include_context=false"
+        );
+    }
 }
