@@ -429,23 +429,29 @@ impl DiffReport {
             .any(|c| c.outcome == DivergenceCategory::Regression)
     }
 
-    /// Emit `JUnit` XML under a specific [`ReportConfig`].
-    ///
-    /// Currently delegates to [`Self::to_junit_xml`]; filter logic for
-    /// each [`ReportConfig`] flag will be wired in as consumer needs
-    /// surface. The entry point exists so callers can already express
-    /// intent (e.g. PR-check pipelines pass `ReportConfig::diff_only()`;
-    /// audit artefact pipelines pass `ReportConfig::audit()`).
-    #[must_use]
-    pub fn to_junit_xml_with_config(&self, _cfg: &ReportConfig) -> String {
-        self.to_junit_xml()
-    }
-
-    /// Emit Markdown under a specific [`ReportConfig`]. See
-    /// [`Self::to_junit_xml_with_config`] for the wiring note.
-    #[must_use]
-    pub fn to_markdown_with_config(&self, _cfg: &ReportConfig) -> String {
-        self.to_markdown()
+    /// Cases that survive the [`ReportConfig`]'s filters. Ordered
+    /// as in [`Self::cases`]; empty when every case is filtered out.
+    fn filtered_cases<'a>(&'a self, cfg: &ReportConfig) -> Vec<&'a DiffTestCase> {
+        self.cases
+            .iter()
+            .filter(|c| match &c.outcome {
+                DivergenceCategory::Match => cfg.include_matches,
+                DivergenceCategory::KnownDivergence { id } => {
+                    if !cfg.include_known_divergences {
+                        return false;
+                    }
+                    if cfg.hide_missing_runtime_divergences
+                        && let Some(d) = known_divergences::lookup_by_id(id)
+                        && !d.backends.is_empty()
+                        && !d.backends.iter().any(|b| b.has_runtime())
+                    {
+                        return false;
+                    }
+                    true
+                }
+                DivergenceCategory::Regression => true,
+            })
+            .collect()
     }
 
     /// Emit `JUnit` XML suitable for CI test result ingestion.
@@ -454,6 +460,22 @@ impl DiffReport {
     /// an XML serialization dependency. Uses [`ReportConfig::default`]
     /// — for filter control, call [`Self::to_junit_xml_with_config`].
     pub fn to_junit_xml(&self) -> String {
+        self.to_junit_xml_with_config(&ReportConfig::default())
+    }
+
+    /// Emit `JUnit` XML under a specific [`ReportConfig`]. Applies
+    /// [`ReportConfig::include_context`] to the `<properties>` block
+    /// and [`ReportConfig::include_matches`] /
+    /// [`ReportConfig::include_known_divergences`] /
+    /// [`ReportConfig::hide_missing_runtime_divergences`] to the
+    /// `<testcase>` stream.
+    #[must_use]
+    pub fn to_junit_xml_with_config(&self, cfg: &ReportConfig) -> String {
+        self.to_junit_xml_inner(cfg)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn to_junit_xml_inner(&self, cfg: &ReportConfig) -> String {
         let mut xml = String::new();
         xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         xml.push_str("<testsuites>\n");
@@ -495,7 +517,9 @@ impl DiffReport {
         // Environment / backend context. Emitted as a `<properties>`
         // block inside the testsuite so the combiner (or any JUnit
         // consumer) can associate each property with its backend.
-        if !self.context.is_empty() {
+        // Gated by `cfg.include_context` — terser preset configs drop
+        // it to keep the XML focused on test outcomes.
+        if cfg.include_context && !self.context.is_empty() {
             xml.push_str("    <properties>\n");
             for (k, v) in &self.context {
                 let _ = writeln!(
@@ -508,7 +532,7 @@ impl DiffReport {
             xml.push_str("    </properties>\n");
         }
 
-        for case in &self.cases {
+        for case in self.filtered_cases(cfg) {
             emit_junit_testcase(&mut xml, case, suite_classname);
         }
 
@@ -520,8 +544,25 @@ impl DiffReport {
     /// Emit a Markdown report for human review.
     ///
     /// Includes a summary line, a result table, and detailed divergence
-    /// notes for any documented divergences or regressions.
+    /// notes for any documented divergences or regressions. Uses
+    /// [`ReportConfig::default`] — for filter control call
+    /// [`Self::to_markdown_with_config`].
     pub fn to_markdown(&self) -> String {
+        self.to_markdown_with_config(&ReportConfig::default())
+    }
+
+    /// Emit Markdown under a specific [`ReportConfig`].
+    ///
+    /// Applies:
+    /// - [`ReportConfig::include_context`] — drops the "Environment" section
+    /// - [`ReportConfig::include_matches`] — drops `PASS` rows from the table
+    /// - [`ReportConfig::include_known_divergences`] — drops `KNOWN` rows
+    /// - [`ReportConfig::hide_missing_runtime_divergences`] — hides `KNOWN` rows
+    ///   whose backends list contains only backends without compiled-in runtime
+    /// - [`ReportConfig::include_catalog_links`] — renders `KNOWN` notes as
+    ///   plain text rather than catalog links
+    #[must_use]
+    pub fn to_markdown_with_config(&self, cfg: &ReportConfig) -> String {
         let mut md = String::new();
 
         if self.backend.is_empty() {
@@ -535,10 +576,7 @@ impl DiffReport {
         }
         let _ = writeln!(md, "**Summary:** {}\n", self.summary());
 
-        // Environment / context section -- records how this backend
-        // was wired up for the run. Skipped when no context has been
-        // recorded.
-        if !self.context.is_empty() {
+        if cfg.include_context && !self.context.is_empty() {
             md.push_str("## Environment\n\n");
             for (k, v) in &self.context {
                 let _ = writeln!(md, "- **{k}:** {v}");
@@ -546,8 +584,6 @@ impl DiffReport {
             md.push('\n');
         }
 
-        // Result table -- the "Reference" column header is explicit about
-        // which backend produced the reference column.
         let reference_col = if self.backend.is_empty() {
             "Reference SW".to_string()
         } else {
@@ -559,30 +595,32 @@ impl DiffReport {
         );
         md.push_str("|---|------|----------|-----------|--------|------|\n");
 
-        for (i, case) in self.cases.iter().enumerate() {
+        let filtered = self.filtered_cases(cfg);
+        for (i, case) in filtered.iter().enumerate() {
             let idx = i + 1;
             let status = match &case.outcome {
                 DivergenceCategory::Match => "PASS",
                 DivergenceCategory::KnownDivergence { .. } => "KNOWN",
                 DivergenceCategory::Regression => "FAIL",
             };
-            // `KNOWN` notes link to the catalog declaration so
-            // reviewers can jump to the justification -- matches the
-            // combined report's convention (repo-root-relative path
-            // + line from `KnownDivergence::line`).
             let note = match &case.outcome {
                 DivergenceCategory::Match => String::new(),
-                DivergenceCategory::KnownDivergence { id } => known_divergences::lookup_by_id(id)
-                    .map_or_else(
-                        || (*id).to_string(),
-                        |d| {
-                            format!(
-                                "[{id}]({path}#L{line})",
-                                path = known_divergences::CATALOG_PATH,
-                                line = d.line,
-                            )
-                        },
-                    ),
+                DivergenceCategory::KnownDivergence { id } => {
+                    if cfg.include_catalog_links {
+                        known_divergences::lookup_by_id(id).map_or_else(
+                            || (*id).to_string(),
+                            |d| {
+                                format!(
+                                    "[{id}]({path}#L{line})",
+                                    path = known_divergences::CATALOG_PATH,
+                                    line = d.line,
+                                )
+                            },
+                        )
+                    } else {
+                        (*id).to_string()
+                    }
+                }
                 DivergenceCategory::Regression => "REGRESSION".to_string(),
             };
             let _ = writeln!(
@@ -594,13 +632,15 @@ impl DiffReport {
             );
         }
 
-        // Detailed divergence notes
+        // Detailed divergence notes — emit against the filtered set so
+        // hidden entries stay consistently hidden across sections.
         let reference_label = if self.backend.is_empty() {
             "Reference".to_string()
         } else {
             self.backend.clone()
         };
-        render_divergences_md(&mut md, &self.cases, &reference_label);
+        let filtered_owned: Vec<DiffTestCase> = filtered.iter().copied().cloned().collect();
+        render_divergences_md(&mut md, &filtered_owned, &reference_label);
 
         md
     }
@@ -878,6 +918,120 @@ mod tests {
         assert_eq!(
             xml_escape("a & b < c > d \" e ' f"),
             "a &amp; b &lt; c &gt; d &quot; e &apos; f"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // ReportConfig filter wiring
+    // -----------------------------------------------------------------
+
+    fn three_case_report() -> DiffReport {
+        let mut r = DiffReport::new_for_backend("jcsl");
+        r.add_context("backend", "jcsl");
+        r.add_case(match_case());
+        r.add_case(known_divergence_case());
+        r.add_case(regression_case());
+        r
+    }
+
+    #[test]
+    fn report_cfg_include_matches_false_filters_pass_rows() {
+        let r = three_case_report();
+        let cfg = ReportConfig {
+            include_matches: false,
+            ..ReportConfig::default()
+        };
+        let md = r.to_markdown_with_config(&cfg);
+        // Match row gone from the table; known-divergence and regression rows survive.
+        assert!(
+            !md.contains("| 1 | SELECT ISD |"),
+            "match row should be filtered out"
+        );
+        assert!(md.contains("KNOWN"), "known-divergence row should survive");
+        assert!(md.contains("FAIL"), "regression row should survive");
+    }
+
+    #[test]
+    fn report_cfg_include_known_divergences_false_filters_known_rows() {
+        let r = three_case_report();
+        let cfg = ReportConfig {
+            include_known_divergences: false,
+            ..ReportConfig::default()
+        };
+        let md = r.to_markdown_with_config(&cfg);
+        assert!(
+            !md.contains("KNOWN"),
+            "known-divergence rows should be filtered out"
+        );
+        assert!(md.contains("PASS"), "match row should survive");
+        assert!(md.contains("FAIL"), "regression row should survive");
+    }
+
+    #[test]
+    fn report_cfg_include_context_false_omits_environment_section() {
+        let r = three_case_report();
+        let cfg_on = ReportConfig::default();
+        let cfg_off = ReportConfig {
+            include_context: false,
+            ..ReportConfig::default()
+        };
+        assert!(
+            r.to_markdown_with_config(&cfg_on)
+                .contains("## Environment")
+        );
+        assert!(
+            !r.to_markdown_with_config(&cfg_off)
+                .contains("## Environment")
+        );
+        // Same policy for JUnit:
+        assert!(r.to_junit_xml_with_config(&cfg_on).contains("<properties>"));
+        assert!(
+            !r.to_junit_xml_with_config(&cfg_off)
+                .contains("<properties>")
+        );
+    }
+
+    #[test]
+    fn report_cfg_include_catalog_links_false_renders_plain_id() {
+        let r = three_case_report();
+        let cfg_on = ReportConfig::default();
+        let cfg_off = ReportConfig {
+            include_catalog_links: false,
+            ..ReportConfig::default()
+        };
+        assert!(
+            r.to_markdown_with_config(&cfg_on).contains("[D6]("),
+            "default should render catalog link"
+        );
+        assert!(
+            !r.to_markdown_with_config(&cfg_off).contains("[D6]("),
+            "disabled should render plain id"
+        );
+    }
+
+    #[test]
+    fn report_cfg_diff_only_preset_drops_matches_and_context() {
+        let r = three_case_report();
+        let md = r.to_markdown_with_config(&ReportConfig::diff_only());
+        assert!(!md.contains("## Environment"));
+        assert!(!md.contains("| 1 | SELECT ISD |"));
+    }
+
+    #[test]
+    fn report_cfg_default_is_audit_equivalent() {
+        let r = three_case_report();
+        assert_eq!(
+            r.to_markdown_with_config(&ReportConfig::default()),
+            r.to_markdown_with_config(&ReportConfig::audit())
+        );
+        // And the no-config methods use the default:
+        assert_eq!(
+            r.to_markdown(),
+            r.to_markdown_with_config(&ReportConfig::default())
+        );
+        assert_eq!(
+            r.to_junit_xml(),
+            r.to_junit_xml_with_config(&ReportConfig::default())
         );
     }
 }
