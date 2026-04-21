@@ -3,8 +3,13 @@
 //! The `simrs-hle-capi` cdylib is built as a dependency of this crate,
 //! so the shared library is available before pytest runs.
 
+use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 use std::path::PathBuf;
 use std::process::Command;
+
+fn capi_lib() -> String {
+    format!("{DLL_PREFIX}simrs_hle_capi{DLL_SUFFIX}")
+}
 
 #[test]
 fn python_bindings() {
@@ -22,14 +27,10 @@ fn python_bindings() {
 }
 
 fn find_cdylib() -> String {
-    let lib_name = if cfg!(target_os = "macos") {
-        "libsimrs_hle_capi.dylib"
-    } else {
-        "libsimrs_hle_capi.so"
-    };
+    let lib_name = capi_lib();
 
     if let Some(prebuilt) = std::env::var_os("SIMRS_CAPI_PREBUILT_DIR") {
-        let candidate = PathBuf::from(prebuilt).join(lib_name);
+        let candidate = PathBuf::from(prebuilt).join(&lib_name);
         if candidate.exists() {
             return candidate.to_string_lossy().into_owned();
         }
@@ -47,7 +48,7 @@ fn find_cdylib() -> String {
         .join("target");
 
     for profile in ["debug", "release"] {
-        let candidate = hle_capi_dir.join(profile).join(lib_name);
+        let candidate = hle_capi_dir.join(profile).join(&lib_name);
         if candidate.exists() {
             return candidate.to_string_lossy().into_owned();
         }

@@ -13,13 +13,23 @@ fn dotnet_bindings() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let capi_lib_dir = find_capi_lib_dir(&manifest_dir);
 
-    // LD_LIBRARY_PATH for Linux, DYLD_LIBRARY_PATH for macOS -- the CoreCLR
-    // P/Invoke loader respects both.
-    let status = Command::new("dotnet")
-        .args(["test", "--verbosity", "normal"])
+    // LD_LIBRARY_PATH for Linux, DYLD_LIBRARY_PATH for macOS, PATH for
+    // Windows -- each platform's dynamic loader searches a different
+    // environment variable.
+    let mut cmd = Command::new("dotnet");
+    cmd.args(["test", "--verbosity", "normal"])
         .current_dir(&manifest_dir)
         .env("LD_LIBRARY_PATH", &capi_lib_dir)
-        .env("DYLD_LIBRARY_PATH", &capi_lib_dir)
+        .env("DYLD_LIBRARY_PATH", &capi_lib_dir);
+
+    if cfg!(target_os = "windows") {
+        // Prepend capi_lib_dir to PATH so LoadLibrary finds simrs_hle_capi.dll.
+        let existing = std::env::var_os("PATH").unwrap_or_default();
+        let new_path = format!("{};{}", capi_lib_dir.display(), existing.to_string_lossy());
+        cmd.env("PATH", new_path);
+    }
+
+    let status = cmd
         .status()
         .expect("failed to run dotnet test -- is the .NET SDK installed?");
 
