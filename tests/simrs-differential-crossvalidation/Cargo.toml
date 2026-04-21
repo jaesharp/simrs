@@ -18,8 +18,9 @@ simrs-jcardengine   = { path = "../../crates/simrs-jcardengine" }
 
 [dev-dependencies]
 insta = { workspace = true }
-simrs-gp-scp  = { workspace = true }
-simrs-gp-keys = { workspace = true }
+simrs-gp-scp       = { workspace = true }
+simrs-gp-keys      = { workspace = true }
+simrs-controlplane = { path = "../../crates/simrs-controlplane" }
 
 [lints]
 workspace = true
