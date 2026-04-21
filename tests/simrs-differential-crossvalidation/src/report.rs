@@ -47,7 +47,7 @@ pub struct DiffTestCase {
     pub duration_ms: u64,
 }
 
-/// Display-time configuration for the report renderers.
+/// Display-time configuration for the per-backend report renderers.
 ///
 /// Controls which catalog entries, which outcome categories, and
 /// which contextual details a rendered report surfaces. The catalog
@@ -56,6 +56,12 @@ pub struct DiffTestCase {
 /// — these flags only filter the *view*. Every decision here is
 /// per-report, and per-report-flavour (XML and Markdown may render
 /// the same underlying data with different verbosity).
+///
+/// **Scope**: per-backend reports only. Cross-backend filtering
+/// (e.g., "include only these backends in the combined table")
+/// lives at the combine layer — one report = one backend, so a
+/// backend selector on a per-backend renderer would never match
+/// anything useful.
 ///
 /// Defaults match the behaviour from before these flags were
 /// introduced: everything visible, no hidden entries.
@@ -89,12 +95,6 @@ pub struct ReportConfig {
     /// generating a static archive where the repository link is
     /// meaningless.
     pub include_catalog_links: bool,
-
-    /// If non-empty, restrict rendering to rows whose backend
-    /// identity is in this set. When empty, every backend is
-    /// included. Independent of [`Self::hide_missing_runtime_divergences`] —
-    /// one filters divergence entries, the other filters case rows.
-    pub only_backends: Vec<crate::BackendId>,
 }
 
 impl Default for ReportConfig {
@@ -105,7 +105,6 @@ impl Default for ReportConfig {
             include_matches: true,
             include_known_divergences: true,
             include_catalog_links: true,
-            only_backends: Vec::new(),
         }
     }
 }
@@ -122,7 +121,6 @@ impl ReportConfig {
             include_matches: false,
             include_known_divergences: true,
             include_catalog_links: true,
-            only_backends: Vec::new(),
         }
     }
 
