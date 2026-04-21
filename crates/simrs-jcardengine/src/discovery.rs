@@ -21,6 +21,18 @@ pub const ENV_BRIDGE: &str = "SIMRS_JCARDENGINE_BRIDGE";
 /// Env var naming the `JCardEngine` library JAR path.
 pub const ENV_LIB: &str = "SIMRS_JCARDENGINE_LIB";
 
+/// Env var naming an explicit `java` binary (>= 17) to launch the bridge.
+///
+/// Takes precedence over [`ENV_JAVA_HOME`], the Gradle JDK cache, and
+/// the default `java` on `PATH`. Useful in CI where a specific JDK
+/// tarball has been unpacked at a known path.
+pub const ENV_JAVA: &str = "SIMRS_JCARDENGINE_JAVA";
+
+/// Standard `JAVA_HOME` env var. If it points at a `bin/java` we assume
+/// the caller has selected an appropriate JDK (validation happens at
+/// spawn time when the bridge reports its own class-file check).
+pub const ENV_JAVA_HOME: &str = "JAVA_HOME";
+
 /// Filename prefix matching a `JCardEngine` library JAR.
 pub const JCARDENGINE_JAR_PREFIX: &str = "jcardengine-";
 
@@ -174,6 +186,87 @@ fn find_jcardengine_in_dir(dir: &Path) -> Option<PathBuf> {
         let ext_jar = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jar"));
         name.starts_with(JCARDENGINE_JAR_PREFIX) && ext_jar
     })
+}
+
+// ---------------------------------------------------------------------------
+// Java runtime discovery
+// ---------------------------------------------------------------------------
+
+/// Discover a `java` binary suitable for running the bridge (JDK 17+).
+///
+/// Search order:
+///
+/// 1. [`ENV_JAVA`] -- explicit override.
+/// 2. [`ENV_JAVA_HOME`] -- resolves to `$JAVA_HOME/bin/java`.
+/// 3. Gradle's toolchain cache (`~/.gradle/jdks/*-17-*/bin/java`,
+///    `-21-`, etc.) -- Gradle downloads these on first build when the
+///    project's `java { toolchain { languageVersion = 17 } }` is used,
+///    which is exactly the bridge's own build config. Picks the
+///    highest-numbered major version available, falling back to 17.
+/// 4. `java` on `PATH`.
+///
+/// Returns a fallback of `"java"` when nothing more specific is found;
+/// the bridge's subsequent `LinkageError`/`UnsupportedClassVersionError`
+/// will surface the version mismatch with a clear message.
+#[must_use]
+pub fn discover_java_binary() -> PathBuf {
+    if let Some(p) = std::env::var_os(ENV_JAVA) {
+        return PathBuf::from(p);
+    }
+    if let Some(home) = std::env::var_os(ENV_JAVA_HOME) {
+        let candidate = PathBuf::from(home).join("bin").join("java");
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    if let Some(p) = from_gradle_jdks_cache() {
+        return p;
+    }
+    PathBuf::from("java")
+}
+
+/// Scan `~/.gradle/jdks/` for a JDK >= 17 and return its `bin/java`.
+///
+/// Gradle provisions toolchain JDKs under
+/// `<vendor>-<major>-<arch>-<os>.<slot>/bin/java`. We pick the highest
+/// `<major>` that is `>= 17`, preferring newer minor releases within
+/// that major when the layout offers them (alphabetical tail sort).
+fn from_gradle_jdks_cache() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    let jdks = PathBuf::from(home).join(".gradle").join("jdks");
+    let entries = std::fs::read_dir(&jdks).ok()?;
+
+    let mut best: Option<(u32, PathBuf)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = path.file_name()?.to_str()?;
+        let Some(major) = extract_gradle_jdk_major(name) else {
+            continue;
+        };
+        if major < 17 {
+            continue;
+        }
+        let candidate = path.join("bin").join("java");
+        if !candidate.is_file() {
+            continue;
+        }
+        if best.as_ref().is_none_or(|(bm, _)| major > *bm) {
+            best = Some((major, candidate));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Parse the major Java version out of a Gradle toolchain cache folder
+/// name like `eclipse_adoptium-17-amd64-linux.2`.
+fn extract_gradle_jdk_major(name: &str) -> Option<u32> {
+    let mut parts = name.split('-');
+    parts.next()?; // vendor
+    let major = parts.next()?;
+    major.parse().ok()
 }
 
 // ---------------------------------------------------------------------------

@@ -275,14 +275,17 @@ jobs:
         if: matrix.backend == 'jcardengine'
         run: gradle --project-dir tools/jcardengine-bridge --no-daemon build
 
-      # ---- jcsl-only: run the full differential suite + replay tests ----
-      # These tests are jcsl-specific (hardcoded applet behaviour
-      # expectations, JcslProcess::start_configured). Skipping on the
-      # jcardengine cell avoids noisy skips and isolates the matrix.
-      - name: Run full differential test suite (jcsl only)
-        if: matrix.backend == 'jcsl'
+      # ---- both cells: full APDU-matrixed differential + replay suites ----
+      # differential.rs and replay.rs are now driven generically via
+      # the apdu_test!/replay_test! macros. Each test runs against the
+      # matrix cell's selected reference (SIMRS_DIFF_BACKEND). Tests
+      # panic when the backend is configured-but-missing so CI fails
+      # loudly on bridge-build regressions.
+      - name: Run APDU-matrixed differential + replay suites
+        env:
+          SIMRS_DIFF_BACKEND: ${{ matrix.backend }}
         run: |
-          cargo test -p simrs-differential-crossvalidation -- --nocapture
+          cargo test -p simrs-differential-crossvalidation --test differential -- --nocapture
           cargo test -p simrs-differential-crossvalidation --test replay -- --nocapture
 
       # ---- both cells: generate the backend's report ----

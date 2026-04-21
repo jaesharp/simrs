@@ -1,27 +1,26 @@
 //! Builder-pattern front-end for configuring differential test sessions.
 //!
 //! [`DiffSession`] wraps the interposer's [`DiffEngine`] with ergonomic
-//! backend configuration and automatic resource management (jcsl processes,
-//! temp files). It is the primary entry point for replay-based differential
-//! tests.
+//! backend configuration and automatic resource management (jcsl
+//! processes, jcardengine bridges, temp files). It is the primary entry
+//! point for replay-based differential tests.
 //!
 //! # Scope
 //!
-//! The session currently supports Oracle `jcsl` as the only managed
-//! reference backend. [`DualCard`](crate::DualCard) is the
+//! Supports both Oracle `jcsl` and martinpaljak/`JCardEngine` as
+//! managed reference backends. [`DualCard`](crate::DualCard) is the
 //! [`ReferenceBackend`](crate::ReferenceBackend)-generic harness used
-//! by the report generator; when replay tests grow a need for a
-//! `JCardEngine` variant, add a `try_jcardengine()` builder method
-//! mirroring [`try_oracle_jcsl`](DiffSessionBuilder::try_oracle_jcsl).
+//! by the report generator; the session builder mirrors that
+//! abstraction at the replay-test level.
 //!
 //! # Example
 //!
 //! ```rust,ignore
 //! let mut session = DiffSession::builder("my-test")
 //!     .simrs_gp_card()
-//!     .try_oracle_jcsl()
+//!     .try_oracle_jcsl()        // or .try_jcardengine()
 //!     .build()
-//!     .expect("jcsl not available");
+//!     .expect("reference backend not available");
 //!
 //! let results = session.replay_one(&apdu);
 //! session.print_summary();
@@ -32,9 +31,13 @@ use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
 use simrs_interposer::diff::{DiffEngine, DiffRecord};
 use simrs_interposer::divergence::{CompareResult, DivergenceStats};
+use simrs_jcardengine::{
+    BridgeInstallation, JcardengineClient, JcardengineConfig, JcardengineProcess,
+};
 use simrs_jcsl::configurator::{GlobalPin, ScpKeyset};
 use simrs_jcsl::{JcslClient, JcslProcess};
 use simrs_transport::{Transport, TransportError};
+use std::time::Duration;
 
 // -------------------------------------------------------------------------
 // Builder
@@ -46,6 +49,8 @@ enum PendingBackend {
     SimrsGpCard { keys: Option<KeySet> },
     /// Oracle jcsl over TCP (requires `SIMRS_JCSL_BINARY`).
     OracleJcsl,
+    /// martinpaljak/`JCardEngine` over TCP (requires a built bridge JAR).
+    Jcardengine { installation: BridgeInstallation },
     /// Pre-constructed `Transport`.
     Custom {
         label: String,
@@ -101,10 +106,29 @@ impl DiffSessionBuilder {
     ///
     /// Uses [`discover_jcsl_binary()`](crate::discover_jcsl_binary) to locate
     /// the jcsl binary. If no binary is found, the session is marked as
-    /// skipped and [`build()`](Self::build) will return `None`.
+    /// skipped and [`build()`](Self::build) will return `None`. Callers
+    /// selecting this backend explicitly (e.g. via the matrix harness)
+    /// should treat `None` as a configuration error and panic.
     pub fn try_oracle_jcsl(mut self) -> Self {
         if simrs_jcsl::discover_binary().is_some() {
             self.pending.push(PendingBackend::OracleJcsl);
+        } else {
+            self.skipped = true;
+        }
+        self
+    }
+
+    /// Try to add a martinpaljak/`JCardEngine` backend.
+    ///
+    /// Uses [`simrs_jcardengine::discover_bridge`] to locate the bridge
+    /// JAR (env vars, XDG cache, workspace Gradle output). If the
+    /// bridge isn't available, the session is marked as skipped and
+    /// [`build()`](Self::build) will return `None`. Caller panics on
+    /// `None` when this backend was configured explicitly.
+    pub fn try_jcardengine(mut self) -> Self {
+        if let Some(installation) = simrs_jcardengine::discover_bridge() {
+            self.pending
+                .push(PendingBackend::Jcardengine { installation });
         } else {
             self.skipped = true;
         }
@@ -188,7 +212,7 @@ impl DiffSessionBuilder {
                         Some(&gpin),
                         port,
                         "info",
-                        std::time::Duration::from_secs(10),
+                        Duration::from_secs(10),
                     )
                     .expect("failed to start jcsl");
 
@@ -198,6 +222,26 @@ impl DiffSessionBuilder {
 
                     engine.add_backend("oracle", Box::new(client));
                     resources.jcsl_processes.push(proc);
+                }
+                PendingBackend::Jcardengine { installation } => {
+                    let port = next_port();
+                    let master_key_hex = crate::reference::hex_upper(&KEY_BYTES);
+
+                    let mut cfg = JcardengineConfig::new(installation);
+                    cfg.port = port;
+                    cfg.applet_class = crate::reference::JCE_GP_APPLET_CLASS.into();
+                    cfg.applet_aid_hex = crate::reference::JCE_GP_APPLET_AID.into();
+                    cfg.gp_master_key_hex = Some(master_key_hex);
+                    cfg.startup_timeout = Duration::from_secs(20);
+
+                    let proc = JcardengineProcess::start(&cfg)
+                        .expect("failed to start jcardengine bridge");
+                    let mut client = JcardengineClient::connect(&proc.address())
+                        .expect("failed to connect to jcardengine bridge");
+                    client.power_on().expect("jcardengine power_on failed");
+
+                    engine.add_backend("jcardengine", Box::new(client));
+                    resources.jcardengine_processes.push(proc);
                 }
                 PendingBackend::Custom { label, transport } => {
                     engine.add_backend(label, transport);
@@ -218,12 +262,14 @@ impl DiffSessionBuilder {
 
 /// Managed resources that are cleaned up when the session is dropped.
 ///
-/// Jcsl processes are killed on drop via [`JcslProcess::drop`].
-/// No temp files are created (binaries are executed from memfd).
+/// Reference processes are killed on drop via their respective `Drop`
+/// impls. No temp files are created (binaries are executed from memfd).
 #[derive(Default)]
 struct SessionResources {
     /// Jcsl process handles (killed on drop via `JcslProcess::drop`).
     jcsl_processes: Vec<JcslProcess>,
+    /// Jcardengine bridge handles (killed on drop).
+    jcardengine_processes: Vec<JcardengineProcess>,
 }
 
 /// A configured differential test session.

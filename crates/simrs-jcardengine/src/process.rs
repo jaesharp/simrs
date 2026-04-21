@@ -56,7 +56,11 @@ pub struct JcardengineConfig {
     pub extra_classpath: Vec<PathBuf>,
     /// Maximum wall-clock wait for `LISTENING <port>`.
     pub startup_timeout: Duration,
-    /// `java` binary path. Defaults to whatever `PATH` resolves.
+    /// `java` binary path.
+    ///
+    /// Defaults to [`discover_java_binary`](crate::discovery::discover_java_binary),
+    /// which prefers `SIMRS_JCARDENGINE_JAVA`, then `JAVA_HOME`, then a
+    /// Gradle-cached JDK 17+, then `java` on `PATH`.
     pub java_binary: PathBuf,
 }
 
@@ -72,7 +76,7 @@ impl JcardengineConfig {
             gp_master_key_hex: None,
             extra_classpath: Vec::new(),
             startup_timeout: Duration::from_secs(15),
-            java_binary: PathBuf::from("java"),
+            java_binary: crate::discovery::discover_java_binary(),
         }
     }
 }

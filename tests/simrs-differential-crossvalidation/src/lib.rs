@@ -68,6 +68,31 @@ pub(crate) fn next_port() -> u16 {
 // Re-export jcsl discovery for convenience.
 pub use simrs_jcsl::discover_binary as discover_jcsl_binary;
 
+/// Env var selecting which reference backend a test should run against.
+///
+/// Consumed by [`select_backend`]; unset defaults to [`BackendId::Jcsl`]
+/// so legacy tests keep their prior behaviour when invoked without a
+/// matrix context.
+pub const ENV_DIFF_BACKEND: &str = "SIMRS_DIFF_BACKEND";
+
+/// Read [`ENV_DIFF_BACKEND`] and return the chosen backend.
+///
+/// Panics on an unrecognised value so misconfigured CI fails loudly
+/// rather than falling back silently.
+///
+/// # Panics
+///
+/// If [`ENV_DIFF_BACKEND`] is set to anything other than `jcsl` or
+/// `jcardengine` (case-insensitive).
+#[must_use]
+pub fn select_backend() -> BackendId {
+    std::env::var(ENV_DIFF_BACKEND).map_or(BackendId::Jcsl, |raw| {
+        BackendId::parse(&raw).unwrap_or_else(|b| {
+            panic!("unknown {ENV_DIFF_BACKEND}={b:?}; expected jcsl or jcardengine")
+        })
+    })
+}
+
 /// Env var overriding [`default_report_dir`]. Set in CI when we want
 /// reports written somewhere specific (e.g., a cached artifact path
 /// that survives matrix cells).
@@ -120,8 +145,10 @@ pub fn display_path(path: &std::path::Path) -> String {
     workspace_root().map_or_else(
         || path.display().to_string(),
         |root| {
-            path.strip_prefix(&root)
-                .map_or_else(|_| path.display().to_string(), |rel| rel.display().to_string())
+            path.strip_prefix(&root).map_or_else(
+                |_| path.display().to_string(),
+                |rel| rel.display().to_string(),
+            )
         },
     )
 }

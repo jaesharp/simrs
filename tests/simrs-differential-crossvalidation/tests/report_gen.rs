@@ -23,9 +23,8 @@ use simrs_differential_crossvalidation::{
     BackendId, DualCard, DualResponse, ORACLE_ISD_AID, ReferenceBackend, SIMRS_ISD_AID,
     default_report_dir, known_divergences,
     report::{DiffReport, DiffTestCase, DivergenceCategory},
-    select_aid, try_create_dual_card_jcardengine, try_create_dual_card_jcsl,
+    select_aid, select_backend, try_create_dual_card_jcardengine, try_create_dual_card_jcsl,
 };
-use std::env;
 use std::fs;
 use std::time::Instant;
 
@@ -88,17 +87,6 @@ fn build_case(
 struct ApduSpec {
     name: &'static str,
     apdu: Vec<u8>,
-}
-
-/// Resolve the backend selector from `SIMRS_DIFF_BACKEND`. Panics on
-/// an unrecognised value so misconfigured CI fails loudly instead of
-/// silently falling back.
-fn select_backend() -> BackendId {
-    env::var("SIMRS_DIFF_BACKEND").map_or(BackendId::Jcsl, |raw| {
-        BackendId::parse(&raw).unwrap_or_else(|b| {
-            panic!("unknown SIMRS_DIFF_BACKEND={b:?}; expected jcsl or jcardengine")
-        })
-    })
 }
 
 /// Core driver: runs the APDU matrix against whatever [`ReferenceBackend`]

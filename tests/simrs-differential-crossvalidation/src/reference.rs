@@ -33,10 +33,10 @@ use simrs_transport::{Transport, TransportError};
 
 use crate::{KEY_BYTES, next_port};
 
-/// Uppercase hex-encode a byte slice. Kept private to this module;
-/// the handful of callers all want the same "no separators, no 0x
-/// prefix" spelling used in context report entries.
-fn hex_upper(bytes: &[u8]) -> String {
+/// Uppercase hex-encode a byte slice. Uses the "no separators, no 0x
+/// prefix" spelling consumed by context report entries and the
+/// `--gp-master-key-hex` bridge CLI option.
+pub(crate) fn hex_upper(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
