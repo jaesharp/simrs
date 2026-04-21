@@ -1,0 +1,13 @@
+[package]
+name        = "simrs-jcardsim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "licel/jcardsim Java Card Simulator client, process manager, and discovery -- terminal-side driver for differential testing"
+publish     = false
+
+[dependencies]
+simrs-transport = { workspace = true }
+
+[lints]
+workspace = true

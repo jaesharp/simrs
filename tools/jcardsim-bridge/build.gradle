@@ -1,0 +1,60 @@
+// Build script for the simrs-jcardsim bridge JAR.
+//
+// Produces build/libs/bridge.jar and also copies the resolved jcardsim
+// library JAR next to it, so runtime classpath discovery only needs to
+// glob one directory.
+//
+// Usage:
+//   ./gradlew --project-dir tools/jcardsim-bridge build
+//   -> build/libs/bridge.jar
+//   -> build/libs/jcardsim-<version>.jar
+
+plugins {
+    id 'java'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(11)
+    }
+}
+
+repositories {
+    // licel/jcardsim publishes to GitHub Packages (package coordinates
+    // com.licel:jcardsim). This repo expects GPR_USER/GPR_TOKEN env
+    // vars, matching the standard GitHub Packages auth flow.
+    maven {
+        url = uri("https://maven.pkg.github.com/licel/jcardsim")
+        credentials {
+            username = System.getenv("GPR_USER")    ?: ""
+            password = System.getenv("GPR_TOKEN")   ?: ""
+        }
+    }
+    mavenCentral()
+}
+
+dependencies {
+    // jcardsim 3.0.5 is the latest published release as of 2024.
+    implementation 'com.licel:jcardsim:3.0.5.11'
+}
+
+jar {
+    archiveFileName = 'bridge.jar'
+    manifest {
+        attributes 'Main-Class': 'com.simrs.jcardsim.Bridge'
+    }
+}
+
+// After `jar`, copy the resolved jcardsim JAR into build/libs/ so the
+// Rust discovery logic can find it next to bridge.jar.
+tasks.register('copyJcardsim', Copy) {
+    dependsOn configurations.runtimeClasspath
+    from {
+        configurations.runtimeClasspath.find { it.name.startsWith('jcardsim-') }
+    }
+    into layout.buildDirectory.dir('libs')
+}
+
+tasks.named('build') {
+    dependsOn 'copyJcardsim'
+}
