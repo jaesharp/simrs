@@ -271,3 +271,37 @@ Feature: OTA / ENVELOPE Injection Security
     And I have sent TERMINAL PROFILE (SW 90 00)
     When I send Call Control ENVELOPE with Device Identities
     Then SW is 90 00 (success)
+
+  # ---------------------------------------------------------------------------
+  # ENVELOPE response chaining (3GPP TS 31.101 / ETSI TS 102 221 clause 11.2.1)
+  #
+  # When a short APDU cannot carry the full response, the card returns
+  # SW 61 XX and the terminal issues GET RESPONSE [00 C0 00 00 XX] to
+  # retrieve the remaining bytes. OTA ENVELOPE responses that include a
+  # proactive command payload routinely exceed 255 bytes.
+  # ---------------------------------------------------------------------------
+
+  @wip
+  Scenario: ENVELOPE with response exceeding 255 bytes returns 61 XX and chains via GET RESPONSE
+    Given the SIM is initialised with test credentials
+    And the SIM is powered on
+    And I have sent TERMINAL PROFILE (SW 90 00)
+    When I send an ENVELOPE whose response is 300 bytes long
+    Then SW is 61 XX where XX is the remaining byte count
+    When I send GET RESPONSE [00 C0 00 00 XX]
+    Then SW is 90 00
+    And the concatenated response equals the original 300-byte ENVELOPE response
+
+  @wip
+  Scenario: ENVELOPE response chaining preserves proactive-command state across GET RESPONSE
+    # A proactive command queued by ENVELOPE must remain FETCH-retrievable
+    # after the full response has been chained back to the terminal.
+    Given the SIM is initialised with test credentials
+    And the SIM is powered on
+    And I have sent TERMINAL PROFILE (SW 90 00)
+    When I send an ENVELOPE that queues a DISPLAY TEXT proactive command
+    And the ENVELOPE response is 300 bytes requiring chained GET RESPONSE
+    And I chain the response via GET RESPONSE
+    When I send FETCH [80 12 00 00 00]
+    Then SW is 90 00
+    And the response data is the DISPLAY TEXT proactive command TLV
