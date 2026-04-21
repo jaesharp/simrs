@@ -7,13 +7,14 @@ description = "Differential tests: simrs GpCard vs Oracle jcsl reference simulat
 publish     = false
 
 [dependencies]
-simrs-gp-card    = { workspace = true }
-simrs-gp-keys    = { workspace = true }
-simrs-gp-scp     = { workspace = true }
-simrs-card-api   = { workspace = true }
-simrs-transport  = { workspace = true }
-simrs-interposer = { workspace = true }
-simrs-jcsl       = { path = "../../crates/simrs-jcsl" }
+simrs-gp-card       = { workspace = true }
+simrs-gp-keys       = { workspace = true }
+simrs-gp-scp        = { workspace = true }
+simrs-card-api      = { workspace = true }
+simrs-transport     = { workspace = true }
+simrs-interposer    = { workspace = true }
+simrs-jcsl          = { path = "../../crates/simrs-jcsl" }
+simrs-jcardengine   = { path = "../../crates/simrs-jcardengine" }
 
 [dev-dependencies]
 insta = { workspace = true }

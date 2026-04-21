@@ -35,9 +35,11 @@
 //! ```
 
 pub mod known_divergences;
+pub mod reference;
 pub mod report;
 mod session;
 
+pub use reference::{BackendId, JcardengineBackend, JcslBackend, ReferenceBackend};
 pub use session::{DiffSession, DiffSessionBuilder};
 
 // Re-export key interposer types so consumers don't need to depend on
@@ -48,8 +50,6 @@ pub use simrs_interposer::divergence::{CompareResult, DivergenceStats};
 use simrs_card_api::{SimEvent, SimResponse};
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
-use simrs_jcsl::configurator::{GlobalPin, ScpKeyset};
-use simrs_jcsl::{JcslClient, JcslProcess};
 use simrs_transport::{Transport, TransportError};
 
 /// Allocate a free TCP port from the OS.
@@ -68,6 +68,36 @@ pub(crate) fn next_port() -> u16 {
 // Re-export jcsl discovery for convenience.
 pub use simrs_jcsl::discover_binary as discover_jcsl_binary;
 
+/// Env var overriding [`default_report_dir`]. Set in CI when we want
+/// reports written somewhere specific (e.g., a cached artifact path
+/// that survives matrix cells).
+pub const ENV_REPORT_DIR: &str = "SIMRS_DIFF_REPORT_DIR";
+
+/// Default directory for per-backend + combined report outputs.
+///
+/// Resolves to `<workspace-target>/differential-reports/`, computed
+/// from `CARGO_MANIFEST_DIR` at compile time. The directory is created
+/// on first write; callers don't need to pre-create it.
+///
+/// Override at run time with the [`ENV_REPORT_DIR`] env var -- handy
+/// for CI cells that want to funnel multiple report families into a
+/// shared upload directory.
+#[must_use]
+pub fn default_report_dir() -> std::path::PathBuf {
+    if let Some(explicit) = std::env::var_os(ENV_REPORT_DIR) {
+        return std::path::PathBuf::from(explicit);
+    }
+    // crates/../tests/simrs-differential-crossvalidation -> workspace/target
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest
+        .parent()
+        .and_then(std::path::Path::parent)
+        .map_or_else(
+            || std::path::PathBuf::from("target/differential-reports"),
+            |ws| ws.join("target").join("differential-reports"),
+        )
+}
+
 // ---------------------------------------------------------------------------
 // GpCardTerminal -- wraps GpCard as Transport (mirrors SimTerminal pattern)
 // ---------------------------------------------------------------------------
@@ -76,7 +106,8 @@ pub use simrs_jcsl::discover_binary as discover_jcsl_binary;
 ///
 /// Mirrors the `SimTerminal` pattern from `simrs-interposer`:
 /// APDU bytes in, data+SW bytes out. This allows `GpCard` to be
-/// used interchangeably with `JcslClient` in the [`DiffEngine`].
+/// used interchangeably with any [`ReferenceBackend`] in the
+/// [`DiffEngine`].
 pub struct GpCardTerminal {
     card: GpCard<261>,
     powered: bool,
@@ -196,19 +227,20 @@ impl std::fmt::Debug for ApduResponse {
 pub struct DualResponse {
     /// Response from the simrs in-process `GpCard`.
     pub simrs: ApduResponse,
-    /// Response from the Oracle jcsl simulator.
-    pub oracle: ApduResponse,
+    /// Response from the reference backend (Oracle jcsl or
+    /// martinpaljak `JCardEngine`, depending on run configuration).
+    pub reference: ApduResponse,
 }
 
 impl DualResponse {
     /// Whether both implementations returned the same status word.
     pub fn sw_match(&self) -> bool {
-        self.simrs.sw == self.oracle.sw
+        self.simrs.sw == self.reference.sw
     }
 
     /// Whether both implementations returned the same SW1 byte.
     pub const fn sw1_match(&self) -> bool {
-        self.simrs.sw[0] == self.oracle.sw[0]
+        self.simrs.sw[0] == self.reference.sw[0]
     }
 }
 
@@ -250,40 +282,40 @@ pub fn select_aid(aid: &[u8]) -> Vec<u8> {
 
 /// Dual-card test harness.
 ///
-/// Holds an in-process `GpCard` and a live connection to the Oracle jcsl
-/// simulator. Methods send the same commands to both and collect the
-/// results.
-pub struct DualCard {
+/// Holds an in-process simrs `GpCard` and a live connection to one
+/// [`ReferenceBackend`] (Oracle jcsl or `JCardEngine`). Methods send
+/// the same commands to both and collect the results so a single test
+/// can be re-used across backends.
+pub struct DualCard<B: ReferenceBackend> {
     /// In-process simrs card.
     pub simrs: GpCard<261>,
-    /// Oracle jcsl TCP client.
-    pub oracle: JcslClient,
-    /// TCP port for reconnection.
-    port: u16,
-    /// Oracle jcsl process handle (dropped on test cleanup).
-    _proc: JcslProcess,
+    /// Reference backend (implementor drops child process on Drop).
+    pub reference: B,
 }
 
-impl DualCard {
+impl<B: ReferenceBackend> DualCard<B> {
     /// Power on both cards and return their ATRs.
     ///
     /// # Panics
     ///
-    /// Panics if Oracle power-on fails.
+    /// Panics if the reference backend power-on fails.
     pub fn power_on(&mut self) -> (Vec<u8>, Vec<u8>) {
         let simrs_atr = match self.simrs.process(SimEvent::PowerOn) {
             SimResponse::Atr(atr) => atr.to_vec(),
             other => panic!("expected ATR from simrs PowerOn, got: {other:?}"),
         };
-        let oracle_atr = self.oracle.power_on().expect("Oracle power_on failed");
-        (simrs_atr, oracle_atr)
+        let reference_atr = self
+            .reference
+            .power_on()
+            .expect("reference backend power_on failed");
+        (simrs_atr, reference_atr)
     }
 
     /// Send an APDU to both cards and collect responses.
     ///
     /// # Panics
     ///
-    /// Panics if Oracle APDU exchange fails.
+    /// Panics if the reference backend APDU exchange fails.
     pub fn exchange(&mut self, apdu: &[u8]) -> DualResponse {
         let simrs_rsp = match self.simrs.process(SimEvent::Apdu(apdu)) {
             SimResponse::Apdu { data, sw } => {
@@ -300,30 +332,28 @@ impl DualCard {
             other @ SimResponse::Atr(_) => panic!("unexpected simrs response: {other:?}"),
         };
 
-        let oracle_raw = self
-            .oracle
+        let reference_raw = self
+            .reference
             .transmit_apdu(apdu)
-            .expect("Oracle APDU exchange failed");
-        let oracle_rsp = ApduResponse::from_raw(&oracle_raw);
+            .expect("reference backend APDU exchange failed");
+        let reference_rsp = ApduResponse::from_raw(&reference_raw);
 
         DualResponse {
             simrs: simrs_rsp,
-            oracle: oracle_rsp,
+            reference: reference_rsp,
         }
     }
 
-    /// Reconnect to the Oracle jcsl simulator.
-    ///
-    /// The jcsl server does not support power-cycling within a single TCP
-    /// connection. Call this after a logical reset to establish a fresh
-    /// session.
+    /// Re-establish the reference-side session after a simulated power
+    /// cycle. Delegates to [`ReferenceBackend::reconnect`] -- a no-op
+    /// for backends that power-cycle inside one TCP session.
     ///
     /// # Panics
     ///
-    /// Panics if the reconnection fails.
-    pub fn reconnect_oracle(&mut self) {
-        self.oracle = JcslClient::connect(&format!("127.0.0.1:{}", self.port))
-            .expect("failed to reconnect to jcsl");
+    /// Panics if reconnection fails (backend-specific; jcsl panics on
+    /// TCP failure, jcardengine never panics).
+    pub fn reconnect_reference(&mut self) {
+        self.reference.reconnect();
     }
 }
 
@@ -331,57 +361,61 @@ impl DualCard {
 // Factory functions
 // ---------------------------------------------------------------------------
 
-/// Try to create a [`DualCard`] harness.
+/// Configure an in-process `GpCard` with the shared differential test
+/// keys (DES3-2key + AES-128 @ KVN 0x03). Used by every factory.
+fn build_simrs_card() -> GpCard<261> {
+    let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
+    let mut card = GpCard::with_default_atr(&keys);
+    let aes_keys = KeySet::aes128(KEY_BYTES, KEY_BYTES, KEY_BYTES);
+    let _ = card.open_mut().add_key(0x03, &aes_keys);
+    card
+}
+
+/// Try to create a [`DualCard`] harness backed by Oracle jcsl.
 ///
-/// Returns `None` if `SIMRS_JCSL_BINARY` is not set or the binary
-/// does not exist, allowing tests to skip gracefully.
-///
-/// The Oracle binary is configured and executed from an anonymous
-/// memfd -- no temporary files are created.
+/// Returns `None` if the jcsl binary is not discoverable, allowing
+/// tests to skip gracefully. The Oracle binary is configured and
+/// executed from an anonymous memfd -- no temporary files are
+/// created.
 ///
 /// # Panics
 ///
 /// Panics if the binary exists but configuration or startup fails.
-pub fn try_create_dual_card(_label: &str) -> Option<DualCard> {
-    let src = discover_jcsl_binary()?;
-    let port = next_port();
-
-    let keyset = ScpKeyset {
-        kvn: 0x01,
-        enc: KEY_BYTES.to_vec(),
-        mac: KEY_BYTES.to_vec(),
-        dek: KEY_BYTES.to_vec(),
-    };
-    let gpin = GlobalPin {
-        pin: vec![0x31, 0x32, 0x33, 0x34],
-        max_retries: 3,
-    };
-
-    let proc = JcslProcess::start_configured(
-        &src,
-        Some(&keyset),
-        Some(&gpin),
-        port,
-        "info",
-        std::time::Duration::from_secs(10),
-    )
-    .expect("failed to start jcsl");
-
-    let client =
-        JcslClient::connect(&format!("127.0.0.1:{port}")).expect("failed to connect to jcsl");
-
-    let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-    let mut card = GpCard::with_default_atr(&keys);
-    // Add AES-128 keys at version 0x03 for SCP03 testing.
-    let aes_keys = KeySet::aes128(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-    let _ = card.open_mut().add_key(0x03, &aes_keys);
-
+#[must_use]
+pub fn try_create_dual_card_jcsl(_label: &str) -> Option<DualCard<JcslBackend>> {
+    let backend = JcslBackend::try_start()?;
     Some(DualCard {
-        simrs: card,
-        oracle: client,
-        port,
-        _proc: proc,
+        simrs: build_simrs_card(),
+        reference: backend,
     })
+}
+
+/// Try to create a [`DualCard`] harness backed by martinpaljak
+/// `JCardEngine`.
+///
+/// Returns `None` if the bridge installation isn't available
+/// (Gradle build not run, env vars unset, no XDG-cache install).
+/// Tests skip gracefully when `None`.
+///
+/// # Panics
+///
+/// Panics if the bridge installation exists but the JVM fails to
+/// spawn or the TCP connect fails.
+#[must_use]
+pub fn try_create_dual_card_jcardengine(_label: &str) -> Option<DualCard<JcardengineBackend>> {
+    let backend = JcardengineBackend::try_start()?;
+    Some(DualCard {
+        simrs: build_simrs_card(),
+        reference: backend,
+    })
+}
+
+/// Legacy alias for [`try_create_dual_card_jcsl`]. Predates the
+/// backend parameterisation; new code should pick the factory that
+/// names its backend explicitly.
+#[must_use]
+pub fn try_create_dual_card(label: &str) -> Option<DualCard<JcslBackend>> {
+    try_create_dual_card_jcsl(label)
 }
 
 // ---------------------------------------------------------------------------
@@ -563,12 +597,12 @@ mod tests {
     fn snap_dual_response_matching() {
         let dr = DualResponse {
             simrs: ApduResponse::from_raw(&[0x90, 0x00]),
-            oracle: ApduResponse::from_raw(&[0x90, 0x00]),
+            reference: ApduResponse::from_raw(&[0x90, 0x00]),
         };
         let output = format!(
-            "simrs: {:?}\noracle: {:?}\nsw_match: {}\nsw1_match: {}",
+            "simrs: {:?}\nreference: {:?}\nsw_match: {}\nsw1_match: {}",
             dr.simrs,
-            dr.oracle,
+            dr.reference,
             dr.sw_match(),
             dr.sw1_match()
         );
@@ -579,12 +613,12 @@ mod tests {
     fn snap_dual_response_sw_mismatch() {
         let dr = DualResponse {
             simrs: ApduResponse::from_raw(&[0x90, 0x00]),
-            oracle: ApduResponse::from_raw(&[0x6A, 0x82]),
+            reference: ApduResponse::from_raw(&[0x6A, 0x82]),
         };
         let output = format!(
-            "simrs: {:?}\noracle: {:?}\nsw_match: {}\nsw1_match: {}",
+            "simrs: {:?}\nreference: {:?}\nsw_match: {}\nsw1_match: {}",
             dr.simrs,
-            dr.oracle,
+            dr.reference,
             dr.sw_match(),
             dr.sw1_match()
         );
@@ -595,12 +629,12 @@ mod tests {
     fn snap_dual_response_sw1_match_sw2_differ() {
         let dr = DualResponse {
             simrs: ApduResponse::from_raw(&[0x6A, 0x82]),
-            oracle: ApduResponse::from_raw(&[0x6A, 0x88]),
+            reference: ApduResponse::from_raw(&[0x6A, 0x88]),
         };
         let output = format!(
-            "simrs: {:?}\noracle: {:?}\nsw_match: {}\nsw1_match: {}",
+            "simrs: {:?}\nreference: {:?}\nsw_match: {}\nsw1_match: {}",
             dr.simrs,
-            dr.oracle,
+            dr.reference,
             dr.sw_match(),
             dr.sw1_match()
         );

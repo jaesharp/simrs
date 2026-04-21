@@ -189,3 +189,75 @@ Feature: SCP Secure Messaging (GP 2.1.1 clause 8.3)
     When I send a command whose header+data is not a multiple of 8 bytes
     Then the C-MAC is computed over the padded input (0x80 00... to block boundary)
     And the padding bytes are not included in the transmitted APDU data field
+
+  # ---------------------------------------------------------------------------
+  # PUT KEY algorithm coverage (GP 2.1.1 clause 9.8, GP 2.3 Amd D for AES)
+  #
+  # simrs-gp-keys::KeySet supports DES3-2key, DES3-3key, and AES-128/192/256.
+  # Each variant carries a distinct Algorithm ID in the PUT KEY payload
+  # (Table 11-13) and a distinct key-data length; these scenarios pin the
+  # Algorithm ID + Lc per variant.
+  # ---------------------------------------------------------------------------
+
+  @wip
+  Scenario Outline: PUT KEY installs a key of algorithm "<algo>" under KVN <kvn>
+    # GP 2.1.1 clause 9.8, Amd D 7.6 (AES), Table 11-13 (algorithm IDs)
+    Given I have established an SCP02 session with security level 0x03 (C-MAC + C-ENC)
+    When I send PUT KEY with algorithm ID <algo_id> and key length <key_len_bytes> bytes under KVN <kvn>
+    And the key check value matches <kcv_algo>(new_key, 0x00[<kcv_block>])[0..3]
+    Then SW is 90 00
+    And the new key is stored at version <kvn> with algorithm "<algo>"
+    And a subsequent INITIALIZE UPDATE with KVN <kvn> succeeds
+
+    Examples:
+      | algo      | algo_id | kvn | key_len_bytes | kcv_algo | kcv_block |
+      | DES3-2key | 80      | 02  | 16            | 3DES_ECB | 8         |
+      | DES3-3key | 81      | 03  | 24            | 3DES_ECB | 8         |
+      | AES-128   | 88      | 04  | 16            | AES_ECB  | 16        |
+      | AES-192   | 88      | 05  | 24            | AES_ECB  | 16        |
+      | AES-256   | 88      | 06  | 32            | AES_ECB  | 16        |
+
+  @wip
+  Scenario: PUT KEY with mismatched KCV is rejected
+    # GP 2.1.1 clause 9.8.3: KCV is the first 3 bytes of encrypting the
+    # zero block with the new key. A mismatched KCV must be rejected
+    # without installing the key, to prevent silent key-install corruption.
+    Given I have established an SCP02 session with security level 0x03 (C-MAC + C-ENC)
+    When I send PUT KEY with algorithm ID 88 and a KCV that does NOT match AES_ECB(new_key, 0x00[16])[0..3]
+    Then SW is 69 85 or 6A 80
+    And the key store is unchanged
+
+  # ---------------------------------------------------------------------------
+  # SCP02 R-MAC session lifecycle (GP 2.1.1 Appendix E.4.4)
+  #
+  # BEGIN R-MAC SESSION (INS 0x7A) activates R-MAC appendage on responses;
+  # END R-MAC SESSION (INS 0x78) stops it. Both must be rejected outside
+  # an active SCP session.
+  # ---------------------------------------------------------------------------
+
+  @wip
+  Scenario: BEGIN R-MAC SESSION activates R-MAC appendage on responses
+    # GP 2.1.1 Appendix E.4.4
+    Given I have established an SCP02 session with security level 0x01 (C-MAC)
+    When I send BEGIN R-MAC SESSION [80 7A 00 00 00]
+    Then SW is 90 00
+    When I send GET STATUS (P1=0x80) with correct C-MAC
+    Then SW is 90 00
+    And the response data ends with an 8-byte R-MAC
+    And the R-MAC verifies against MAC(session_R-MAC, response_data || SW1 || SW2)
+
+  @wip
+  Scenario: END R-MAC SESSION stops appending R-MAC to responses
+    # GP 2.1.1 Appendix E.4.4
+    Given I have established an SCP02 session with R-MAC active
+    When I send END R-MAC SESSION [80 78 00 00 00]
+    Then SW is 90 00
+    When I send GET STATUS (P1=0x80) with correct C-MAC
+    Then SW is 90 00
+    And the response data does NOT end with an R-MAC
+
+  @wip
+  Scenario: BEGIN R-MAC SESSION outside an SCP session is rejected
+    Given no SCP session is active
+    When I send BEGIN R-MAC SESSION [80 7A 00 00 00]
+    Then SW is 69 85

@@ -5,6 +5,15 @@
 //! temp files). It is the primary entry point for replay-based differential
 //! tests.
 //!
+//! # Scope
+//!
+//! The session currently supports Oracle `jcsl` as the only managed
+//! reference backend. [`DualCard`](crate::DualCard) is the
+//! [`ReferenceBackend`](crate::ReferenceBackend)-generic harness used
+//! by the report generator; when replay tests grow a need for a
+//! `JCardEngine` variant, add a `try_jcardengine()` builder method
+//! mirroring [`try_oracle_jcsl`](DiffSessionBuilder::try_oracle_jcsl).
+//!
 //! # Example
 //!
 //! ```rust,ignore

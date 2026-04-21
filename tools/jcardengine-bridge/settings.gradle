@@ -1,0 +1,10 @@
+// Foojay Disco API supplies JDKs for Gradle toolchain auto-provisioning.
+// Without this, builds on machines without a local JDK 17 fail with
+// "toolchain download repositories have not been configured". This
+// block must appear before rootProject.name; Gradle enforces that
+// plugins {} come before any other statements in settings.gradle.
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+rootProject.name = 'jcardengine-bridge'

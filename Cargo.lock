@@ -1562,6 +1562,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-controlplane"
+version = "0.1.0"
+dependencies = [
+ "simrs-iso7816",
+ "simrs-transport",
+]
+
+[[package]]
 name = "simrs-des"
 version = "0.1.0"
 dependencies = [
@@ -1582,6 +1590,7 @@ dependencies = [
  "simrs-gp-keys",
  "simrs-gp-scp",
  "simrs-interposer",
+ "simrs-jcardengine",
  "simrs-jcsl",
  "simrs-transport",
 ]
@@ -1768,6 +1777,13 @@ dependencies = [
  "simrs-jcasm",
  "simrs-jccompile",
  "simrs-jcvm",
+]
+
+[[package]]
+name = "simrs-jcardengine"
+version = "0.1.0"
+dependencies = [
+ "simrs-transport",
 ]
 
 [[package]]

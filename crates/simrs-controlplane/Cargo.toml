@@ -1,0 +1,14 @@
+[package]
+name        = "simrs-controlplane"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Test-only JavaCard control-plane applet and Transport wrapper for exposing simrs internals (JCVM state, heap, PRNG, fault injection, snapshot markers, firewall probe, interposer) via proprietary APDUs"
+publish     = false
+
+[dependencies]
+simrs-transport = { workspace = true }
+simrs-iso7816   = { workspace = true }
+
+[lints]
+workspace = true

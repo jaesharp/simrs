@@ -151,3 +151,44 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
     Then SW is 90 00
     And the currently selected application is [A0 00 00 00 62 01 01 03]
     And application [A0 00 00 00 62 01 01 02] has been deselected
+
+  # ---------------------------------------------------------------------------
+  # Per-channel applet-state isolation (GP 2.1.1 clause 6.4, ISO 7816-4 5.1.1)
+  #
+  # Each logical channel holds an independent selection context. The same
+  # applet selected on two channels must present per-channel state; state
+  # changes on one channel must not leak to the other.
+  # ---------------------------------------------------------------------------
+
+  @wip
+  Scenario: Two channels each holding a different applet remain isolated
+    Given applications [A0 00 00 00 62 01 01 02] and [A0 00 00 00 62 01 01 03] are installed
+    When I send MANAGE CHANNEL OPEN and receive channel N1
+    And I SELECT [A0 00 00 00 62 01 01 02] on channel 0
+    And I SELECT [A0 00 00 00 62 01 01 03] on channel N1
+    Then channel 0's selected application is [A0 00 00 00 62 01 01 02]
+    And channel N1's selected application is [A0 00 00 00 62 01 01 03]
+    And neither selection was deselected by the other
+
+  @wip
+  Scenario: Same applet on two channels presents distinct transient state
+    # ISO 7816-4 5.1.1.1 CLAT classification: each logical channel has
+    # its own selection context; GP 2.1.1 clause 6.4 adds that transient
+    # state (CLEAR_ON_DESELECT arrays) is per-selection.
+    Given application [A0 00 00 00 62 01 01 02] is installed
+    When I send MANAGE CHANNEL OPEN and receive channel N1
+    And I SELECT [A0 00 00 00 62 01 01 02] on channel 0
+    And I SELECT [A0 00 00 00 62 01 01 02] on channel N1
+    And I send a proprietary "write transient byte 0xAA" on channel 0
+    And I send a proprietary "read transient byte" on channel N1
+    Then the byte read on channel N1 is not 0xAA
+
+  @wip
+  Scenario: MANAGE CHANNEL CLOSE deselects only the closed channel's applet
+    Given application [A0 00 00 00 62 01 01 02] is installed
+    When I send MANAGE CHANNEL OPEN and receive channel N1
+    And I SELECT [A0 00 00 00 62 01 01 02] on channel 0
+    And I SELECT [A0 00 00 00 62 01 01 02] on channel N1
+    And I send MANAGE CHANNEL CLOSE for channel N1
+    Then channel 0 still has [A0 00 00 00 62 01 01 02] selected
+    And channel N1 is no longer open

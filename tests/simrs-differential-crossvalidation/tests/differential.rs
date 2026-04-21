@@ -16,7 +16,7 @@
 
 use simrs_card_api::{SimEvent, SimResponse};
 use simrs_differential_crossvalidation::{
-    ORACLE_ISD_AID, SIMRS_ISD_AID, select_aid, try_create_dual_card,
+    ORACLE_ISD_AID, ReferenceBackend, SIMRS_ISD_AID, select_aid, try_create_dual_card,
 };
 
 /// Helper macro: skip if `SIMRS_JCSL_BINARY` is not set.
@@ -75,7 +75,7 @@ fn select_isd_simrs_aid_on_both() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("SELECT ISD (7-byte) simrs:  {:?}", dr.simrs);
-    eprintln!("SELECT ISD (7-byte) Oracle: {:?}", dr.oracle);
+    eprintln!("SELECT ISD (7-byte) Oracle: {:?}", dr.reference);
 
     // simrs must succeed.
     assert!(
@@ -91,7 +91,7 @@ fn select_isd_simrs_aid_on_both() {
         "SW match: {} (simrs={:04X}, oracle={:04X})",
         dr.sw_match(),
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
 }
 
@@ -105,14 +105,14 @@ fn select_isd_oracle_aid_on_both() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("SELECT ISD (8-byte) simrs:  {:?}", dr.simrs);
-    eprintln!("SELECT ISD (8-byte) Oracle: {:?}", dr.oracle);
+    eprintln!("SELECT ISD (8-byte) Oracle: {:?}", dr.reference);
 
     // Oracle must succeed.
     assert!(
-        dr.oracle.is_success(),
+        dr.reference.is_success(),
         "Oracle SELECT ISD (8-byte) failed: {:02X}{:02X}",
-        dr.oracle.sw[0],
-        dr.oracle.sw[1]
+        dr.reference.sw[0],
+        dr.reference.sw[1]
     );
 
     // simrs may return 6A82 (exact match) since its ISD is 7 bytes.
@@ -120,7 +120,7 @@ fn select_isd_oracle_aid_on_both() {
         "SW match: {} (simrs={:04X}, oracle={:04X})",
         dr.sw_match(),
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
 }
 
@@ -134,7 +134,7 @@ fn select_unknown_aid_both_reject() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("SELECT unknown simrs:  {:?}", dr.simrs);
-    eprintln!("SELECT unknown Oracle: {:?}", dr.oracle);
+    eprintln!("SELECT unknown Oracle: {:?}", dr.reference);
 
     // Both should reject with 6A82 (file/app not found) or similar 6Axx.
     assert_eq!(
@@ -143,9 +143,9 @@ fn select_unknown_aid_both_reject() {
         dr.simrs.sw[0], dr.simrs.sw[1]
     );
     assert_eq!(
-        dr.oracle.sw[0], 0x6A,
+        dr.reference.sw[0], 0x6A,
         "Oracle: expected 6Axx for unknown AID, got {:02X}{:02X}",
-        dr.oracle.sw[0], dr.oracle.sw[1]
+        dr.reference.sw[0], dr.reference.sw[1]
     );
 
     // Ideally both return 6A82.
@@ -153,7 +153,7 @@ fn select_unknown_aid_both_reject() {
         "SW match: {} (simrs={:04X}, oracle={:04X})",
         dr.sw_match(),
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
 }
 
@@ -172,7 +172,7 @@ fn get_data_card_recognition_0066() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("GET DATA 0066 simrs:  {:?}", dr.simrs);
-    eprintln!("GET DATA 0066 Oracle: {:?}", dr.oracle);
+    eprintln!("GET DATA 0066 Oracle: {:?}", dr.reference);
 
     // simrs should succeed (it implements tag 0066).
     assert!(
@@ -188,7 +188,7 @@ fn get_data_card_recognition_0066() {
         "SW match: {} (simrs={:04X}, oracle={:04X})",
         dr.sw_match(),
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
 
     // If both succeed, verify they both start with tag 0x66.
@@ -198,9 +198,9 @@ fn get_data_card_recognition_0066() {
             "simrs: card recognition data should start with tag 66"
         );
     }
-    if dr.oracle.is_success() && !dr.oracle.data.is_empty() {
+    if dr.reference.is_success() && !dr.reference.data.is_empty() {
         assert_eq!(
-            dr.oracle.data[0], 0x66,
+            dr.reference.data[0], 0x66,
             "Oracle: card recognition data should start with tag 66"
         );
     }
@@ -216,7 +216,7 @@ fn get_data_cplc_9f7f() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("GET DATA CPLC simrs:  {:?}", dr.simrs);
-    eprintln!("GET DATA CPLC Oracle: {:?}", dr.oracle);
+    eprintln!("GET DATA CPLC Oracle: {:?}", dr.reference);
 
     // Both should support CPLC and return 9000.
     assert!(
@@ -236,7 +236,7 @@ fn get_data_unknown_tag_both_reject() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("GET DATA 0xDEAD simrs:  {:?}", dr.simrs);
-    eprintln!("GET DATA 0xDEAD Oracle: {:?}", dr.oracle);
+    eprintln!("GET DATA 0xDEAD Oracle: {:?}", dr.reference);
 
     // Neither should succeed.
     assert!(
@@ -244,7 +244,7 @@ fn get_data_unknown_tag_both_reject() {
         "simrs should reject unknown GET DATA tag"
     );
     assert!(
-        !dr.oracle.is_success(),
+        !dr.reference.is_success(),
         "Oracle should reject unknown GET DATA tag"
     );
 
@@ -253,7 +253,7 @@ fn get_data_unknown_tag_both_reject() {
         "SW match: {} (simrs={:04X}, oracle={:04X})",
         dr.sw_match(),
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
 }
 
@@ -271,17 +271,20 @@ fn invalid_ins_both_reject() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("Invalid INS simrs:  {:?}", dr.simrs);
-    eprintln!("Invalid INS Oracle: {:?}", dr.oracle);
+    eprintln!("Invalid INS Oracle: {:?}", dr.reference);
 
     // Both should return 6D00 (INS not supported) or similar error.
     assert!(!dr.simrs.is_success(), "simrs should reject invalid INS");
-    assert!(!dr.oracle.is_success(), "Oracle should reject invalid INS");
+    assert!(
+        !dr.reference.is_success(),
+        "Oracle should reject invalid INS"
+    );
 
     eprintln!(
         "SW match: {} (simrs={:04X}, oracle={:04X})",
         dr.sw_match(),
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
 }
 
@@ -295,14 +298,14 @@ fn iso_class_invalid_ins_both_reject() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("ISO invalid INS simrs:  {:?}", dr.simrs);
-    eprintln!("ISO invalid INS Oracle: {:?}", dr.oracle);
+    eprintln!("ISO invalid INS Oracle: {:?}", dr.reference);
 
     assert!(
         !dr.simrs.is_success(),
         "simrs should reject invalid INS in ISO class"
     );
     assert!(
-        !dr.oracle.is_success(),
+        !dr.reference.is_success(),
         "Oracle should reject invalid INS in ISO class"
     );
 
@@ -310,7 +313,7 @@ fn iso_class_invalid_ins_both_reject() {
         "SW match: {} (simrs={:04X}, oracle={:04X})",
         dr.sw_match(),
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
 }
 
@@ -328,7 +331,7 @@ fn initialize_update_both_respond() {
     let _ = dc.simrs.process(SimEvent::Apdu(&sel_simrs));
 
     let sel_oracle = select_aid(&ORACLE_ISD_AID);
-    let _ = dc.oracle.transmit_apdu(&sel_oracle);
+    let _ = dc.reference.transmit_apdu(&sel_oracle);
 
     // INITIALIZE UPDATE: 80 50 00 00 08 <host_challenge[8]>
     let host_challenge = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
@@ -338,7 +341,7 @@ fn initialize_update_both_respond() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("INIT UPDATE simrs:  {:?}", dr.simrs);
-    eprintln!("INIT UPDATE Oracle: {:?}", dr.oracle);
+    eprintln!("INIT UPDATE Oracle: {:?}", dr.reference);
 
     // Both should succeed.
     assert!(
@@ -347,9 +350,9 @@ fn initialize_update_both_respond() {
         dr.simrs.sw16()
     );
     assert!(
-        dr.oracle.is_success(),
+        dr.reference.is_success(),
         "Oracle INITIALIZE UPDATE failed: {:04X}",
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
 
     // simrs (SCP01/02) returns 28 bytes: key_div[10] + key_info[2] + seq_ctr[2] + card_chal[6] + card_crypto[8]
@@ -357,7 +360,7 @@ fn initialize_update_both_respond() {
     eprintln!(
         "Response lengths: simrs={}, oracle={}",
         dr.simrs.data.len(),
-        dr.oracle.data.len()
+        dr.reference.data.len()
     );
 
     // Both should return at least 28 bytes.
@@ -367,14 +370,14 @@ fn initialize_update_both_respond() {
         dr.simrs.data.len()
     );
     assert!(
-        dr.oracle.data.len() >= 28,
+        dr.reference.data.len() >= 28,
         "Oracle INIT UPDATE response too short: {} bytes",
-        dr.oracle.data.len()
+        dr.reference.data.len()
     );
 
     // Key diversification data should start at offset 0 (10 bytes).
     let simrs_kdiv = &dr.simrs.data[..10];
-    let oracle_kdiv = &dr.oracle.data[..10];
+    let oracle_kdiv = &dr.reference.data[..10];
     eprintln!("simrs  key diversification: {simrs_kdiv:02x?}");
     eprintln!("Oracle key diversification: {oracle_kdiv:02x?}");
 }
@@ -395,7 +398,7 @@ fn get_status_isd_both_respond() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("GET STATUS ISD simrs:  {:?}", dr.simrs);
-    eprintln!("GET STATUS ISD Oracle: {:?}", dr.oracle);
+    eprintln!("GET STATUS ISD Oracle: {:?}", dr.reference);
 
     // Both should reject: simrs returns 69 85, Oracle may return 69 82/85.
     assert!(
@@ -424,14 +427,17 @@ fn reset_after_init_update_clears_scp_state() {
     init_apdu.extend_from_slice(&host_challenge);
     let dr1 = dc.exchange(&init_apdu);
     assert!(dr1.simrs.is_success(), "simrs INIT UPDATE should succeed");
-    assert!(dr1.oracle.is_success(), "Oracle INIT UPDATE should succeed");
+    assert!(
+        dr1.reference.is_success(),
+        "Oracle INIT UPDATE should succeed"
+    );
 
     // Reset both cards.
     // simrs: warm reset via SimEvent::Reset.
     // Oracle: reconnect (jcsl does not support power-cycling on the same TCP session).
     let _ = dc.simrs.process(SimEvent::Reset);
-    dc.reconnect_oracle();
-    dc.oracle
+    dc.reconnect_reference();
+    dc.reference
         .power_on()
         .expect("Oracle power_on after reconnect");
 
@@ -445,7 +451,7 @@ fn reset_after_init_update_clears_scp_state() {
     let dr2 = dc.exchange(&ext_auth);
 
     eprintln!("EXT AUTH after reset simrs:  {:?}", dr2.simrs);
-    eprintln!("EXT AUTH after reset Oracle: {:?}", dr2.oracle);
+    eprintln!("EXT AUTH after reset Oracle: {:?}", dr2.reference);
 
     // Both should reject.
     assert!(
@@ -453,7 +459,7 @@ fn reset_after_init_update_clears_scp_state() {
         "simrs should reject EXT AUTH after reset"
     );
     assert!(
-        !dr2.oracle.is_success(),
+        !dr2.reference.is_success(),
         "Oracle should reject EXT AUTH after reset"
     );
 }
@@ -472,21 +478,21 @@ fn manage_channel_open_close() {
     let dr_open = dc.exchange(&open_ch);
 
     eprintln!("MANAGE CHANNEL open simrs:  {:?}", dr_open.simrs);
-    eprintln!("MANAGE CHANNEL open Oracle: {:?}", dr_open.oracle);
+    eprintln!("MANAGE CHANNEL open Oracle: {:?}", dr_open.reference);
 
     // Both should succeed and return a channel number.
-    if dr_open.simrs.is_success() && dr_open.oracle.is_success() {
+    if dr_open.simrs.is_success() && dr_open.reference.is_success() {
         assert!(
             !dr_open.simrs.data.is_empty(),
             "simrs: MANAGE CHANNEL open should return channel number"
         );
         assert!(
-            !dr_open.oracle.data.is_empty(),
+            !dr_open.reference.data.is_empty(),
             "Oracle: MANAGE CHANNEL open should return channel number"
         );
 
         let simrs_ch = dr_open.simrs.data[0];
-        let oracle_ch = dr_open.oracle.data[0];
+        let oracle_ch = dr_open.reference.data[0];
         eprintln!("Assigned channels: simrs={simrs_ch}, oracle={oracle_ch}");
 
         // Close the channels.
@@ -497,7 +503,10 @@ fn manage_channel_open_close() {
             SimResponse::Apdu { sw, .. } => sw.to_bytes(),
             _ => [0x6F, 0x00],
         };
-        let close_raw = dc.oracle.transmit_apdu(&close_oracle).unwrap_or_default();
+        let close_raw = dc
+            .reference
+            .transmit_apdu(&close_oracle)
+            .unwrap_or_default();
         let dr_close_o = if close_raw.len() >= 2 {
             [
                 close_raw[close_raw.len() - 2],
@@ -528,24 +537,24 @@ fn diff_scp_init_update_response_fields() {
     let _ = dc
         .simrs
         .process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
-    let _ = dc.oracle.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
+    let _ = dc.reference.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
 
     let hc = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
     let mut apdu = vec![0x80, 0x50, 0x00, 0x00, 0x08];
     apdu.extend_from_slice(&hc);
     let dr = dc.exchange(&apdu);
 
-    assert!(dr.simrs.is_success() && dr.oracle.is_success());
-    assert!(dr.simrs.data.len() >= 28 && dr.oracle.data.len() >= 28);
+    assert!(dr.simrs.is_success() && dr.reference.is_success());
+    assert!(dr.simrs.data.len() >= 28 && dr.reference.data.len() >= 28);
 
     // SCP identifier (byte 11): simrs=0x02 (SCP02), Oracle=0x02 or 0x03.
     let simrs_scp = dr.simrs.data[11];
-    let oracle_scp = dr.oracle.data[11];
+    let oracle_scp = dr.reference.data[11];
     eprintln!("SCP identifiers: simrs=0x{simrs_scp:02X}, oracle=0x{oracle_scp:02X}");
 
     // Key version (byte 10): both should report version 0x01.
     let simrs_kv = dr.simrs.data[10];
-    let oracle_kv = dr.oracle.data[10];
+    let oracle_kv = dr.reference.data[10];
     eprintln!("Key versions: simrs=0x{simrs_kv:02X}, oracle=0x{oracle_kv:02X}");
     assert_eq!(simrs_kv, oracle_kv, "key versions should match");
 }
@@ -559,7 +568,7 @@ fn diff_scp_wrong_key_version() {
     let _ = dc
         .simrs
         .process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
-    let _ = dc.oracle.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
+    let _ = dc.reference.transmit_apdu(&select_aid(&ORACLE_ISD_AID));
 
     let hc = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
     let mut apdu = vec![0x80, 0x50, 0xFF, 0x00, 0x08]; // KV=0xFF
@@ -569,10 +578,10 @@ fn diff_scp_wrong_key_version() {
     eprintln!(
         "Bad KV: simrs={:04X}, oracle={:04X}",
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
     assert!(!dr.simrs.is_success());
-    assert!(!dr.oracle.is_success());
+    assert!(!dr.reference.is_success());
     // Both should return 6A86 (incorrect parameters P1-P2).
     assert_eq!(dr.simrs.sw, [0x6A, 0x86], "simrs should return 6A86");
 }
@@ -592,13 +601,13 @@ fn diff_ext_auth_without_init_update() {
     eprintln!(
         "EXT AUTH no IU: simrs={:04X}, oracle={:04X}",
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
     assert!(!dr.simrs.is_success());
-    assert!(!dr.oracle.is_success());
+    assert!(!dr.reference.is_success());
     // Both should return 69xx (command not allowed).
     assert_eq!(dr.simrs.sw[0], 0x69);
-    assert_eq!(dr.oracle.sw[0], 0x69);
+    assert_eq!(dr.reference.sw[0], 0x69);
 }
 
 // -----------------------------------------------------------------------
@@ -614,20 +623,20 @@ fn diff_get_data_0042_isd_aid() {
     let dr = dc.exchange(&apdu);
 
     eprintln!("GET DATA 0042 simrs:  {:?}", dr.simrs);
-    eprintln!("GET DATA 0042 Oracle: {:?}", dr.oracle);
+    eprintln!("GET DATA 0042 Oracle: {:?}", dr.reference);
 
     // Both now return IIN data (tag 42 + "ISD_IIN").
     assert!(dr.simrs.is_success(), "simrs GET DATA 0042 should succeed");
     assert!(
-        dr.oracle.is_success(),
+        dr.reference.is_success(),
         "Oracle GET DATA 0042 should succeed"
     );
-    assert_eq!(dr.simrs.data, dr.oracle.data, "IIN data should match");
+    assert_eq!(dr.simrs.data, dr.reference.data, "IIN data should match");
     eprintln!(
         "SW match: {} (simrs={:04X}, oracle={:04X})",
         dr.sw_match(),
         dr.simrs.sw16(),
-        dr.oracle.sw16()
+        dr.reference.sw16()
     );
 }
 
@@ -651,10 +660,10 @@ fn diff_error_class_consistency() {
     for (apdu, expected_class) in &cases {
         let dr = dc.exchange(apdu);
         assert!(!dr.simrs.is_success());
-        assert!(!dr.oracle.is_success());
+        assert!(!dr.reference.is_success());
         // Both should return the same error class (high nibble of SW1).
         let simrs_class = dr.simrs.sw[0] & 0xF0;
-        let oracle_class = dr.oracle.sw[0] & 0xF0;
+        let oracle_class = dr.reference.sw[0] & 0xF0;
         assert_eq!(
             simrs_class,
             expected_class & 0xF0,
@@ -666,7 +675,7 @@ fn diff_error_class_consistency() {
             "APDU {:02X?}: simrs={:04X}, oracle={:04X} (class match: {})",
             &apdu[..4.min(apdu.len())],
             dr.simrs.sw16(),
-            dr.oracle.sw16(),
+            dr.reference.sw16(),
             simrs_class == oracle_class
         );
     }
@@ -688,7 +697,7 @@ fn diff_full_discovery_sequence() {
         .process(SimEvent::Apdu(&select_aid(&SIMRS_ISD_AID)));
     assert!(matches!(sel_s, SimResponse::Apdu { sw, .. } if sw.to_bytes() == [0x90, 0x00]));
     let sel_o = dc
-        .oracle
+        .reference
         .transmit_apdu(&select_aid(&ORACLE_ISD_AID))
         .unwrap();
     assert!(sel_o.len() >= 2 && sel_o[sel_o.len() - 2] == 0x90);
@@ -698,7 +707,7 @@ fn diff_full_discovery_sequence() {
     eprintln!(
         "Discovery step 2 (GET DATA 0066): simrs={:04X}, oracle={:04X}",
         dr1.simrs.sw16(),
-        dr1.oracle.sw16()
+        dr1.reference.sw16()
     );
 
     // 3. INITIALIZE UPDATE.
@@ -709,22 +718,22 @@ fn diff_full_discovery_sequence() {
     eprintln!(
         "Discovery step 3 (INIT UPDATE): simrs={:04X}, oracle={:04X}",
         dr2.simrs.sw16(),
-        dr2.oracle.sw16()
+        dr2.reference.sw16()
     );
-    assert!(dr2.simrs.is_success() && dr2.oracle.is_success());
+    assert!(dr2.simrs.is_success() && dr2.reference.is_success());
 
     // 4. GET DATA CPLC.
     let dr3 = dc.exchange(&[0x80, 0xCA, 0x9F, 0x7F, 0x00]);
     eprintln!(
         "Discovery step 4 (CPLC): simrs={:04X}, oracle={:04X}",
         dr3.simrs.sw16(),
-        dr3.oracle.sw16()
+        dr3.reference.sw16()
     );
 
     // Summary.
     let steps_both_success = [&dr1, &dr2, &dr3]
         .iter()
-        .filter(|d| d.simrs.is_success() && d.oracle.is_success())
+        .filter(|d| d.simrs.is_success() && d.reference.is_success())
         .count();
     eprintln!("Discovery: {steps_both_success}/3 steps matched");
 }
@@ -815,24 +824,24 @@ fn diff_authenticated_get_status() {
 
     // -- Oracle side: SCP03 handshake --
     let sel_o = select_aid(&ORACLE_ISD_AID);
-    let _ = dc.oracle.transmit_apdu(&sel_o);
+    let _ = dc.reference.transmit_apdu(&sel_o);
 
     let oracle_iu_raw = dc
-        .oracle
+        .reference
         .transmit_apdu(&iu)
         .expect("Oracle INIT UPDATE failed");
     assert!(
         oracle_iu_raw.len() >= 31,
         "Oracle INIT UPDATE response too short"
     );
-    let oracle_sw = [
+    let reference_sw = [
         oracle_iu_raw[oracle_iu_raw.len() - 2],
         oracle_iu_raw[oracle_iu_raw.len() - 1],
     ];
     assert_eq!(
-        oracle_sw,
+        reference_sw,
         [0x90, 0x00],
-        "Oracle INIT UPDATE failed: {oracle_sw:02X?}"
+        "Oracle INIT UPDATE failed: {reference_sw:02X?}"
     );
     let oracle_data = &oracle_iu_raw[..oracle_iu_raw.len() - 2];
 
@@ -871,7 +880,7 @@ fn diff_authenticated_get_status() {
     ea3.extend_from_slice(&host_crypto_scp03);
     ea3.extend_from_slice(&ea_cmac3);
     let oracle_ea_raw = dc
-        .oracle
+        .reference
         .transmit_apdu(&ea3)
         .expect("Oracle EXT AUTH transmit failed");
     let oracle_ea_sw = if oracle_ea_raw.len() >= 2 {
@@ -897,7 +906,7 @@ fn diff_authenticated_get_status() {
         );
         let mut gs3 = vec![0x84, 0xF2, 0x80, 0x00, 0x0A, 0x4F, 0x00];
         gs3.extend_from_slice(&gs_cmac3);
-        let oracle_gs_raw = dc.oracle.transmit_apdu(&gs3).unwrap_or_default();
+        let oracle_gs_raw = dc.reference.transmit_apdu(&gs3).unwrap_or_default();
         let oracle_gs_sw = if oracle_gs_raw.len() >= 2 {
             [
                 oracle_gs_raw[oracle_gs_raw.len() - 2],
@@ -1113,7 +1122,7 @@ fn select_then_get_data_sequence() {
 
     let sel_oracle = select_aid(&ORACLE_ISD_AID);
     let oracle_sel_raw = dc
-        .oracle
+        .reference
         .transmit_apdu(&sel_oracle)
         .expect("Oracle SELECT failed");
     assert!(
@@ -1129,7 +1138,7 @@ fn select_then_get_data_sequence() {
 
     eprintln!("After SELECT -> GET DATA 0066:");
     eprintln!("  simrs:  {:?}", dr.simrs);
-    eprintln!("  Oracle: {:?}", dr.oracle);
+    eprintln!("  Oracle: {:?}", dr.reference);
 
     // Both should have consistent behavior after SELECT.
     if dr.simrs.is_success() {
