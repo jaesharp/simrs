@@ -28,7 +28,10 @@
 //! session.print_summary();
 //! ```
 
-use crate::reference::{JcardengineBackend, JcslBackend};
+#[cfg(feature = "jcardengine-backend")]
+use crate::reference::JcardengineBackend;
+#[cfg(feature = "jcsl-backend")]
+use crate::reference::JcslBackend;
 use crate::{GpCardTerminal, KEY_BYTES, ReferenceBackend};
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
@@ -108,6 +111,7 @@ impl DiffSessionBuilder {
     /// If the jcsl binary is discoverable but the spawned process
     /// fails to complete a cold-reset (`power_on`). This indicates a
     /// broken jcsl binary, not a skippable environment issue.
+    #[cfg(feature = "jcsl-backend")]
     pub fn try_oracle_jcsl(mut self) -> Self {
         match JcslBackend::try_start() {
             Some(mut backend) => {
@@ -135,6 +139,7 @@ impl DiffSessionBuilder {
     /// If the bridge JAR is discoverable but the spawned JVM fails to
     /// complete a cold-reset (`power_on`). This indicates a broken
     /// bridge build, not a skippable environment issue.
+    #[cfg(feature = "jcardengine-backend")]
     pub fn try_jcardengine(mut self) -> Self {
         match JcardengineBackend::try_start() {
             Some(mut backend) => {

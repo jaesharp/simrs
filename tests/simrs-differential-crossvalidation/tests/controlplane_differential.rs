@@ -33,8 +33,8 @@ use simrs_controlplane::{
     protocol::{CLA as CP_CLA, Category, INS as CP_INS},
 };
 use simrs_differential_crossvalidation::{
-    BackendId, GpCardTerminal, JcardengineBackend, JcslBackend, KEY_BYTES, ReferenceBackend,
-    panic_backend_not_discoverable, select_aid, select_backend,
+    GpCardTerminal, KEY_BYTES, ReferenceBackend, panic_backend_not_discoverable, select_aid,
+    select_backend, try_start_and_power_on,
 };
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
@@ -59,23 +59,8 @@ fn make_simrs_with_controlplane() -> ControlplaneCard<GpCardTerminal> {
 /// is configured but not discoverable (same policy as `apdu_test!`).
 fn start_reference() -> Box<dyn ReferenceBackend> {
     let backend = select_backend();
-    let label = "controlplane_differential";
-    match backend {
-        BackendId::Jcsl => JcslBackend::try_start().map_or_else(
-            || panic_backend_not_discoverable(label, backend),
-            |mut b| {
-                b.power_on().expect("jcsl power_on");
-                Box::new(b) as Box<dyn ReferenceBackend>
-            },
-        ),
-        BackendId::Jcardengine => JcardengineBackend::try_start().map_or_else(
-            || panic_backend_not_discoverable(label, backend),
-            |mut b| {
-                b.power_on().expect("jcardengine power_on");
-                Box::new(b) as Box<dyn ReferenceBackend>
-            },
-        ),
-    }
+    try_start_and_power_on(backend)
+        .unwrap_or_else(|| panic_backend_not_discoverable("controlplane_differential", backend))
 }
 
 /// Exchange a full APDU against the controlplane-wrapped simrs card.

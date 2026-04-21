@@ -53,6 +53,15 @@ pub const CATALOG_PATH: &str = "tests/simrs-differential-crossvalidation/src/kno
 /// Each entry records its own source line via `line!()` so the
 /// combined differential report can link a `KNOWN (Dx)` cell back to
 /// the catalog declaration: viewers resolve `<repo>/CATALOG_PATH#L<line>`.
+/// Full catalog of known divergences across every backend we know
+/// about — entries are **always compiled in** regardless of which
+/// backend features are enabled. A build without, say, the
+/// `jcardengine-backend` feature still carries the J1/J2/J3 entries
+/// in-binary: the report renderer, auditors, and tooling can always
+/// name and cite them. Only the ability to *run* a test producing
+/// those divergences is feature-gated. Display-time consumers filter
+/// on [`BackendId::has_runtime`] to hide entries whose runtime isn't
+/// linked into the current build.
 pub static KNOWN_DIVERGENCES: &[KnownDivergence] = &[
     KnownDivergence {
         id: "D2",
@@ -121,6 +130,30 @@ pub static KNOWN_DIVERGENCES: &[KnownDivergence] = &[
     },
 ];
 
+/// Convenience alias for [`KNOWN_DIVERGENCES`] returned as a `Vec` of
+/// references. Preserves the legacy function shape some callers
+/// expect; the underlying data is the always-compiled static.
+#[must_use]
+pub fn known_divergences() -> Vec<&'static KnownDivergence> {
+    KNOWN_DIVERGENCES.iter().collect()
+}
+
+/// Entries with compiled-in runtime support.
+///
+/// Filters [`KNOWN_DIVERGENCES`] to the subset whose `backends` list
+/// either is empty ("applies everywhere") or contains at least one
+/// backend whose runtime is linked into the current build. Used by
+/// display-time consumers (the combined-report filter, the book
+/// renderer) to hide entries the current build can't exercise —
+/// without removing them from the in-binary catalog.
+#[must_use]
+pub fn runtime_visible() -> Vec<&'static KnownDivergence> {
+    KNOWN_DIVERGENCES
+        .iter()
+        .filter(|d| d.backends.is_empty() || d.backends.iter().any(|b| b.has_runtime()))
+        .collect()
+}
+
 /// Look up a known divergence by the (simrs, reference) status word pair.
 ///
 /// Returns the first matching entry, or `None` if this SW pair is not
@@ -133,7 +166,7 @@ pub fn lookup_for_backend(
     reference_sw: u16,
     backend: BackendId,
 ) -> Option<&'static KnownDivergence> {
-    KNOWN_DIVERGENCES.iter().find(|d| {
+    known_divergences().into_iter().find(|d| {
         d.simrs_sw == simrs_sw
             && d.reference_sw == reference_sw
             && (d.backends.is_empty() || d.backends.contains(&backend))
@@ -149,8 +182,8 @@ pub fn lookup_for_backend(
 /// entries share a pair with different backend scopes.
 #[must_use]
 pub fn lookup(simrs_sw: u16, reference_sw: u16) -> Option<&'static KnownDivergence> {
-    KNOWN_DIVERGENCES
-        .iter()
+    known_divergences()
+        .into_iter()
         .find(|d| d.simrs_sw == simrs_sw && d.reference_sw == reference_sw)
 }
 
@@ -161,7 +194,7 @@ pub fn lookup(simrs_sw: u16, reference_sw: u16) -> Option<&'static KnownDivergen
 /// without re-running the SW-pair match.
 #[must_use]
 pub fn lookup_by_id(id: &str) -> Option<&'static KnownDivergence> {
-    KNOWN_DIVERGENCES.iter().find(|d| d.id == id)
+    known_divergences().into_iter().find(|d| d.id == id)
 }
 
 #[cfg(test)]

@@ -47,10 +47,101 @@ pub struct DiffTestCase {
     pub duration_ms: u64,
 }
 
+/// Display-time configuration for the report renderers.
+///
+/// Controls which catalog entries, which outcome categories, and
+/// which contextual details a rendered report surfaces. The catalog
+/// itself is always complete in-binary (see
+/// [`known_divergences::KNOWN_DIVERGENCES`](crate::known_divergences::KNOWN_DIVERGENCES))
+/// — these flags only filter the *view*. Every decision here is
+/// per-report, and per-report-flavour (XML and Markdown may render
+/// the same underlying data with different verbosity).
+///
+/// Defaults match the behaviour from before these flags were
+/// introduced: everything visible, no hidden entries.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone)]
+pub struct ReportConfig {
+    /// Hide `KnownDivergence` catalog entries whose `backends` filter
+    /// is non-empty but contains only backends without compiled-in
+    /// runtime in the current build. Entries with an empty `backends`
+    /// filter (i.e., "applies everywhere") are always shown.
+    ///
+    /// Off by default: show every entry so reports remain auditable
+    /// even when a runtime is disabled for build-speed reasons.
+    pub hide_missing_runtime_divergences: bool,
+
+    /// Include the "Environment" section in Markdown and the
+    /// `<properties>` block in `JUnit`. Off when the consumer only
+    /// wants the test body.
+    pub include_context: bool,
+
+    /// Include rows with outcome `Match` in Markdown tables. Useful
+    /// to switch off for a diff-only view.
+    pub include_matches: bool,
+
+    /// Include rows with outcome `KnownDivergence` in the Markdown
+    /// body (they are still counted in the summary). Off when the
+    /// view should only surface regressions and new findings.
+    pub include_known_divergences: bool,
+
+    /// Include the catalog link footer below `KNOWN` cells. Off when
+    /// generating a static archive where the repository link is
+    /// meaningless.
+    pub include_catalog_links: bool,
+
+    /// If non-empty, restrict rendering to rows whose backend
+    /// identity is in this set. When empty, every backend is
+    /// included. Independent of [`Self::hide_missing_runtime_divergences`] —
+    /// one filters divergence entries, the other filters case rows.
+    pub only_backends: Vec<crate::BackendId>,
+}
+
+impl Default for ReportConfig {
+    fn default() -> Self {
+        Self {
+            hide_missing_runtime_divergences: false,
+            include_context: true,
+            include_matches: true,
+            include_known_divergences: true,
+            include_catalog_links: true,
+            only_backends: Vec::new(),
+        }
+    }
+}
+
+impl ReportConfig {
+    /// Preset: terse diff-only view. Hides match rows, hides missing-
+    /// runtime divergences, drops context. Use for PR-check summaries
+    /// where only actionable drift matters.
+    #[must_use]
+    pub const fn diff_only() -> Self {
+        Self {
+            hide_missing_runtime_divergences: true,
+            include_context: false,
+            include_matches: false,
+            include_known_divergences: true,
+            include_catalog_links: true,
+            only_backends: Vec::new(),
+        }
+    }
+
+    /// Preset: complete audit view. Everything visible, nothing
+    /// filtered — including divergence entries whose runtime isn't
+    /// compiled in. Use for compliance submissions.
+    #[must_use]
+    pub fn audit() -> Self {
+        Self::default()
+    }
+}
+
 /// Aggregated differential test report.
 ///
 /// Collects individual test cases and can emit `JUnit` XML for CI
-/// integration or Markdown for human review.
+/// integration or Markdown for human review. Rendering behaviour is
+/// controlled by a [`ReportConfig`] passed to the `_with_config`
+/// variants of the emitters; the no-config variants use
+/// [`ReportConfig::default`].
 #[derive(Debug)]
 pub struct DiffReport {
     /// Identifier of the reference backend that produced this report
@@ -338,10 +429,30 @@ impl DiffReport {
             .any(|c| c.outcome == DivergenceCategory::Regression)
     }
 
+    /// Emit `JUnit` XML under a specific [`ReportConfig`].
+    ///
+    /// Currently delegates to [`Self::to_junit_xml`]; filter logic for
+    /// each [`ReportConfig`] flag will be wired in as consumer needs
+    /// surface. The entry point exists so callers can already express
+    /// intent (e.g. PR-check pipelines pass `ReportConfig::diff_only()`;
+    /// audit artefact pipelines pass `ReportConfig::audit()`).
+    #[must_use]
+    pub fn to_junit_xml_with_config(&self, _cfg: &ReportConfig) -> String {
+        self.to_junit_xml()
+    }
+
+    /// Emit Markdown under a specific [`ReportConfig`]. See
+    /// [`Self::to_junit_xml_with_config`] for the wiring note.
+    #[must_use]
+    pub fn to_markdown_with_config(&self, _cfg: &ReportConfig) -> String {
+        self.to_markdown()
+    }
+
     /// Emit `JUnit` XML suitable for CI test result ingestion.
     ///
     /// The XML is hand-formatted with `write!` to avoid pulling in
-    /// an XML serialization dependency.
+    /// an XML serialization dependency. Uses [`ReportConfig::default`]
+    /// — for filter control, call [`Self::to_junit_xml_with_config`].
     pub fn to_junit_xml(&self) -> String {
         let mut xml = String::new();
         xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");

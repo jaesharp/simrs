@@ -26,10 +26,13 @@
 //! ```
 
 use simrs_card_api::{SimEvent, SimResponse};
+#[cfg(feature = "jcardengine-backend")]
+use simrs_differential_crossvalidation::try_create_dual_card_jcardengine;
+#[cfg(feature = "jcsl-backend")]
+use simrs_differential_crossvalidation::try_create_dual_card_jcsl;
 use simrs_differential_crossvalidation::{
     BackendId, DualCard, ORACLE_ISD_AID, ReferenceBackend, SIMRS_ISD_AID,
-    panic_backend_not_discoverable, select_aid, select_backend, try_create_dual_card_jcardengine,
-    try_create_dual_card_jcsl,
+    panic_backend_not_discoverable, select_aid, select_backend,
 };
 
 /// APDU-only matrix test harness.
@@ -59,19 +62,23 @@ macro_rules! apdu_test {
             fn run<B: ReferenceBackend>(mut $dc: DualCard<B>) $body
             let backend = select_backend();
             let label = stringify!($name);
+            #[allow(unreachable_patterns)]
             match backend {
+                #[cfg(feature = "jcsl-backend")]
                 BackendId::Jcsl => {
                     let dc = try_create_dual_card_jcsl($label).unwrap_or_else(|| {
                         panic_backend_not_discoverable(label, backend)
                     });
                     run(dc);
                 }
+                #[cfg(feature = "jcardengine-backend")]
                 BackendId::Jcardengine => {
                     let dc = try_create_dual_card_jcardengine($label).unwrap_or_else(|| {
                         panic_backend_not_discoverable(label, backend)
                     });
                     run(dc);
                 }
+                _ => panic_backend_not_discoverable(label, backend),
             }
         }
     };

@@ -39,7 +39,20 @@ pub mod reference;
 pub mod report;
 mod session;
 
-pub use reference::{BackendId, JcardengineBackend, JcslBackend, ReferenceBackend};
+// Compile-time: at least one backend feature must be enabled. The
+// crate has no reason to exist without a runtime for at least one
+// reference — catalog data alone is never the product.
+#[cfg(not(any(feature = "jcsl-backend", feature = "jcardengine-backend")))]
+compile_error!(
+    "simrs-differential-crossvalidation requires at least one backend feature. \
+     Enable `jcsl-backend`, `jcardengine-backend`, or both."
+);
+
+#[cfg(feature = "jcardengine-backend")]
+pub use reference::JcardengineBackend;
+#[cfg(feature = "jcsl-backend")]
+pub use reference::JcslBackend;
+pub use reference::{BackendId, ReferenceBackend, try_start_and_power_on, try_start_backend};
 pub use session::{DiffSession, DiffSessionBuilder};
 
 // Re-export key interposer types so consumers don't need to depend on
@@ -66,13 +79,15 @@ pub(crate) fn next_port() -> u16 {
 }
 
 // Re-export jcsl discovery for convenience.
+#[cfg(feature = "jcsl-backend")]
 pub use simrs_jcsl::discover_binary as discover_jcsl_binary;
 
 /// Env var selecting which reference backend a test should run against.
 ///
-/// Consumed by [`select_backend`]; unset defaults to [`BackendId::Jcsl`]
-/// so legacy tests keep their prior behaviour when invoked without a
-/// matrix context.
+/// Consumed by [`select_backend`]; unset defaults to the first
+/// available backend under [`BackendId::all`] (lexicographic: jcardengine
+/// preferred if enabled, otherwise jcsl). Legacy callers that want
+/// jcsl specifically should set `SIMRS_DIFF_BACKEND=jcsl` explicitly.
 pub const ENV_DIFF_BACKEND: &str = "SIMRS_DIFF_BACKEND";
 
 /// Read [`ENV_DIFF_BACKEND`] and return the chosen backend.
@@ -82,15 +97,41 @@ pub const ENV_DIFF_BACKEND: &str = "SIMRS_DIFF_BACKEND";
 ///
 /// # Panics
 ///
-/// If [`ENV_DIFF_BACKEND`] is set to anything other than `jcsl` or
-/// `jcardengine` (case-insensitive).
+/// - If [`ENV_DIFF_BACKEND`] is set to a value not matching any
+///   currently-enabled backend feature.
+/// - If no backend feature is enabled and the env var is unset
+///   (nothing meaningful to default to).
 #[must_use]
 pub fn select_backend() -> BackendId {
-    std::env::var(ENV_DIFF_BACKEND).map_or(BackendId::Jcsl, |raw| {
-        BackendId::parse(&raw).unwrap_or_else(|b| {
-            panic!("unknown {ENV_DIFF_BACKEND}={b:?}; expected jcsl or jcardengine")
-        })
-    })
+    std::env::var(ENV_DIFF_BACKEND).map_or_else(
+        |_| {
+            // Default: first backend with a compiled-in runtime, in
+            // lexicographic order. If no runtime is compiled in,
+            // fall back to the first known variant so the caller can
+            // still panic with `panic_backend_not_discoverable`'s
+            // clearer "feature not enabled" message.
+            BackendId::with_runtime()
+                .first()
+                .copied()
+                .unwrap_or_else(|| {
+                    *BackendId::all()
+                        .first()
+                        .expect("BackendId::all is empty — this is a bug")
+                })
+        },
+        |raw| {
+            BackendId::parse(&raw).unwrap_or_else(|b| {
+                panic!(
+                    "unknown {ENV_DIFF_BACKEND}={b:?}; \
+                     valid names: {:?}",
+                    BackendId::all()
+                        .iter()
+                        .map(|b| b.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
+        },
+    )
 }
 
 /// Panic with a uniform "backend not discoverable" message.
@@ -106,6 +147,12 @@ pub fn select_backend() -> BackendId {
 /// backend and the canonical remediation step (install jcsl / build
 /// the jcardengine bridge).
 pub fn panic_backend_not_discoverable(label: &str, backend: BackendId) -> ! {
+    assert!(
+        backend.has_runtime(),
+        "{label}: {backend} runtime is not compiled into this build. \
+         Enable the `{}-backend` feature when building the crate.",
+        backend.as_str(),
+    );
     match backend {
         BackendId::Jcsl => panic!(
             "{label}: jcsl binary not discoverable. \
@@ -462,6 +509,7 @@ fn build_simrs_card() -> GpCard<261> {
 /// # Panics
 ///
 /// Panics if the binary exists but configuration or startup fails.
+#[cfg(feature = "jcsl-backend")]
 #[must_use]
 pub fn try_create_dual_card_jcsl(_label: &str) -> Option<DualCard<JcslBackend>> {
     let backend = JcslBackend::try_start()?;
@@ -482,6 +530,7 @@ pub fn try_create_dual_card_jcsl(_label: &str) -> Option<DualCard<JcslBackend>> 
 ///
 /// Panics if the bridge installation exists but the JVM fails to
 /// spawn or the TCP connect fails.
+#[cfg(feature = "jcardengine-backend")]
 #[must_use]
 pub fn try_create_dual_card_jcardengine(_label: &str) -> Option<DualCard<JcardengineBackend>> {
     let backend = JcardengineBackend::try_start()?;
@@ -494,6 +543,7 @@ pub fn try_create_dual_card_jcardengine(_label: &str) -> Option<DualCard<Jcarden
 /// Legacy alias for [`try_create_dual_card_jcsl`]. Predates the
 /// backend parameterisation; new code should pick the factory that
 /// names its backend explicitly.
+#[cfg(feature = "jcsl-backend")]
 #[must_use]
 pub fn try_create_dual_card(label: &str) -> Option<DualCard<JcslBackend>> {
     try_create_dual_card_jcsl(label)

@@ -19,11 +19,15 @@
 //!
 //! Output files are named `differential-report-<backend>.{xml,md}`.
 
+#[cfg(feature = "jcardengine-backend")]
+use simrs_differential_crossvalidation::try_create_dual_card_jcardengine;
+#[cfg(feature = "jcsl-backend")]
+use simrs_differential_crossvalidation::try_create_dual_card_jcsl;
 use simrs_differential_crossvalidation::{
     BackendId, DualCard, DualResponse, ORACLE_ISD_AID, ReferenceBackend, SIMRS_ISD_AID,
     default_report_dir, known_divergences,
     report::{DiffReport, DiffTestCase, DivergenceCategory},
-    select_aid, select_backend, try_create_dual_card_jcardengine, try_create_dual_card_jcsl,
+    select_aid, select_backend,
 };
 use std::fs;
 use std::time::Instant;
@@ -201,7 +205,9 @@ fn generate_report() {
     let xml_path = dir.join(format!("differential-report-{backend}.xml"));
     let md_path = dir.join(format!("differential-report-{backend}.md"));
 
+    #[allow(unreachable_patterns)]
     let report = match backend {
+        #[cfg(feature = "jcsl-backend")]
         BackendId::Jcsl => {
             let Some(dc) = try_create_dual_card_jcsl("report-gen") else {
                 eprintln!("jcsl binary not found, skipping report generation");
@@ -210,6 +216,7 @@ fn generate_report() {
             let context = dc.reference.context_entries();
             run_matrix(dc, backend, context)
         }
+        #[cfg(feature = "jcardengine-backend")]
         BackendId::Jcardengine => {
             let Some(dc) = try_create_dual_card_jcardengine("report-gen") else {
                 eprintln!(
@@ -220,6 +227,13 @@ fn generate_report() {
             };
             let context = dc.reference.context_entries();
             run_matrix(dc, backend, context)
+        }
+        _ => {
+            eprintln!(
+                "report_gen: {backend} runtime not compiled into this build; \
+                 enable the corresponding feature to generate its report."
+            );
+            return;
         }
     };
 

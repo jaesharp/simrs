@@ -13,8 +13,17 @@ simrs-gp-scp        = { workspace = true }
 simrs-card-api      = { workspace = true }
 simrs-transport     = { workspace = true }
 simrs-interposer    = { workspace = true }
-simrs-jcsl          = { path = "../../crates/simrs-jcsl" }
-simrs-jcardengine   = { path = "../../crates/simrs-jcardengine" }
+simrs-jcsl          = { path = "../../crates/simrs-jcsl",        optional = true }
+simrs-jcardengine   = { path = "../../crates/simrs-jcardengine", optional = true }
+
+[features]
+# At least one backend must be enabled to run matrix tests; both are
+# enabled by default. CI cells install only the backend their feature
+# set activates, so `--no-default-features --features jcsl-backend`
+# produces a jcsl-only binary with no JDK/Gradle dependencies.
+default             = ["jcsl-backend", "jcardengine-backend"]
+jcsl-backend        = ["dep:simrs-jcsl"]
+jcardengine-backend = ["dep:simrs-jcardengine"]
 
 [dev-dependencies]
 insta = { workspace = true }

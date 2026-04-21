@@ -36,9 +36,13 @@ use simrs_differential_crossvalidation::{
 fn build_matrix_session(label: &str) -> DiffSession {
     let builder = DiffSession::builder(label).simrs_gp_card();
     let backend = select_backend();
+    #[allow(unreachable_patterns)]
     let built = match backend {
+        #[cfg(feature = "jcsl-backend")]
         BackendId::Jcsl => builder.try_oracle_jcsl().build(),
+        #[cfg(feature = "jcardengine-backend")]
         BackendId::Jcardengine => builder.try_jcardengine().build(),
+        _ => panic_backend_not_discoverable(label, backend),
     };
     built.unwrap_or_else(|| panic_backend_not_discoverable(label, backend))
 }
