@@ -250,6 +250,14 @@ impl ReferenceBackend for JcslBackend {
     }
 }
 
+impl Transport for JcslBackend {
+    type Error = TransportError;
+
+    fn exchange(&mut self, cmd: &[u8], rsp: &mut [u8]) -> Result<usize, Self::Error> {
+        self.client.exchange(cmd, rsp)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // JcardengineBackend -- wraps martinpaljak/JCardEngine bridge.
 // ---------------------------------------------------------------------------
@@ -386,4 +394,15 @@ impl ReferenceBackend for JcardengineBackend {
     // the same TCP session via framing-level POWER_OFF/POWER_ON. Tests
     // that simulate a reset should call power_off/power_on on the
     // client directly rather than reopening the socket.
+}
+
+impl Transport for JcardengineBackend {
+    type Error = TransportError;
+
+    fn exchange(&mut self, cmd: &[u8], rsp: &mut [u8]) -> Result<usize, Self::Error> {
+        if !self.powered {
+            return Err(TransportError::IoError);
+        }
+        self.client.exchange(cmd, rsp)
+    }
 }
