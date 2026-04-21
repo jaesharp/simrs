@@ -20,22 +20,30 @@ java {
 }
 
 repositories {
-    // licel/jcardsim publishes to GitHub Packages (package coordinates
-    // com.licel:jcardsim). This repo expects GPR_USER/GPR_TOKEN env
-    // vars, matching the standard GitHub Packages auth flow.
+    // licel publishes jcardsim only to GitHub Packages. Reads from
+    // GitHub Packages -- even of public repos -- require a token; see
+    // https://docs.github.com/en/packages/learn-github-packages/viewing-packages
+    //
+    //   Local dev: export GPR_USER=<github-login>  GPR_TOKEN=<PAT with packages:read>
+    //   CI:        username=<actor>, password=${{ secrets.GITHUB_TOKEN }}
+    //
+    // (GITHUB_TOKEN in Actions is a server-generated token with
+    // implicit read access to packages of public dependencies.)
     maven {
         url = uri("https://maven.pkg.github.com/licel/jcardsim")
         credentials {
-            username = System.getenv("GPR_USER")    ?: ""
-            password = System.getenv("GPR_TOKEN")   ?: ""
+            username = System.getenv("GPR_USER") ?: System.getenv("GITHUB_ACTOR") ?: ""
+            password = System.getenv("GPR_TOKEN") ?: System.getenv("GITHUB_TOKEN") ?: ""
         }
     }
     mavenCentral()
 }
 
 dependencies {
-    // jcardsim 3.0.5 is the latest published release as of 2024.
-    implementation 'com.licel:jcardsim:3.0.5.11'
+    // Only version published to the licel/jcardsim package feed as of
+    // 2026-04 is '3.0.5-SNAPSHOT' (verified via
+    // /users/licel/packages/maven/com.licel.jcardsim/versions).
+    implementation 'com.licel:jcardsim:3.0.5-SNAPSHOT'
 }
 
 jar {

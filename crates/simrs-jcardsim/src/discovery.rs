@@ -35,21 +35,24 @@ pub const BRIDGE_JAR: &str = "bridge.jar";
 
 /// Human-readable acquisition and installation guide.
 pub const ACQUISITION_GUIDE: &str = "\
-jcardsim is the licel/jcardsim Java Card Simulator (Apache-2.0):
+jcardsim is the licel/jcardsim Java Card Simulator (Apache-2.0).
+The upstream library is published only on GitHub Packages, which
+requires authentication even for public packages.
 
-  1. Build the bridge JAR from this repo:
-       ./gradlew --project-dir tools/jcardsim-bridge build
-     The output lands in tools/jcardsim-bridge/build/libs/bridge.jar.
+  1. Provide GitHub Packages credentials. A classic PAT with the
+     'read:packages' scope works:
+       export GPR_USER=<github-username>
+       export GPR_TOKEN=<PAT with read:packages>
+     In GitHub Actions: Gradle picks up GITHUB_ACTOR / GITHUB_TOKEN
+     automatically (GITHUB_TOKEN has implicit public-package read).
 
-  2. Obtain the jcardsim library JAR. Either:
-     a. Download from https://github.com/licel/jcardsim/packages, or
-     b. Let Gradle fetch it as a dependency of the bridge -- the
-        build script places a copy into
-        tools/jcardsim-bridge/build/libs/ alongside bridge.jar.
+  2. Build the bridge JAR from this repo:
+       gradle --project-dir tools/jcardsim-bridge build
+     Output lands in tools/jcardsim-bridge/build/libs/bridge.jar,
+     and the build also copies the resolved jcardsim-*.jar there.
 
-  3. (Optional) Install persistently:
-       mkdir -p ~/.cache/simrs/jcardsim/
-       cp bridge.jar jcardsim-*.jar ~/.cache/simrs/jcardsim/
+  3. (Optional) Install persistently into ~/.cache/simrs/jcardsim/:
+       simrs-jcardsim install tools/jcardsim-bridge/build/libs
 
   4. Or point at them explicitly:
        export SIMRS_JCARDSIM_BRIDGE=/path/to/bridge.jar

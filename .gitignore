@@ -16,3 +16,7 @@ exports/*/.pytest_cache/
 *_clause_urls.json
 tools/simrs-jcsl/vendor/
 differential-report.*
+
+# Gradle
+tools/jcardsim-bridge/build/
+tools/jcardsim-bridge/.gradle/
