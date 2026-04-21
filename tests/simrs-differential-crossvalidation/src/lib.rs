@@ -93,6 +93,32 @@ pub fn select_backend() -> BackendId {
     })
 }
 
+/// Panic with a uniform "backend not discoverable" message.
+///
+/// Used by the matrix test macros in `differential.rs` and `replay.rs`
+/// to fail loudly (and identically) when `SIMRS_DIFF_BACKEND` names a
+/// backend whose discovery path came up empty. `label` identifies the
+/// test / session for diagnostics.
+///
+/// # Panics
+///
+/// Always; this function diverges. The message names the missing
+/// backend and the canonical remediation step (install jcsl / build
+/// the jcardengine bridge).
+pub fn panic_backend_not_discoverable(label: &str, backend: BackendId) -> ! {
+    match backend {
+        BackendId::Jcsl => panic!(
+            "{label}: jcsl binary not discoverable. \
+             Set SIMRS_JCSL_BINARY or install jcsl under \
+             tests/jcsl-smartcard/jcsl/bin/"
+        ),
+        BackendId::Jcardengine => panic!(
+            "{label}: jcardengine bridge not discovered. \
+             Build with: gradle --project-dir tools/jcardengine-bridge build"
+        ),
+    }
+}
+
 /// Env var overriding [`default_report_dir`]. Set in CI when we want
 /// reports written somewhere specific (e.g., a cached artifact path
 /// that survives matrix cells).

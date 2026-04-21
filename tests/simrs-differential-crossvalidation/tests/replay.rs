@@ -26,7 +26,8 @@
 //! [`ReferenceBackend`]: simrs_differential_crossvalidation::ReferenceBackend
 
 use simrs_differential_crossvalidation::{
-    BackendId, CompareResult, DiffSession, SIMRS_ISD_AID, select_aid, select_backend,
+    BackendId, CompareResult, DiffSession, SIMRS_ISD_AID, panic_backend_not_discoverable,
+    select_aid, select_backend,
 };
 
 /// Build a [`DiffSession`] for the backend configured by
@@ -34,21 +35,12 @@ use simrs_differential_crossvalidation::{
 /// misconfigured CI fails loudly.
 fn build_matrix_session(label: &str) -> DiffSession {
     let builder = DiffSession::builder(label).simrs_gp_card();
-    match select_backend() {
-        BackendId::Jcsl => builder.try_oracle_jcsl().build().unwrap_or_else(|| {
-            panic!(
-                "{label}: jcsl binary not discoverable. \
-                 Set SIMRS_JCSL_BINARY or install jcsl under \
-                 tests/jcsl-smartcard/jcsl/bin/"
-            )
-        }),
-        BackendId::Jcardengine => builder.try_jcardengine().build().unwrap_or_else(|| {
-            panic!(
-                "{label}: jcardengine bridge not discovered. \
-                 Build with: gradle --project-dir tools/jcardengine-bridge build"
-            )
-        }),
-    }
+    let backend = select_backend();
+    let built = match backend {
+        BackendId::Jcsl => builder.try_oracle_jcsl().build(),
+        BackendId::Jcardengine => builder.try_jcardengine().build(),
+    };
+    built.unwrap_or_else(|| panic_backend_not_discoverable(label, backend))
 }
 
 /// Matrix test macro: build a session against the selected backend and

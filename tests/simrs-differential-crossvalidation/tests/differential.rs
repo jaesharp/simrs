@@ -27,8 +27,9 @@
 
 use simrs_card_api::{SimEvent, SimResponse};
 use simrs_differential_crossvalidation::{
-    BackendId, DualCard, ORACLE_ISD_AID, ReferenceBackend, SIMRS_ISD_AID, select_aid,
-    select_backend, try_create_dual_card_jcardengine, try_create_dual_card_jcsl,
+    BackendId, DualCard, ORACLE_ISD_AID, ReferenceBackend, SIMRS_ISD_AID,
+    panic_backend_not_discoverable, select_aid, select_backend, try_create_dual_card_jcardengine,
+    try_create_dual_card_jcsl,
 };
 
 /// APDU-only matrix test harness.
@@ -56,26 +57,18 @@ macro_rules! apdu_test {
         fn $name() {
             #[allow(unused_mut)]
             fn run<B: ReferenceBackend>(mut $dc: DualCard<B>) $body
-            match select_backend() {
+            let backend = select_backend();
+            let label = stringify!($name);
+            match backend {
                 BackendId::Jcsl => {
                     let dc = try_create_dual_card_jcsl($label).unwrap_or_else(|| {
-                        panic!(
-                            "{}: jcsl binary not discoverable. \
-                             Set SIMRS_JCSL_BINARY or install jcsl under \
-                             tests/jcsl-smartcard/jcsl/bin/",
-                            stringify!($name)
-                        )
+                        panic_backend_not_discoverable(label, backend)
                     });
                     run(dc);
                 }
                 BackendId::Jcardengine => {
                     let dc = try_create_dual_card_jcardengine($label).unwrap_or_else(|| {
-                        panic!(
-                            "{}: jcardengine bridge not discovered. \
-                             Build with: gradle --project-dir \
-                             tools/jcardengine-bridge build",
-                            stringify!($name)
-                        )
+                        panic_backend_not_discoverable(label, backend)
                     });
                     run(dc);
                 }
