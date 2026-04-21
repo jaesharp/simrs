@@ -1771,6 +1771,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "simrs-jcardengine"
+version = "0.1.0"
+dependencies = [
+ "simrs-transport",
+]
+
+[[package]]
 name = "simrs-jcasm"
 version = "0.1.0"
 dependencies = [

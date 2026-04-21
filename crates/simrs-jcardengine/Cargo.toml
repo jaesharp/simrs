@@ -1,0 +1,13 @@
+[package]
+name        = "simrs-jcardengine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "martinpaljak/JCardEngine Java Card Runtime Simulator client, process manager, and discovery"
+publish     = false
+
+[dependencies]
+simrs-transport = { workspace = true }
+
+[lints]
+workspace = true

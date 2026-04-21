@@ -1,0 +1,85 @@
+// Build script for the simrs-jcardengine bridge JAR.
+//
+// Produces build/libs/bridge.jar and also copies the resolved
+// jcardengine library JAR next to it, so runtime classpath discovery
+// only needs to glob one directory.
+//
+// Usage:
+//   ./gradlew --project-dir tools/jcardengine-bridge build
+//   -> build/libs/bridge.jar
+//   -> build/libs/jcardengine-<version>.jar
+
+plugins {
+    id 'java'
+}
+
+java {
+    // JCardEngine 26.04.06 ships class-file version 61 (Java 17). The
+    // transitive gppro parent POM also requires Maven JDK >=17. We
+    // compile the bridge at the same level so the combined bridge JAR
+    // runs anywhere the upstream engine runs.
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    // martinpaljak publishes JCardEngine on his custom Maven repo
+    // (mvn.javacard.pro). Unlike licel/jcardsim (GitHub Packages, auth
+    // required) this repo is anonymous-readable -- no token, no CI
+    // secret plumbing.
+    //
+    // Two sub-repos are exposed:
+    //   /SNAPSHOTS/  -- SNAPSHOT builds of jcardengine, gppro, etc.
+    //   /           -- pinned release-version jars (e.g. apdu4j-core
+    //                   26.04.20.1, referenced transitively via the
+    //                   gppro parent POM's ${apdu4j.version} property).
+    // Both are required: jcardengine release POMs pin parent gppro
+    // snapshots which in turn pin fixed-version apdu4j-core releases.
+    //
+    // See https://github.com/martinpaljak/JCardEngine for upstream.
+    maven {
+        url = uri("https://mvn.javacard.pro/maven/SNAPSHOTS")
+        content {
+            includeGroup 'com.github.martinpaljak'
+        }
+    }
+    maven {
+        url = uri("https://mvn.javacard.pro/maven/")
+        content {
+            includeGroup 'com.github.martinpaljak'
+        }
+    }
+    mavenCentral()
+}
+
+dependencies {
+    // Pinned to the 26.04.06 release (latest at branch-creation time,
+    // 2026-04-17). Bump in concert with the SMOKE_APPLET_CLASS / AID
+    // expectations in crates/simrs-jcardengine/tests/integration.rs if
+    // the upstream sample package namespaces ever move.
+    implementation 'com.github.martinpaljak:jcardengine:26.04.06'
+}
+
+jar {
+    archiveFileName = 'bridge.jar'
+    manifest {
+        attributes 'Main-Class': 'com.simrs.jcardengine.Bridge'
+    }
+}
+
+// After `jar`, copy every resolved runtime-classpath jar (jcardengine
+// plus its transitive deps -- slf4j, byte-buddy, asm, jackson,
+// bouncycastle, apdu4j-core, etc.) into build/libs/ alongside
+// bridge.jar. The Rust launcher then runs the bridge with
+// `-cp <build/libs>/*`, which Java expands to every jar in that
+// directory -- no per-dep classpath plumbing on the Rust side.
+tasks.register('copyRuntimeDeps', Copy) {
+    dependsOn configurations.runtimeClasspath
+    from configurations.runtimeClasspath
+    into layout.buildDirectory.dir('libs')
+}
+
+tasks.named('build') {
+    dependsOn 'copyRuntimeDeps'
+}
