@@ -217,7 +217,7 @@ impl JcslBackend {
     pub fn context_entries(&self) -> Vec<(String, String)> {
         vec![
             ("backend".into(), BackendId::Jcsl.as_str().into()),
-            ("binary".into(), self.binary_path.display().to_string()),
+            ("binary".into(), crate::display_path(&self.binary_path)),
             ("applet.aid".into(), "A000000151000000".into()),
             ("scp.kvn".into(), format!("0x{:02X}", self.scp_kvn)),
             ("scp.enc_mac_dek_hex".into(), self.scp_keys_hex.clone()),
@@ -346,11 +346,11 @@ impl JcardengineBackend {
             ("backend".into(), BackendId::Jcardengine.as_str().into()),
             (
                 "bridge.jar".into(),
-                self.installation.bridge_jar.display().to_string(),
+                crate::display_path(&self.installation.bridge_jar),
             ),
             (
                 "engine.jar".into(),
-                self.installation.jcardengine_jar.display().to_string(),
+                crate::display_path(&self.installation.jcardengine_jar),
             ),
             ("applet.class".into(), JCE_GP_APPLET_CLASS.into()),
             ("applet.aid".into(), JCE_GP_APPLET_AID.into()),

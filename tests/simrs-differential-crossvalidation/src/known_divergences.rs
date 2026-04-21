@@ -38,12 +38,25 @@ pub struct KnownDivergence {
     /// Reference backends this entry applies to. Empty means "any";
     /// when populated, the lookup must match the running backend.
     pub backends: &'static [BackendId],
+    /// Source line in this file where the entry is defined. Populated
+    /// via `line!()` at the invocation site so the combined report
+    /// can link a `KNOWN` cell directly to the catalog declaration.
+    pub line: u32,
 }
 
+/// Workspace-root-relative path to the catalog file, for use by the
+/// combined-report link-builder.
+pub const CATALOG_PATH: &str = "tests/simrs-differential-crossvalidation/src/known_divergences.rs";
+
 /// Static catalog of all known and accepted divergences.
+///
+/// Each entry records its own source line via `line!()` so the
+/// combined differential report can link a `KNOWN (Dx)` cell back to
+/// the catalog declaration: viewers resolve `<repo>/CATALOG_PATH#L<line>`.
 pub static KNOWN_DIVERGENCES: &[KnownDivergence] = &[
     KnownDivergence {
         id: "D2",
+        line: line!(),
         description: "SELECT with 8-byte ISD AID (GP 2.3 default)",
         simrs_sw: 0x6A82,
         reference_sw: 0x9000,
@@ -57,6 +70,7 @@ pub static KNOWN_DIVERGENCES: &[KnownDivergence] = &[
     },
     KnownDivergence {
         id: "D6",
+        line: line!(),
         description: "EXTERNAL AUTHENTICATE failure status word",
         simrs_sw: 0x6988,
         reference_sw: 0x6985,
@@ -67,6 +81,7 @@ pub static KNOWN_DIVERGENCES: &[KnownDivergence] = &[
     },
     KnownDivergence {
         id: "J1",
+        line: line!(),
         description: "GET DATA -- JCardEngine GP applet does not implement tag",
         simrs_sw: 0x9000,
         reference_sw: 0x6D00,
@@ -81,6 +96,7 @@ pub static KNOWN_DIVERGENCES: &[KnownDivergence] = &[
     },
     KnownDivergence {
         id: "J2",
+        line: line!(),
         description: "GET DATA unknown tag -- JCardEngine returns 6D00 instead of 6A88",
         simrs_sw: 0x6A88,
         reference_sw: 0x6D00,
@@ -92,6 +108,7 @@ pub static KNOWN_DIVERGENCES: &[KnownDivergence] = &[
     },
     KnownDivergence {
         id: "J3",
+        line: line!(),
         description: "SELECT unknown AID -- JCardEngine returns 6D00 instead of 6A82",
         simrs_sw: 0x6A82,
         reference_sw: 0x6D00,

@@ -455,9 +455,23 @@ impl DiffReport {
                 DivergenceCategory::KnownDivergence { .. } => "KNOWN",
                 DivergenceCategory::Regression => "FAIL",
             };
+            // `KNOWN` notes link to the catalog declaration so
+            // reviewers can jump to the justification -- matches the
+            // combined report's convention (repo-root-relative path
+            // + line from `KnownDivergence::line`).
             let note = match &case.outcome {
                 DivergenceCategory::Match => String::new(),
-                DivergenceCategory::KnownDivergence { id } => (*id).to_string(),
+                DivergenceCategory::KnownDivergence { id } => known_divergences::lookup_by_id(id)
+                    .map_or_else(
+                        || (*id).to_string(),
+                        |d| {
+                            format!(
+                                "[{id}]({path}#L{line})",
+                                path = known_divergences::CATALOG_PATH,
+                                line = d.line,
+                            )
+                        },
+                    ),
                 DivergenceCategory::Regression => "REGRESSION".to_string(),
             };
             let _ = writeln!(

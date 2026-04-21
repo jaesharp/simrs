@@ -87,15 +87,43 @@ pub fn default_report_dir() -> std::path::PathBuf {
     if let Some(explicit) = std::env::var_os(ENV_REPORT_DIR) {
         return std::path::PathBuf::from(explicit);
     }
-    // crates/../tests/simrs-differential-crossvalidation -> workspace/target
+    workspace_root().map_or_else(
+        || std::path::PathBuf::from("target/differential-reports"),
+        |ws| ws.join("target").join("differential-reports"),
+    )
+}
+
+/// Workspace root, computed from `CARGO_MANIFEST_DIR` at compile time.
+///
+/// Returns `None` if the manifest is unexpectedly shallow (the
+/// differential crate sits two levels under the workspace root, so
+/// `parent().parent()` of the manifest dir yields the root).
+#[must_use]
+pub fn workspace_root() -> Option<std::path::PathBuf> {
+    // crates/../tests/simrs-differential-crossvalidation -> workspace
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     manifest
         .parent()
         .and_then(std::path::Path::parent)
-        .map_or_else(
-            || std::path::PathBuf::from("target/differential-reports"),
-            |ws| ws.join("target").join("differential-reports"),
-        )
+        .map(std::path::Path::to_path_buf)
+}
+
+/// Render a path for inclusion in a differential report.
+///
+/// Paths inside the workspace are shown workspace-root-relative so
+/// the report is reproducible across machines (absolute home
+/// directories don't appear in committed artifacts). Paths outside
+/// the workspace are shown verbatim -- the absolute path is usually
+/// the useful information there (e.g. an XDG-cached binary).
+#[must_use]
+pub fn display_path(path: &std::path::Path) -> String {
+    workspace_root().map_or_else(
+        || path.display().to_string(),
+        |root| {
+            path.strip_prefix(&root)
+                .map_or_else(|_| path.display().to_string(), |rel| rel.display().to_string())
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------

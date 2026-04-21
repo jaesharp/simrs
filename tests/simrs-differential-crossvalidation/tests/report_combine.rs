@@ -33,7 +33,10 @@
 //! [`report_gen`]: ../report_gen/index.html
 //! [`BackendId`]: simrs_differential_crossvalidation::BackendId
 
-use simrs_differential_crossvalidation::{BackendId, default_report_dir};
+use simrs_differential_crossvalidation::{
+    BackendId, default_report_dir,
+    known_divergences::{self, CATALOG_PATH},
+};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -210,6 +213,45 @@ fn try_load_backend(dir: &Path, backend: BackendId) -> Option<BackendReport> {
     Some(parse_junit(&xml))
 }
 
+/// Row-level aggregate status. Single source of truth combining the
+/// per-backend `Status` cells for a test case into one verdict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowStatus {
+    /// At least one backend in [`BACKENDS`] did not report this case.
+    Missing,
+    /// Every reporting backend returned `Match` -- simrs agrees with
+    /// all of them.
+    Pass,
+    /// Every divergence in this row is cataloged (no `Regression`
+    /// cells). simrs does not match all references, but the
+    /// disagreements are documented.
+    Known,
+    /// At least one backend marked the row as a regression.
+    Fail,
+}
+
+impl RowStatus {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Missing => "-",
+            Self::Pass => "PASS",
+            Self::Known => "KNOWN",
+            Self::Fail => "FAIL",
+        }
+    }
+
+    /// `agree` column rendering. `Pass` is the only "yes"; everything
+    /// else means simrs did not match every reference (or the row
+    /// wasn't fully reported).
+    const fn agree_label(self) -> &'static str {
+        match self {
+            Self::Missing => "-",
+            Self::Pass => "yes",
+            Self::Known | Self::Fail => "no",
+        }
+    }
+}
+
 /// Per-row bookkeeping emitted by [`render_row`]. Split out from
 /// `to_markdown` so that function stays under clippy's
 /// `too_many_lines` threshold and the row-rendering logic can be
@@ -221,14 +263,8 @@ struct RowStats {
     /// backend that reported it (deterministic simrs output implies
     /// every backend sees the same value).
     simrs_sw: String,
-    /// Human-readable `agree` cell (`"yes"`, `"no"`, `"-"`).
-    consensus: String,
-    /// Did every present backend record `Status::Match`?
-    simrs_agrees_everywhere: bool,
-    /// Does `reports` cover every backend in `BACKENDS`?
-    present_in_all: bool,
-    /// Is any backend's cell a `Regression`?
-    has_regression: bool,
+    /// Row-level PASS / KNOWN / FAIL / Missing aggregate.
+    status: RowStatus,
 }
 
 fn render_row(reports: &BTreeMap<BackendId, BackendReport>, name: &str) -> RowStats {
@@ -254,9 +290,14 @@ fn render_row(reports: &BTreeMap<BackendId, BackendReport>, name: &str) -> RowSt
                     Status::Match => format!("{} PASS", row.reference_sw),
                     Status::Known(id) => {
                         simrs_agrees_everywhere = false;
+                        // Link to the catalog entry's source line
+                        // (repo-root-relative) so reviewers can read
+                        // the justification in place.
+                        let line = known_divergences::lookup_by_id(id).map_or(0, |d| d.line);
                         format!(
-                            "{sw} [KNOWN ({id})](./differential-report-{backend}.md#divergences)",
-                            sw = row.reference_sw
+                            "{sw} [KNOWN ({id})]({path}#L{line})",
+                            sw = row.reference_sw,
+                            path = CATALOG_PATH,
                         )
                     }
                     Status::Regression => {
@@ -271,31 +312,35 @@ fn render_row(reports: &BTreeMap<BackendId, BackendReport>, name: &str) -> RowSt
             );
         cells.push(cell);
     }
-    let consensus = if !present_in_all {
-        "-".to_string()
+    let status = if !present_in_all {
+        RowStatus::Missing
+    } else if has_regression {
+        RowStatus::Fail
     } else if simrs_agrees_everywhere {
-        "yes".to_string()
+        RowStatus::Pass
     } else {
-        "no".to_string()
+        RowStatus::Known
     };
     RowStats {
         cells,
         simrs_sw,
-        consensus,
-        simrs_agrees_everywhere,
-        present_in_all,
-        has_regression,
+        status,
     }
 }
 
 /// Build a Markdown table combining every backend's status per case.
 ///
-/// Column order is: `# | Test | simrs | <backends in lex order> | agree`.
-/// The `simrs` column shows the SW simrs returned for each test case
-/// (taken from the first available per-backend report -- in a
-/// well-behaved run simrs is deterministic, so all backends agree on
-/// that value). Each backend column shows that backend's SW plus a
-/// PASS/FAIL/KNOWN tag.
+/// Column order:
+/// `# | status | Test | simrs | <backends in lex order> | agree`.
+/// `status` is the row-level PASS/KNOWN/FAIL aggregate in the first
+/// non-index slot so at-a-glance scans land on regressions first.
+/// `agree` (yes/no) trails at the right edge where it has always
+/// been; it duplicates some information from `status` but remains a
+/// one-cell fast check of "did simrs match every reference in this
+/// run". The `simrs` column shows the SW simrs returned, taken from
+/// the first available per-backend report (simrs is deterministic so
+/// all backends agree on that value). Each backend column shows
+/// that backend's SW plus a PASS/FAIL/KNOWN tag.
 fn to_markdown(reports: &BTreeMap<BackendId, BackendReport>) -> String {
     use std::fmt::Write as _;
     let mut md = String::new();
@@ -344,10 +389,11 @@ fn to_markdown(reports: &BTreeMap<BackendId, BackendReport>) -> String {
         }
     }
 
-    // Header row -- simrs first, then backends in lex (BackendId Ord)
-    // order, then the "agree" column.
-    let mut header = String::from("| # | Test | simrs |");
-    let mut separator = String::from("|---|------|-------|");
+    // Header row -- status in the first non-index slot so scans land
+    // on regressions first; simrs first in the SW group; backends
+    // follow in lex (BackendId Ord) order; agree trails at the right.
+    let mut header = String::from("| # | status | Test | simrs |");
+    let mut separator = String::from("|---|--------|------|-------|");
     for backend in BACKENDS {
         let _ = write!(header, " {backend} |");
         separator.push_str("-----------|");
@@ -375,20 +421,24 @@ fn to_markdown(reports: &BTreeMap<BackendId, BackendReport>) -> String {
     let mut any_regression = 0usize;
     for (i, name) in case_names.iter().enumerate() {
         let row_stats = render_row(reports, name);
-        if row_stats.simrs_agrees_everywhere && row_stats.present_in_all {
-            match_all += 1;
+        match row_stats.status {
+            RowStatus::Pass => match_all += 1,
+            RowStatus::Missing => any_missing += 1,
+            RowStatus::Fail => any_regression += 1,
+            RowStatus::Known => {}
         }
-        if !row_stats.present_in_all {
-            any_missing += 1;
-        }
-        if row_stats.has_regression {
-            any_regression += 1;
-        }
-        let _ = write!(md, "| {} | {} | {} |", i + 1, name, row_stats.simrs_sw);
+        let _ = write!(
+            md,
+            "| {} | {} | {} | {} |",
+            i + 1,
+            row_stats.status.label(),
+            name,
+            row_stats.simrs_sw
+        );
         for cell in &row_stats.cells {
             let _ = write!(md, " {cell} |");
         }
-        let _ = writeln!(md, " {} |", row_stats.consensus);
+        let _ = writeln!(md, " {} |", row_stats.status.agree_label());
     }
 
     let _ = writeln!(md);
