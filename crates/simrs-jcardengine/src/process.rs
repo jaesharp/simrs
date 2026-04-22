@@ -324,20 +324,24 @@ mod tests {
 
     #[test]
     fn classpath_wildcards_bridge_dir() {
+        // Construct paths platform-natively so build_classpath's
+        // join-with-* output matches consistently across OSes.
+        // `PathBuf::from("/a/bridge.jar")` on Windows preserves the
+        // forward slashes unchanged; joining with `*` then produces
+        // mixed-separator output (`/a\*`). Using a PathBuf assembled
+        // component-by-component ensures the separators are all in
+        // the platform's native style.
+        let bridge_jar: PathBuf = ["a", "bridge.jar"].iter().collect();
+        let engine_jar: PathBuf = ["a", "jcardengine-26.04.06.jar"].iter().collect();
         let inst = BridgeInstallation {
-            bridge_jar: PathBuf::from("/a/bridge.jar"),
-            jcardengine_jar: PathBuf::from("/a/jcardengine-26.04.06.jar"),
+            bridge_jar,
+            jcardengine_jar: engine_jar,
             source: crate::discovery::DiscoverySource::EnvVar,
         };
         let cp = build_classpath(&JcardengineConfig::new(inst));
-        // Entire runtime classpath collapses to "<bridge_dir>/*", which
-        // Java expands at startup to every jar in that directory.
-        let expected = if cfg!(target_os = "windows") {
-            "\\a\\*"
-        } else {
-            "/a/*"
-        };
-        assert_eq!(cp, expected);
+        // Expected: "<bridge_dir>/*" with the platform's separator.
+        let expected: PathBuf = ["a", "*"].iter().collect();
+        assert_eq!(cp, expected.display().to_string());
     }
 
     #[test]

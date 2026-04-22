@@ -128,19 +128,24 @@ pub const ENV_DIFF_BACKEND: &str = "SIMRS_DIFF_BACKEND";
 pub fn select_backend() -> BackendId {
     std::env::var(ENV_DIFF_BACKEND).map_or_else(
         |_| {
-            // Default: first backend with a compiled-in runtime, in
-            // lexicographic order. If no runtime is compiled in,
-            // fall back to the first known variant so the caller can
-            // still panic with `panic_backend_not_discoverable`'s
-            // clearer "feature not enabled" message.
-            BackendId::with_runtime()
-                .first()
-                .copied()
-                .unwrap_or_else(|| {
-                    *BackendId::all()
-                        .first()
-                        .expect("BackendId::all is empty — this is a bug")
-                })
+            // Default (no env var): prefer jcsl when its runtime is
+            // compiled in — it's the long-standing legacy default and
+            // the backend present in every matrix cell, including the
+            // workspace-test cells that don't build the jcardengine
+            // bridge. Fall through to jcardengine only when jcsl is
+            // feature-gated out. If neither runtime is available,
+            // return the first declared variant so the caller can
+            // panic with `panic_backend_not_discoverable`'s clearer
+            // "feature not enabled" message.
+            if BackendId::Jcsl.has_runtime() {
+                BackendId::Jcsl
+            } else if BackendId::Jcardengine.has_runtime() {
+                BackendId::Jcardengine
+            } else {
+                *BackendId::all()
+                    .first()
+                    .expect("BackendId::all is empty — this is a bug")
+            }
         },
         |raw| {
             BackendId::parse(&raw).unwrap_or_else(|b| {
