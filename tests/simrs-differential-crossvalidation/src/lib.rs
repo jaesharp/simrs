@@ -107,10 +107,12 @@ pub use simrs_jcsl::discover_binary as discover_jcsl_binary;
 
 /// Env var selecting which reference backend a test should run against.
 ///
-/// Consumed by [`select_backend`]; unset defaults to the first
-/// available backend under [`BackendId::all`] (lexicographic: jcardengine
-/// preferred if enabled, otherwise jcsl). Legacy callers that want
-/// jcsl specifically should set `SIMRS_DIFF_BACKEND=jcsl` explicitly.
+/// Consumed by [`select_backend`]; when unset the default is
+/// `jcsl` if its runtime is compiled in, otherwise `jcardengine`.
+/// jcsl is the legacy default and the backend present in every CI
+/// matrix cell, so cells that only build jcsl don't need to set
+/// this variable. Set `SIMRS_DIFF_BACKEND=jcardengine` to run the
+/// matrix against the `JCardEngine` bridge instead.
 pub const ENV_DIFF_BACKEND: &str = "SIMRS_DIFF_BACKEND";
 
 /// Read [`ENV_DIFF_BACKEND`] and return the chosen backend.
