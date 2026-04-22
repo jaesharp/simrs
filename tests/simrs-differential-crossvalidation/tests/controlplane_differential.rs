@@ -33,8 +33,7 @@ use simrs_controlplane::{
     protocol::{CLA as CP_CLA, Category, INS as CP_INS},
 };
 use simrs_differential_crossvalidation::{
-    GpCardTerminal, KEY_BYTES, ReferenceBackend, panic_backend_not_discoverable, select_aid,
-    select_backend, try_start_and_power_on,
+    GpCardTerminal, KEY_BYTES, ReferenceBackend, select_aid, select_backend, try_start_and_power_on,
 };
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
@@ -55,12 +54,35 @@ fn make_simrs_with_controlplane() -> ControlplaneCard<GpCardTerminal> {
     ControlplaneCard::new(terminal)
 }
 
-/// Select the configured reference backend. Panics when the backend
-/// is configured but not discoverable (same policy as `apdu_test!`).
-fn start_reference() -> Box<dyn ReferenceBackend> {
-    let backend = select_backend();
-    try_start_and_power_on(backend)
-        .unwrap_or_else(|| panic_backend_not_discoverable("controlplane_differential", backend))
+/// Start + power-on the configured reference backend, or return
+/// `None` if no backend runtime is installed in this cell.
+///
+/// Unlike the dedicated `apdu_test!` matrix harness, these tests run
+/// in every `cargo test --workspace` cell — including workspace-test
+/// cells that don't install jcsl or the jcardengine bridge. Skipping
+/// gracefully (with an `eprintln`) in that case is correct; panicking
+/// would turn every general-purpose CI cell into a false negative on
+/// a test that's really scoped to the differential matrix cells.
+fn try_start_reference() -> Option<Box<dyn ReferenceBackend>> {
+    try_start_and_power_on(select_backend())
+}
+
+/// Short-circuit macro: print a skip message and return from the
+/// calling `#[test]` when no backend runtime is available.
+macro_rules! reference_or_skip {
+    () => {
+        match try_start_reference() {
+            Some(r) => r,
+            None => {
+                eprintln!(
+                    "controlplane_differential: no reference backend runtime \
+                     discovered in this cell; skipping. Install jcsl or build \
+                     the jcardengine bridge to exercise this test."
+                );
+                return;
+            }
+        }
+    };
 }
 
 /// Exchange a full APDU against the controlplane-wrapped simrs card.
@@ -92,7 +114,7 @@ fn reference_exchange(r: &mut dyn ReferenceBackend, apdu: &[u8]) -> (Vec<u8>, [u
 #[test]
 fn select_controlplane_aid_simrs_accepts_reference_rejects() {
     let mut simrs = make_simrs_with_controlplane();
-    let mut reference = start_reference();
+    let mut reference = reference_or_skip!();
 
     let apdu = select_aid(&CONTROLPLANE_AID);
 
@@ -126,7 +148,7 @@ fn select_controlplane_aid_simrs_accepts_reference_rejects() {
 #[test]
 fn misc_ping_simrs_echoes_reference_rejects() {
     let mut simrs = make_simrs_with_controlplane();
-    let mut reference = start_reference();
+    let mut reference = reference_or_skip!();
 
     // Select the controlplane on simrs (required for subsequent
     // controlplane APDUs to reach the applet).
@@ -174,7 +196,7 @@ fn misc_ping_simrs_echoes_reference_rejects() {
 #[test]
 fn misc_version_simrs_returns_version_tag() {
     let mut simrs = make_simrs_with_controlplane();
-    let mut reference = start_reference();
+    let mut reference = reference_or_skip!();
 
     let sel = select_aid(&CONTROLPLANE_AID);
     let (_s, ssw) = simrs_exchange(&mut simrs, &sel);
