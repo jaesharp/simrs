@@ -52,6 +52,11 @@ impl JcslBackend {
     #[must_use]
     pub fn try_start() -> Option<Self> {
         let src = simrs_jcsl::discover_binary()?;
+        // Serialise the (next_port, spawn, wait-for-listen) handshake
+        // so parallel backend spawns can't race on the same ephemeral
+        // port. Released once the child is bound and the client has
+        // connected; subsequent APDU exchanges are lock-free.
+        let _spawn = crate::backend_spawn_lock();
         let port = next_port();
         let keyset = ScpKeyset {
             kvn: 0x01,

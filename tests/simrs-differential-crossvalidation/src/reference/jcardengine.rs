@@ -75,6 +75,11 @@ impl JcardengineBackend {
     }
 
     fn start_with(installation: JcardengineInstallation) -> Self {
+        // Serialise the (next_port, spawn, wait-for-listen) handshake
+        // so parallel backend spawns can't race on the same ephemeral
+        // port. Released once the JVM has bound and the client has
+        // connected.
+        let _spawn = crate::backend_spawn_lock();
         let port = next_port();
         let master_key_hex = hex_upper(&KEY_BYTES);
 

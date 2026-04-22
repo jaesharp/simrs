@@ -69,14 +69,36 @@ use simrs_transport::{Transport, TransportError};
 /// Allocate a free TCP port from the OS.
 ///
 /// Binds to port 0, reads the assigned port, then drops the listener.
-/// There is a small TOCTOU window, but this is far more reliable than
-/// a hardcoded counter when multiple test binaries run in parallel.
+/// There is a small TOCTOU window between drop and the child's bind,
+/// which `cargo test`'s parallel execution can amplify. Callers that
+/// spawn child processes should serialise against
+/// [`backend_spawn_lock`] so each `next_port → spawn` pair runs
+/// atomically with respect to other spawners.
 pub(crate) fn next_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .expect("OS should be able to allocate an ephemeral port")
         .local_addr()
         .expect("bound listener should have a local address")
         .port()
+}
+
+/// Global mutex serialising child-process spawns across the crate.
+///
+/// Serialises the `next_port() → spawn(port) → wait-for-listen`
+/// critical section so parallel tests can't race on the same
+/// ephemeral port. Once a backend's child has bound its port, that
+/// port leaves the ephemeral pool and `next_port` calls for other
+/// backends return different values.
+///
+/// Held for the entire spawn handshake; released once the child is
+/// listening and the parent has connected. After that, concurrent
+/// APDU exchange against different backends is lock-free.
+pub fn backend_spawn_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 // Re-export jcsl discovery for convenience.
