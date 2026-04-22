@@ -26,14 +26,18 @@
 //! [`ReferenceBackend`]: simrs_differential_crossvalidation::ReferenceBackend
 
 use simrs_differential_crossvalidation::{
-    BackendId, CompareResult, DiffSession, SIMRS_ISD_AID, panic_backend_not_discoverable,
+    BackendId, CompareResult, DiffSession, SIMRS_ISD_AID, panic_or_skip_on_missing_backend,
     select_aid, select_backend,
 };
 
 /// Build a [`DiffSession`] for the backend configured by
-/// [`select_backend`]. Panics on a configured-but-missing reference so
-/// misconfigured CI fails loudly.
-fn build_matrix_session(label: &str) -> DiffSession {
+/// [`select_backend`], or return `None` when no backend runtime is
+/// discoverable.
+///
+/// Policy (via [`panic_or_skip_on_missing_backend`]):
+/// - `SIMRS_DIFF_BACKEND` set → panic on missing (matrix-cell mode)
+/// - `SIMRS_DIFF_BACKEND` unset → log + skip (workspace-test mode)
+fn try_matrix_session(label: &str) -> Option<DiffSession> {
     let builder = DiffSession::builder(label).simrs_gp_card();
     let backend = select_backend();
     #[allow(unreachable_patterns)]
@@ -42,9 +46,12 @@ fn build_matrix_session(label: &str) -> DiffSession {
         BackendId::Jcsl => builder.try_oracle_jcsl().build(),
         #[cfg(feature = "jcardengine-backend")]
         BackendId::Jcardengine => builder.try_jcardengine().build(),
-        _ => panic_backend_not_discoverable(label, backend),
+        _ => None,
     };
-    built.unwrap_or_else(|| panic_backend_not_discoverable(label, backend))
+    if built.is_none() {
+        panic_or_skip_on_missing_backend(label, backend);
+    }
+    built
 }
 
 /// Matrix test macro: build a session against the selected backend and
@@ -56,7 +63,9 @@ macro_rules! replay_test {
         #[test]
         fn $name() {
             #[allow(unused_mut)]
-            let mut $session = build_matrix_session($label);
+            let Some(mut $session) = try_matrix_session($label) else {
+                return;
+            };
             $body
         }
     };

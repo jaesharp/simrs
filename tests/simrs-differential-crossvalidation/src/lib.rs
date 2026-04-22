@@ -196,6 +196,69 @@ pub fn panic_backend_not_discoverable(label: &str, backend: BackendId) -> ! {
     }
 }
 
+/// Policy for how matrix tests handle a missing backend runtime.
+///
+/// Distinguishes "the CI matrix cell explicitly asked for this
+/// backend" (strict — panic when absent is correct) from "this is a
+/// general-purpose test cell that happens to have no backend
+/// installed" (skip — panicking would false-negative every
+/// workspace-test cell).
+///
+/// The distinction is made by env-var presence: [`ENV_DIFF_BACKEND`]
+/// set by the matrix cell opts into strict mode; unset means we're
+/// in a workspace cell and should skip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissingBackendPolicy {
+    /// Matrix cells that explicitly name a backend: missing runtime is
+    /// a configuration error; panic.
+    Panic,
+    /// Workspace test cells with no explicit selection: missing
+    /// runtime is a "this cell doesn't have backends"; skip.
+    Skip,
+}
+
+impl MissingBackendPolicy {
+    /// Derive the policy from the current environment. Panic-strict
+    /// iff [`ENV_DIFF_BACKEND`] is set.
+    #[must_use]
+    pub fn from_env() -> Self {
+        if std::env::var_os(ENV_DIFF_BACKEND).is_some() {
+            Self::Panic
+        } else {
+            Self::Skip
+        }
+    }
+}
+
+/// Handle a missing-backend situation under the env-derived policy.
+///
+/// In strict mode, panics via [`panic_backend_not_discoverable`];
+/// in skip mode, prints an explanatory line so the caller's
+/// `return` from the surrounding `#[test]` is visible in test
+/// output.
+///
+/// Callers (the matrix macros) invoke this as the None branch of
+/// their `try_create_*` dispatch and then `return` from the test
+/// when the policy is `Skip`.
+///
+/// # Panics
+///
+/// In strict mode, always diverges with the same message as
+/// [`panic_backend_not_discoverable`].
+pub fn panic_or_skip_on_missing_backend(label: &str, backend: BackendId) {
+    match MissingBackendPolicy::from_env() {
+        MissingBackendPolicy::Panic => panic_backend_not_discoverable(label, backend),
+        MissingBackendPolicy::Skip => {
+            eprintln!(
+                "{label}: skipping; {backend} runtime not discoverable. \
+                 {ENV_DIFF_BACKEND} is unset so this cell is in \
+                 skip-on-missing mode; set {ENV_DIFF_BACKEND}={backend} \
+                 to require the backend and panic on missing."
+            );
+        }
+    }
+}
+
 /// Env var overriding [`default_report_dir`]. Set in CI when we want
 /// reports written somewhere specific (e.g., a cached artifact path
 /// that survives matrix cells).

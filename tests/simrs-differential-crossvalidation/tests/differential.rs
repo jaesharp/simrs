@@ -32,7 +32,7 @@ use simrs_differential_crossvalidation::try_create_dual_card_jcardengine;
 use simrs_differential_crossvalidation::try_create_dual_card_jcsl;
 use simrs_differential_crossvalidation::{
     BackendId, DualCard, ORACLE_ISD_AID, ReferenceBackend, SIMRS_ISD_AID,
-    panic_backend_not_discoverable, select_aid, select_backend,
+    panic_or_skip_on_missing_backend, select_aid, select_backend,
 };
 
 /// APDU-only matrix test harness.
@@ -65,20 +65,24 @@ macro_rules! apdu_test {
             #[allow(unreachable_patterns)]
             match backend {
                 #[cfg(feature = "jcsl-backend")]
-                BackendId::Jcsl => {
-                    let dc = try_create_dual_card_jcsl($label).unwrap_or_else(|| {
-                        panic_backend_not_discoverable(label, backend)
-                    });
-                    run(dc);
-                }
+                BackendId::Jcsl => match try_create_dual_card_jcsl($label) {
+                    Some(dc) => run(dc),
+                    None => {
+                        panic_or_skip_on_missing_backend(label, backend);
+                        // Non-diverging branch: policy is Skip, so
+                        // return cleanly from the #[test].
+                    }
+                },
                 #[cfg(feature = "jcardengine-backend")]
-                BackendId::Jcardengine => {
-                    let dc = try_create_dual_card_jcardengine($label).unwrap_or_else(|| {
-                        panic_backend_not_discoverable(label, backend)
-                    });
-                    run(dc);
+                BackendId::Jcardengine => match try_create_dual_card_jcardengine($label) {
+                    Some(dc) => run(dc),
+                    None => {
+                        panic_or_skip_on_missing_backend(label, backend);
+                    }
+                },
+                _ => {
+                    panic_or_skip_on_missing_backend(label, backend);
                 }
-                _ => panic_backend_not_discoverable(label, backend),
             }
         }
     };

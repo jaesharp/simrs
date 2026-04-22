@@ -33,7 +33,8 @@ use simrs_controlplane::{
     protocol::{CLA as CP_CLA, Category, INS as CP_INS},
 };
 use simrs_differential_crossvalidation::{
-    GpCardTerminal, KEY_BYTES, ReferenceBackend, select_aid, select_backend, try_start_and_power_on,
+    GpCardTerminal, KEY_BYTES, ReferenceBackend, panic_or_skip_on_missing_backend, select_aid,
+    select_backend, try_start_and_power_on,
 };
 use simrs_gp_card::GpCard;
 use simrs_gp_keys::KeySet;
@@ -54,33 +55,30 @@ fn make_simrs_with_controlplane() -> ControlplaneCard<GpCardTerminal> {
     ControlplaneCard::new(terminal)
 }
 
-/// Start + power-on the configured reference backend, or return
-/// `None` if no backend runtime is installed in this cell.
+/// Start + power-on the configured reference backend under the
+/// shared panic-or-skip policy.
 ///
-/// Unlike the dedicated `apdu_test!` matrix harness, these tests run
-/// in every `cargo test --workspace` cell — including workspace-test
-/// cells that don't install jcsl or the jcardengine bridge. Skipping
-/// gracefully (with an `eprintln`) in that case is correct; panicking
-/// would turn every general-purpose CI cell into a false negative on
-/// a test that's really scoped to the differential matrix cells.
-fn try_start_reference() -> Option<Box<dyn ReferenceBackend>> {
-    try_start_and_power_on(select_backend())
+/// Policy (via [`panic_or_skip_on_missing_backend`] in the lib):
+/// - `SIMRS_DIFF_BACKEND` explicitly set → the matrix cell requires
+///   this backend; missing runtime panics.
+/// - Unset → workspace-test cell without a backend installed; log
+///   and skip by returning `None` to the macro.
+fn try_reference_under_policy() -> Option<Box<dyn ReferenceBackend>> {
+    let backend = select_backend();
+    let r = try_start_and_power_on(backend);
+    if r.is_none() {
+        panic_or_skip_on_missing_backend("controlplane_differential", backend);
+    }
+    r
 }
 
-/// Short-circuit macro: print a skip message and return from the
-/// calling `#[test]` when no backend runtime is available.
+/// Short-circuit macro: invokes the shared policy and returns from
+/// the calling `#[test]` when skipping.
 macro_rules! reference_or_skip {
     () => {
-        match try_start_reference() {
+        match try_reference_under_policy() {
             Some(r) => r,
-            None => {
-                eprintln!(
-                    "controlplane_differential: no reference backend runtime \
-                     discovered in this cell; skipping. Install jcsl or build \
-                     the jcardengine bridge to exercise this test."
-                );
-                return;
-            }
+            None => return,
         }
     };
 }
