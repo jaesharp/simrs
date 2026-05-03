@@ -496,13 +496,20 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
       `invokespecial` opcodes do not yet route through them. This is
       the next step before the bytecode interpreter can run real
       multi-class applets.
-- [x] First component-tagged consumer wired (2026-05-03):
-      INSTALL [for install] in `simrs-gp-open` now resolves the
-      applet's `install_method_offset` from `Package::applets` via
-      `Package::method_index_by_component_offset` rather than
-      hard-coding method 0. Falls back to method 0 for blob-path
-      packages (which have no Applet metadata). Closes the
-      "parsing-only plumbing" gap noted in earlier self-review.
+- [x] Resolution primitives in place (2026-05-03):
+      `Package::method_offsets` records each method's byte offset
+      within the Method component (populated by the component-tagged
+      parser; zero in the simplified-blob path).
+      `Package::method_index_by_component_offset(u16) -> Option<u8>`
+      walks that table, gated on slot presence so unset slots can't
+      collide with offset 0. `JcVM::package(idx) -> Option<&Package>`
+      exposes loaded packages so the Card Manager can consult Applet
+      and Import metadata. These primitives are ready for the
+      eventual JCVM `Applet.install(...)` dispatch path -- the
+      Applet component's `install_method_offset` is a *separate*
+      dispatch target from the per-APDU process method, so wiring
+      it requires a new JCVM-level invocation hook rather than
+      replacing the existing process-method linkage.
 - [ ] Component-tagged parser coverage for the remaining components:
       Class, StaticField, RefLocation, Export, Debug, StaticResources.
       Phase 2 sub-items as their consumers come online (Class for the
