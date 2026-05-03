@@ -31,11 +31,14 @@ const TAG_CLASS: u8 = 6;
 const TAG_METHOD: u8 = 7;
 const TAG_STATIC_FIELD: u8 = 8;
 const TAG_REFERENCE_LOCATION: u8 = 9;
+const TAG_EXPORT: u8 = 10;
 const TAG_DESCRIPTOR: u8 = 11;
+const TAG_DEBUG: u8 = 12;
+const TAG_STATIC_RESOURCES: u8 = 13;
 
 /// Number of component size slots in the directory component.
-/// Covers tags 1..12 (header through debug), indexed as tag-1.
-const COMPONENT_SIZE_COUNT: usize = 12;
+/// Covers tags 1..13 (header through `StaticResources`), indexed as tag-1.
+const COMPONENT_SIZE_COUNT: usize = 13;
 
 /// Header component flags.
 const FLAG_HAS_APPLET: u8 = 0x01;
@@ -154,7 +157,10 @@ impl CapWriter {
         let method_body = self.build_method_body();
         let static_field_body = self.build_static_field_body();
         let ref_location_body = build_reference_location_body();
+        let export_body = build_export_body();
         let descriptor_body = self.build_descriptor_body();
+        let debug_body = build_debug_body();
+        let static_resources_body = build_static_resources_body();
 
         // Phase 2: Compute component sizes (body only, tag+length excluded
         // per JCVM 3.1 Section 6.6 -- the directory stores the body size).
@@ -169,14 +175,15 @@ impl CapWriter {
         sizes.set(TAG_METHOD, method_body.len() as u16);
         sizes.set(TAG_STATIC_FIELD, static_field_body.len() as u16);
         sizes.set(TAG_REFERENCE_LOCATION, ref_location_body.len() as u16);
-        // Tag 10 (export) -- not used, stays 0.
+        sizes.set(TAG_EXPORT, export_body.len() as u16);
         sizes.set(TAG_DESCRIPTOR, descriptor_body.len() as u16);
-        // Tag 12 (debug) -- not used, stays 0.
+        sizes.set(TAG_DEBUG, debug_body.len() as u16);
+        sizes.set(TAG_STATIC_RESOURCES, static_resources_body.len() as u16);
 
         // Phase 3: Build the directory component (needs sizes).
         let directory_body = self.build_directory_body(&sizes);
 
-        // Phase 4: Concatenate all components in order.
+        // Phase 4: Concatenate all components in order per JCVM 3.2 § 6.2.
         let mut out = Vec::new();
 
         emit_component(&mut out, TAG_HEADER, &header_body);
@@ -188,9 +195,10 @@ impl CapWriter {
         emit_component(&mut out, TAG_METHOD, &method_body);
         emit_component(&mut out, TAG_STATIC_FIELD, &static_field_body);
         emit_component(&mut out, TAG_REFERENCE_LOCATION, &ref_location_body);
-        // No export component (tag 10).
+        emit_component(&mut out, TAG_EXPORT, &export_body);
         emit_component(&mut out, TAG_DESCRIPTOR, &descriptor_body);
-        // No debug component (tag 12).
+        emit_component(&mut out, TAG_DEBUG, &debug_body);
+        emit_component(&mut out, TAG_STATIC_RESOURCES, &static_resources_body);
 
         out
     }
@@ -248,7 +256,7 @@ impl CapWriter {
     fn build_directory_body(&self, sizes: &ComponentSizes) -> Vec<u8> {
         let mut body = Vec::new();
 
-        // component_sizes: 12 x u16 BE
+        // component_sizes: 13 x u16 BE (one slot per JCVM 3.2 § 6.2 tag).
         for size in &sizes.sizes {
             body.extend_from_slice(&size.to_be_bytes());
         }
@@ -521,6 +529,37 @@ fn build_reference_location_body() -> Vec<u8> {
     Vec::new()
 }
 
+/// Build the Export component body (JCVM 3.2 Section 6.13).
+///
+/// Standalone applets export no symbols, so the body is just a
+/// `class_count = 0`. Real library packages would emit class
+/// descriptors with their public field/method tokens.
+fn build_export_body() -> Vec<u8> {
+    // class_count: u8 (no exports for standalone applets)
+    vec![0]
+}
+
+/// Build the Debug component body (JCVM 3.2 Section 6.15).
+///
+/// Empty for release builds; the spec allows the component to be
+/// omitted entirely, but emitting a zero-length body keeps the
+/// component-tag sequence dense and makes round-trip testing
+/// uniform across builds.
+#[allow(clippy::missing_const_for_fn)]
+fn build_debug_body() -> Vec<u8> {
+    Vec::new()
+}
+
+/// Build the `StaticResources` component body (JCVM 3.2 Section 6.16,
+/// added in CAP v2.3 / JC 3.0.5).
+///
+/// `count = 0` -- no embedded binary resources. Bumping this requires
+/// per-resource records of `(resource_id u16 BE, length u16 BE, bytes)`.
+fn build_static_resources_body() -> Vec<u8> {
+    // count: u16 BE (no resources)
+    vec![0, 0]
+}
+
 /// Emit a complete component: tag(1) | size(2 BE) | body.
 #[allow(clippy::cast_possible_truncation)]
 fn emit_component(out: &mut Vec<u8>, tag: u8, body: &[u8]) {
@@ -756,7 +795,8 @@ mod tests {
             pos += 3 + size;
         }
 
-        // Expected component order per JCVM 3.1: 1,2,3,4,5,6,7,8,9,11
+        // Expected component order per JCVM 3.2 § 6.2:
+        // 1,2,3,4,5,6,7,8,9,10,11,12,13.
         let expected = vec![
             TAG_HEADER,
             TAG_DIRECTORY,
@@ -767,9 +807,59 @@ mod tests {
             TAG_METHOD,
             TAG_STATIC_FIELD,
             TAG_REFERENCE_LOCATION,
+            TAG_EXPORT,
             TAG_DESCRIPTOR,
+            TAG_DEBUG,
+            TAG_STATIC_RESOURCES,
         ];
         assert_eq!(tags, expected);
+    }
+
+    #[test]
+    fn export_component_is_empty() {
+        // Standalone applet -- Export component carries `class_count = 0`
+        // (1 byte). Anything beyond that means we accidentally promoted
+        // an internal symbol to the export table.
+        let cap = CapWriter::new(&sample_compiled()).write();
+        let body = find_component_body(&cap, TAG_EXPORT).expect("Export component present");
+        assert_eq!(body, &[0u8], "Export must contain only `class_count = 0`");
+    }
+
+    #[test]
+    fn debug_component_is_empty() {
+        // Release-shape: Debug body has zero length. The component
+        // is still emitted (tag + size=0) so the directory's
+        // size-by-tag table stays well-formed.
+        let cap = CapWriter::new(&sample_compiled()).write();
+        let body = find_component_body(&cap, TAG_DEBUG).expect("Debug component present");
+        assert!(body.is_empty(), "Debug body should be zero-length");
+    }
+
+    #[test]
+    fn static_resources_component_is_empty_count_pair() {
+        // StaticResources count is u16 BE; 0x0000 means "no resources".
+        let cap = CapWriter::new(&sample_compiled()).write();
+        let body = find_component_body(&cap, TAG_STATIC_RESOURCES)
+            .expect("StaticResources component present");
+        assert_eq!(
+            body,
+            &[0u8, 0u8],
+            "StaticResources must carry a u16 BE count of 0"
+        );
+    }
+
+    #[test]
+    fn full_cap_with_new_components_still_round_trips_through_dispatcher() {
+        // Adding Export/Debug/StaticResources must not break the
+        // dispatcher's ability to load the CAP. Header-tag dispatch
+        // selects the component-tagged parser; the new components
+        // are recognised-but-skipped by the runtime parser today,
+        // so the AID and method should still come through.
+        let compiled = sample_compiled();
+        let cap = CapWriter::new(&compiled).write();
+        let pkg = parse_cap(&cap).expect("parse component-tagged CAP with new components");
+        assert!(pkg.aid_matches(&compiled.aid));
+        assert_eq!(pkg.method_count, 1);
     }
 
     #[test]
@@ -809,7 +899,7 @@ mod tests {
         let dir_size = u16::from_be_bytes([cap[dir_start + 1], cap[dir_start + 2]]) as usize;
         let dir_body = &cap[dir_start + 3..dir_start + 3 + dir_size];
 
-        // First 24 bytes are 12 x u16 component sizes.
+        // First 26 bytes are 13 x u16 component sizes per JCVM 3.2 § 6.2.
         // sizes[0] = header component body size
         let stored_header_size = u16::from_be_bytes([dir_body[0], dir_body[1]]);
         assert_eq!(stored_header_size as usize, header_size);
@@ -906,8 +996,8 @@ mod tests {
         }
         // Exactly consumed all bytes.
         assert_eq!(pos, cap.len());
-        // We emit 10 components (tags 1-9 plus 11).
-        assert_eq!(component_count, 10);
+        // We emit all 13 components (tags 1..=13) per JCVM 3.2 § 6.2.
+        assert_eq!(component_count, 13);
     }
 
     #[test]
@@ -1062,7 +1152,7 @@ mod tests {
                 assert_eq!(stored, 0);
                 continue;
             }
-            if !(1..=12).contains(&tag) {
+            if !(1..=13).contains(&tag) {
                 continue;
             }
             let idx = ((tag - 1) * 2) as usize;

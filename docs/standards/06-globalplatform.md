@@ -501,8 +501,12 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
       StaticResources. Phase 2 sub-items as their consumers come
       online (Class for the firewall, Export for inter-package
       linking, StaticField for proper static initialisation).
-- [ ] `simrs-jacc` writer: emit Export, Debug, StaticResources
-      components.
+- [x] `simrs-jacc` writer: emit Export (tag 10), Debug (tag 12),
+      StaticResources (tag 13). Standalone applets emit empty bodies
+      (Export `class_count = 0`, Debug zero-length, StaticResources
+      `count = 0`); the directory's component-size table now carries
+      13 slots in spec order. The runtime parser recognises and
+      skips the new components.
 
 **Phase 3 -- JCVM 3.2 instruction set** (target: ~1-2 weeks)
 
