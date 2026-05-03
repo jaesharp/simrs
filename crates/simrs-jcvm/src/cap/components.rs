@@ -40,8 +40,10 @@
 //! of `0xDECAFFED`) selects the simplified blob.
 
 use super::{
-    AppletInfo, CAP_MAGIC, CpInfo, ImportInfo, MAX_AID_LEN, MAX_APPLETS_PER_PACKAGE, MAX_BYTECODE,
-    MAX_CP_ENTRIES, MAX_IMPORTS_PER_PACKAGE, MAX_METHODS, MethodInfo, Package, ParseError, cp_tag,
+    AppletInfo, CAP_MAGIC, CpInfo, ExportInfo, ImportInfo, MAX_AID_LEN, MAX_APPLETS_PER_PACKAGE,
+    MAX_BYTECODE, MAX_CP_ENTRIES, MAX_EXPORTED_CLASSES_PER_PACKAGE, MAX_EXPORTED_FIELDS_PER_CLASS,
+    MAX_EXPORTED_METHODS_PER_CLASS, MAX_IMPORTS_PER_PACKAGE, MAX_METHODS, MethodInfo, Package,
+    ParseError, cp_tag,
 };
 
 /// Component tag constants per JCVM 3.2 Section 6.2.
@@ -383,6 +385,83 @@ fn parse_descriptor_method_offsets(
     Ok((offsets, total))
 }
 
+/// Parse the Export component body (JCVM 3.2 § 6.13).
+///
+/// Layout:
+/// ```text
+/// class_count: u8
+/// classes[class_count]:
+///   class_offset:           u2 BE
+///   static_field_count:     u1
+///   static_method_count:    u1
+///   static_field_offsets:   u2 BE * static_field_count
+///   static_method_offsets:  u2 BE * static_method_count
+/// ```
+///
+/// Rejects:
+/// - `class_count > MAX_EXPORTED_CLASSES_PER_PACKAGE` -> `TooManyExportedClasses`
+/// - `static_field_count > MAX_EXPORTED_FIELDS_PER_CLASS` -> `TooManyExportedFields`
+/// - `static_method_count > MAX_EXPORTED_METHODS_PER_CLASS` -> `TooManyExportedMethods`
+fn parse_export_component(
+    body: &[u8],
+) -> Result<([Option<ExportInfo>; MAX_EXPORTED_CLASSES_PER_PACKAGE], u8), ParseError> {
+    if body.is_empty() {
+        return Err(ParseError::TooShort);
+    }
+    let class_count = body[0] as usize;
+    if class_count > MAX_EXPORTED_CLASSES_PER_PACKAGE {
+        return Err(ParseError::TooManyExportedClasses);
+    }
+    let mut pos = 1usize;
+    let mut exports: [Option<ExportInfo>; MAX_EXPORTED_CLASSES_PER_PACKAGE] =
+        [None; MAX_EXPORTED_CLASSES_PER_PACKAGE];
+    for slot in exports.iter_mut().take(class_count) {
+        if pos + 4 > body.len() {
+            return Err(ParseError::TooShort);
+        }
+        let class_offset = u16::from_be_bytes([body[pos], body[pos + 1]]);
+        let static_field_count = body[pos + 2];
+        let static_method_count = body[pos + 3];
+        pos += 4;
+        if static_field_count as usize > MAX_EXPORTED_FIELDS_PER_CLASS {
+            return Err(ParseError::TooManyExportedFields);
+        }
+        if static_method_count as usize > MAX_EXPORTED_METHODS_PER_CLASS {
+            return Err(ParseError::TooManyExportedMethods);
+        }
+        let total_offsets = (static_field_count as usize + static_method_count as usize) * 2;
+        if pos + total_offsets > body.len() {
+            return Err(ParseError::TooShort);
+        }
+        let mut static_field_offsets = [0u16; MAX_EXPORTED_FIELDS_PER_CLASS];
+        for f in static_field_offsets
+            .iter_mut()
+            .take(static_field_count as usize)
+        {
+            *f = u16::from_be_bytes([body[pos], body[pos + 1]]);
+            pos += 2;
+        }
+        let mut static_method_offsets = [0u16; MAX_EXPORTED_METHODS_PER_CLASS];
+        for m in static_method_offsets
+            .iter_mut()
+            .take(static_method_count as usize)
+        {
+            *m = u16::from_be_bytes([body[pos], body[pos + 1]]);
+            pos += 2;
+        }
+        *slot = Some(ExportInfo {
+            class_offset,
+            static_field_count,
+            static_method_count,
+            static_field_offsets,
+            static_method_offsets,
+        });
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let count_u8 = class_count as u8;
+    Ok((exports, count_u8))
+}
+
 /// Parse the Import component body (JCVM 3.2 § 6.7).
 ///
 /// Layout:
@@ -568,6 +647,9 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     let mut imports: [Option<ImportInfo>; MAX_IMPORTS_PER_PACKAGE] =
         [None; MAX_IMPORTS_PER_PACKAGE];
     let mut import_count: u8 = 0;
+    let mut exports: [Option<ExportInfo>; MAX_EXPORTED_CLASSES_PER_PACKAGE] =
+        [None; MAX_EXPORTED_CLASSES_PER_PACKAGE];
+    let mut export_count: u8 = 0;
 
     while pos < data.len() {
         if data.len() < pos + 3 {
@@ -609,9 +691,14 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
                 imports = i;
                 import_count = n;
             }
+            tag::EXPORT => {
+                let (e, n) = parse_export_component(body)?;
+                exports = e;
+                export_count = n;
+            }
             // Recognised-but-skipped components (Directory, Class,
-            // StaticField, RefLocation, Export, Debug, StaticResources)
-            // and unknown components (vendor-custom) all fall through.
+            // StaticField, RefLocation, Debug, StaticResources) and
+            // unknown components (vendor-custom) all fall through.
             // Class hierarchy and StaticField images are Phase 2
             // follow-ups.
             _ => {}
@@ -643,6 +730,8 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
         applet_count,
         imports,
         import_count,
+        exports,
+        export_count,
     })
 }
 
@@ -1883,6 +1972,218 @@ mod tests {
         assert_eq!(pkg.method_count, 1);
         assert_eq!(pkg.method_offsets[0], 0);
         assert_eq!(pkg.method_index_by_component_offset(0xABCD), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Export component
+    // -----------------------------------------------------------------------
+
+    /// Build an Export component body. Each entry is
+    /// `class_offset(2 BE) | static_field_count(1) | static_method_count(1)
+    /// | static_field_offsets(2 BE * fc) | static_method_offsets(2 BE * mc)`.
+    #[allow(clippy::cast_possible_truncation)]
+    fn export_body(classes: &[(u16, &[u16], &[u16])]) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.push(classes.len() as u8);
+        for (class_offset, fields, methods) in classes {
+            body.extend_from_slice(&class_offset.to_be_bytes());
+            body.push(fields.len() as u8);
+            body.push(methods.len() as u8);
+            for f in *fields {
+                body.extend_from_slice(&f.to_be_bytes());
+            }
+            for m in *methods {
+                body.extend_from_slice(&m.to_be_bytes());
+            }
+        }
+        body
+    }
+
+    /// Build a CAP with Header + Export + Method.
+    fn build_cap_with_exports(pkg_aid: &[u8], classes: &[(u16, &[u16], &[u16])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        emit(&mut out, tag::HEADER, &header_body(pkg_aid));
+        emit(&mut out, tag::EXPORT, &export_body(classes));
+        emit(
+            &mut out,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        out
+    }
+
+    #[test]
+    fn no_export_component_yields_zero_export_count() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap(&aid, &[(&[0x78u8][..], 0x80, 4, 0, 1)], None);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.export_count, 0);
+        assert!(pkg.export(0).is_none());
+    }
+
+    #[test]
+    fn empty_export_component_yields_zero_export_count() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_exports(&aid, &[]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.export_count, 0);
+    }
+
+    #[test]
+    fn single_exported_class_records_offset_and_token_tables() {
+        // Adversarial offsets: distinct, non-zero, and not aligned
+        // so a wrong-byte or swap bug in u16 BE decoding shows up.
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let class_offset = 0x1234u16;
+        let fields: &[u16] = &[0x0050, 0x00A0];
+        let methods: &[u16] = &[0x0001, 0x000F, 0x00FE];
+        let cap = build_cap_with_exports(&pkg_aid, &[(class_offset, fields, methods)]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.export_count, 1);
+        let info = pkg.export(0).expect("class 0");
+        assert_eq!(info.class_offset, 0x1234);
+        assert_eq!(info.static_field_count, 2);
+        assert_eq!(info.static_method_count, 3);
+        assert_eq!(info.static_field_offset(0), Some(0x0050));
+        assert_eq!(info.static_field_offset(1), Some(0x00A0));
+        assert_eq!(info.static_field_offset(2), None);
+        assert_eq!(info.static_method_offset(0), Some(0x0001));
+        assert_eq!(info.static_method_offset(1), Some(0x000F));
+        assert_eq!(info.static_method_offset(2), Some(0x00FE));
+        assert_eq!(info.static_method_offset(3), None);
+    }
+
+    #[test]
+    fn multiple_exported_classes_preserve_distinct_tables() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let f0: &[u16] = &[0x10];
+        let m0: &[u16] = &[];
+        let f1: &[u16] = &[];
+        let m1: &[u16] = &[0x20, 0x21];
+        let cap = build_cap_with_exports(&pkg_aid, &[(0x0100, f0, m0), (0x0200, f1, m1)]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.export_count, 2);
+        let c0 = pkg.export(0).unwrap();
+        let c1 = pkg.export(1).unwrap();
+        assert_eq!(c0.class_offset, 0x0100);
+        assert_eq!(c0.static_field_count, 1);
+        assert_eq!(c0.static_method_count, 0);
+        assert_eq!(c0.static_field_offset(0), Some(0x10));
+        assert_eq!(c1.class_offset, 0x0200);
+        assert_eq!(c1.static_field_count, 0);
+        assert_eq!(c1.static_method_count, 2);
+        assert_eq!(c1.static_method_offset(1), Some(0x21));
+    }
+
+    #[test]
+    fn rejects_export_class_count_over_max() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let no_offsets: &[u16] = &[];
+        let mut classes: Vec<(u16, &[u16], &[u16])> = Vec::new();
+        for _ in 0..=MAX_EXPORTED_CLASSES_PER_PACKAGE {
+            classes.push((0, no_offsets, no_offsets));
+        }
+        let cap = build_cap_with_exports(&pkg_aid, &classes);
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::TooManyExportedClasses)
+        ));
+    }
+
+    #[test]
+    fn rejects_export_field_count_over_max() {
+        // Hand-build an Export body that names MAX_EXPORTED_FIELDS_PER_CLASS + 1 fields.
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let too_many = MAX_EXPORTED_FIELDS_PER_CLASS + 1;
+        #[allow(clippy::cast_possible_truncation)]
+        let fc = too_many as u8;
+        let mut body = Vec::new();
+        body.push(1); // class_count
+        body.extend_from_slice(&0u16.to_be_bytes()); // class_offset
+        body.push(fc);
+        body.push(0); // method_count
+        for i in 0..too_many {
+            #[allow(clippy::cast_possible_truncation)]
+            let v = i as u16;
+            body.extend_from_slice(&v.to_be_bytes());
+        }
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&pkg_aid));
+        emit(&mut cap, tag::EXPORT, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::TooManyExportedFields)
+        ));
+    }
+
+    #[test]
+    fn rejects_export_method_count_over_max() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let too_many = MAX_EXPORTED_METHODS_PER_CLASS + 1;
+        #[allow(clippy::cast_possible_truncation)]
+        let mc = too_many as u8;
+        let mut body = Vec::new();
+        body.push(1);
+        body.extend_from_slice(&0u16.to_be_bytes());
+        body.push(0); // field_count
+        body.push(mc);
+        for i in 0..too_many {
+            #[allow(clippy::cast_possible_truncation)]
+            let v = i as u16;
+            body.extend_from_slice(&v.to_be_bytes());
+        }
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&pkg_aid));
+        emit(&mut cap, tag::EXPORT, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::TooManyExportedMethods)
+        ));
+    }
+
+    #[test]
+    fn rejects_truncated_export_body_mid_offsets() {
+        // count says 1, header claims 2 fields, but offsets array is short.
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = Vec::new();
+        body.push(1);
+        body.extend_from_slice(&0u16.to_be_bytes());
+        body.push(2); // field_count
+        body.push(0); // method_count
+        body.extend_from_slice(&0u16.to_be_bytes()); // only 1 of 2 fields
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&pkg_aid));
+        emit(&mut cap, tag::EXPORT, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    #[test]
+    fn export_index_past_count_returns_none() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let no_offsets: &[u16] = &[];
+        let cap = build_cap_with_exports(&pkg_aid, &[(0x10, no_offsets, no_offsets)]);
+        let pkg = parse(&cap).expect("parse");
+        assert!(pkg.export(0).is_some());
+        assert!(pkg.export(1).is_none());
+        #[allow(clippy::cast_possible_truncation)]
+        let max_idx = MAX_EXPORTED_CLASSES_PER_PACKAGE as u8;
+        assert!(pkg.export(max_idx).is_none());
+        assert!(pkg.export(u8::MAX).is_none());
     }
 
     #[test]

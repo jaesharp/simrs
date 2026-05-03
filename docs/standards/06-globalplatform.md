@@ -511,11 +511,10 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
       it requires a new JCVM-level invocation hook rather than
       replacing the existing process-method linkage.
 - [ ] Component-tagged parser coverage for the remaining components:
-      Class, StaticField, RefLocation, Export, Debug, StaticResources.
+      Class, StaticField, RefLocation, Debug, StaticResources.
       Phase 2 sub-items as their consumers come online (Class for the
-      firewall, Export for inter-package linking, StaticField for
-      proper static initialisation). As of 2026-05-03 the parser also
-      surfaces:
+      firewall, StaticField for proper static initialisation). As of
+      2026-05-04 the parser also surfaces:
       - **Applet** (tag 3): per-applet
         `AppletInfo { aid, install_method_offset }` on
         `Package::applets`, for SELECT-by-AID dispatch and
@@ -524,6 +523,13 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
         `ImportInfo { minor_version, major_version, aid }` on
         `Package::imports`, indexed by the `package_token` carried in
         external CP references.
+      - **Export** (tag 10): per-class
+        `ExportInfo { class_offset, static_field_offsets,
+        static_method_offsets }` on `Package::exports`, indexed by
+        the `class_token` carried in external CP references; the
+        per-class field/method offset arrays are then indexed by the
+        `static_field_token` / `static_method_token` to land on the
+        StaticField / Method component offset.
 - [x] `simrs-jacc` writer: emit Export (tag 10), Debug (tag 12),
       StaticResources (tag 13). Standalone applets emit empty bodies
       (Export `class_count = 0`, Debug zero-length, StaticResources

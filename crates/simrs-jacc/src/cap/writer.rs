@@ -863,6 +863,16 @@ mod tests {
     }
 
     #[test]
+    fn writer_export_component_round_trips_to_zero_classes() {
+        // The writer emits an Export component with `class_count = 0`.
+        // The runtime parser must surface `export_count == 0`.
+        let cap = CapWriter::new(&sample_compiled()).write();
+        let pkg = parse_cap(&cap).expect("parse");
+        assert_eq!(pkg.export_count, 0);
+        assert!(pkg.export(0).is_none());
+    }
+
+    #[test]
     fn writer_import_component_round_trips_to_zero_imports() {
         // The writer emits an empty Import component (`count = 0`)
         // for standalone applets. The runtime parser must surface

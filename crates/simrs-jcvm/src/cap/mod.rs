@@ -82,6 +82,83 @@ pub const MAX_APPLETS_PER_PACKAGE: usize = 4;
 /// and a small handful of vendor packages.
 pub const MAX_IMPORTS_PER_PACKAGE: usize = 8;
 
+/// Maximum classes that a single package can export
+/// (JCVM 3.2 § 6.13).
+pub const MAX_EXPORTED_CLASSES_PER_PACKAGE: usize = 4;
+
+/// Maximum static fields a single exported class can publish.
+pub const MAX_EXPORTED_FIELDS_PER_CLASS: usize = 16;
+
+/// Maximum static methods a single exported class can publish.
+pub const MAX_EXPORTED_METHODS_PER_CLASS: usize = 16;
+
+/// One entry in the Export component (JCVM 3.2 § 6.13).
+///
+/// The `class_token` carried in external CP references is an index
+/// into a package's [`Package::exports`] table; that yields this
+/// struct, whose `static_field_offsets` and `static_method_offsets`
+/// arrays are then indexed by the field/method token in the original
+/// reference to land on the offset within the `StaticField` / Method
+/// component.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExportInfo {
+    /// Offset into the Class component naming the exported class.
+    pub class_offset: u16,
+    /// Number of valid entries in [`Self::static_field_offsets`].
+    pub static_field_count: u8,
+    /// Number of valid entries in [`Self::static_method_offsets`].
+    pub static_method_count: u8,
+    /// Offsets of exported static fields within the `StaticField`
+    /// component, indexed by the importer's `static_field_token`.
+    pub static_field_offsets: [u16; MAX_EXPORTED_FIELDS_PER_CLASS],
+    /// Offsets of exported static methods within the Method
+    /// component, indexed by the importer's `static_method_token`.
+    pub static_method_offsets: [u16; MAX_EXPORTED_METHODS_PER_CLASS],
+}
+
+impl ExportInfo {
+    /// Create an empty export info.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            class_offset: 0,
+            static_field_count: 0,
+            static_method_count: 0,
+            static_field_offsets: [0u16; MAX_EXPORTED_FIELDS_PER_CLASS],
+            static_method_offsets: [0u16; MAX_EXPORTED_METHODS_PER_CLASS],
+        }
+    }
+
+    /// Look up an exported static-field offset by its token.
+    /// Returns `None` for tokens beyond [`Self::static_field_count`]
+    /// or [`MAX_EXPORTED_FIELDS_PER_CLASS`].
+    #[must_use]
+    pub const fn static_field_offset(&self, token: u8) -> Option<u16> {
+        let idx = token as usize;
+        if (token as u16) < (self.static_field_count as u16) && idx < MAX_EXPORTED_FIELDS_PER_CLASS
+        {
+            Some(self.static_field_offsets[idx])
+        } else {
+            None
+        }
+    }
+
+    /// Look up an exported static-method offset by its token.
+    /// Returns `None` for tokens beyond [`Self::static_method_count`]
+    /// or [`MAX_EXPORTED_METHODS_PER_CLASS`].
+    #[must_use]
+    pub const fn static_method_offset(&self, token: u8) -> Option<u16> {
+        let idx = token as usize;
+        if (token as u16) < (self.static_method_count as u16)
+            && idx < MAX_EXPORTED_METHODS_PER_CLASS
+        {
+            Some(self.static_method_offsets[idx])
+        } else {
+            None
+        }
+    }
+}
+
 /// One imported-package entry in the Import component
 /// (JCVM 3.2 § 6.7).
 ///
@@ -431,6 +508,12 @@ pub struct Package {
     pub imports: [Option<ImportInfo>; MAX_IMPORTS_PER_PACKAGE],
     /// Number of valid import entries (`<= MAX_IMPORTS_PER_PACKAGE`).
     pub import_count: u8,
+    /// Exported-class entries (JCVM 3.2 § 6.13). The `class_token`
+    /// carried in external CP references against this package is an
+    /// index into this table.
+    pub exports: [Option<ExportInfo>; MAX_EXPORTED_CLASSES_PER_PACKAGE],
+    /// Number of valid export entries (`<= MAX_EXPORTED_CLASSES_PER_PACKAGE`).
+    pub export_count: u8,
 }
 
 impl Package {
@@ -451,6 +534,8 @@ impl Package {
             applet_count: 0,
             imports: [None; MAX_IMPORTS_PER_PACKAGE],
             import_count: 0,
+            exports: [None; MAX_EXPORTED_CLASSES_PER_PACKAGE],
+            export_count: 0,
         }
     }
 
@@ -553,6 +638,25 @@ impl Package {
             None
         }
     }
+
+    /// Look up an exported class by `class_token`. Returns `None` for
+    /// tokens beyond [`Self::export_count`] or
+    /// [`MAX_EXPORTED_CLASSES_PER_PACKAGE`].
+    ///
+    /// CP entries that target a class within this package via an
+    /// external token resolve through this table to retrieve the
+    /// class's `class_offset` and per-class field/method tables.
+    #[must_use]
+    pub const fn export(&self, class_token: u8) -> Option<&ExportInfo> {
+        let idx = class_token as usize;
+        if (class_token as u16) < (self.export_count as u16)
+            && idx < MAX_EXPORTED_CLASSES_PER_PACKAGE
+        {
+            self.exports[idx].as_ref()
+        } else {
+            None
+        }
+    }
 }
 
 /// Error returned when CAP parsing fails.
@@ -582,6 +686,14 @@ pub enum ParseError {
     TooManyApplets,
     /// Import component declares more imports than `MAX_IMPORTS_PER_PACKAGE`.
     TooManyImports,
+    /// Export component declares more classes than `MAX_EXPORTED_CLASSES_PER_PACKAGE`.
+    TooManyExportedClasses,
+    /// One exported class names more static fields than
+    /// `MAX_EXPORTED_FIELDS_PER_CLASS`.
+    TooManyExportedFields,
+    /// One exported class names more static methods than
+    /// `MAX_EXPORTED_METHODS_PER_CLASS`.
+    TooManyExportedMethods,
 }
 
 pub mod components;
@@ -782,6 +894,8 @@ pub fn parse_cap_blob(data: &[u8]) -> Result<Package, ParseError> {
         applet_count: 0,
         imports: [None; MAX_IMPORTS_PER_PACKAGE],
         import_count: 0,
+        exports: [None; MAX_EXPORTED_CLASSES_PER_PACKAGE],
+        export_count: 0,
     })
 }
 
@@ -847,6 +961,11 @@ impl Package {
     ///   aid(`MAX_AID_LEN`) + `install_method_offset`(2)).
     /// Imports: `import_count`(1) + per-import (present(1) + `minor`(1) +
     ///   `major`(1) + `aid_len`(1) + aid(`MAX_AID_LEN`)).
+    /// Exports: `export_count`(1) + per-class (present(1) +
+    ///   `class_offset`(2) + `static_field_count`(1) +
+    ///   `static_method_count`(1) +
+    ///   `static_field_offsets`(`MAX_EXPORTED_FIELDS_PER_CLASS` * 2) +
+    ///   `static_method_offsets`(`MAX_EXPORTED_METHODS_PER_CLASS` * 2)).
     pub const MAX_SNAPSHOT_SIZE: usize = 1
         + MAX_AID_LEN
         + 1
@@ -857,7 +976,14 @@ impl Package {
         + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2)
         + 1
         + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN)
-        + MAX_METHODS * 2;
+        + MAX_METHODS * 2
+        + 1
+        + MAX_EXPORTED_CLASSES_PER_PACKAGE
+            * (1 + 2
+                + 1
+                + 1
+                + MAX_EXPORTED_FIELDS_PER_CLASS * 2
+                + MAX_EXPORTED_METHODS_PER_CLASS * 2);
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     #[allow(clippy::too_many_lines)]
@@ -1003,6 +1129,44 @@ impl Package {
         for off_val in &self.method_offsets {
             buf[off..off + 2].copy_from_slice(&off_val.to_le_bytes());
             off += 2;
+        }
+
+        // Exports: export_count(1) + per-class (present, class_offset,
+        // static_field_count, static_method_count, static_field_offsets,
+        // static_method_offsets).
+        let per_export =
+            1 + 2 + 1 + 1 + MAX_EXPORTED_FIELDS_PER_CLASS * 2 + MAX_EXPORTED_METHODS_PER_CLASS * 2;
+        let export_block = 1 + MAX_EXPORTED_CLASSES_PER_PACKAGE * per_export;
+        if off + export_block > buf.len() {
+            return 0;
+        }
+        buf[off] = self.export_count;
+        off += 1;
+        for slot in &self.exports {
+            match slot {
+                None => {
+                    buf[off] = 0; // not present
+                    off += per_export;
+                }
+                Some(e) => {
+                    buf[off] = 1; // present
+                    off += 1;
+                    buf[off..off + 2].copy_from_slice(&e.class_offset.to_le_bytes());
+                    off += 2;
+                    buf[off] = e.static_field_count;
+                    off += 1;
+                    buf[off] = e.static_method_count;
+                    off += 1;
+                    for f in &e.static_field_offsets {
+                        buf[off..off + 2].copy_from_slice(&f.to_le_bytes());
+                        off += 2;
+                    }
+                    for m in &e.static_method_offsets {
+                        buf[off..off + 2].copy_from_slice(&m.to_le_bytes());
+                        off += 2;
+                    }
+                }
+            }
         }
 
         off
@@ -1227,6 +1391,67 @@ impl Package {
             }
         }
 
+        // Exports: trailing block. Forward-compat for snapshots saved
+        // before the export section existed.
+        self.export_count = 0;
+        self.exports = [None; MAX_EXPORTED_CLASSES_PER_PACKAGE];
+        if off < buf.len() {
+            self.export_count = buf[off];
+            off += 1;
+            if self.export_count as usize > MAX_EXPORTED_CLASSES_PER_PACKAGE {
+                return false;
+            }
+            let per_export = 1
+                + 2
+                + 1
+                + 1
+                + MAX_EXPORTED_FIELDS_PER_CLASS * 2
+                + MAX_EXPORTED_METHODS_PER_CLASS * 2;
+            for slot in &mut self.exports {
+                if off + 1 > buf.len() {
+                    return false;
+                }
+                let present = buf[off];
+                off += 1;
+                if present == 0 {
+                    *slot = None;
+                    off += per_export - 1;
+                    continue;
+                }
+                if off + (per_export - 1) > buf.len() {
+                    return false;
+                }
+                let class_offset = u16::from_le_bytes([buf[off], buf[off + 1]]);
+                off += 2;
+                let static_field_count = buf[off];
+                off += 1;
+                let static_method_count = buf[off];
+                off += 1;
+                if static_field_count as usize > MAX_EXPORTED_FIELDS_PER_CLASS
+                    || static_method_count as usize > MAX_EXPORTED_METHODS_PER_CLASS
+                {
+                    return false;
+                }
+                let mut static_field_offsets = [0u16; MAX_EXPORTED_FIELDS_PER_CLASS];
+                for f in &mut static_field_offsets {
+                    *f = u16::from_le_bytes([buf[off], buf[off + 1]]);
+                    off += 2;
+                }
+                let mut static_method_offsets = [0u16; MAX_EXPORTED_METHODS_PER_CLASS];
+                for m in &mut static_method_offsets {
+                    *m = u16::from_le_bytes([buf[off], buf[off + 1]]);
+                    off += 2;
+                }
+                *slot = Some(ExportInfo {
+                    class_offset,
+                    static_field_count,
+                    static_method_count,
+                    static_field_offsets,
+                    static_method_offsets,
+                });
+            }
+        }
+
         true
     }
 }
@@ -1442,28 +1667,43 @@ mod tests {
     /// `MAX_METHODS * 2`, regardless of `method_count`).
     const METHOD_OFFSETS_BLOCK_SIZE: usize = MAX_METHODS * 2;
 
+    /// Per-export-slot snapshot bytes: present(1) + `class_offset`(2) +
+    /// `static_field_count`(1) + `static_method_count`(1) +
+    /// `MAX_EXPORTED_FIELDS_PER_CLASS` * 2 +
+    /// `MAX_EXPORTED_METHODS_PER_CLASS` * 2.
+    const EXPORT_SLOT_SIZE: usize =
+        1 + 2 + 1 + 1 + MAX_EXPORTED_FIELDS_PER_CLASS * 2 + MAX_EXPORTED_METHODS_PER_CLASS * 2;
+
+    /// Snapshot byte size of an empty export block:
+    /// `export_count(1) + MAX_EXPORTED_CLASSES_PER_PACKAGE * absent_slot`.
+    const EXPORT_BLOCK_SIZE_EMPTY: usize = 1 + MAX_EXPORTED_CLASSES_PER_PACKAGE * EXPORT_SLOT_SIZE;
+
     /// Total trailing block size after the CP block: applet block +
-    /// import block + method-offsets block.
-    const TRAILING_BLOCKS_AFTER_CP: usize =
-        APPLET_BLOCK_SIZE_EMPTY + IMPORT_BLOCK_SIZE_EMPTY + METHOD_OFFSETS_BLOCK_SIZE;
+    /// import block + method-offsets block + export block.
+    const TRAILING_BLOCKS_AFTER_CP: usize = APPLET_BLOCK_SIZE_EMPTY
+        + IMPORT_BLOCK_SIZE_EMPTY
+        + METHOD_OFFSETS_BLOCK_SIZE
+        + EXPORT_BLOCK_SIZE_EMPTY;
 
     /// Locate the `cp_count` u16 in a snapshot whose CP, applet,
-    /// and import blocks are all empty. `cp_count` sits before the
-    /// applet block; the method-offsets block sits at the tail.
+    /// import, and export blocks are all empty.
     const fn cp_count_offset_when_empty(n: usize) -> usize {
         n - TRAILING_BLOCKS_AFTER_CP - 2
     }
 
     /// Locate the `applet_count` byte in a snapshot whose applet,
-    /// import, and method-offsets blocks are empty.
+    /// import, method-offsets, and export blocks are empty.
     const fn applet_count_offset_when_empty(n: usize) -> usize {
-        n - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY - APPLET_BLOCK_SIZE_EMPTY
+        n - EXPORT_BLOCK_SIZE_EMPTY
+            - METHOD_OFFSETS_BLOCK_SIZE
+            - IMPORT_BLOCK_SIZE_EMPTY
+            - APPLET_BLOCK_SIZE_EMPTY
     }
 
-    /// Locate the `import_count` byte in a snapshot whose import
-    /// and method-offsets blocks are empty.
+    /// Locate the `import_count` byte in a snapshot whose import,
+    /// method-offsets, and export blocks are empty.
     const fn import_count_offset_when_empty(n: usize) -> usize {
-        n - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY
+        n - EXPORT_BLOCK_SIZE_EMPTY - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY
     }
 
     #[test]
@@ -1518,8 +1758,8 @@ mod tests {
         let n = pkg.save_state(&mut snap);
         // cp_count sits right after the method block. With cp_count = 3,
         // the snapshot wrote 3 * 4 = 12 entry bytes after cp_count,
-        // then the empty applet block, then the empty import block,
-        // then the method-offsets block.
+        // then the empty applet block, the empty import block, the
+        // method-offsets block, and the empty export block at the tail.
         let cp_count_off = n - TRAILING_BLOCKS_AFTER_CP - 12 - 2;
         // Truncate to: cp_count_off + cp_count(2) + 1 entry(4) -- 2
         // entries short. The parser must refuse to read past the
@@ -1589,9 +1829,9 @@ mod tests {
     #[test]
     fn old_snapshot_without_applet_block_restores_to_empty_applets() {
         // Forward compat: snapshots saved before the applet/import/
-        // offsets blocks existed end after the CP block. Restore must
-        // accept the truncated form and surface zeros for everything
-        // beyond the CP.
+        // offsets/export blocks existed end after the CP block.
+        // Restore must accept the truncated form and surface zeros
+        // for everything beyond the CP.
         let mut pkg = Package::empty();
         pkg.aid_len = 1;
         pkg.aid[0] = 0xAA;
@@ -1603,10 +1843,12 @@ mod tests {
         // Pre-populate to make the assertion meaningful.
         pkg2.applet_count = 7;
         pkg2.import_count = 9;
+        pkg2.export_count = 3;
         pkg2.method_offsets[0] = 0xBEEF;
         assert!(pkg2.restore_state(truncated));
         assert_eq!(pkg2.applet_count, 0);
         assert_eq!(pkg2.import_count, 0);
+        assert_eq!(pkg2.export_count, 0);
         assert_eq!(pkg2.method_offsets[0], 0);
     }
 
@@ -1664,22 +1906,96 @@ mod tests {
     }
 
     #[test]
-    fn old_snapshot_without_import_block_restores_to_empty_imports() {
-        // A snapshot ending right after the applet block predates
-        // the import block; restore must accept and zero imports.
-        // Same forward-compat for the trailing method-offsets block.
+    #[allow(clippy::cast_possible_truncation)]
+    fn package_snapshot_roundtrip_with_exports() {
+        // Snapshot a Package with two exported classes (one fields-only,
+        // one methods-only) and verify they round-trip byte-for-byte.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 5;
+        pkg.aid[..5].copy_from_slice(&[0xA0, 0, 0, 0, 0x62]);
+        let mut e0 = ExportInfo::empty();
+        e0.class_offset = 0x1234;
+        e0.static_field_count = 2;
+        e0.static_field_offsets[0] = 0x10;
+        e0.static_field_offsets[1] = 0x20;
+        let mut e1 = ExportInfo::empty();
+        e1.class_offset = 0x5678;
+        e1.static_method_count = 3;
+        e1.static_method_offsets[0] = 0x100;
+        e1.static_method_offsets[1] = 0x200;
+        e1.static_method_offsets[2] = 0x300;
+        pkg.exports[0] = Some(e0);
+        pkg.exports[1] = Some(e1);
+        pkg.export_count = 2;
+
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        assert!(n > 0);
+
+        let mut pkg2 = Package::empty();
+        assert!(pkg2.restore_state(&snap[..n]));
+        assert_eq!(pkg2.export_count, 2);
+        assert_eq!(pkg2.exports[0], Some(e0));
+        assert_eq!(pkg2.exports[1], Some(e1));
+        assert_eq!(pkg2.exports[2], None);
+    }
+
+    #[test]
+    fn restore_rejects_snapshot_with_export_count_over_max() {
         let mut pkg = Package::empty();
         pkg.aid_len = 1;
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap[..n - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY];
+        // export_count is the first byte of the export block, which
+        // is the tail of the snapshot.
+        let off = n - EXPORT_BLOCK_SIZE_EMPTY;
+        #[allow(clippy::cast_possible_truncation)]
+        let bad = (MAX_EXPORTED_CLASSES_PER_PACKAGE as u8) + 1;
+        snap[off] = bad;
+
+        let mut pkg2 = Package::empty();
+        assert!(
+            !pkg2.restore_state(&snap[..n]),
+            "restore must reject export_count > MAX_EXPORTED_CLASSES_PER_PACKAGE"
+        );
+    }
+
+    #[test]
+    fn old_snapshot_without_export_block_restores_to_empty_exports() {
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        let truncated = &snap[..n - EXPORT_BLOCK_SIZE_EMPTY];
+
+        let mut pkg2 = Package::empty();
+        pkg2.export_count = 7;
+        assert!(pkg2.restore_state(truncated));
+        assert_eq!(pkg2.export_count, 0);
+    }
+
+    #[test]
+    fn old_snapshot_without_import_block_restores_to_empty_imports() {
+        // A snapshot ending right after the applet block predates
+        // the import / method-offsets / export blocks; restore must
+        // accept and zero each of them.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        let truncated = &snap
+            [..n - EXPORT_BLOCK_SIZE_EMPTY - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY];
 
         let mut pkg2 = Package::empty();
         pkg2.import_count = 7;
+        pkg2.export_count = 9;
         pkg2.method_offsets[1] = 0xCAFE;
         assert!(pkg2.restore_state(truncated));
         assert_eq!(pkg2.import_count, 0);
+        assert_eq!(pkg2.export_count, 0);
         assert_eq!(pkg2.method_offsets[1], 0);
     }
 
