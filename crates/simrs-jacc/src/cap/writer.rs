@@ -380,20 +380,35 @@ impl CapWriter {
         body
     }
 
-    /// Build the `StaticField` component body (JCVM 3.1 Section 6.11).
+    /// Build the `StaticField` component body (JCVM 3.2 § 6.10).
+    ///
+    /// Spec layout: `image_size(u2) + reference_count(u2) +
+    /// array_init_count(u2) + array_init[] + default_value_count(u2) +
+    /// non_default_values[]`. The tail two trailing fields are spec-
+    /// required; emitting only the first six bytes -- as this writer
+    /// did before -- produces a CAP that strict parsers reject.
     #[allow(clippy::cast_possible_truncation)]
     fn build_static_field_body(&self) -> Vec<u8> {
         let mut body = Vec::new();
 
-        // image_size: u16 BE
+        // image_size: u16 BE -- size in bytes of the static-field image.
         let static_count = self.fields.iter().filter(|f| f.is_static).count();
         body.extend_from_slice(&(static_count as u16).to_be_bytes());
 
-        // reference_count: u16 BE
+        // reference_count: u16 BE -- number of reference-typed entries.
         body.extend_from_slice(&0u16.to_be_bytes());
 
-        // array_init_count: u16 BE
+        // array_init_count: u16 BE -- no static-array initialisers.
         body.extend_from_slice(&0u16.to_be_bytes());
+
+        // (array_init[] omitted because array_init_count == 0)
+
+        // default_value_count: u16 BE -- length of the trailing
+        // non_default_values blob; zero for our standalone applets,
+        // which leave every static field at its default zero value.
+        body.extend_from_slice(&0u16.to_be_bytes());
+
+        // (non_default_values[] omitted because count == 0)
 
         body
     }
@@ -866,6 +881,17 @@ mod tests {
     }
 
     #[test]
+    fn writer_static_field_round_trips_to_zero_image_and_refs() {
+        // The writer emits image_size = static-field count = 0 for
+        // a class with no static fields, plus zero ref/array/default
+        // counts. The runtime parser must surface both numbers.
+        let cap = CapWriter::new(&sample_compiled()).write();
+        let pkg = parse_cap(&cap).expect("parse");
+        assert_eq!(pkg.static_field_image_size, 0);
+        assert_eq!(pkg.static_reference_count, 0);
+    }
+
+    #[test]
     fn writer_ref_location_round_trips_to_zero_deltas() {
         // The writer emits a zero-length RefLocation body; runtime
         // surfaces both delta lists as empty.
@@ -1102,8 +1128,10 @@ mod tests {
         let cap = CapWriter::new(&compiled).write();
         let sf_body = find_component_body(&cap, TAG_STATIC_FIELD).unwrap();
 
-        // image_size(2) + reference_count(2) + array_init_count(2) = 6 bytes
-        assert_eq!(sf_body.len(), 6);
+        // image_size(2) + reference_count(2) + array_init_count(2) +
+        // default_value_count(2) = 8 bytes -- the spec-mandated minimum
+        // for an applet with no static fields and no array initialisers.
+        assert_eq!(sf_body.len(), 8);
         // All zeros for a class with no static fields.
         assert!(sf_body.iter().all(|&b| b == 0));
     }

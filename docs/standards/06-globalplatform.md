@@ -511,10 +511,9 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
       it requires a new JCVM-level invocation hook rather than
       replacing the existing process-method linkage.
 - [ ] Component-tagged parser coverage for the remaining components:
-      Class, StaticField, Debug, StaticResources.
-      Phase 2 sub-items as their consumers come online (Class for the
-      firewall, StaticField for proper static initialisation). As of
-      2026-05-04 the parser also surfaces:
+      Class, Debug, StaticResources. Phase 2 sub-items as their
+      consumers come online (Class for the firewall). As of 2026-05-04
+      the parser also surfaces:
       - **Applet** (tag 3): per-applet
         `AppletInfo { aid, install_method_offset }` on
         `Package::applets`, for SELECT-by-AID dispatch and
@@ -537,6 +536,14 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
         needing resolution at load time. The `0xFF` continuation byte
         per JCVM 3.2 § 6.12.2 is preserved verbatim; absolute-offset
         reconstruction is consumer-side.
+      - **`StaticField`** (tag 8) MVP: surfaces `image_size` and
+        `static_reference_count` summaries on `Package`. The
+        `array_init[]` and `non_default_values[]` sub-blocks are
+        rejected up-front (`StaticFieldArrayInitsUnsupported` /
+        `StaticFieldNonDefaultValuesUnsupported`) until the static-
+        field allocator lands. simrs-jacc's writer was fixed in the
+        same commit to emit the spec-required `default_value_count`
+        trailer (it had been omitting it).
 - [x] `simrs-jacc` writer: emit Export (tag 10), Debug (tag 12),
       StaticResources (tag 13). Standalone applets emit empty bodies
       (Export `class_count = 0`, Debug zero-length, StaticResources

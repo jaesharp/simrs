@@ -146,6 +146,11 @@ pub(crate) const METHOD_OFFSETS_BLOCK_SIZE: usize = MAX_METHODS * 2;
 pub(crate) const REF_LOC_BLOCK_SIZE: usize =
     2 + MAX_REF_LOC_BYTE_INDICES + 2 + MAX_REF_LOC_BYTE2_INDICES;
 
+/// Snapshot bytes for the static-field summary block:
+/// `image_size`(2) + `reference_count`(2). MVP only -- when array
+/// initialisers and non-default values are added, this expands.
+pub(crate) const STATIC_FIELD_SUMMARY_BLOCK_SIZE: usize = 2 + 2;
+
 /// One entry in the Export component (JCVM 3.2 § 6.13).
 ///
 /// The `class_token` carried in external CP references is an index
@@ -579,6 +584,13 @@ pub struct Package {
     pub ref_loc_byte2_deltas: [u8; MAX_REF_LOC_BYTE2_INDICES],
     /// Number of valid entries in [`Self::ref_loc_byte2_deltas`].
     pub ref_loc_byte2_count: u16,
+    /// Total bytes of this package's static-field image
+    /// (JCVM 3.2 § 6.10 `image_size`). The static-field allocator
+    /// reserves this many bytes when loading the package.
+    pub static_field_image_size: u16,
+    /// Number of reference-typed static-field entries
+    /// (JCVM 3.2 § 6.10 `reference_count`).
+    pub static_reference_count: u16,
 }
 
 impl Package {
@@ -605,6 +617,8 @@ impl Package {
             ref_loc_byte_count: 0,
             ref_loc_byte2_deltas: [0u8; MAX_REF_LOC_BYTE2_INDICES],
             ref_loc_byte2_count: 0,
+            static_field_image_size: 0,
+            static_reference_count: 0,
         }
     }
 
@@ -785,6 +799,12 @@ pub enum ParseError {
     TooManyRefLocByteIndices,
     /// `RefLocation` byte2-index list exceeds `MAX_REF_LOC_BYTE2_INDICES`.
     TooManyRefLocByte2Indices,
+    /// `StaticField` component declares array initialisers, which the
+    /// MVP parser does not yet decode.
+    StaticFieldArrayInitsUnsupported,
+    /// `StaticField` component declares non-default values, which the
+    /// MVP parser does not yet decode.
+    StaticFieldNonDefaultValuesUnsupported,
 }
 
 pub mod components;
@@ -991,6 +1011,8 @@ pub fn parse_cap_blob(data: &[u8]) -> Result<Package, ParseError> {
         ref_loc_byte_count: 0,
         ref_loc_byte2_deltas: [0u8; MAX_REF_LOC_BYTE2_INDICES],
         ref_loc_byte2_count: 0,
+        static_field_image_size: 0,
+        static_reference_count: 0,
     })
 }
 
@@ -1071,7 +1093,8 @@ impl Package {
         + IMPORT_BLOCK_SIZE
         + METHOD_OFFSETS_BLOCK_SIZE
         + EXPORT_BLOCK_SIZE
-        + REF_LOC_BLOCK_SIZE;
+        + REF_LOC_BLOCK_SIZE
+        + STATIC_FIELD_SUMMARY_BLOCK_SIZE;
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     #[allow(clippy::too_many_lines)]
@@ -1264,6 +1287,15 @@ impl Package {
         off += 2;
         buf[off..off + MAX_REF_LOC_BYTE2_INDICES].copy_from_slice(&self.ref_loc_byte2_deltas);
         off += MAX_REF_LOC_BYTE2_INDICES;
+
+        // StaticField summary: image_size(2 LE) + reference_count(2 LE).
+        if off + STATIC_FIELD_SUMMARY_BLOCK_SIZE > buf.len() {
+            return 0;
+        }
+        buf[off..off + 2].copy_from_slice(&self.static_field_image_size.to_le_bytes());
+        off += 2;
+        buf[off..off + 2].copy_from_slice(&self.static_reference_count.to_le_bytes());
+        off += 2;
 
         off
     }
@@ -1571,6 +1603,18 @@ impl Package {
                 .copy_from_slice(&buf[off..off + MAX_REF_LOC_BYTE2_INDICES]);
             off += MAX_REF_LOC_BYTE2_INDICES;
         }
+
+        // StaticField summary: trailing block. Forward-compat for
+        // snapshots saved before the section existed -- both fields
+        // restore to zero, matching the simplified-blob default.
+        self.static_field_image_size = 0;
+        self.static_reference_count = 0;
+        if off + STATIC_FIELD_SUMMARY_BLOCK_SIZE <= buf.len() {
+            self.static_field_image_size = u16::from_le_bytes([buf[off], buf[off + 1]]);
+            off += 2;
+            self.static_reference_count = u16::from_le_bytes([buf[off], buf[off + 1]]);
+            off += 2;
+        }
         let _ = off;
 
         true
@@ -1778,33 +1822,37 @@ mod tests {
     // re-derivation.
 
     /// Total trailing block size after the CP block: applet +
-    /// import + method-offsets + export + ref-loc.
+    /// import + method-offsets + export + ref-loc + static-field.
     const TRAILING_BLOCKS_AFTER_CP: usize = APPLET_BLOCK_SIZE
         + IMPORT_BLOCK_SIZE
         + METHOD_OFFSETS_BLOCK_SIZE
         + EXPORT_BLOCK_SIZE
-        + REF_LOC_BLOCK_SIZE;
+        + REF_LOC_BLOCK_SIZE
+        + STATIC_FIELD_SUMMARY_BLOCK_SIZE;
 
     /// Locate the `cp_count` u16 in a snapshot whose CP, applet,
-    /// import, export, and ref-loc blocks are all empty.
+    /// import, export, ref-loc, and static-field blocks are empty.
     const fn cp_count_offset_when_empty(n: usize) -> usize {
         n - TRAILING_BLOCKS_AFTER_CP - 2
     }
 
-    /// Locate the `applet_count` byte in a snapshot whose applet,
-    /// import, method-offsets, export, and ref-loc blocks are empty.
+    /// Locate the `applet_count` byte.
     const fn applet_count_offset_when_empty(n: usize) -> usize {
-        n - REF_LOC_BLOCK_SIZE
+        n - STATIC_FIELD_SUMMARY_BLOCK_SIZE
+            - REF_LOC_BLOCK_SIZE
             - EXPORT_BLOCK_SIZE
             - METHOD_OFFSETS_BLOCK_SIZE
             - IMPORT_BLOCK_SIZE
             - APPLET_BLOCK_SIZE
     }
 
-    /// Locate the `import_count` byte in a snapshot whose import,
-    /// method-offsets, export, and ref-loc blocks are empty.
+    /// Locate the `import_count` byte.
     const fn import_count_offset_when_empty(n: usize) -> usize {
-        n - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE
+        n - STATIC_FIELD_SUMMARY_BLOCK_SIZE
+            - REF_LOC_BLOCK_SIZE
+            - EXPORT_BLOCK_SIZE
+            - METHOD_OFFSETS_BLOCK_SIZE
+            - IMPORT_BLOCK_SIZE
     }
 
     #[test]
@@ -2053,8 +2101,8 @@ mod tests {
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
         // export_count is the first byte of the export block; the
-        // ref-loc block follows it at the tail.
-        let off = n - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE;
+        // ref-loc and static-field blocks follow it at the tail.
+        let off = n - STATIC_FIELD_SUMMARY_BLOCK_SIZE - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE;
         #[allow(clippy::cast_possible_truncation)]
         let bad = (MAX_EXPORTED_CLASSES_PER_PACKAGE as u8) + 1;
         snap[off] = bad;
@@ -2101,8 +2149,9 @@ mod tests {
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        // ref_loc_byte_count is the first u16 of the ref-loc block.
-        let off = n - REF_LOC_BLOCK_SIZE;
+        // ref_loc_byte_count is the first u16 of the ref-loc block;
+        // the static-field block follows.
+        let off = n - STATIC_FIELD_SUMMARY_BLOCK_SIZE - REF_LOC_BLOCK_SIZE;
         #[allow(clippy::cast_possible_truncation)]
         let bad = (MAX_REF_LOC_BYTE_INDICES as u16) + 1;
         snap[off..off + 2].copy_from_slice(&bad.to_le_bytes());
@@ -2123,7 +2172,8 @@ mod tests {
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap[..n - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE];
+        let truncated =
+            &snap[..n - STATIC_FIELD_SUMMARY_BLOCK_SIZE - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE];
 
         let mut pkg2 = Package::empty();
         pkg2.export_count = 7;
@@ -2144,6 +2194,7 @@ mod tests {
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
         let truncated = &snap[..n
+            - STATIC_FIELD_SUMMARY_BLOCK_SIZE
             - REF_LOC_BLOCK_SIZE
             - EXPORT_BLOCK_SIZE
             - METHOD_OFFSETS_BLOCK_SIZE

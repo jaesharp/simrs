@@ -385,6 +385,40 @@ fn parse_descriptor_method_offsets(
     Ok((offsets, total))
 }
 
+/// Parse the `StaticField` component body (JCVM 3.2 § 6.10).
+///
+/// Layout:
+/// ```text
+/// image_size:           u2 BE
+/// reference_count:      u2 BE
+/// array_init_count:     u2 BE
+/// array_init[]:         variable, count entries
+/// default_value_count:  u2 BE
+/// non_default_values[]: u1 * default_value_count
+/// ```
+///
+/// MVP behaviour: surfaces only `image_size` + `reference_count`.
+/// Rejects packages that declare any `array_init[]` entries or any
+/// `non_default_values[]` -- their semantics belong to the static-
+/// field allocator, which doesn't yet exist on this runtime, and
+/// silently dropping them would mis-initialise static state.
+fn parse_static_field_component(body: &[u8]) -> Result<(u16, u16), ParseError> {
+    if body.len() < 8 {
+        return Err(ParseError::TooShort);
+    }
+    let image_size = u16::from_be_bytes([body[0], body[1]]);
+    let reference_count = u16::from_be_bytes([body[2], body[3]]);
+    let array_init_count = u16::from_be_bytes([body[4], body[5]]);
+    if array_init_count != 0 {
+        return Err(ParseError::StaticFieldArrayInitsUnsupported);
+    }
+    let default_value_count = u16::from_be_bytes([body[6], body[7]]);
+    if default_value_count != 0 {
+        return Err(ParseError::StaticFieldNonDefaultValuesUnsupported);
+    }
+    Ok((image_size, reference_count))
+}
+
 /// Parse the Reference Location component body (JCVM 3.2 § 6.12).
 ///
 /// Layout:
@@ -696,7 +730,7 @@ fn parse_constant_pool(body: &[u8]) -> Result<([CpInfo; MAX_CP_ENTRIES], u16), P
 ///
 /// Returns [`ParseError`] if any component header is malformed or the
 /// extracted Package would exceed `MAX_*` capacity bounds.
-#[allow(clippy::similar_names)] // ref_loc_byte_* vs ref_loc_byte2_* mirrors spec naming.
+#[allow(clippy::similar_names, clippy::too_many_lines)]
 pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     let mut pos = 0;
     let mut aid = [0u8; MAX_AID_LEN];
@@ -718,6 +752,8 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     let mut ref_loc_byte_count: u16 = 0;
     let mut ref_loc_byte2_deltas = [0u8; MAX_REF_LOC_BYTE2_INDICES];
     let mut ref_loc_byte2_count: u16 = 0;
+    let mut static_field_image_size: u16 = 0;
+    let mut static_reference_count: u16 = 0;
 
     while pos < data.len() {
         if data.len() < pos + 3 {
@@ -771,10 +807,15 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
                 ref_loc_byte2_deltas = b2;
                 ref_loc_byte2_count = n2;
             }
+            tag::STATIC_FIELD => {
+                let (image, refs) = parse_static_field_component(body)?;
+                static_field_image_size = image;
+                static_reference_count = refs;
+            }
             // Recognised-but-skipped components (Directory, Class,
-            // StaticField, Debug, StaticResources) and unknown
-            // components (vendor-custom) all fall through. Class
-            // hierarchy and StaticField images are Phase 2 follow-ups.
+            // Debug, StaticResources) and unknown components
+            // (vendor-custom) all fall through. Class hierarchy is a
+            // Phase 2 follow-up.
             _ => {}
         }
     }
@@ -810,6 +851,8 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
         ref_loc_byte_count,
         ref_loc_byte2_deltas,
         ref_loc_byte2_count,
+        static_field_image_size,
+        static_reference_count,
     })
 }
 
@@ -2418,6 +2461,123 @@ mod tests {
         let pkg = parse(&cap).expect("parse");
         assert_eq!(pkg.ref_loc_byte_deltas().len(), 2);
         assert_eq!(pkg.ref_loc_byte_deltas(), &[0x10, 0x20]);
+    }
+
+    // -----------------------------------------------------------------------
+    // StaticField component
+    // -----------------------------------------------------------------------
+
+    /// Build a `StaticField` component body. The MVP only emits the
+    /// fixed prefix; tests for `array_init` and `non_default_values`
+    /// rejection use hand-crafted bodies.
+    fn static_field_body(image_size: u16, reference_count: u16) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.extend_from_slice(&image_size.to_be_bytes());
+        body.extend_from_slice(&reference_count.to_be_bytes());
+        body.extend_from_slice(&0u16.to_be_bytes()); // array_init_count
+        body.extend_from_slice(&0u16.to_be_bytes()); // default_value_count
+        body
+    }
+
+    /// Build a CAP with Header + `StaticField` + Method.
+    fn build_cap_with_static_field(
+        pkg_aid: &[u8],
+        image_size: u16,
+        reference_count: u16,
+    ) -> Vec<u8> {
+        let mut out = Vec::new();
+        emit(&mut out, tag::HEADER, &header_body(pkg_aid));
+        emit(
+            &mut out,
+            tag::STATIC_FIELD,
+            &static_field_body(image_size, reference_count),
+        );
+        emit(
+            &mut out,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        out
+    }
+
+    #[test]
+    fn no_static_field_component_yields_zero_image_and_refs() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap(&aid, &[(&[0x78u8][..], 0x80, 4, 0, 1)], None);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.static_field_image_size, 0);
+        assert_eq!(pkg.static_reference_count, 0);
+    }
+
+    #[test]
+    fn static_field_image_size_and_refs_round_trip() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        // Adversarial: distinct, non-zero values catch a u16 BE swap.
+        let cap = build_cap_with_static_field(&aid, 0x1234, 0x0007);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.static_field_image_size, 0x1234);
+        assert_eq!(pkg.static_reference_count, 0x0007);
+    }
+
+    #[test]
+    fn rejects_static_field_with_array_inits() {
+        // MVP doesn't yet decode array_init records; reject up-front
+        // rather than silently dropping them.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u16.to_be_bytes()); // image_size
+        body.extend_from_slice(&0u16.to_be_bytes()); // reference_count
+        body.extend_from_slice(&1u16.to_be_bytes()); // array_init_count = 1 (unsupported)
+        body.extend_from_slice(&0u16.to_be_bytes()); // default_value_count
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&aid));
+        emit(&mut cap, tag::STATIC_FIELD, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::StaticFieldArrayInitsUnsupported)
+        ));
+    }
+
+    #[test]
+    fn rejects_static_field_with_non_default_values() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u16.to_be_bytes()); // image_size
+        body.extend_from_slice(&0u16.to_be_bytes()); // reference_count
+        body.extend_from_slice(&0u16.to_be_bytes()); // array_init_count
+        body.extend_from_slice(&3u16.to_be_bytes()); // default_value_count = 3 (unsupported)
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&aid));
+        emit(&mut cap, tag::STATIC_FIELD, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::StaticFieldNonDefaultValuesUnsupported)
+        ));
+    }
+
+    #[test]
+    fn rejects_truncated_static_field_body() {
+        // A body shorter than the 8-byte fixed prefix is invalid.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&aid));
+        emit(&mut cap, tag::STATIC_FIELD, &[0u8, 0, 0, 0, 0, 0]); // only 6 of 8
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
     }
 
     #[test]
