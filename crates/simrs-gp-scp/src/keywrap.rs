@@ -63,6 +63,10 @@ pub fn unwrap_3des_ecb(session_dek: &[u8; 16], wrapped: [u8; 16]) -> [u8; 16] {
 #[must_use]
 pub fn unwrap_aes_cbc(static_dek: &[u8; 16], wrapped: [u8; 16]) -> [u8; 16] {
     let dek = Secret::new(*static_dek);
+    // GP 2.3.1 Amendment D § 4.2.4.1.1: PUT KEY component unwrap under
+    // SCP03 uses AES-CBC with `IV = [0u8; 16]`. The all-zero IV is
+    // spec-mandated, not a secret -- CodeQL false positive on
+    // `rust/hard-coded-cryptographic-value`.
     let iv = [0u8; 16];
     let mut buf = wrapped;
     aes128_cbc_decrypt(&dek, &iv, &mut buf);
@@ -124,6 +128,11 @@ pub fn wrap_3des_ecb(session_dek: &[u8; 16], plaintext: [u8; 16]) -> [u8; 16] {
 #[must_use]
 pub fn wrap_aes_cbc(static_dek: &[u8; 16], plaintext: [u8; 16]) -> [u8; 16] {
     let dek = Secret::new(*static_dek);
+    // GP 2.3.1 Amendment D § 4.2.4.1.1: PUT KEY component wrap under
+    // SCP03 uses AES-CBC with `IV = [0u8; 16]`. Symmetric with
+    // [`unwrap_aes_cbc`]; the all-zero IV is spec-mandated, not a
+    // secret -- CodeQL false positive on
+    // `rust/hard-coded-cryptographic-value`.
     let iv = [0u8; 16];
     let mut buf = plaintext;
     aes128_cbc_encrypt(&dek, &iv, &mut buf);

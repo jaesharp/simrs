@@ -560,7 +560,15 @@ fn compute_external_authenticate_cmac_scp01_02(
     let padded_len = pad_method2(&cmac_data, 8, &mut cmac_input_buf);
 
     let effective_icv = match scp_version {
+        // GP 2.3.1 Appendix D.4.1.4 (SCP01): the C-MAC ICV for the first
+        // command in a session is 8 zero bytes; subsequent C-MACs chain
+        // from the prior C-MAC. Zero ICV is spec-mandated -- CodeQL
+        // false positive on `rust/hard-coded-cryptographic-value`.
         ScpVersion::Scp01 => [0u8; 8],
+        // GP 2.3.1 Appendix E.4.4 (SCP02): the C-MAC ICV is
+        // single-DES_ECB(C-MAC_key, [0u8; 8]) for the first command.
+        // The starting all-zero block here is the spec-defined seed,
+        // not a secret -- CodeQL false positive.
         ScpVersion::Scp02 => des_ecb_encrypt_left_half(command_mac, [0u8; 8]),
         ScpVersion::Scp03 => unreachable!("use process_*_scp03"),
     };
@@ -791,6 +799,31 @@ pub fn process_external_authenticate_scp03(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// CodeQL note for test fixtures below
+// ---------------------------------------------------------------------------
+//
+// Several tests in this module pass `[0u8; 8]` as the initial ICV /
+// IV to `generate_cmac` or `des3_2key_cbc_mac_with_iv`. CodeQL flags
+// these as `rust/hard-coded-cryptographic-value`. They are NOT
+// vulnerabilities -- the zero value is the spec-mandated initial
+// chaining value:
+//
+//   - GP 2.3.1 Appendix D.4.1.4 (SCP01): the first C-MAC of a session
+//     is computed with ICV = 8 zero bytes; subsequent C-MACs chain
+//     from the previous C-MAC.
+//   - GP 2.3.1 Appendix E.4.4 (SCP02): the first C-MAC is computed
+//     with ICV derived from the all-zero block under the C-MAC key;
+//     the starting block is spec-defined to be all zeros.
+//   - GP 2.3.1 Appendix E.6 (R-MAC seed): `BEGIN R-MAC SESSION` data
+//     is hashed via `CBC-MAC(S-RMAC, IV = 0, Method-2-pad(data))`.
+//
+// Tests use the same zero seed to compute reference values that the
+// production code is asserted equal to. The differential
+// cross-validation suite (`tests/simrs-differential-crossvalidation`)
+// then confirms the production output matches Oracle JCDK and
+// martinpaljak's JCardEngine independently.
 
 #[cfg(test)]
 mod tests {

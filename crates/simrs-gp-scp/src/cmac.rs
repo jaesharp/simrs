@@ -41,12 +41,20 @@ pub fn compute_cryptogram(session_enc: &[u8; 16], data: &[u8]) -> [u8; 8] {
 ///
 /// This is equivalent to 3DES-CBC-encrypting the data and taking the last
 /// 8-byte block. Used for C-MAC generation with ICV chaining.
+///
+/// **Note for static analysers:** the actual cryptographic IV is the
+/// `iv` parameter, supplied by callers. The `[0u8; 8]` literal on the
+/// `mac` line below is the OUTPUT buffer being stack-zeroed before
+/// `copy_from_slice` fills it -- not an IV.
 pub fn des3_2key_cbc_mac_with_iv(key: &Secret<[u8; 16]>, iv: [u8; 8], data: &[u8]) -> [u8; 8] {
     // CBC encrypt the data and return the final block.
     let mut buf = [0u8; 272]; // max APDU + padding
     let len = data.len();
     buf[..len].copy_from_slice(data);
     des3_2key_cbc_encrypt(key, &iv, &mut buf[..len]);
+    // Output buffer (not an IV): stack-allocated, zero-initialised, then
+    // overwritten by `copy_from_slice`. CodeQL `rust/hard-coded-cryptographic-value`
+    // mis-tags this as a hard-coded IV via taint flow from the `iv` parameter.
     let mut mac = [0u8; 8];
     mac.copy_from_slice(&buf[len - 8..len]);
     mac
@@ -77,6 +85,11 @@ pub fn seed_rmac_chain_scp02(response_mac: &[u8; 16], data: &[u8]) -> [u8; 8] {
     let mut padded = [0u8; 32];
     let padded_len = pad_method2(data, 8, &mut padded);
     let key = Secret::new(*response_mac);
+    // GP 2.3.1 Appendix E.6: the R-MAC running ICV is initialised to zero
+    // and `BEGIN R-MAC SESSION` data is hashed via
+    // `CBC-MAC(S-RMAC, IV = 0, Method-2-pad(data))`. The all-zero IV is
+    // spec-mandated, not a secret -- CodeQL false positive on
+    // `rust/hard-coded-cryptographic-value`.
     des3_2key_cbc_mac_with_iv(&key, [0u8; 8], &padded[..padded_len])
 }
 

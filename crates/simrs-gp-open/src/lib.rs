@@ -2908,6 +2908,11 @@ mod tests {
         let lifecycle_byte = CardLifecycle::Initialized.to_byte();
         let plaintext_data = [lifecycle_byte];
         let header = [0x84u8, INS_SET_STATUS, 0x80, lifecycle_byte];
+        // GP 2.3.1 Appendix E.4.4 (SCP02): the first C-MAC ICV after
+        // EXTERNAL AUTHENTICATE is derived from the all-zero seed block.
+        // Test fixture passes the spec-mandated zero seed to mirror
+        // production behaviour -- CodeQL false positive on
+        // `rust/hard-coded-cryptographic-value`.
         let (mac, _new_icv) = generate_cmac(
             &command_mac,
             &header,
@@ -3144,6 +3149,11 @@ mod tests {
         let mut padded_ref = [0u8; 32];
         let padded_ref_len = simrs_iso9797::pad_method2(&payload, 8, &mut padded_ref);
         let key = simrs_secret::Secret::new(response_mac_key);
+        // GP 2.3.1 Appendix E.6: R-MAC seed reference computation uses
+        // `CBC-MAC(S-RMAC, IV = 0, Method-2-pad(data))`. Test asserts
+        // the production helper matches this independent reference.
+        // Zero IV is spec-mandated -- CodeQL false positive on
+        // `rust/hard-coded-cryptographic-value`.
         let expected =
             simrs_gp_scp::des3_2key_cbc_mac_with_iv(&key, [0u8; 8], &padded_ref[..padded_ref_len]);
         assert_eq!(
