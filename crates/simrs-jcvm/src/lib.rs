@@ -3938,6 +3938,227 @@ mod tests {
         );
     }
 
+    // -------------------------------------------------------------------
+    // Wide-branch boundary / fall-through cases
+    // -------------------------------------------------------------------
+    //
+    // These tests catch off-by-one mistakes in the comparison operator
+    // -- e.g. `<` vs `<=`, `>` vs `>=`. A taken-only test for `iflt_w`
+    // can't tell whether the implementation is `<` or `<=` because both
+    // branch on a negative input. The boundary case at 0 disambiguates:
+    // strictly-less must NOT branch on 0, and `<=` would.
+    //
+    // Same shape as the "taken" tests but the predicate is at the
+    // boundary; expectation is fall-through to SCONST_5 (returns 5).
+
+    #[test]
+    fn iflt_w_not_taken_at_zero_boundary() {
+        let bc = [
+            SCONST_0, IFLT_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn ifge_w_not_taken_when_negative() {
+        let bc = [
+            SCONST_M1, IFGE_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn ifgt_w_not_taken_at_zero_boundary() {
+        let bc = [
+            SCONST_0, IFGT_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn ifle_w_not_taken_when_positive() {
+        let bc = [
+            SCONST_3, IFLE_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn ifne_w_not_taken_when_zero() {
+        let bc = [
+            SCONST_0, IFNE_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn ifnull_w_not_taken_when_nonnull() {
+        let bc = [
+            SCONST_3, IFNULL_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn ifnonnull_w_not_taken_when_null() {
+        let bc = [
+            ACONST_NULL,
+            IFNONNULL_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn if_acmpeq_w_not_taken_when_unequal() {
+        let bc = [
+            ACONST_NULL,
+            SCONST_1,
+            IF_ACMPEQ_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn if_acmpne_w_not_taken_when_equal() {
+        let bc = [
+            ACONST_NULL,
+            ACONST_NULL,
+            IF_ACMPNE_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn if_scmpeq_w_not_taken_when_unequal() {
+        let bc = [
+            SCONST_3,
+            SCONST_4,
+            IF_SCMPEQ_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn if_scmpne_w_not_taken_when_equal() {
+        let bc = [
+            SCONST_3,
+            SCONST_3,
+            IF_SCMPNE_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn if_scmplt_w_not_taken_when_equal_boundary() {
+        // Boundary: strict `<` must not branch on equal values.
+        let bc = [
+            SCONST_3,
+            SCONST_3,
+            IF_SCMPLT_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn if_scmpge_w_not_taken_when_first_less() {
+        let bc = [
+            SCONST_2,
+            SCONST_5,
+            IF_SCMPGE_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn if_scmpgt_w_not_taken_when_equal_boundary() {
+        // Boundary: strict `>` must not branch on equal values.
+        let bc = [
+            SCONST_3,
+            SCONST_3,
+            IF_SCMPGT_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn if_scmple_w_not_taken_when_first_greater() {
+        let bc = [
+            SCONST_5,
+            SCONST_2,
+            IF_SCMPLE_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
     #[test]
     fn if_scmpeq_taken() {
         // sconst_1, sconst_3, sconst_3, if_scmpeq +3 -> jump to sreturn
