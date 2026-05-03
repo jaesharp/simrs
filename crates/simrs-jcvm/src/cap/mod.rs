@@ -74,6 +74,52 @@ pub const MAX_CP_ENTRIES: usize = 64;
 /// declares (`JCOP21id` and `JCOP31bio`: 4 SDs).
 pub const MAX_APPLETS_PER_PACKAGE: usize = 4;
 
+/// Maximum packages a single CAP can import.
+///
+/// JCVM 3.2 § 6.7 caps `count` at 128 (a u8); this conservative
+/// runtime cap covers typical applets that import
+/// `javacard.framework`, `javacard.security`, `javacardx.crypto`,
+/// and a small handful of vendor packages.
+pub const MAX_IMPORTS_PER_PACKAGE: usize = 8;
+
+/// One imported-package entry in the Import component
+/// (JCVM 3.2 § 6.7).
+///
+/// External references in `ConstantPool` entries identify the
+/// imported package by `package_token`, an index into this table.
+/// Resolving such references requires looking up the imported AID
+/// here, then finding the matching loaded [`Package`] in the JCVM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImportInfo {
+    /// Imported package's minor version.
+    pub minor_version: u8,
+    /// Imported package's major version.
+    pub major_version: u8,
+    /// Imported package AID.
+    pub aid: [u8; MAX_AID_LEN],
+    /// Number of valid bytes in `aid`.
+    pub aid_len: u8,
+}
+
+impl ImportInfo {
+    /// Create an empty import info.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            minor_version: 0,
+            major_version: 0,
+            aid: [0u8; MAX_AID_LEN],
+            aid_len: 0,
+        }
+    }
+
+    /// Returns this import's AID as a slice.
+    #[must_use]
+    pub fn aid_slice(&self) -> &[u8] {
+        &self.aid[..self.aid_len as usize]
+    }
+}
+
 /// One applet's entry in the Applet component (JCVM 3.2 § 6.5).
 ///
 /// Each applet carries its own AID (which the Card Manager uses for
@@ -372,6 +418,11 @@ pub struct Package {
     pub applets: [Option<AppletInfo>; MAX_APPLETS_PER_PACKAGE],
     /// Number of valid applet entries (`<= MAX_APPLETS_PER_PACKAGE`).
     pub applet_count: u8,
+    /// Imported-package entries (JCVM 3.2 § 6.7). The `package_token`
+    /// in external CP references is an index into this table.
+    pub imports: [Option<ImportInfo>; MAX_IMPORTS_PER_PACKAGE],
+    /// Number of valid import entries (`<= MAX_IMPORTS_PER_PACKAGE`).
+    pub import_count: u8,
 }
 
 impl Package {
@@ -389,6 +440,8 @@ impl Package {
             cp_count: 0,
             applets: [None; MAX_APPLETS_PER_PACKAGE],
             applet_count: 0,
+            imports: [None; MAX_IMPORTS_PER_PACKAGE],
+            import_count: 0,
         }
     }
 
@@ -448,6 +501,23 @@ impl Package {
             .flatten()
             .find(|info| info.aid_matches(aid))
     }
+
+    /// Look up an imported-package entry by `package_token`. Returns
+    /// `None` for indices beyond [`Self::import_count`] or
+    /// [`MAX_IMPORTS_PER_PACKAGE`].
+    ///
+    /// CP entries with `ClassRef::External { package_token, .. }`
+    /// pass that `package_token` here to retrieve the importer's
+    /// view of the dependency (AID + version).
+    #[must_use]
+    pub const fn import(&self, package_token: u8) -> Option<&ImportInfo> {
+        let idx = package_token as usize;
+        if (package_token as u16) < (self.import_count as u16) && idx < MAX_IMPORTS_PER_PACKAGE {
+            self.imports[idx].as_ref()
+        } else {
+            None
+        }
+    }
 }
 
 /// Error returned when CAP parsing fails.
@@ -475,6 +545,8 @@ pub enum ParseError {
     UnknownConstantPoolTag,
     /// Applet component declares more applets than `MAX_APPLETS_PER_PACKAGE`.
     TooManyApplets,
+    /// Import component declares more imports than `MAX_IMPORTS_PER_PACKAGE`.
+    TooManyImports,
 }
 
 pub mod components;
@@ -672,6 +744,8 @@ pub fn parse_cap_blob(data: &[u8]) -> Result<Package, ParseError> {
         cp_count: 0,
         applets: [None; MAX_APPLETS_PER_PACKAGE],
         applet_count: 0,
+        imports: [None; MAX_IMPORTS_PER_PACKAGE],
+        import_count: 0,
     })
 }
 
@@ -735,6 +809,8 @@ impl Package {
     /// Constant pool: `cp_count`(2) + entries(`MAX_CP_ENTRIES` * 4).
     /// Applets: `applet_count`(1) + per-applet (present(1) + `aid_len`(1) +
     ///   aid(`MAX_AID_LEN`) + `install_method_offset`(2)).
+    /// Imports: `import_count`(1) + per-import (present(1) + `minor`(1) +
+    ///   `major`(1) + `aid_len`(1) + aid(`MAX_AID_LEN`)).
     pub const MAX_SNAPSHOT_SIZE: usize = 1
         + MAX_AID_LEN
         + 1
@@ -742,9 +818,12 @@ impl Package {
         + 2
         + MAX_CP_ENTRIES * 4
         + 1
-        + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2);
+        + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2)
+        + 1
+        + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN);
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
+    #[allow(clippy::too_many_lines)]
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
         let mut off = 0;
         let min_size = 1 + MAX_AID_LEN + 1;
@@ -847,6 +926,34 @@ impl Package {
                     off += MAX_AID_LEN;
                     buf[off..off + 2].copy_from_slice(&a.install_method_offset.to_le_bytes());
                     off += 2;
+                }
+            }
+        }
+
+        // Imports: import_count(1) + per-import (present, minor, major, aid_len, aid).
+        let import_block = 1 + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN);
+        if off + import_block > buf.len() {
+            return 0;
+        }
+        buf[off] = self.import_count;
+        off += 1;
+        for slot in &self.imports {
+            match slot {
+                None => {
+                    buf[off] = 0; // not present
+                    off += 1 + 1 + 1 + 1 + MAX_AID_LEN;
+                }
+                Some(i) => {
+                    buf[off] = 1; // present
+                    off += 1;
+                    buf[off] = i.minor_version;
+                    off += 1;
+                    buf[off] = i.major_version;
+                    off += 1;
+                    buf[off] = i.aid_len;
+                    off += 1;
+                    buf[off..off + MAX_AID_LEN].copy_from_slice(&i.aid);
+                    off += MAX_AID_LEN;
                 }
             }
         }
@@ -1012,6 +1119,52 @@ impl Package {
                     aid,
                     aid_len,
                     install_method_offset,
+                });
+            }
+        }
+
+        // Imports: trailing block. Forward-compat for snapshots saved
+        // before the import section existed: leave `import_count = 0`
+        // and `imports` at default-empty.
+        self.import_count = 0;
+        self.imports = [None; MAX_IMPORTS_PER_PACKAGE];
+        if off < buf.len() {
+            self.import_count = buf[off];
+            off += 1;
+            if self.import_count as usize > MAX_IMPORTS_PER_PACKAGE {
+                return false;
+            }
+            for slot in &mut self.imports {
+                if off >= buf.len() {
+                    return false;
+                }
+                let present = buf[off];
+                off += 1;
+                if present == 0 {
+                    *slot = None;
+                    off += 1 + 1 + 1 + MAX_AID_LEN;
+                    continue;
+                }
+                if off + 1 + 1 + 1 + MAX_AID_LEN > buf.len() {
+                    return false;
+                }
+                let minor_version = buf[off];
+                off += 1;
+                let major_version = buf[off];
+                off += 1;
+                let aid_len = buf[off];
+                off += 1;
+                if aid_len as usize > MAX_AID_LEN {
+                    return false;
+                }
+                let mut aid = [0u8; MAX_AID_LEN];
+                aid.copy_from_slice(&buf[off..off + MAX_AID_LEN]);
+                off += MAX_AID_LEN;
+                *slot = Some(ImportInfo {
+                    minor_version,
+                    major_version,
+                    aid,
+                    aid_len,
                 });
             }
         }
@@ -1220,18 +1373,30 @@ mod tests {
     /// aid(`MAX_AID_LEN`) + offset(2)).
     const APPLET_BLOCK_SIZE_EMPTY: usize = 1 + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2);
 
-    /// Locate the `cp_count` u16 in a snapshot whose CP and applet
-    /// blocks are both empty. `cp_count` sits immediately before the
-    /// applet block, which sits at the tail.
+    /// Snapshot byte size of an empty import block:
+    /// `import_count(1) + MAX_IMPORTS_PER_PACKAGE * absent_slot`.
+    /// Absent slot = present(1) + skipped payload (`minor`(1) + `major`(1) +
+    /// `aid_len`(1) + aid(`MAX_AID_LEN`)).
+    const IMPORT_BLOCK_SIZE_EMPTY: usize =
+        1 + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN);
+
+    /// Locate the `cp_count` u16 in a snapshot whose CP, applet,
+    /// and import blocks are all empty. `cp_count` sits before the
+    /// applet block, which sits before the import block at the tail.
     const fn cp_count_offset_when_empty(n: usize) -> usize {
-        n - APPLET_BLOCK_SIZE_EMPTY - 2
+        n - IMPORT_BLOCK_SIZE_EMPTY - APPLET_BLOCK_SIZE_EMPTY - 2
     }
 
     /// Locate the `applet_count` byte in a snapshot whose applet
-    /// block is empty. `applet_count` is the first byte of the applet
-    /// block, which lives at the tail.
+    /// and import blocks are empty.
     const fn applet_count_offset_when_empty(n: usize) -> usize {
-        n - APPLET_BLOCK_SIZE_EMPTY
+        n - IMPORT_BLOCK_SIZE_EMPTY - APPLET_BLOCK_SIZE_EMPTY
+    }
+
+    /// Locate the `import_count` byte in a snapshot whose import
+    /// block is empty.
+    const fn import_count_offset_when_empty(n: usize) -> usize {
+        n - IMPORT_BLOCK_SIZE_EMPTY
     }
 
     #[test]
@@ -1286,8 +1451,8 @@ mod tests {
         let n = pkg.save_state(&mut snap);
         // cp_count sits right after the method block. With cp_count = 3,
         // the snapshot wrote 3 * 4 = 12 entry bytes after cp_count,
-        // then the empty applet block.
-        let cp_count_off = n - APPLET_BLOCK_SIZE_EMPTY - 12 - 2;
+        // then the empty applet block, then the empty import block.
+        let cp_count_off = n - IMPORT_BLOCK_SIZE_EMPTY - APPLET_BLOCK_SIZE_EMPTY - 12 - 2;
         // Truncate to: cp_count_off + cp_count(2) + 1 entry(4) -- 2
         // entries short. The parser must refuse to read past the
         // buffer when cp_count promises 3 entries but only 1 fits.
@@ -1355,21 +1520,94 @@ mod tests {
 
     #[test]
     fn old_snapshot_without_applet_block_restores_to_empty_applets() {
-        // Forward compat: snapshots saved before the applet block
-        // existed end after the CP block. Restore must accept the
-        // truncated form and surface `applet_count = 0`.
+        // Forward compat: snapshots saved before the applet/import
+        // blocks existed end after the CP block. Restore must accept
+        // the truncated form and surface `applet_count = 0` and
+        // `import_count = 0`.
         let mut pkg = Package::empty();
         pkg.aid_len = 1;
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap[..n - APPLET_BLOCK_SIZE_EMPTY];
+        let truncated = &snap[..n - APPLET_BLOCK_SIZE_EMPTY - IMPORT_BLOCK_SIZE_EMPTY];
 
         let mut pkg2 = Package::empty();
         // Pre-populate to make the assertion meaningful.
         pkg2.applet_count = 7;
+        pkg2.import_count = 9;
         assert!(pkg2.restore_state(truncated));
         assert_eq!(pkg2.applet_count, 0);
+        assert_eq!(pkg2.import_count, 0);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn package_snapshot_roundtrip_with_imports() {
+        // Snapshot a Package with two imports of distinct
+        // versions/AIDs and verify they round-trip byte-for-byte.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 5;
+        pkg.aid[..5].copy_from_slice(&[0xA0, 0, 0, 0, 0x62]);
+        let mut i1 = ImportInfo::empty();
+        i1.aid[..7].copy_from_slice(&[0xA0, 0x00, 0x00, 0x00, 0x62, 0x01, 0x01]);
+        i1.aid_len = 7;
+        i1.minor_version = 0x05;
+        i1.major_version = 0x01;
+        let mut i2 = ImportInfo::empty();
+        i2.aid[..16].copy_from_slice(&[0xCC; 16]);
+        i2.aid_len = 16;
+        i2.minor_version = 0xAB;
+        i2.major_version = 0xCD;
+        pkg.imports[0] = Some(i1);
+        pkg.imports[1] = Some(i2);
+        pkg.import_count = 2;
+
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        assert!(n > 0);
+
+        let mut pkg2 = Package::empty();
+        assert!(pkg2.restore_state(&snap[..n]));
+        assert_eq!(pkg2.import_count, 2);
+        assert_eq!(pkg2.imports[0], Some(i1));
+        assert_eq!(pkg2.imports[1], Some(i2));
+        assert_eq!(pkg2.imports[2], None);
+    }
+
+    #[test]
+    fn restore_rejects_snapshot_with_import_count_over_max() {
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        let off = import_count_offset_when_empty(n);
+        #[allow(clippy::cast_possible_truncation)]
+        let bad = (MAX_IMPORTS_PER_PACKAGE as u8) + 1;
+        snap[off] = bad;
+
+        let mut pkg2 = Package::empty();
+        assert!(
+            !pkg2.restore_state(&snap[..n]),
+            "restore must reject import_count > MAX_IMPORTS_PER_PACKAGE"
+        );
+    }
+
+    #[test]
+    fn old_snapshot_without_import_block_restores_to_empty_imports() {
+        // A snapshot ending right after the applet block predates
+        // the import block; restore must accept and zero imports.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        let truncated = &snap[..n - IMPORT_BLOCK_SIZE_EMPTY];
+
+        let mut pkg2 = Package::empty();
+        pkg2.import_count = 7;
+        assert!(pkg2.restore_state(truncated));
+        assert_eq!(pkg2.import_count, 0);
     }
 
     #[test]

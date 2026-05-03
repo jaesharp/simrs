@@ -497,14 +497,19 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
       the next step before the bytecode interpreter can run real
       multi-class applets.
 - [ ] Component-tagged parser coverage for the remaining components:
-      Import, Class, StaticField, RefLocation, Export, Debug,
-      StaticResources. Phase 2 sub-items as their consumers come
-      online (Class for the firewall, Export for inter-package
-      linking, StaticField for proper static initialisation).
-      Applet (tag 3) is parsed as of 2026-05-03 -- per-applet
-      `AppletInfo { aid, install_method_offset }` is now surfaced on
-      `Package::applets`, which the Card Manager will consume for
-      SELECT-by-AID dispatch and INSTALL [for install].
+      Class, StaticField, RefLocation, Export, Debug, StaticResources.
+      Phase 2 sub-items as their consumers come online (Class for the
+      firewall, Export for inter-package linking, StaticField for
+      proper static initialisation). As of 2026-05-03 the parser also
+      surfaces:
+      - **Applet** (tag 3): per-applet
+        `AppletInfo { aid, install_method_offset }` on
+        `Package::applets`, for SELECT-by-AID dispatch and
+        INSTALL [for install].
+      - **Import** (tag 4): per-import
+        `ImportInfo { minor_version, major_version, aid }` on
+        `Package::imports`, indexed by the `package_token` carried in
+        external CP references.
 - [x] `simrs-jacc` writer: emit Export (tag 10), Debug (tag 12),
       StaticResources (tag 13). Standalone applets emit empty bodies
       (Export `class_count = 0`, Debug zero-length, StaticResources

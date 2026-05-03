@@ -40,8 +40,8 @@
 //! of `0xDECAFFED`) selects the simplified blob.
 
 use super::{
-    AppletInfo, CAP_MAGIC, CpInfo, MAX_AID_LEN, MAX_APPLETS_PER_PACKAGE, MAX_BYTECODE,
-    MAX_CP_ENTRIES, MAX_METHODS, MethodInfo, Package, ParseError, cp_tag,
+    AppletInfo, CAP_MAGIC, CpInfo, ImportInfo, MAX_AID_LEN, MAX_APPLETS_PER_PACKAGE, MAX_BYTECODE,
+    MAX_CP_ENTRIES, MAX_IMPORTS_PER_PACKAGE, MAX_METHODS, MethodInfo, Package, ParseError, cp_tag,
 };
 
 /// Component tag constants per JCVM 3.2 Section 6.2.
@@ -377,6 +377,63 @@ fn parse_descriptor_method_offsets(
     Ok((offsets, total))
 }
 
+/// Parse the Import component body (JCVM 3.2 § 6.7).
+///
+/// Layout:
+/// ```text
+/// count: u8
+/// packages[count]:
+///   minor_version: u8
+///   major_version: u8
+///   aid_length:    u8
+///   aid:           u8[aid_length]
+/// ```
+///
+/// Rejects:
+/// - `count > MAX_IMPORTS_PER_PACKAGE` -> `TooManyImports`
+/// - `aid_length > MAX_AID_LEN`        -> `AidTooLong`
+fn parse_import_component(
+    body: &[u8],
+) -> Result<([Option<ImportInfo>; MAX_IMPORTS_PER_PACKAGE], u8), ParseError> {
+    if body.is_empty() {
+        return Err(ParseError::TooShort);
+    }
+    let count = body[0] as usize;
+    if count > MAX_IMPORTS_PER_PACKAGE {
+        return Err(ParseError::TooManyImports);
+    }
+    let mut pos = 1usize;
+    let mut imports: [Option<ImportInfo>; MAX_IMPORTS_PER_PACKAGE] =
+        [None; MAX_IMPORTS_PER_PACKAGE];
+    for slot in imports.iter_mut().take(count) {
+        if pos + 3 > body.len() {
+            return Err(ParseError::TooShort);
+        }
+        let minor_version = body[pos];
+        let major_version = body[pos + 1];
+        let aid_len = body[pos + 2];
+        pos += 3;
+        if aid_len as usize > MAX_AID_LEN {
+            return Err(ParseError::AidTooLong);
+        }
+        if pos + aid_len as usize > body.len() {
+            return Err(ParseError::TooShort);
+        }
+        let mut aid = [0u8; MAX_AID_LEN];
+        aid[..aid_len as usize].copy_from_slice(&body[pos..pos + aid_len as usize]);
+        pos += aid_len as usize;
+        *slot = Some(ImportInfo {
+            minor_version,
+            major_version,
+            aid,
+            aid_len,
+        });
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let count_u8 = count as u8;
+    Ok((imports, count_u8))
+}
+
 /// Parse the Applet component body (JCVM 3.2 § 6.5).
 ///
 /// Layout:
@@ -502,6 +559,9 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     let mut applets: [Option<AppletInfo>; MAX_APPLETS_PER_PACKAGE] =
         [None; MAX_APPLETS_PER_PACKAGE];
     let mut applet_count: u8 = 0;
+    let mut imports: [Option<ImportInfo>; MAX_IMPORTS_PER_PACKAGE] =
+        [None; MAX_IMPORTS_PER_PACKAGE];
+    let mut import_count: u8 = 0;
 
     while pos < data.len() {
         if data.len() < pos + 3 {
@@ -538,11 +598,16 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
                 applets = a;
                 applet_count = n;
             }
-            // Recognised-but-skipped components (Directory, Import,
-            // Class, StaticField, RefLocation, Export, Debug,
-            // StaticResources) and unknown components (vendor-custom)
-            // all fall through. Class hierarchy and StaticField images
-            // are Phase 2 follow-ups.
+            tag::IMPORT => {
+                let (i, n) = parse_import_component(body)?;
+                imports = i;
+                import_count = n;
+            }
+            // Recognised-but-skipped components (Directory, Class,
+            // StaticField, RefLocation, Export, Debug, StaticResources)
+            // and unknown components (vendor-custom) all fall through.
+            // Class hierarchy and StaticField images are Phase 2
+            // follow-ups.
             _ => {}
         }
     }
@@ -569,6 +634,8 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
         cp_count,
         applets,
         applet_count,
+        imports,
+        import_count,
     })
 }
 
@@ -1526,5 +1593,171 @@ mod tests {
         let max_idx = MAX_APPLETS_PER_PACKAGE as u8;
         assert!(pkg.applet(max_idx).is_none());
         assert!(pkg.applet(u8::MAX).is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Import component
+    // -----------------------------------------------------------------------
+
+    /// Build an Import component body. Each entry is
+    /// `minor(1) | major(1) | aid_length(1) | aid(aid_length)`.
+    #[allow(clippy::cast_possible_truncation)]
+    fn import_body(entries: &[(u8, u8, &[u8])]) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.push(entries.len() as u8);
+        for (minor, major, aid) in entries {
+            body.push(*minor);
+            body.push(*major);
+            body.push(aid.len() as u8);
+            body.extend_from_slice(aid);
+        }
+        body
+    }
+
+    /// Build a CAP with Header + Import + Method.
+    fn build_cap_with_imports(pkg_aid: &[u8], imports: &[(u8, u8, &[u8])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        emit(&mut out, tag::HEADER, &header_body(pkg_aid));
+        emit(&mut out, tag::IMPORT, &import_body(imports));
+        emit(
+            &mut out,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        out
+    }
+
+    #[test]
+    fn no_import_component_yields_zero_import_count() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap(&aid, &[(&[0x78u8][..], 0x80, 4, 0, 1)], None);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.import_count, 0);
+        assert!(pkg.import(0).is_none());
+    }
+
+    #[test]
+    fn empty_import_component_yields_zero_import_count() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_imports(&aid, &[]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.import_count, 0);
+    }
+
+    #[test]
+    fn single_import_records_aid_and_version() {
+        // Adversarial: distinct minor/major bytes catch a swap, and
+        // a non-trivial AID catches a slice-offset bug.
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let imp_aid: &[u8] = &[0xA0, 0x00, 0x00, 0x00, 0x62, 0x01, 0x01]; // javacard.framework
+        let cap = build_cap_with_imports(&pkg_aid, &[(0x05, 0x03, imp_aid)]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.import_count, 1);
+        let info = pkg.import(0).expect("import 0");
+        assert_eq!(info.minor_version, 0x05);
+        assert_eq!(info.major_version, 0x03);
+        assert_eq!(info.aid_slice(), imp_aid);
+    }
+
+    #[test]
+    fn multiple_imports_preserve_order_and_distinct_versions() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let a1: &[u8] = &[0xA0, 0x11, 0x22];
+        let a2: &[u8] = &[0xA0, 0x33, 0x44, 0x55, 0x66, 0x77];
+        let cap = build_cap_with_imports(&pkg_aid, &[(0x01, 0x02, a1), (0x07, 0x08, a2)]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.import_count, 2);
+        let i0 = pkg.import(0).unwrap();
+        let i1 = pkg.import(1).unwrap();
+        assert_eq!(i0.aid_slice(), a1);
+        assert_eq!(i0.minor_version, 0x01);
+        assert_eq!(i0.major_version, 0x02);
+        assert_eq!(i1.aid_slice(), a2);
+        assert_eq!(i1.minor_version, 0x07);
+        assert_eq!(i1.major_version, 0x08);
+    }
+
+    #[test]
+    fn import_aid_length_over_16_rejected() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = vec![
+            1,  // count
+            0,  // minor
+            0,  // major
+            17, // bogus aid_length
+        ];
+        body.extend_from_slice(&[0xAA; 17]);
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&pkg_aid));
+        emit(&mut cap, tag::IMPORT, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::AidTooLong)));
+    }
+
+    #[test]
+    fn rejects_import_count_over_max() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let dummy: &[u8] = &[0xA0, 0x00, 0x00, 0x00, 0x01];
+        let mut entries: Vec<(u8, u8, &[u8])> = Vec::new();
+        for _ in 0..=MAX_IMPORTS_PER_PACKAGE {
+            entries.push((0, 0, dummy));
+        }
+        let cap = build_cap_with_imports(&pkg_aid, &entries);
+        assert!(matches!(parse(&cap), Err(ParseError::TooManyImports)));
+    }
+
+    #[test]
+    fn accepts_imports_at_exactly_max() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let dummy: &[u8] = &[0xA0, 0x00, 0x00, 0x00, 0x01];
+        let mut entries: Vec<(u8, u8, &[u8])> = Vec::new();
+        for _ in 0..MAX_IMPORTS_PER_PACKAGE {
+            entries.push((0, 0, dummy));
+        }
+        let cap = build_cap_with_imports(&pkg_aid, &entries);
+        let pkg = parse(&cap).expect("parse at MAX_IMPORTS_PER_PACKAGE");
+        #[allow(clippy::cast_possible_truncation)]
+        let expected = MAX_IMPORTS_PER_PACKAGE as u8;
+        assert_eq!(pkg.import_count, expected);
+    }
+
+    #[test]
+    fn rejects_truncated_import_body_mid_entry() {
+        // count says 1, header says aid_length = 5, but body is short.
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = vec![
+            1, // count
+            0, // minor
+            0, // major
+            5, // aid_length
+        ];
+        body.extend_from_slice(&[0xA0u8, 0x00, 0x00]); // 3 bytes; missing 2.
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&pkg_aid));
+        emit(&mut cap, tag::IMPORT, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    #[test]
+    fn import_index_past_count_returns_none() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let imp_aid: &[u8] = &[0xA0, 0x00, 0x00, 0x00, 0x01];
+        let cap = build_cap_with_imports(&pkg_aid, &[(0, 0, imp_aid)]);
+        let pkg = parse(&cap).expect("parse");
+        assert!(pkg.import(0).is_some());
+        assert!(pkg.import(1).is_none());
+        #[allow(clippy::cast_possible_truncation)]
+        let max_idx = MAX_IMPORTS_PER_PACKAGE as u8;
+        assert!(pkg.import(max_idx).is_none());
+        assert!(pkg.import(u8::MAX).is_none());
     }
 }

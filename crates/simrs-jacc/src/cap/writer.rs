@@ -863,6 +863,18 @@ mod tests {
     }
 
     #[test]
+    fn writer_import_component_round_trips_to_zero_imports() {
+        // The writer emits an empty Import component (`count = 0`)
+        // for standalone applets. The runtime parser must surface
+        // `import_count == 0` and refuse to dereference any package
+        // token via `pkg.import(..)`.
+        let cap = CapWriter::new(&sample_compiled()).write();
+        let pkg = parse_cap(&cap).expect("parse");
+        assert_eq!(pkg.import_count, 0);
+        assert!(pkg.import(0).is_none());
+    }
+
+    #[test]
     fn writer_applet_component_round_trips_through_runtime_parser() {
         // The writer emits a 1-applet body with the install method
         // pointing at method 0. The runtime parser must surface that
