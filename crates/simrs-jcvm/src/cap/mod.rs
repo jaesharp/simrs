@@ -92,6 +92,43 @@ pub const MAX_EXPORTED_FIELDS_PER_CLASS: usize = 16;
 /// Maximum static methods a single exported class can publish.
 pub const MAX_EXPORTED_METHODS_PER_CLASS: usize = 16;
 
+// ---------------------------------------------------------------------------
+// Snapshot slot/block sizes -- single source of truth.
+//
+// `save_state`, `restore_state`, [`Package::MAX_SNAPSHOT_SIZE`], and the
+// test-only offset helpers all compute the same per-slot byte counts.
+// Naming each one once here keeps the four sites in lockstep: bumping a
+// `MAX_*` constant cascades correctly, and adding new fields to a slot's
+// payload only requires updating its formula here.
+// ---------------------------------------------------------------------------
+
+/// One absent or present applet slot: present(1) + `aid_len`(1) +
+/// aid(`MAX_AID_LEN`) + `install_method_offset`(2).
+pub(crate) const APPLET_SLOT_SIZE: usize = 1 + 1 + MAX_AID_LEN + 2;
+
+/// One absent or present import slot: present(1) + `minor`(1) +
+/// `major`(1) + `aid_len`(1) + aid(`MAX_AID_LEN`).
+pub(crate) const IMPORT_SLOT_SIZE: usize = 1 + 1 + 1 + 1 + MAX_AID_LEN;
+
+/// One absent or present export slot: present(1) + `class_offset`(2) +
+/// `static_field_count`(1) + `static_method_count`(1) +
+/// `MAX_EXPORTED_FIELDS_PER_CLASS` * 2 + `MAX_EXPORTED_METHODS_PER_CLASS` * 2.
+pub(crate) const EXPORT_SLOT_SIZE: usize =
+    1 + 2 + 1 + 1 + MAX_EXPORTED_FIELDS_PER_CLASS * 2 + MAX_EXPORTED_METHODS_PER_CLASS * 2;
+
+/// Snapshot bytes for the whole applet block: count(1) + slots.
+pub(crate) const APPLET_BLOCK_SIZE: usize = 1 + MAX_APPLETS_PER_PACKAGE * APPLET_SLOT_SIZE;
+
+/// Snapshot bytes for the whole import block: count(1) + slots.
+pub(crate) const IMPORT_BLOCK_SIZE: usize = 1 + MAX_IMPORTS_PER_PACKAGE * IMPORT_SLOT_SIZE;
+
+/// Snapshot bytes for the whole export block: count(1) + slots.
+pub(crate) const EXPORT_BLOCK_SIZE: usize = 1 + MAX_EXPORTED_CLASSES_PER_PACKAGE * EXPORT_SLOT_SIZE;
+
+/// Snapshot bytes for the method-component-offsets parallel array
+/// (always `MAX_METHODS * 2` regardless of `method_count`).
+pub(crate) const METHOD_OFFSETS_BLOCK_SIZE: usize = MAX_METHODS * 2;
+
 /// One entry in the Export component (JCVM 3.2 § 6.13).
 ///
 /// The `class_token` carried in external CP references is an index
@@ -972,18 +1009,10 @@ impl Package {
         + MAX_METHODS * (1 + 1 + 1 + 1 + 1 + 2 + MAX_BYTECODE + 1 + MAX_EXCEPTIONS * 8 + 4)
         + 2
         + MAX_CP_ENTRIES * 4
-        + 1
-        + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2)
-        + 1
-        + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN)
-        + MAX_METHODS * 2
-        + 1
-        + MAX_EXPORTED_CLASSES_PER_PACKAGE
-            * (1 + 2
-                + 1
-                + 1
-                + MAX_EXPORTED_FIELDS_PER_CLASS * 2
-                + MAX_EXPORTED_METHODS_PER_CLASS * 2);
+        + APPLET_BLOCK_SIZE
+        + IMPORT_BLOCK_SIZE
+        + METHOD_OFFSETS_BLOCK_SIZE
+        + EXPORT_BLOCK_SIZE;
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     #[allow(clippy::too_many_lines)]
@@ -1068,8 +1097,7 @@ impl Package {
         }
 
         // Applets: applet_count(1) + per-applet (present, aid_len, aid, offset).
-        let applet_block = 1 + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2);
-        if off + applet_block > buf.len() {
+        if off + APPLET_BLOCK_SIZE > buf.len() {
             return 0;
         }
         buf[off] = self.applet_count;
@@ -1078,7 +1106,7 @@ impl Package {
             match slot {
                 None => {
                     buf[off] = 0; // not present
-                    off += 1 + 1 + MAX_AID_LEN + 2;
+                    off += APPLET_SLOT_SIZE;
                 }
                 Some(a) => {
                     buf[off] = 1; // present
@@ -1094,8 +1122,7 @@ impl Package {
         }
 
         // Imports: import_count(1) + per-import (present, minor, major, aid_len, aid).
-        let import_block = 1 + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN);
-        if off + import_block > buf.len() {
+        if off + IMPORT_BLOCK_SIZE > buf.len() {
             return 0;
         }
         buf[off] = self.import_count;
@@ -1104,7 +1131,7 @@ impl Package {
             match slot {
                 None => {
                     buf[off] = 0; // not present
-                    off += 1 + 1 + 1 + 1 + MAX_AID_LEN;
+                    off += IMPORT_SLOT_SIZE;
                 }
                 Some(i) => {
                     buf[off] = 1; // present
@@ -1122,8 +1149,7 @@ impl Package {
         }
 
         // Method component offsets: MAX_METHODS * u16 LE.
-        let offsets_block = MAX_METHODS * 2;
-        if off + offsets_block > buf.len() {
+        if off + METHOD_OFFSETS_BLOCK_SIZE > buf.len() {
             return 0;
         }
         for off_val in &self.method_offsets {
@@ -1134,10 +1160,7 @@ impl Package {
         // Exports: export_count(1) + per-class (present, class_offset,
         // static_field_count, static_method_count, static_field_offsets,
         // static_method_offsets).
-        let per_export =
-            1 + 2 + 1 + 1 + MAX_EXPORTED_FIELDS_PER_CLASS * 2 + MAX_EXPORTED_METHODS_PER_CLASS * 2;
-        let export_block = 1 + MAX_EXPORTED_CLASSES_PER_PACKAGE * per_export;
-        if off + export_block > buf.len() {
+        if off + EXPORT_BLOCK_SIZE > buf.len() {
             return 0;
         }
         buf[off] = self.export_count;
@@ -1146,7 +1169,7 @@ impl Package {
             match slot {
                 None => {
                     buf[off] = 0; // not present
-                    off += per_export;
+                    off += EXPORT_SLOT_SIZE;
                 }
                 Some(e) => {
                     buf[off] = 1; // present
@@ -1384,7 +1407,7 @@ impl Package {
         // without this block restore to all-zeros (matching the
         // simplified-blob default).
         self.method_offsets = [0u16; MAX_METHODS];
-        if off + MAX_METHODS * 2 <= buf.len() {
+        if off + METHOD_OFFSETS_BLOCK_SIZE <= buf.len() {
             for slot in &mut self.method_offsets {
                 *slot = u16::from_le_bytes([buf[off], buf[off + 1]]);
                 off += 2;
@@ -1401,24 +1424,21 @@ impl Package {
             if self.export_count as usize > MAX_EXPORTED_CLASSES_PER_PACKAGE {
                 return false;
             }
-            let per_export = 1
-                + 2
-                + 1
-                + 1
-                + MAX_EXPORTED_FIELDS_PER_CLASS * 2
-                + MAX_EXPORTED_METHODS_PER_CLASS * 2;
+            // Bytes per slot after the present-flag byte: same payload
+            // for both the absent-skip and the present-parse arms.
+            let payload_size = EXPORT_SLOT_SIZE - 1;
             for slot in &mut self.exports {
-                if off + 1 > buf.len() {
+                if off >= buf.len() {
                     return false;
                 }
                 let present = buf[off];
                 off += 1;
                 if present == 0 {
                     *slot = None;
-                    off += per_export - 1;
+                    off += payload_size;
                     continue;
                 }
-                if off + (per_export - 1) > buf.len() {
+                if off + payload_size > buf.len() {
                     return false;
                 }
                 let class_offset = u16::from_le_bytes([buf[off], buf[off + 1]]);
@@ -1650,40 +1670,16 @@ mod tests {
         assert_eq!(pkg2.cp_count, 0);
     }
 
-    /// Snapshot byte size of an empty applet block:
-    /// `applet_count(1) + MAX_APPLETS_PER_PACKAGE * absent_slot`.
-    /// Absent slot = present(1) + skipped payload (`aid_len`(1) +
-    /// aid(`MAX_AID_LEN`) + offset(2)).
-    const APPLET_BLOCK_SIZE_EMPTY: usize = 1 + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2);
-
-    /// Snapshot byte size of an empty import block:
-    /// `import_count(1) + MAX_IMPORTS_PER_PACKAGE * absent_slot`.
-    /// Absent slot = present(1) + skipped payload (`minor`(1) + `major`(1) +
-    /// `aid_len`(1) + aid(`MAX_AID_LEN`)).
-    const IMPORT_BLOCK_SIZE_EMPTY: usize =
-        1 + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN);
-
-    /// Snapshot byte size of the method-offsets block (always
-    /// `MAX_METHODS * 2`, regardless of `method_count`).
-    const METHOD_OFFSETS_BLOCK_SIZE: usize = MAX_METHODS * 2;
-
-    /// Per-export-slot snapshot bytes: present(1) + `class_offset`(2) +
-    /// `static_field_count`(1) + `static_method_count`(1) +
-    /// `MAX_EXPORTED_FIELDS_PER_CLASS` * 2 +
-    /// `MAX_EXPORTED_METHODS_PER_CLASS` * 2.
-    const EXPORT_SLOT_SIZE: usize =
-        1 + 2 + 1 + 1 + MAX_EXPORTED_FIELDS_PER_CLASS * 2 + MAX_EXPORTED_METHODS_PER_CLASS * 2;
-
-    /// Snapshot byte size of an empty export block:
-    /// `export_count(1) + MAX_EXPORTED_CLASSES_PER_PACKAGE * absent_slot`.
-    const EXPORT_BLOCK_SIZE_EMPTY: usize = 1 + MAX_EXPORTED_CLASSES_PER_PACKAGE * EXPORT_SLOT_SIZE;
+    // Block-size constants live at module scope (above `impl Package`) so
+    // `save_state`, `restore_state`, `MAX_SNAPSHOT_SIZE`, and these test
+    // helpers all consult one source of truth. Bumping a `MAX_*` field
+    // count then cascades through every site without per-call-site
+    // re-derivation.
 
     /// Total trailing block size after the CP block: applet block +
     /// import block + method-offsets block + export block.
-    const TRAILING_BLOCKS_AFTER_CP: usize = APPLET_BLOCK_SIZE_EMPTY
-        + IMPORT_BLOCK_SIZE_EMPTY
-        + METHOD_OFFSETS_BLOCK_SIZE
-        + EXPORT_BLOCK_SIZE_EMPTY;
+    const TRAILING_BLOCKS_AFTER_CP: usize =
+        APPLET_BLOCK_SIZE + IMPORT_BLOCK_SIZE + METHOD_OFFSETS_BLOCK_SIZE + EXPORT_BLOCK_SIZE;
 
     /// Locate the `cp_count` u16 in a snapshot whose CP, applet,
     /// import, and export blocks are all empty.
@@ -1694,16 +1690,13 @@ mod tests {
     /// Locate the `applet_count` byte in a snapshot whose applet,
     /// import, method-offsets, and export blocks are empty.
     const fn applet_count_offset_when_empty(n: usize) -> usize {
-        n - EXPORT_BLOCK_SIZE_EMPTY
-            - METHOD_OFFSETS_BLOCK_SIZE
-            - IMPORT_BLOCK_SIZE_EMPTY
-            - APPLET_BLOCK_SIZE_EMPTY
+        n - EXPORT_BLOCK_SIZE - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE - APPLET_BLOCK_SIZE
     }
 
     /// Locate the `import_count` byte in a snapshot whose import,
     /// method-offsets, and export blocks are empty.
     const fn import_count_offset_when_empty(n: usize) -> usize {
-        n - EXPORT_BLOCK_SIZE_EMPTY - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY
+        n - EXPORT_BLOCK_SIZE - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE
     }
 
     #[test]
@@ -1949,7 +1942,7 @@ mod tests {
         let n = pkg.save_state(&mut snap);
         // export_count is the first byte of the export block, which
         // is the tail of the snapshot.
-        let off = n - EXPORT_BLOCK_SIZE_EMPTY;
+        let off = n - EXPORT_BLOCK_SIZE;
         #[allow(clippy::cast_possible_truncation)]
         let bad = (MAX_EXPORTED_CLASSES_PER_PACKAGE as u8) + 1;
         snap[off] = bad;
@@ -1968,7 +1961,7 @@ mod tests {
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap[..n - EXPORT_BLOCK_SIZE_EMPTY];
+        let truncated = &snap[..n - EXPORT_BLOCK_SIZE];
 
         let mut pkg2 = Package::empty();
         pkg2.export_count = 7;
@@ -1986,8 +1979,8 @@ mod tests {
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap
-            [..n - EXPORT_BLOCK_SIZE_EMPTY - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY];
+        let truncated =
+            &snap[..n - EXPORT_BLOCK_SIZE - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE];
 
         let mut pkg2 = Package::empty();
         pkg2.import_count = 7;
