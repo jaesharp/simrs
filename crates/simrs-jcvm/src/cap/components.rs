@@ -1678,6 +1678,26 @@ mod tests {
     }
 
     #[test]
+    fn import_aid_at_min_iso7816_length_5_accepted() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let imp_aid: &[u8] = &[0xA0, 0x00, 0x00, 0x00, 0x05];
+        let cap = build_cap_with_imports(&pkg_aid, &[(0, 0, imp_aid)]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.import(0).unwrap().aid_slice(), imp_aid);
+    }
+
+    #[test]
+    fn import_aid_at_max_iso7816_length_16_accepted() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let imp_aid: &[u8] = &[0xCC; MAX_AID_LEN];
+        let cap = build_cap_with_imports(&pkg_aid, &[(0, 0, imp_aid)]);
+        let pkg = parse(&cap).expect("parse");
+        let info = pkg.import(0).unwrap();
+        assert_eq!(info.aid_len, 16);
+        assert_eq!(info.aid_slice(), imp_aid);
+    }
+
+    #[test]
     fn import_aid_length_over_16_rejected() {
         let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
         let mut body = vec![
