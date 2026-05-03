@@ -337,14 +337,20 @@ impl CapWriter {
         // public_method_table_base: u8
         body.push(0);
 
-        // public_method_table_count: u8
+        // public_method_table_count: u8 -- simrs-jacc emits all
+        // methods as public virtual; their offsets follow below.
         body.push(self.methods.len() as u8);
 
         // package_method_table_base: u8
         body.push(0);
 
-        // package_method_table_count: u8
-        body.push(self.methods.len() as u8);
+        // package_method_table_count: u8 -- no package-private
+        // methods; this MUST match the byte count of the
+        // package_virtual_method_table[] that follows. Setting it
+        // to `methods.len()` (as this writer used to do) while
+        // emitting zero u16 entries for that table produced a
+        // spec-incompatible class_info per JCVM 3.2 § 6.9.5.
+        body.push(0);
 
         // public_virtual_method_table: one entry per method.
         // Each entry is a u16 offset into method component.
@@ -352,6 +358,13 @@ impl CapWriter {
             let offset = self.method_offset(i as u8);
             body.extend_from_slice(&offset.to_be_bytes());
         }
+
+        // package_virtual_method_table: zero entries since
+        // package_method_table_count = 0 above.
+
+        // implemented_interface_info implemented_interfaces[interface_count]:
+        // bitfield's top 4 bits are zero (no interfaces), so this is
+        // the empty sequence and is correctly omitted.
 
         body
     }
@@ -1184,6 +1197,39 @@ mod tests {
 
         // declared_instance_size: 0
         assert_eq!(class_body[3], 0);
+    }
+
+    #[test]
+    fn full_cap_class_method_table_counts_match_emitted_tables() {
+        // Spec invariant (JCVM 3.2 § 6.9.5): the byte count of
+        // public_virtual_method_table and package_virtual_method_table
+        // must match `public_method_table_count * 2` and
+        // `package_method_table_count * 2` respectively. A regression
+        // that emits N for the count but 0 entries for the table (or
+        // vice versa) leaves the class_info un-walkable by strict
+        // parsers. Anchor both invariants here.
+        let compiled = sample_compiled_multi(); // 2 methods
+        let cap = CapWriter::new(&compiled).write();
+        let class_body = find_component_body(&cap, TAG_CLASS).unwrap();
+
+        // Layout: bitfield(1) + super_class_ref(2) +
+        // declared_instance_size(1) + first_reference_token(1) +
+        // reference_count(1) + public_method_table_base(1) +
+        // public_method_table_count(1) + package_method_table_base(1) +
+        // package_method_table_count(1) = 10 fixed bytes.
+        let public_count = class_body[7] as usize;
+        let package_count = class_body[9] as usize;
+        let expected_table_bytes = (public_count + package_count) * 2;
+        // After 10 fixed bytes, the two virtual method tables fill the rest.
+        let actual_table_bytes = class_body.len() - 10;
+        assert_eq!(
+            actual_table_bytes, expected_table_bytes,
+            "method-table counts must match the bytes that follow them"
+        );
+
+        // simrs-jacc places all methods in the public virtual table.
+        assert_eq!(public_count, 2);
+        assert_eq!(package_count, 0);
     }
 
     #[test]
