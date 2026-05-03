@@ -261,9 +261,17 @@ impl CapWriter {
             body.extend_from_slice(&size.to_be_bytes());
         }
 
-        // static_field_image_size: u16 BE
+        // static_field_size_info per JCVM 3.2 § 6.6: three u16 BE fields,
+        // not just `image_size`. Emitting only the first (which this
+        // writer used to do) produces a CAP that strict parsers reject.
+        //
+        // image_size: total bytes in the static-field image.
         let static_count = self.fields.iter().filter(|f| f.is_static).count();
         body.extend_from_slice(&(static_count as u16).to_be_bytes());
+        // array_init_count: number of static array initialisers.
+        body.extend_from_slice(&0u16.to_be_bytes());
+        // array_init_value_count: total bytes across all array initialisers.
+        body.extend_from_slice(&0u16.to_be_bytes());
 
         // import_count: u8
         body.push(0); // no imports for standalone applets
@@ -996,6 +1004,31 @@ mod tests {
         // sizes[1] = directory size (must be 0, self-referential)
         let stored_dir_size = u16::from_be_bytes([dir_body[2], dir_body[3]]);
         assert_eq!(stored_dir_size, 0);
+
+        // Spec compliance for static_field_size_info: per JCVM 3.2 § 6.6
+        // it has THREE u16 BE fields, not just `image_size`. Anchor the
+        // shape here so a regression that drops the trailing two fields
+        // (which this writer used to do) would fail loudly.
+        // After 13 component sizes (26 bytes) the static_field_size_info
+        // begins. For our standalone applet all three are 0.
+        let sfi_off = 26;
+        let stored_image_size = u16::from_be_bytes([dir_body[sfi_off], dir_body[sfi_off + 1]]);
+        let stored_array_init_count =
+            u16::from_be_bytes([dir_body[sfi_off + 2], dir_body[sfi_off + 3]]);
+        let stored_array_init_value_count =
+            u16::from_be_bytes([dir_body[sfi_off + 4], dir_body[sfi_off + 5]]);
+        assert_eq!(stored_image_size, 0);
+        assert_eq!(stored_array_init_count, 0);
+        assert_eq!(stored_array_init_value_count, 0);
+
+        // Then the three u8 counts: import (0), applet (1), custom (0).
+        let counts_off = sfi_off + 6;
+        assert_eq!(dir_body[counts_off], 0, "import_count");
+        assert_eq!(dir_body[counts_off + 1], 1, "applet_count");
+        assert_eq!(dir_body[counts_off + 2], 0, "custom_count");
+
+        // Total directory body length: 26 (sizes) + 6 (sfi) + 3 (counts).
+        assert_eq!(dir_body.len(), 35);
     }
 
     #[test]
