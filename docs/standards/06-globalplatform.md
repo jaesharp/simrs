@@ -52,7 +52,7 @@ Status levels used in this doc:
 | GP card management | GP 2.3.1 | All clause-11 commands Functional | INITIALIZE UPDATE / EXTERNAL AUTHENTICATE / GET STATUS / SET STATUS / GET DATA / INSTALL (incl. P1=0x20 [for personalization]) / DELETE / LOAD / MANAGE CHANNEL / SELECT all Functional. PUT KEY: Functional (TLV parser + DEK decryption + KCV verification). STORE DATA: Functional (accumulates chained blocks; on the last block, dispatches the assembled payload to the personalization recipient set by INSTALL [for personalization]). BEGIN/END R-MAC SESSION: Functional (running R-MAC chain advances every wrapped response per GP 2.3.1 Appendix E.4.6). |
 | GP SCP secure channel | GP 2.3.1 Amd D | SCP01 / SCP02 / SCP03 Functional within their `i = 0` flows; SCP03 `i & 0x40` Functional; SCP03 R-MAC + R-ENC Functional | SCP02 `i` parameter is configurable (advertised in GET DATA OID) but only `i = 0x15` (explicit, 3 keys) is honoured in card-challenge derivation. SCP03 supports the `i & 0x40` pseudo-random mode end-to-end (response grows to 32 bytes with sequence counter). SCP03 R-MAC (`security_level & 0x10`) and R-ENC (`security_level & 0x20`) are wired through `maybe_wrap_rmac` -- responses are encrypted under the session-ENC key with Method 2 padding when R-ENC is enabled, then signed with AES-CMAC truncated to 8 bytes (Amd D § 6.2.7). |
 | JCVM bytecode | JCVM 3.2 | Most opcodes implemented | Still missing the wide-offset branch variants, the optimised `*_this` field opcodes, and `jsr`/`ret`. Coverage progress is tracked by the test suite, not duplicated here. |
-| JCVM CAP file format | JC 3.2 (CAP v2.3+) | Component-tagged parser MVP + simplified blob, both via dispatcher | `simrs-jcvm::cap::parse_cap` auto-detects format. The component-tagged path (`cap::components`) parses Header / Method / Descriptor and skips the rest, sufficient for `simrs-jacc`-emitted CAPs. ConstantPool token-resolution, Class hierarchy, StaticField images, Export/Debug/StaticResources writer support are Phase 2 follow-ups. |
+| JCVM CAP file format | JC 3.2 (CAP v2.3+) | Component-tagged parser MVP + simplified blob, both via dispatcher | `simrs-jcvm::cap::parse_cap` auto-detects format. The component-tagged path (`cap::components`) parses Header / Method / Descriptor / ConstantPool and skips the rest, sufficient for `simrs-jacc`-emitted CAPs. ConstantPool entries are stored in raw 4-byte form on `Package` and decoded on demand via `CpInfo::as_*` helpers (Classref, InstanceFieldref, VirtualMethodref, SuperMethodref, StaticFieldref, StaticMethodref); resolution of these references at invoke-time, Class hierarchy, StaticField images, and Export/Debug/StaticResources writer support are Phase 2 follow-ups. |
 | JCRE runtime | JCRE 3.2 | JC 2.1.1 baseline | Single-channel applet model; no `MultiSelectable`; raw byte-slice APDUs (no extended-length, no APDU class wrapper); binary firewall check (no SIO, no entry-point object tagging) |
 | JC API surface | JC API 3.2 | Small subset of packages today | `javacard.framework` partial; `javacard.security`, `javacardx.crypto`, all JC 3.1/3.2 additions absent. Phase 5 closes the bulk. |
 | Toolchain (jacc/jccompile/jcasm) | JC 3.2 converter behaviour | s/i opcode emission complete; CAP writer covers most components | Annotations tokenised but discarded; StaticResources (tag 13), Export (tag 10), Debug (tag 12) not emitted |
@@ -483,10 +483,19 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
       dispatcher (Header tag = component-tagged path; `0xDE` = legacy
       simplified blob). Cross-validated end-to-end against
       `simrs_jacc::CapWriter::write` output.
-- [ ] Token-based linking via ConstantPool resolution -- the
-      ConstantPool component is currently parsed but its entries are
-      not surfaced into the simplified `Package` struct, so cross-
-      package method/field references don't resolve at load time.
+- [x] ConstantPool component parsing + raw entry storage on
+      `Package`. `simrs_jcvm::cap::CpInfo` stores each entry in its
+      4-byte on-disk form; `as_classref` / `as_instance_fieldref` /
+      `as_virtual_methodref` / `as_super_methodref` / `as_static_fieldref` /
+      `as_static_methodref` decode on demand per JCVM 3.2 § 6.8.
+      Internal vs external (token-pair / token-triple) is discriminated
+      by the high bit of byte 0; `VirtualMethodref` private flag from
+      the high bit of the token byte. Snapshots persist the CP block.
+- [ ] Token-based linking at invoke time -- entries are now surfaced
+      on `Package` but `invokestatic` / `invokevirtual` /
+      `invokespecial` opcodes do not yet route through them. This is
+      the next step before the bytecode interpreter can run real
+      multi-class applets.
 - [ ] Component-tagged parser coverage for the remaining components:
       Applet, Import, Class, StaticField, RefLocation, Export, Debug,
       StaticResources. Phase 2 sub-items as their consumers come

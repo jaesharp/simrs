@@ -39,7 +39,10 @@
 //! (Header tag) selects the component-tagged format; `0xDE` (start
 //! of `0xDECAFFED`) selects the simplified blob.
 
-use super::{CAP_MAGIC, MAX_AID_LEN, MAX_BYTECODE, MAX_METHODS, MethodInfo, Package, ParseError};
+use super::{
+    CAP_MAGIC, CpInfo, MAX_AID_LEN, MAX_BYTECODE, MAX_CP_ENTRIES, MAX_METHODS, MethodInfo, Package,
+    ParseError, cp_tag,
+};
 
 /// Component tag constants per JCVM 3.2 Section 6.2.
 pub mod tag {
@@ -374,6 +377,55 @@ fn parse_descriptor_method_offsets(
     Ok((offsets, total))
 }
 
+/// Parse the `ConstantPool` component body and extract entries.
+///
+/// Layout per JCVM 3.2 § 6.8:
+/// ```text
+/// count: u16 BE
+/// constant_pool: cp_info[count]   -- 4 bytes per entry
+///
+/// cp_info {
+///   tag:  u8                      -- 1=Classref, 2=InstanceFieldref,
+///                                    3=VirtualMethodref, 4=SuperMethodref,
+///                                    5=StaticFieldref, 6=StaticMethodref
+///   info: u8[3]                   -- tag-dependent layout
+/// }
+/// ```
+///
+/// Unknown tags are rejected: an unfamiliar tag means a future spec
+/// addition we don't model and silently ignoring it would let
+/// downstream resolution mis-decode the entry.
+fn parse_constant_pool(body: &[u8]) -> Result<([CpInfo; MAX_CP_ENTRIES], u16), ParseError> {
+    if body.len() < 2 {
+        return Err(ParseError::TooShort);
+    }
+    let count = u16::from_be_bytes([body[0], body[1]]);
+    if count as usize > MAX_CP_ENTRIES {
+        return Err(ParseError::TooManyConstantPoolEntries);
+    }
+    let count_usize = count as usize;
+    if body.len() < 2 + count_usize * 4 {
+        return Err(ParseError::TooShort);
+    }
+    let mut entries = [CpInfo::default(); MAX_CP_ENTRIES];
+    for (i, slot) in entries.iter_mut().take(count_usize).enumerate() {
+        let off = 2 + i * 4;
+        let tag = body[off];
+        match tag {
+            cp_tag::CLASSREF
+            | cp_tag::INSTANCE_FIELDREF
+            | cp_tag::VIRTUAL_METHODREF
+            | cp_tag::SUPER_METHODREF
+            | cp_tag::STATIC_FIELDREF
+            | cp_tag::STATIC_METHODREF => {}
+            _ => return Err(ParseError::UnknownConstantPoolTag),
+        }
+        slot.tag = tag;
+        slot.info.copy_from_slice(&body[off + 1..off + 4]);
+    }
+    Ok((entries, count))
+}
+
 /// Parse a component-tagged CAP file into the simplified [`Package`]
 /// structure used by the JCVM interpreter.
 ///
@@ -387,6 +439,8 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     let mut aid_len: u8 = 0;
     let mut method_body: Option<&[u8]> = None;
     let mut descriptor_body: Option<&[u8]> = None;
+    let mut constant_pool = [CpInfo::default(); MAX_CP_ENTRIES];
+    let mut cp_count: u16 = 0;
 
     while pos < data.len() {
         if data.len() < pos + 3 {
@@ -413,12 +467,16 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
             tag::DESCRIPTOR => {
                 descriptor_body = Some(body);
             }
+            tag::CONSTANT_POOL => {
+                let (cp, n) = parse_constant_pool(body)?;
+                constant_pool = cp;
+                cp_count = n;
+            }
             // Recognised-but-skipped components (Directory, Applet,
-            // Import, ConstantPool, Class, StaticField, RefLocation,
-            // Export, Debug, StaticResources) and unknown components
-            // (vendor-custom) all fall through. ConstantPool linking,
-            // Class hierarchy, and StaticField images are Phase 2
-            // follow-ups.
+            // Import, Class, StaticField, RefLocation, Export, Debug,
+            // StaticResources) and unknown components (vendor-custom)
+            // all fall through. Class hierarchy and StaticField images
+            // are Phase 2 follow-ups.
             _ => {}
         }
     }
@@ -441,6 +499,8 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
         aid_len,
         methods,
         method_count,
+        constant_pool,
+        cp_count,
     })
 }
 
@@ -904,5 +964,284 @@ mod tests {
         let pkg = super::super::parse_cap(&blob[..len]).expect("blob via dispatch");
         assert!(pkg.aid_matches(&aid));
         assert_eq!(pkg.method_count, 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // ConstantPool component
+    // -----------------------------------------------------------------------
+
+    /// Build a `ConstantPool` component body. Each entry is exactly
+    /// `tag(1) | info[3]`.
+    #[allow(clippy::cast_possible_truncation)]
+    fn cp_body(entries: &[(u8, [u8; 3])]) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.extend_from_slice(&(entries.len() as u16).to_be_bytes());
+        for (tag, info) in entries {
+            body.push(*tag);
+            body.extend_from_slice(info);
+        }
+        body
+    }
+
+    /// Build a CAP with Header + Method + an explicit `ConstantPool`
+    /// component, in spec-prescribed component order.
+    fn build_cap_with_cp(aid: &[u8], cp_entries: &[(u8, [u8; 3])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        emit(&mut out, tag::HEADER, &header_body(aid));
+        emit(&mut out, tag::CONSTANT_POOL, &cp_body(cp_entries));
+        emit(
+            &mut out,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        out
+    }
+
+    #[test]
+    fn empty_constant_pool_yields_zero_count() {
+        // Real Oracle CAPs commonly emit `count = 0` when the applet
+        // makes no cross-class references. Parser must accept and
+        // surface `cp_count == 0`.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(&aid, &[]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.cp_count, 0);
+        assert!(pkg.cp_entry(0).is_none());
+    }
+
+    #[test]
+    fn classref_internal_decodes_to_offset_with_high_bit_clear() {
+        // High bit of byte 0 clear -> internal class_ref is u16 BE
+        // offset into Class component. Pick a non-zero, non-symmetric
+        // value so a byte-swap or off-by-one would show up.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(&aid, &[(cp_tag::CLASSREF, [0x12, 0x34, 0x00])]);
+        let pkg = parse(&cap).expect("parse");
+        let entry = pkg.cp_entry(0).expect("entry 0");
+        assert_eq!(entry.tag, cp_tag::CLASSREF);
+        assert_eq!(
+            entry.as_classref(),
+            Some(super::super::ClassRef::Internal(0x1234))
+        );
+    }
+
+    #[test]
+    fn classref_external_splits_high_bit_into_package_and_class_tokens() {
+        // High bit set -> external; lower 7 bits of byte 0 = package_token,
+        // byte 1 = class_token. Pick distinct values so a swap is visible.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(&aid, &[(cp_tag::CLASSREF, [0x80 | 0x05, 0x42, 0x00])]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(
+            pkg.cp_entry(0).and_then(super::super::CpInfo::as_classref),
+            Some(super::super::ClassRef::External {
+                package_token: 0x05,
+                class_token: 0x42,
+            })
+        );
+    }
+
+    #[test]
+    fn instance_fieldref_carries_class_and_token() {
+        // info layout: class_ref(2) || token(1).
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(&aid, &[(cp_tag::INSTANCE_FIELDREF, [0x00, 0x10, 0x07])]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(
+            pkg.cp_entry(0)
+                .and_then(super::super::CpInfo::as_instance_fieldref),
+            Some((super::super::ClassRef::Internal(0x0010), 0x07))
+        );
+    }
+
+    #[test]
+    fn virtual_methodref_extracts_private_bit_from_token_high_bit() {
+        // High bit of token byte = isPrivate (JCVM 3.2 § 6.8.3).
+        // Test both states adversarially: 0x82 (private + token 0x02)
+        // and 0x02 (non-private + token 0x02). A naive `& 0xFF` would
+        // collapse them.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(
+            &aid,
+            &[
+                (cp_tag::VIRTUAL_METHODREF, [0x00, 0x20, 0x82]),
+                (cp_tag::VIRTUAL_METHODREF, [0x00, 0x20, 0x02]),
+            ],
+        );
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(
+            pkg.cp_entry(0)
+                .and_then(super::super::CpInfo::as_virtual_methodref),
+            Some((super::super::ClassRef::Internal(0x0020), 0x02, true))
+        );
+        assert_eq!(
+            pkg.cp_entry(1)
+                .and_then(super::super::CpInfo::as_virtual_methodref),
+            Some((super::super::ClassRef::Internal(0x0020), 0x02, false))
+        );
+    }
+
+    #[test]
+    fn super_methodref_decodes_to_class_and_token() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(
+            &aid,
+            &[(cp_tag::SUPER_METHODREF, [0x80 | 0x03, 0x09, 0x05])],
+        );
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(
+            pkg.cp_entry(0)
+                .and_then(super::super::CpInfo::as_super_methodref),
+            Some((
+                super::super::ClassRef::External {
+                    package_token: 0x03,
+                    class_token: 0x09,
+                },
+                0x05,
+            ))
+        );
+    }
+
+    #[test]
+    fn static_fieldref_internal_uses_two_byte_offset() {
+        // Internal static_field_ref: byte 0 reserved/zero, bytes 1..3 = u16 BE.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(&aid, &[(cp_tag::STATIC_FIELDREF, [0x00, 0xAB, 0xCD])]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(
+            pkg.cp_entry(0)
+                .and_then(super::super::CpInfo::as_static_fieldref),
+            Some(super::super::StaticRef::Internal(0xABCD))
+        );
+    }
+
+    #[test]
+    fn static_methodref_external_carries_full_token_triple() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(
+            &aid,
+            &[(cp_tag::STATIC_METHODREF, [0x80 | 0x07, 0x11, 0x33])],
+        );
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(
+            pkg.cp_entry(0)
+                .and_then(super::super::CpInfo::as_static_methodref),
+            Some(super::super::StaticRef::External {
+                package_token: 0x07,
+                class_token: 0x11,
+                token: 0x33,
+            })
+        );
+    }
+
+    #[test]
+    fn cp_decoder_rejects_wrong_tag() {
+        // Cross-tag decode must return None. A Classref entry asked
+        // to decode as an InstanceFieldref should refuse rather than
+        // silently mis-interpret the info bytes.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(&aid, &[(cp_tag::CLASSREF, [0x12, 0x34, 0x00])]);
+        let pkg = parse(&cap).expect("parse");
+        let entry = pkg.cp_entry(0).expect("entry 0");
+        assert!(entry.as_classref().is_some());
+        assert!(entry.as_instance_fieldref().is_none());
+        assert!(entry.as_virtual_methodref().is_none());
+        assert!(entry.as_super_methodref().is_none());
+        assert!(entry.as_static_fieldref().is_none());
+        assert!(entry.as_static_methodref().is_none());
+    }
+
+    #[test]
+    fn rejects_constant_pool_count_over_max() {
+        // A Constant Pool declaring `MAX_CP_ENTRIES + 1` entries is
+        // beyond what we can store; reject up-front so callers don't
+        // silently lose tail entries.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut entries = Vec::new();
+        for _ in 0..=MAX_CP_ENTRIES {
+            entries.push((cp_tag::CLASSREF, [0x00, 0x00, 0x00]));
+        }
+        let cap = build_cap_with_cp(&aid, &entries);
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::TooManyConstantPoolEntries)
+        ));
+    }
+
+    #[test]
+    fn accepts_constant_pool_at_exactly_max() {
+        // Boundary: exactly MAX_CP_ENTRIES must succeed.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut entries = Vec::new();
+        for i in 0..MAX_CP_ENTRIES {
+            #[allow(clippy::cast_possible_truncation)]
+            let lo = i as u8;
+            entries.push((cp_tag::CLASSREF, [0x00, lo, 0x00]));
+        }
+        let cap = build_cap_with_cp(&aid, &entries);
+        let pkg = parse(&cap).expect("parse at exactly MAX_CP_ENTRIES");
+        #[allow(clippy::cast_possible_truncation)]
+        let expected_count = MAX_CP_ENTRIES as u16;
+        assert_eq!(pkg.cp_count, expected_count);
+        // Spot-check the first and last entries decode independently.
+        assert_eq!(
+            pkg.cp_entry(0).and_then(super::super::CpInfo::as_classref),
+            Some(super::super::ClassRef::Internal(0x0000))
+        );
+        #[allow(clippy::cast_possible_truncation)]
+        let last_idx = (MAX_CP_ENTRIES - 1) as u16;
+        #[allow(clippy::cast_possible_truncation)]
+        let last_lo = (MAX_CP_ENTRIES - 1) as u8;
+        assert_eq!(
+            pkg.cp_entry(last_idx)
+                .and_then(super::super::CpInfo::as_classref),
+            Some(super::super::ClassRef::Internal(u16::from(last_lo)))
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_constant_pool_tag() {
+        // Tag 7 is unassigned in JCVM 3.2 § 6.8 Table 6-7. Silently
+        // accepting it would let downstream code mis-decode the info
+        // bytes against whatever helper happened to match by accident.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_cp(&aid, &[(7, [0x00, 0x00, 0x00])]);
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::UnknownConstantPoolTag)
+        ));
+    }
+
+    #[test]
+    fn rejects_truncated_constant_pool_body() {
+        // count says 2 entries but only 1 entry's worth of bytes
+        // follow. The parser must refuse rather than reading past
+        // the body.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = Vec::new();
+        body.extend_from_slice(&2u16.to_be_bytes());
+        body.push(cp_tag::CLASSREF);
+        body.extend_from_slice(&[0x00, 0x00, 0x00]);
+        // Missing the second entry's 4 bytes.
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&aid));
+        emit(&mut cap, tag::CONSTANT_POOL, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    #[test]
+    fn cp_count_zero_with_no_constant_pool_component() {
+        // A CAP with no ConstantPool component at all (the writer's
+        // current default for empty applets) must yield `cp_count == 0`,
+        // not a parse error.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap(&aid, &[(&[0x78u8][..], 0x80, 4, 0, 1)], None);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.cp_count, 0);
     }
 }

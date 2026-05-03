@@ -704,6 +704,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn component_tagged_roundtrip_constant_pool_count_zero() {
+        // The writer currently emits a Constant Pool component with
+        // `count = 0` (the applet uses no cross-class references).
+        // The runtime parser must accept that and surface
+        // `cp_count == 0`. If a future writer change starts emitting
+        // real CP entries, this test will need to be widened to
+        // assert the entries match what was written.
+        let compiled = sample_compiled();
+        let cap = CapWriter::new(&compiled).write();
+        let pkg = parse_cap(&cap).expect("parse component-tagged CAP");
+        assert_eq!(pkg.cp_count, 0);
+        assert!(
+            pkg.cp_entry(0).is_none(),
+            "no entries should be reachable when cp_count is 0"
+        );
+    }
+
     // -- Full CAP format tests --
 
     #[test]

@@ -59,6 +59,191 @@ pub const METHOD_FLAG_STATIC: u8 = 0x08;
 /// Maximum exception table entries per method.
 pub const MAX_EXCEPTIONS: usize = 8;
 
+/// Maximum Constant Pool entries the runtime tracks per package.
+///
+/// JCVM 3.2 § 6.8 allows up to `0xFFFF` entries; this cap covers the
+/// common embedded applet range. Real Oracle CAP files typically
+/// allocate a few dozen entries even for moderate-sized applets;
+/// raising this is a per-deployment knob.
+pub const MAX_CP_ENTRIES: usize = 64;
+
+/// Constant Pool entry tag per JCVM 3.2 § 6.8 Table 6-7.
+pub mod cp_tag {
+    /// Classref -- reference to a class.
+    pub const CLASSREF: u8 = 1;
+    /// `InstanceFieldref` -- reference to an instance field.
+    pub const INSTANCE_FIELDREF: u8 = 2;
+    /// `VirtualMethodref` -- reference to a virtual method.
+    pub const VIRTUAL_METHODREF: u8 = 3;
+    /// `SuperMethodref` -- reference to a method invoked via `invokespecial` super.
+    pub const SUPER_METHODREF: u8 = 4;
+    /// `StaticFieldref` -- reference to a static field.
+    pub const STATIC_FIELDREF: u8 = 5;
+    /// `StaticMethodref` -- reference to a static method.
+    pub const STATIC_METHODREF: u8 = 6;
+}
+
+/// A class reference -- either internal (offset within this CAP's
+/// Class component) or external (a token-pair into another package's
+/// Export table).
+///
+/// Per JCVM 3.2 § 6.8.1: byte 0 high bit selects the form. When set,
+/// the lower 7 bits of byte 0 carry the package token and byte 1 is
+/// the class token. When clear, bytes 0..2 are a big-endian u16 offset
+/// into this package's Class component.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClassRef {
+    /// Offset into this package's Class component.
+    Internal(u16),
+    /// External: token-pair into another package's Export table.
+    External {
+        /// Index into the Import component identifying the package.
+        package_token: u8,
+        /// Index into that package's Export table identifying the class.
+        class_token: u8,
+    },
+}
+
+/// A static field or static method reference -- either internal
+/// (offset within this CAP's `StaticField` / Method component) or
+/// external (a token-triple into another package).
+///
+/// Per JCVM 3.2 § 6.8.5 / § 6.8.6: byte 0 high bit selects the form.
+/// External form encodes `(package_token, class_token, token)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StaticRef {
+    /// Internal offset into this package's `StaticField` / Method component.
+    Internal(u16),
+    /// External: token-triple into another package.
+    External {
+        /// Index into the Import component identifying the package.
+        package_token: u8,
+        /// Index into that package's Export table identifying the class.
+        class_token: u8,
+        /// Index into the class's static-field or static-method table.
+        token: u8,
+    },
+}
+
+/// A Constant Pool entry as it appears on disk: a 1-byte tag followed
+/// by 3 bytes whose interpretation depends on the tag (JCVM 3.2 § 6.8).
+///
+/// The runtime stores entries in this raw form and decodes on demand
+/// via the [`Self::as_classref`] / [`Self::as_instance_fieldref`] /
+/// [`Self::as_virtual_methodref`] / [`Self::as_super_methodref`] /
+/// [`Self::as_static_fieldref`] / [`Self::as_static_methodref`] helpers.
+/// This keeps `Package` snapshot small (4 bytes per entry) and defers
+/// the spec's tag-dependent layout selection to call sites that need it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct CpInfo {
+    /// Entry tag per [`cp_tag`]. `0` indicates an unused / default-empty slot.
+    pub tag: u8,
+    /// 3-byte payload, interpretation depends on `tag`.
+    pub info: [u8; 3],
+}
+
+impl CpInfo {
+    /// Decode a 2-byte / token-pair `class_ref` per JCVM 3.2 § 6.8.1
+    /// from the first two bytes of `info`.
+    const fn decode_class_ref(info: [u8; 3]) -> ClassRef {
+        // High bit of byte 0 selects external form.
+        if info[0] & 0x80 != 0 {
+            ClassRef::External {
+                package_token: info[0] & 0x7F,
+                class_token: info[1],
+            }
+        } else {
+            ClassRef::Internal(u16::from_be_bytes([info[0], info[1]]))
+        }
+    }
+
+    /// Decode a 3-byte `static_field_ref` / `static_method_ref` per
+    /// JCVM 3.2 § 6.8.5 / § 6.8.6.
+    const fn decode_static_ref(info: [u8; 3]) -> StaticRef {
+        if info[0] & 0x80 != 0 {
+            StaticRef::External {
+                package_token: info[0] & 0x7F,
+                class_token: info[1],
+                token: info[2],
+            }
+        } else {
+            // Internal form: byte 0 is reserved/zero; bytes 1..3 are the offset.
+            StaticRef::Internal(u16::from_be_bytes([info[1], info[2]]))
+        }
+    }
+
+    /// Decode this entry as a Classref. Returns `None` if `tag` is not
+    /// [`cp_tag::CLASSREF`].
+    #[must_use]
+    pub const fn as_classref(&self) -> Option<ClassRef> {
+        if self.tag == cp_tag::CLASSREF {
+            Some(Self::decode_class_ref(self.info))
+        } else {
+            None
+        }
+    }
+
+    /// Decode this entry as an `InstanceFieldref`: `(class, field_token)`.
+    /// Returns `None` if `tag` is not [`cp_tag::INSTANCE_FIELDREF`].
+    #[must_use]
+    pub const fn as_instance_fieldref(&self) -> Option<(ClassRef, u8)> {
+        if self.tag == cp_tag::INSTANCE_FIELDREF {
+            Some((Self::decode_class_ref(self.info), self.info[2]))
+        } else {
+            None
+        }
+    }
+
+    /// Decode this entry as a `VirtualMethodref`: `(class, method_token, is_private)`.
+    /// The high bit of the token byte distinguishes package-private
+    /// `invokespecial` targets from regular virtual invocations per
+    /// JCVM 3.2 § 6.8.3.
+    /// Returns `None` if `tag` is not [`cp_tag::VIRTUAL_METHODREF`].
+    #[must_use]
+    pub const fn as_virtual_methodref(&self) -> Option<(ClassRef, u8, bool)> {
+        if self.tag == cp_tag::VIRTUAL_METHODREF {
+            let class = Self::decode_class_ref(self.info);
+            let token_byte = self.info[2];
+            Some((class, token_byte & 0x7F, token_byte & 0x80 != 0))
+        } else {
+            None
+        }
+    }
+
+    /// Decode this entry as a `SuperMethodref`: `(class, method_token)`.
+    /// Returns `None` if `tag` is not [`cp_tag::SUPER_METHODREF`].
+    #[must_use]
+    pub const fn as_super_methodref(&self) -> Option<(ClassRef, u8)> {
+        if self.tag == cp_tag::SUPER_METHODREF {
+            Some((Self::decode_class_ref(self.info), self.info[2]))
+        } else {
+            None
+        }
+    }
+
+    /// Decode this entry as a `StaticFieldref`. Returns `None` if `tag`
+    /// is not [`cp_tag::STATIC_FIELDREF`].
+    #[must_use]
+    pub const fn as_static_fieldref(&self) -> Option<StaticRef> {
+        if self.tag == cp_tag::STATIC_FIELDREF {
+            Some(Self::decode_static_ref(self.info))
+        } else {
+            None
+        }
+    }
+
+    /// Decode this entry as a `StaticMethodref`. Returns `None` if `tag`
+    /// is not [`cp_tag::STATIC_METHODREF`].
+    #[must_use]
+    pub const fn as_static_methodref(&self) -> Option<StaticRef> {
+        if self.tag == cp_tag::STATIC_METHODREF {
+            Some(Self::decode_static_ref(self.info))
+        } else {
+            None
+        }
+    }
+}
+
 /// An entry in a method's exception handler table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExceptionEntry {
@@ -128,6 +313,11 @@ pub struct Package {
     pub methods: [Option<MethodInfo>; MAX_METHODS],
     /// Number of methods loaded.
     pub method_count: u8,
+    /// Constant Pool entries (JCVM 3.2 § 6.8). Stored in raw 4-byte
+    /// form; decode via `CpInfo::as_*` helpers at resolve-time.
+    pub constant_pool: [CpInfo; MAX_CP_ENTRIES],
+    /// Number of valid Constant Pool entries (`<= MAX_CP_ENTRIES`).
+    pub cp_count: u16,
 }
 
 impl Package {
@@ -138,6 +328,11 @@ impl Package {
             aid_len: 0,
             methods: [None; MAX_METHODS],
             method_count: 0,
+            constant_pool: [CpInfo {
+                tag: 0,
+                info: [0u8; 3],
+            }; MAX_CP_ENTRIES],
+            cp_count: 0,
         }
     }
 
@@ -163,6 +358,18 @@ impl Package {
             None
         }
     }
+
+    /// Look up a Constant Pool entry by index. Returns `None` for
+    /// indices beyond [`Self::cp_count`] or [`MAX_CP_ENTRIES`].
+    #[must_use]
+    pub const fn cp_entry(&self, index: u16) -> Option<&CpInfo> {
+        let idx = index as usize;
+        if index < self.cp_count && idx < MAX_CP_ENTRIES {
+            Some(&self.constant_pool[idx])
+        } else {
+            None
+        }
+    }
 }
 
 /// Error returned when CAP parsing fails.
@@ -184,6 +391,10 @@ pub enum ParseError {
     OffsetMismatch,
     /// Too many exception table entries.
     TooManyExceptions,
+    /// Constant Pool count exceeds `MAX_CP_ENTRIES`.
+    TooManyConstantPoolEntries,
+    /// Constant Pool entry has an unknown / unsupported tag.
+    UnknownConstantPoolTag,
 }
 
 pub mod components;
@@ -377,6 +588,8 @@ pub fn parse_cap_blob(data: &[u8]) -> Result<Package, ParseError> {
         aid_len,
         methods,
         method_count,
+        constant_pool: [CpInfo::default(); MAX_CP_ENTRIES],
+        cp_count: 0,
     })
 }
 
@@ -436,11 +649,14 @@ impl Package {
     ///
     /// Layout per method: present(1) + flags(1) + `max_stack`(1) + nargs(1) +
     ///   `max_locals`(1) + `bytecode_len`(2) + bytecode(256) +
-    ///   `exc_count`(1) + exceptions(8\*8) + offsets(4)
+    ///   `exc_count`(1) + exceptions(8\*8) + offsets(4).
+    /// Constant pool: `cp_count`(2) + entries(`MAX_CP_ENTRIES` * 4).
     pub const MAX_SNAPSHOT_SIZE: usize = 1
         + MAX_AID_LEN
         + 1
-        + MAX_METHODS * (1 + 1 + 1 + 1 + 1 + 2 + MAX_BYTECODE + 1 + MAX_EXCEPTIONS * 8 + 4);
+        + MAX_METHODS * (1 + 1 + 1 + 1 + 1 + 2 + MAX_BYTECODE + 1 + MAX_EXCEPTIONS * 8 + 4)
+        + 2
+        + MAX_CP_ENTRIES * 4;
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
@@ -511,10 +727,23 @@ impl Package {
             }
         }
 
+        // Constant pool: cp_count (u16 LE) + cp_count entries of 4 bytes each.
+        if off + 2 + (self.cp_count as usize) * 4 > buf.len() {
+            return 0;
+        }
+        buf[off..off + 2].copy_from_slice(&self.cp_count.to_le_bytes());
+        off += 2;
+        for entry in &self.constant_pool[..self.cp_count as usize] {
+            buf[off] = entry.tag;
+            buf[off + 1..off + 4].copy_from_slice(&entry.info);
+            off += 4;
+        }
+
         off
     }
 
     /// Restore package state from buffer. Returns success.
+    #[allow(clippy::too_many_lines)]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         let mut off = 0;
         let min_size = 1 + MAX_AID_LEN + 1;
@@ -607,6 +836,28 @@ impl Package {
                     class_offset,
                 });
             }
+        }
+
+        // Constant pool: trailing block. Older snapshots without CP
+        // simply lack these bytes, in which case we leave `cp_count`
+        // and `constant_pool` at their default-empty initial state.
+        self.cp_count = 0;
+        self.constant_pool = [CpInfo::default(); MAX_CP_ENTRIES];
+        if off + 2 <= buf.len() {
+            let cp_count = u16::from_le_bytes([buf[off], buf[off + 1]]);
+            off += 2;
+            if cp_count as usize > MAX_CP_ENTRIES {
+                return false;
+            }
+            if off + (cp_count as usize) * 4 > buf.len() {
+                return false;
+            }
+            for entry in self.constant_pool.iter_mut().take(cp_count as usize) {
+                entry.tag = buf[off];
+                entry.info.copy_from_slice(&buf[off + 1..off + 4]);
+                off += 4;
+            }
+            self.cp_count = cp_count;
         }
 
         true
@@ -737,5 +988,73 @@ mod tests {
         let m = pkg2.method(0).unwrap();
         assert_eq!(m.bytecode_len, 2);
         assert_eq!(&m.bytecode[..2], &[0x04, 0x78]);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn package_snapshot_roundtrip_with_constant_pool() {
+        // Snapshot a Package whose CP has every entry-type variant
+        // and verify each entry round-trips byte-for-byte. Picks
+        // adversarial info bytes (all distinct, high-bit set in some
+        // positions) so a wrong-byte or wrong-offset bug would surface.
+        let aid = [0xA0, 0x00, 0x00, 0x00, 0x62];
+        let mut pkg = Package::empty();
+        pkg.aid_len = aid.len() as u8;
+        pkg.aid[..aid.len()].copy_from_slice(&aid);
+        pkg.method_count = 0;
+
+        let entries = [
+            (cp_tag::CLASSREF, [0x12, 0x34, 0x00]),
+            (cp_tag::CLASSREF, [0x80 | 0x05, 0x42, 0x00]),
+            (cp_tag::INSTANCE_FIELDREF, [0x00, 0x10, 0x07]),
+            (cp_tag::VIRTUAL_METHODREF, [0x00, 0x20, 0x82]),
+            (cp_tag::SUPER_METHODREF, [0x80 | 0x03, 0x09, 0x05]),
+            (cp_tag::STATIC_FIELDREF, [0x00, 0xAB, 0xCD]),
+            (cp_tag::STATIC_METHODREF, [0x80 | 0x07, 0x11, 0x33]),
+        ];
+        for (i, (tag, info)) in entries.iter().enumerate() {
+            pkg.constant_pool[i] = CpInfo {
+                tag: *tag,
+                info: *info,
+            };
+        }
+        pkg.cp_count = entries.len() as u16;
+
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        assert!(n > 0);
+
+        let mut pkg2 = Package::empty();
+        assert!(pkg2.restore_state(&snap[..n]));
+        assert_eq!(pkg2.cp_count, entries.len() as u16);
+        for (i, (tag, info)) in entries.iter().enumerate() {
+            let entry = pkg2.cp_entry(i as u16).expect("entry present");
+            assert_eq!(entry.tag, *tag, "tag at index {i}");
+            assert_eq!(entry.info, *info, "info at index {i}");
+        }
+    }
+
+    #[test]
+    fn old_snapshot_without_constant_pool_block_restores_to_empty_cp() {
+        // Forward compatibility: a snapshot saved before the CP block
+        // existed simply ends after the methods. `restore_state` must
+        // accept that and surface `cp_count = 0` rather than failing.
+        // Construct one such snapshot by save-then-truncate.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        assert!(n >= 2);
+        // Drop the trailing 2-byte cp_count + entries. The pre-CP
+        // snapshot ends right after the per-method block.
+        let truncated = &snap[..n - 2];
+
+        let mut pkg2 = Package::empty();
+        // Pre-populate to make the assertion meaningful: if restore
+        // forgot to reset cp_count, this `7` would survive.
+        pkg2.cp_count = 7;
+        assert!(pkg2.restore_state(truncated));
+        assert_eq!(pkg2.cp_count, 0);
     }
 }
