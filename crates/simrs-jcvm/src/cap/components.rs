@@ -40,8 +40,8 @@
 //! of `0xDECAFFED`) selects the simplified blob.
 
 use super::{
-    CAP_MAGIC, CpInfo, MAX_AID_LEN, MAX_BYTECODE, MAX_CP_ENTRIES, MAX_METHODS, MethodInfo, Package,
-    ParseError, cp_tag,
+    AppletInfo, CAP_MAGIC, CpInfo, MAX_AID_LEN, MAX_APPLETS_PER_PACKAGE, MAX_BYTECODE,
+    MAX_CP_ENTRIES, MAX_METHODS, MethodInfo, Package, ParseError, cp_tag,
 };
 
 /// Component tag constants per JCVM 3.2 Section 6.2.
@@ -377,6 +377,64 @@ fn parse_descriptor_method_offsets(
     Ok((offsets, total))
 }
 
+/// Parse the Applet component body (JCVM 3.2 § 6.5).
+///
+/// Layout:
+/// ```text
+/// count: u8
+/// applets[count]:
+///   aid_length:               u8
+///   aid:                      u8[aid_length]
+///   install_method_offset:    u16 BE
+/// ```
+///
+/// Returns the populated applet array plus the count. Rejects:
+/// - `count > MAX_APPLETS_PER_PACKAGE` -> `TooManyApplets`
+/// - `aid_length` outside ISO 7816-4's `[5, 16]` range -> `AidTooLong`
+///   (length 0..=4 are technically spec-rejectable but writers in
+///   the wild emit them; we accept lengths up to `MAX_AID_LEN` and
+///   trust the caller. Lengths above 16 are always rejected.)
+fn parse_applet_component(
+    body: &[u8],
+) -> Result<([Option<AppletInfo>; MAX_APPLETS_PER_PACKAGE], u8), ParseError> {
+    if body.is_empty() {
+        return Err(ParseError::TooShort);
+    }
+    let count = body[0] as usize;
+    if count > MAX_APPLETS_PER_PACKAGE {
+        return Err(ParseError::TooManyApplets);
+    }
+    let mut pos = 1usize;
+    let mut applets: [Option<AppletInfo>; MAX_APPLETS_PER_PACKAGE] =
+        [None; MAX_APPLETS_PER_PACKAGE];
+    for slot in applets.iter_mut().take(count) {
+        if pos + 1 > body.len() {
+            return Err(ParseError::TooShort);
+        }
+        let aid_len = body[pos];
+        pos += 1;
+        if aid_len as usize > MAX_AID_LEN {
+            return Err(ParseError::AidTooLong);
+        }
+        if pos + aid_len as usize + 2 > body.len() {
+            return Err(ParseError::TooShort);
+        }
+        let mut aid = [0u8; MAX_AID_LEN];
+        aid[..aid_len as usize].copy_from_slice(&body[pos..pos + aid_len as usize]);
+        pos += aid_len as usize;
+        let install_method_offset = u16::from_be_bytes([body[pos], body[pos + 1]]);
+        pos += 2;
+        *slot = Some(AppletInfo {
+            aid,
+            aid_len,
+            install_method_offset,
+        });
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let count_u8 = count as u8;
+    Ok((applets, count_u8))
+}
+
 /// Parse the `ConstantPool` component body and extract entries.
 ///
 /// Layout per JCVM 3.2 § 6.8:
@@ -441,6 +499,9 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     let mut descriptor_body: Option<&[u8]> = None;
     let mut constant_pool = [CpInfo::default(); MAX_CP_ENTRIES];
     let mut cp_count: u16 = 0;
+    let mut applets: [Option<AppletInfo>; MAX_APPLETS_PER_PACKAGE] =
+        [None; MAX_APPLETS_PER_PACKAGE];
+    let mut applet_count: u8 = 0;
 
     while pos < data.len() {
         if data.len() < pos + 3 {
@@ -472,8 +533,13 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
                 constant_pool = cp;
                 cp_count = n;
             }
-            // Recognised-but-skipped components (Directory, Applet,
-            // Import, Class, StaticField, RefLocation, Export, Debug,
+            tag::APPLET => {
+                let (a, n) = parse_applet_component(body)?;
+                applets = a;
+                applet_count = n;
+            }
+            // Recognised-but-skipped components (Directory, Import,
+            // Class, StaticField, RefLocation, Export, Debug,
             // StaticResources) and unknown components (vendor-custom)
             // all fall through. Class hierarchy and StaticField images
             // are Phase 2 follow-ups.
@@ -501,6 +567,8 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
         method_count,
         constant_pool,
         cp_count,
+        applets,
+        applet_count,
     })
 }
 
@@ -1260,5 +1328,203 @@ mod tests {
             &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
         );
         assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Applet component
+    // -----------------------------------------------------------------------
+
+    /// Build an Applet component body. Each entry is
+    /// `aid_length(1) | aid(aid_length) | install_method_offset(2 BE)`.
+    #[allow(clippy::cast_possible_truncation)]
+    fn applet_body(entries: &[(&[u8], u16)]) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.push(entries.len() as u8);
+        for (aid, offset) in entries {
+            body.push(aid.len() as u8);
+            body.extend_from_slice(aid);
+            body.extend_from_slice(&offset.to_be_bytes());
+        }
+        body
+    }
+
+    /// Build a CAP with Header + Applet + Method.
+    fn build_cap_with_applets(package_aid: &[u8], applet_entries: &[(&[u8], u16)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        emit(&mut out, tag::HEADER, &header_body(package_aid));
+        emit(&mut out, tag::APPLET, &applet_body(applet_entries));
+        emit(
+            &mut out,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        out
+    }
+
+    #[test]
+    fn no_applet_component_yields_zero_applet_count() {
+        // A CAP without an Applet component (e.g. a library package)
+        // surfaces `applet_count == 0`, not a parse error.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap(&aid, &[(&[0x78u8][..], 0x80, 4, 0, 1)], None);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.applet_count, 0);
+        assert!(pkg.applet(0).is_none());
+    }
+
+    #[test]
+    fn empty_applet_component_yields_zero_applet_count() {
+        // A library CAP that explicitly emits an Applet component
+        // with `count = 0` must also yield zero applets.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_applets(&aid, &[]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.applet_count, 0);
+    }
+
+    #[test]
+    fn single_applet_records_aid_and_install_offset() {
+        let pkg_aid = [0xA0u8, 0x00, 0x00, 0x00, 0x62];
+        let app_aid = [0xA0u8, 0x01, 0x02, 0x03, 0x04];
+        let cap = build_cap_with_applets(&pkg_aid, &[(&app_aid, 0x0123)]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.applet_count, 1);
+        let info = pkg.applet(0).expect("applet 0");
+        assert_eq!(info.aid_slice(), &app_aid);
+        assert_eq!(
+            info.install_method_offset, 0x0123,
+            "install_method_offset must round-trip the 2-byte BE field"
+        );
+    }
+
+    #[test]
+    fn multiple_applets_preserve_distinct_aids_and_offsets() {
+        // Distinct AIDs of distinct lengths + non-zero offsets verify
+        // the parser advances `pos` correctly between entries.
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let a1 = [0xA0u8, 0x11, 0x22];
+        let a1 = a1.as_ref();
+        let a2 = [0xA0u8, 0x33, 0x44, 0x55, 0x66, 0x77];
+        let cap = build_cap_with_applets(&pkg_aid, &[(a1, 0x0001), (a2.as_ref(), 0x00FE)]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.applet_count, 2);
+        assert_eq!(pkg.applet(0).unwrap().aid_slice(), a1);
+        assert_eq!(pkg.applet(0).unwrap().install_method_offset, 0x0001);
+        assert_eq!(pkg.applet(1).unwrap().aid_slice(), a2.as_ref());
+        assert_eq!(pkg.applet(1).unwrap().install_method_offset, 0x00FE);
+    }
+
+    #[test]
+    fn applet_aid_at_min_iso7816_length_5_accepted() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let app_aid = [0xA0u8, 0x00, 0x00, 0x00, 0x05];
+        let cap = build_cap_with_applets(&pkg_aid, &[(&app_aid, 0)]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.applet(0).unwrap().aid_slice(), &app_aid);
+    }
+
+    #[test]
+    fn applet_aid_at_max_iso7816_length_16_accepted() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let app_aid = [0xAAu8; MAX_AID_LEN];
+        let cap = build_cap_with_applets(&pkg_aid, &[(&app_aid, 0)]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.applet(0).unwrap().aid_len, 16);
+        assert_eq!(pkg.applet(0).unwrap().aid_slice(), &app_aid);
+    }
+
+    #[test]
+    fn applet_aid_length_over_16_rejected() {
+        // Hand-build an Applet body with aid_length = 17.
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = Vec::new();
+        body.push(1); // count
+        body.push(17); // bogus aid_length
+        body.extend_from_slice(&[0xAA; 17]);
+        body.extend_from_slice(&0u16.to_be_bytes());
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&pkg_aid));
+        emit(&mut cap, tag::APPLET, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::AidTooLong)));
+    }
+
+    #[test]
+    fn rejects_applet_count_over_max() {
+        // Declaring more applets than `MAX_APPLETS_PER_PACKAGE` is
+        // out of band -- silent truncation would lose entries.
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut entries: Vec<(&[u8], u16)> = Vec::new();
+        let dummy: &[u8] = &[0xA0, 0x00, 0x00, 0x00, 0x01];
+        for _ in 0..=MAX_APPLETS_PER_PACKAGE {
+            entries.push((dummy, 0));
+        }
+        let cap = build_cap_with_applets(&pkg_aid, &entries);
+        assert!(matches!(parse(&cap), Err(ParseError::TooManyApplets)));
+    }
+
+    #[test]
+    fn accepts_applets_at_exactly_max() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut entries: Vec<(&[u8], u16)> = Vec::new();
+        let dummy: &[u8] = &[0xA0, 0x00, 0x00, 0x00, 0x01];
+        for _ in 0..MAX_APPLETS_PER_PACKAGE {
+            entries.push((dummy, 0));
+        }
+        let cap = build_cap_with_applets(&pkg_aid, &entries);
+        let pkg = parse(&cap).expect("parse at MAX_APPLETS_PER_PACKAGE");
+        #[allow(clippy::cast_possible_truncation)]
+        let expected = MAX_APPLETS_PER_PACKAGE as u8;
+        assert_eq!(pkg.applet_count, expected);
+    }
+
+    #[test]
+    fn rejects_truncated_applet_body_mid_entry() {
+        // count says 1 but the entry is short by 2 bytes (missing offset).
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = Vec::new();
+        body.push(1);
+        body.push(5); // aid_length
+        body.extend_from_slice(&[0xA0u8, 0x00, 0x00, 0x00, 0x01]);
+        // Missing 2-byte install_method_offset.
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&pkg_aid));
+        emit(&mut cap, tag::APPLET, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    #[test]
+    fn applet_by_aid_lookup_finds_match() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let a1: &[u8] = &[0xA0, 0x11, 0x22];
+        let a2: &[u8] = &[0xA0, 0x33, 0x44, 0x55];
+        let cap = build_cap_with_applets(&pkg_aid, &[(a1, 0x0001), (a2, 0x0002)]);
+        let pkg = parse(&cap).expect("parse");
+        let info = pkg.applet_by_aid(a2).expect("applet_by_aid match");
+        assert_eq!(info.install_method_offset, 0x0002);
+        assert!(pkg.applet_by_aid(&[0xFF, 0xFF]).is_none());
+    }
+
+    #[test]
+    fn applet_index_past_count_returns_none() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let app_aid = [0xA0u8, 0, 0, 0, 0x01];
+        let cap = build_cap_with_applets(&pkg_aid, &[(&app_aid, 0)]);
+        let pkg = parse(&cap).expect("parse");
+        assert!(pkg.applet(0).is_some());
+        assert!(pkg.applet(1).is_none());
+        #[allow(clippy::cast_possible_truncation)]
+        let max_idx = MAX_APPLETS_PER_PACKAGE as u8;
+        assert!(pkg.applet(max_idx).is_none());
+        assert!(pkg.applet(u8::MAX).is_none());
     }
 }

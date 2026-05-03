@@ -67,6 +67,55 @@ pub const MAX_EXCEPTIONS: usize = 8;
 /// raising this is a per-deployment knob.
 pub const MAX_CP_ENTRIES: usize = 64;
 
+/// Maximum applets advertised by a single CAP package.
+///
+/// JCVM 3.2 § 6.5 puts no spec-level cap; this matches the highest SD
+/// count any JCOP profile in `docs/standards/06-globalplatform.md`
+/// declares (`JCOP21id` and `JCOP31bio`: 4 SDs).
+pub const MAX_APPLETS_PER_PACKAGE: usize = 4;
+
+/// One applet's entry in the Applet component (JCVM 3.2 § 6.5).
+///
+/// Each applet carries its own AID (which the Card Manager uses for
+/// SELECT-by-AID) and the offset of its `install` method inside the
+/// Method component. INSTALL [for install] dispatches to that offset
+/// when the applet's first instance is being created.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AppletInfo {
+    /// Applet AID.
+    pub aid: [u8; MAX_AID_LEN],
+    /// Number of valid bytes in `aid` (5..=16 per ISO 7816-4).
+    pub aid_len: u8,
+    /// Offset of the applet's `install` method inside the Method
+    /// component body (JCVM 3.2 § 6.5).
+    pub install_method_offset: u16,
+}
+
+impl AppletInfo {
+    /// Create an empty applet info (zero AID, zero offset).
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            aid: [0u8; MAX_AID_LEN],
+            aid_len: 0,
+            install_method_offset: 0,
+        }
+    }
+
+    /// Returns this applet's AID as a slice.
+    #[must_use]
+    pub fn aid_slice(&self) -> &[u8] {
+        &self.aid[..self.aid_len as usize]
+    }
+
+    /// Returns whether this applet's AID matches the given AID slice.
+    #[must_use]
+    pub fn aid_matches(&self, aid: &[u8]) -> bool {
+        let len = self.aid_len as usize;
+        aid.len() == len && self.aid[..len] == *aid
+    }
+}
+
 /// Constant Pool entry tag per JCVM 3.2 § 6.8 Table 6-7.
 pub mod cp_tag {
     /// Classref -- reference to a class.
@@ -318,6 +367,11 @@ pub struct Package {
     pub constant_pool: [CpInfo; MAX_CP_ENTRIES],
     /// Number of valid Constant Pool entries (`<= MAX_CP_ENTRIES`).
     pub cp_count: u16,
+    /// Applet entries (JCVM 3.2 § 6.5). Surfaces each applet's AID
+    /// and `install` method offset for Card-Manager dispatch.
+    pub applets: [Option<AppletInfo>; MAX_APPLETS_PER_PACKAGE],
+    /// Number of valid applet entries (`<= MAX_APPLETS_PER_PACKAGE`).
+    pub applet_count: u8,
 }
 
 impl Package {
@@ -333,6 +387,8 @@ impl Package {
                 info: [0u8; 3],
             }; MAX_CP_ENTRIES],
             cp_count: 0,
+            applets: [None; MAX_APPLETS_PER_PACKAGE],
+            applet_count: 0,
         }
     }
 
@@ -370,6 +426,28 @@ impl Package {
             None
         }
     }
+
+    /// Look up an applet by index. Returns `None` for indices beyond
+    /// [`Self::applet_count`] or [`MAX_APPLETS_PER_PACKAGE`].
+    #[must_use]
+    pub const fn applet(&self, index: u8) -> Option<&AppletInfo> {
+        let idx = index as usize;
+        if (index as u16) < (self.applet_count as u16) && idx < MAX_APPLETS_PER_PACKAGE {
+            self.applets[idx].as_ref()
+        } else {
+            None
+        }
+    }
+
+    /// Look up an applet by AID. Returns the first match, or `None`.
+    /// Used by the Card Manager's SELECT-by-AID dispatch.
+    #[must_use]
+    pub fn applet_by_aid(&self, aid: &[u8]) -> Option<&AppletInfo> {
+        self.applets
+            .iter()
+            .flatten()
+            .find(|info| info.aid_matches(aid))
+    }
 }
 
 /// Error returned when CAP parsing fails.
@@ -395,6 +473,8 @@ pub enum ParseError {
     TooManyConstantPoolEntries,
     /// Constant Pool entry has an unknown / unsupported tag.
     UnknownConstantPoolTag,
+    /// Applet component declares more applets than `MAX_APPLETS_PER_PACKAGE`.
+    TooManyApplets,
 }
 
 pub mod components;
@@ -590,6 +670,8 @@ pub fn parse_cap_blob(data: &[u8]) -> Result<Package, ParseError> {
         method_count,
         constant_pool: [CpInfo::default(); MAX_CP_ENTRIES],
         cp_count: 0,
+        applets: [None; MAX_APPLETS_PER_PACKAGE],
+        applet_count: 0,
     })
 }
 
@@ -651,12 +733,16 @@ impl Package {
     ///   `max_locals`(1) + `bytecode_len`(2) + bytecode(256) +
     ///   `exc_count`(1) + exceptions(8\*8) + offsets(4).
     /// Constant pool: `cp_count`(2) + entries(`MAX_CP_ENTRIES` * 4).
+    /// Applets: `applet_count`(1) + per-applet (present(1) + `aid_len`(1) +
+    ///   aid(`MAX_AID_LEN`) + `install_method_offset`(2)).
     pub const MAX_SNAPSHOT_SIZE: usize = 1
         + MAX_AID_LEN
         + 1
         + MAX_METHODS * (1 + 1 + 1 + 1 + 1 + 2 + MAX_BYTECODE + 1 + MAX_EXCEPTIONS * 8 + 4)
         + 2
-        + MAX_CP_ENTRIES * 4;
+        + MAX_CP_ENTRIES * 4
+        + 1
+        + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2);
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
@@ -737,6 +823,32 @@ impl Package {
             buf[off] = entry.tag;
             buf[off + 1..off + 4].copy_from_slice(&entry.info);
             off += 4;
+        }
+
+        // Applets: applet_count(1) + per-applet (present, aid_len, aid, offset).
+        let applet_block = 1 + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2);
+        if off + applet_block > buf.len() {
+            return 0;
+        }
+        buf[off] = self.applet_count;
+        off += 1;
+        for slot in &self.applets {
+            match slot {
+                None => {
+                    buf[off] = 0; // not present
+                    off += 1 + 1 + MAX_AID_LEN + 2;
+                }
+                Some(a) => {
+                    buf[off] = 1; // present
+                    off += 1;
+                    buf[off] = a.aid_len;
+                    off += 1;
+                    buf[off..off + MAX_AID_LEN].copy_from_slice(&a.aid);
+                    off += MAX_AID_LEN;
+                    buf[off..off + 2].copy_from_slice(&a.install_method_offset.to_le_bytes());
+                    off += 2;
+                }
+            }
         }
 
         off
@@ -858,6 +970,50 @@ impl Package {
                 off += 4;
             }
             self.cp_count = cp_count;
+        }
+
+        // Applets: trailing block. Older snapshots without the
+        // applet section restore to `applet_count = 0`, mirroring the
+        // CP forward-compat path.
+        self.applet_count = 0;
+        self.applets = [None; MAX_APPLETS_PER_PACKAGE];
+        if off < buf.len() {
+            self.applet_count = buf[off];
+            off += 1;
+            if self.applet_count as usize > MAX_APPLETS_PER_PACKAGE {
+                return false;
+            }
+            for slot in &mut self.applets {
+                if off >= buf.len() {
+                    return false;
+                }
+                let present = buf[off];
+                off += 1;
+                if present == 0 {
+                    *slot = None;
+                    // Skip the unused payload (aid_len + aid + offset).
+                    off += 1 + MAX_AID_LEN + 2;
+                    continue;
+                }
+                if off + 1 + MAX_AID_LEN + 2 > buf.len() {
+                    return false;
+                }
+                let aid_len = buf[off];
+                off += 1;
+                if aid_len as usize > MAX_AID_LEN {
+                    return false;
+                }
+                let mut aid = [0u8; MAX_AID_LEN];
+                aid.copy_from_slice(&buf[off..off + MAX_AID_LEN]);
+                off += MAX_AID_LEN;
+                let install_method_offset = u16::from_le_bytes([buf[off], buf[off + 1]]);
+                off += 2;
+                *slot = Some(AppletInfo {
+                    aid,
+                    aid_len,
+                    install_method_offset,
+                });
+            }
         }
 
         true
@@ -1058,6 +1214,26 @@ mod tests {
         assert_eq!(pkg2.cp_count, 0);
     }
 
+    /// Snapshot byte size of an empty applet block:
+    /// `applet_count(1) + MAX_APPLETS_PER_PACKAGE * absent_slot`.
+    /// Absent slot = present(1) + skipped payload (`aid_len`(1) +
+    /// aid(`MAX_AID_LEN`) + offset(2)).
+    const APPLET_BLOCK_SIZE_EMPTY: usize = 1 + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2);
+
+    /// Locate the `cp_count` u16 in a snapshot whose CP and applet
+    /// blocks are both empty. `cp_count` sits immediately before the
+    /// applet block, which sits at the tail.
+    const fn cp_count_offset_when_empty(n: usize) -> usize {
+        n - APPLET_BLOCK_SIZE_EMPTY - 2
+    }
+
+    /// Locate the `applet_count` byte in a snapshot whose applet
+    /// block is empty. `applet_count` is the first byte of the applet
+    /// block, which lives at the tail.
+    const fn applet_count_offset_when_empty(n: usize) -> usize {
+        n - APPLET_BLOCK_SIZE_EMPTY
+    }
+
     #[test]
     fn restore_rejects_snapshot_with_cp_count_over_max() {
         // A malformed/attacker-controlled snapshot that claims more
@@ -1068,8 +1244,9 @@ mod tests {
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        // Overwrite the stored cp_count with MAX+1 (LE u16).
-        let cp_count_off = n - 2; // last 2 bytes are cp_count when cp is empty
+        // Overwrite cp_count at its computed offset (between the
+        // method block and the applet block).
+        let cp_count_off = cp_count_offset_when_empty(n);
         #[allow(clippy::cast_possible_truncation)]
         let bad = (MAX_CP_ENTRIES as u16) + 1;
         snap[cp_count_off..cp_count_off + 2].copy_from_slice(&bad.to_le_bytes());
@@ -1088,22 +1265,111 @@ mod tests {
         let mut pkg = Package::empty();
         pkg.aid_len = 1;
         pkg.aid[0] = 0xAA;
-        // Claim 3 entries but truncate the buffer to fit only 1.
+        // Claim 3 entries but truncate so that only 1 entry fits
+        // after the cp_count header. cp_count is at `cp_count_offset()`;
+        // entries start at `cp_count_offset() + 2`. Allow exactly
+        // 1 entry (4 bytes) of CP payload, then truncate.
         pkg.cp_count = 3;
         pkg.constant_pool[0] = CpInfo {
             tag: cp_tag::CLASSREF,
             info: [0x00, 0x01, 0x00],
         };
+        pkg.constant_pool[1] = CpInfo {
+            tag: cp_tag::CLASSREF,
+            info: [0x00, 0x02, 0x00],
+        };
+        pkg.constant_pool[2] = CpInfo {
+            tag: cp_tag::CLASSREF,
+            info: [0x00, 0x03, 0x00],
+        };
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        // Drop the last 2 entries (8 bytes) but keep cp_count = 3.
-        let truncated_len = n - 8;
+        // cp_count sits right after the method block. With cp_count = 3,
+        // the snapshot wrote 3 * 4 = 12 entry bytes after cp_count,
+        // then the empty applet block.
+        let cp_count_off = n - APPLET_BLOCK_SIZE_EMPTY - 12 - 2;
+        // Truncate to: cp_count_off + cp_count(2) + 1 entry(4) -- 2
+        // entries short. The parser must refuse to read past the
+        // buffer when cp_count promises 3 entries but only 1 fits.
+        let truncated_len = cp_count_off + 2 + 4;
 
         let mut pkg2 = Package::empty();
         assert!(
             !pkg2.restore_state(&snap[..truncated_len]),
             "restore must reject truncated CP entries"
         );
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn package_snapshot_roundtrip_with_applets() {
+        // Snapshot a Package whose applets section has both a present
+        // and an absent slot (count < MAX_APPLETS_PER_PACKAGE) so the
+        // restore path exercises both branches.
+        let pkg_aid = [0xA0, 0x00, 0x00, 0x00, 0x62];
+        let mut pkg = Package::empty();
+        pkg.aid_len = pkg_aid.len() as u8;
+        pkg.aid[..pkg_aid.len()].copy_from_slice(&pkg_aid);
+        let mut a1 = AppletInfo::empty();
+        a1.aid[..3].copy_from_slice(&[0xA0, 0x11, 0x22]);
+        a1.aid_len = 3;
+        a1.install_method_offset = 0x0123;
+        let mut a2 = AppletInfo::empty();
+        a2.aid[..16].copy_from_slice(&[0xCC; 16]);
+        a2.aid_len = 16;
+        a2.install_method_offset = 0xBEEF;
+        pkg.applets[0] = Some(a1);
+        pkg.applets[1] = Some(a2);
+        pkg.applet_count = 2;
+
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        assert!(n > 0);
+
+        let mut pkg2 = Package::empty();
+        assert!(pkg2.restore_state(&snap[..n]));
+        assert_eq!(pkg2.applet_count, 2);
+        assert_eq!(pkg2.applets[0], Some(a1));
+        assert_eq!(pkg2.applets[1], Some(a2));
+        assert_eq!(pkg2.applets[2], None);
+    }
+
+    #[test]
+    fn restore_rejects_snapshot_with_applet_count_over_max() {
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        let off = applet_count_offset_when_empty(n);
+        #[allow(clippy::cast_possible_truncation)]
+        let bad = (MAX_APPLETS_PER_PACKAGE as u8) + 1;
+        snap[off] = bad;
+
+        let mut pkg2 = Package::empty();
+        assert!(
+            !pkg2.restore_state(&snap[..n]),
+            "restore must reject applet_count > MAX_APPLETS_PER_PACKAGE"
+        );
+    }
+
+    #[test]
+    fn old_snapshot_without_applet_block_restores_to_empty_applets() {
+        // Forward compat: snapshots saved before the applet block
+        // existed end after the CP block. Restore must accept the
+        // truncated form and surface `applet_count = 0`.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        let truncated = &snap[..n - APPLET_BLOCK_SIZE_EMPTY];
+
+        let mut pkg2 = Package::empty();
+        // Pre-populate to make the assertion meaningful.
+        pkg2.applet_count = 7;
+        assert!(pkg2.restore_state(truncated));
+        assert_eq!(pkg2.applet_count, 0);
     }
 
     #[test]

@@ -863,6 +863,32 @@ mod tests {
     }
 
     #[test]
+    fn writer_applet_component_round_trips_through_runtime_parser() {
+        // The writer emits a 1-applet body with the install method
+        // pointing at method 0. The runtime parser must surface that
+        // applet on `pkg.applets[0]` with the matching AID and offset.
+        let compiled = sample_compiled();
+        let cap = CapWriter::new(&compiled).write();
+        let pkg = parse_cap(&cap).expect("parse");
+        assert_eq!(
+            pkg.applet_count, 1,
+            "writer emits exactly one applet by default"
+        );
+        let info = pkg.applet(0).expect("applet 0 present");
+        assert_eq!(
+            info.aid_slice(),
+            compiled.aid.as_slice(),
+            "applet AID defaults to package AID"
+        );
+        // The writer's install_method_offset for method 0 is the
+        // header_count(1) prefix of the Method component body, i.e. 1.
+        assert_eq!(
+            info.install_method_offset, 1,
+            "method 0's offset is right after the 1-byte handler_count"
+        );
+    }
+
+    #[test]
     fn full_cap_header_contains_aid() {
         let compiled = CompiledClass {
             aid: vec![0xB0, 0x01, 0x02, 0x03, 0x04, 0x05],
