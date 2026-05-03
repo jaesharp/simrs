@@ -1057,4 +1057,87 @@ mod tests {
         assert!(pkg2.restore_state(truncated));
         assert_eq!(pkg2.cp_count, 0);
     }
+
+    #[test]
+    fn restore_rejects_snapshot_with_cp_count_over_max() {
+        // A malformed/attacker-controlled snapshot that claims more
+        // CP entries than we can hold must be rejected. Silently
+        // truncating would let a forged snapshot drop entries.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        // Overwrite the stored cp_count with MAX+1 (LE u16).
+        let cp_count_off = n - 2; // last 2 bytes are cp_count when cp is empty
+        #[allow(clippy::cast_possible_truncation)]
+        let bad = (MAX_CP_ENTRIES as u16) + 1;
+        snap[cp_count_off..cp_count_off + 2].copy_from_slice(&bad.to_le_bytes());
+
+        let mut pkg2 = Package::empty();
+        assert!(
+            !pkg2.restore_state(&snap[..n]),
+            "restore must reject cp_count > MAX_CP_ENTRIES"
+        );
+    }
+
+    #[test]
+    fn restore_rejects_snapshot_with_truncated_cp_entries() {
+        // Snapshot's cp_count claims more entries than the buffer
+        // holds. Reading past the buffer would be out-of-bounds.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        // Claim 3 entries but truncate the buffer to fit only 1.
+        pkg.cp_count = 3;
+        pkg.constant_pool[0] = CpInfo {
+            tag: cp_tag::CLASSREF,
+            info: [0x00, 0x01, 0x00],
+        };
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        // Drop the last 2 entries (8 bytes) but keep cp_count = 3.
+        let truncated_len = n - 8;
+
+        let mut pkg2 = Package::empty();
+        assert!(
+            !pkg2.restore_state(&snap[..truncated_len]),
+            "restore must reject truncated CP entries"
+        );
+    }
+
+    #[test]
+    fn cp_entry_past_cp_count_returns_none() {
+        // API contract: cp_entry must bound-check against the live
+        // cp_count, not just MAX_CP_ENTRIES. Stale entries beyond
+        // cp_count must not leak out.
+        let mut pkg = Package::empty();
+        pkg.cp_count = 2;
+        // Plant a "stale" entry at index 5 (past cp_count) to ensure
+        // the bounds check is on cp_count rather than tag != 0.
+        pkg.constant_pool[5] = CpInfo {
+            tag: cp_tag::CLASSREF,
+            info: [0xDE, 0xAD, 0xBE],
+        };
+        assert!(
+            pkg.cp_entry(0).is_some(),
+            "default-empty entry at 0 still present"
+        );
+        assert!(
+            pkg.cp_entry(1).is_some(),
+            "default-empty entry at 1 still present"
+        );
+        assert!(pkg.cp_entry(2).is_none(), "index == cp_count must be None");
+        assert!(
+            pkg.cp_entry(5).is_none(),
+            "stale entry past cp_count must not leak"
+        );
+        #[allow(clippy::cast_possible_truncation)]
+        let max_idx = MAX_CP_ENTRIES as u16;
+        assert!(
+            pkg.cp_entry(max_idx).is_none(),
+            "MAX_CP_ENTRIES must be None"
+        );
+        assert!(pkg.cp_entry(u16::MAX).is_none(), "u16::MAX must be None");
+    }
 }

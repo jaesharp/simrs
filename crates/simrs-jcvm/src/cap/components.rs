@@ -1244,4 +1244,21 @@ mod tests {
         let pkg = parse(&cap).expect("parse");
         assert_eq!(pkg.cp_count, 0);
     }
+
+    #[test]
+    fn rejects_zero_byte_constant_pool_body() {
+        // A malformed CAP that declares CONSTANT_POOL with size = 0
+        // has no room for the mandatory `count: u16` header. Reject
+        // up-front rather than misreading whatever follows.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&aid));
+        emit(&mut cap, tag::CONSTANT_POOL, &[]);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
 }
