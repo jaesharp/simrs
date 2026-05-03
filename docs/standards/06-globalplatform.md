@@ -506,7 +506,14 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
 
 **Phase 3 -- JCVM 3.2 instruction set** (target: ~1-2 weeks)
 
-- [ ] 12 wide-offset branch variants (`*_w`)
+- [x] Wide-offset conditional branch variants (`ifeq_w`..`if_scmple_w`,
+      0x96..=0xA5; 16 opcodes). Each mirrors its narrow counterpart at
+      0x60..=0x6F: same stack effect, same comparison; the operand is
+      a 2-byte signed offset and the branch target is computed as
+      `(opcode_pc) + offset` with `opcode_pc = pc - 3`. Tested for
+      taken/not-taken, beyond-narrow-range forward (offset = 199),
+      and backward (offset = 0xFFFD = -3) cases. `goto_w` (0xA8) was
+      already implemented.
 - [ ] `getfield_*_w`, `putfield_*_w`, `*_this` optimised forms
 - [ ] `jsr` / `ret` for backward compat
 - [ ] Static bytecode verification pass

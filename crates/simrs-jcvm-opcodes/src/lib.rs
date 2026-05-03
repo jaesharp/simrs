@@ -420,6 +420,50 @@ pub const CHECKCAST: u8 = 0x94;
 pub const INSTANCEOF: u8 = 0x95;
 
 // --- Wide branch ---
+//
+// All `*_w` variants take a 2-byte signed offset (big-endian) and
+// compute the target as `(opcode_pc) + offset`, where `opcode_pc`
+// is the address of the opcode itself (i.e. `pc - 3` after the
+// 1-byte opcode + 2-byte operand have been consumed).
+//
+// JCVM 3.2 § 7.5: every narrow conditional branch at 0x60..=0x6F
+// has a wide counterpart at 0x96..=0xA5 with the same stack effect
+// and comparison; only the operand width differs. The wide form is
+// emitted by the converter when the target is outside the narrow
+// `[-128, +127]` byte-offset reach.
+
+/// `ifeq_w`: branch if top == 0 (2-byte signed offset)
+pub const IFEQ_W: u8 = 0x96;
+/// `ifne_w`: branch if top != 0
+pub const IFNE_W: u8 = 0x97;
+/// `iflt_w`: branch if top < 0
+pub const IFLT_W: u8 = 0x98;
+/// `ifge_w`: branch if top >= 0
+pub const IFGE_W: u8 = 0x99;
+/// `ifgt_w`: branch if top > 0
+pub const IFGT_W: u8 = 0x9A;
+/// `ifle_w`: branch if top <= 0
+pub const IFLE_W: u8 = 0x9B;
+/// `ifnull_w`: branch if top is null (0)
+pub const IFNULL_W: u8 = 0x9C;
+/// `ifnonnull_w`: branch if top is not null
+pub const IFNONNULL_W: u8 = 0x9D;
+/// `if_acmpeq_w`: branch if two references are equal
+pub const IF_ACMPEQ_W: u8 = 0x9E;
+/// `if_acmpne_w`: branch if two references are not equal
+pub const IF_ACMPNE_W: u8 = 0x9F;
+/// `if_scmpeq_w`: branch if two shorts are equal
+pub const IF_SCMPEQ_W: u8 = 0xA0;
+/// `if_scmpne_w`: branch if two shorts are not equal
+pub const IF_SCMPNE_W: u8 = 0xA1;
+/// `if_scmplt_w`: branch if first short < second
+pub const IF_SCMPLT_W: u8 = 0xA2;
+/// `if_scmpge_w`: branch if first short >= second
+pub const IF_SCMPGE_W: u8 = 0xA3;
+/// `if_scmpgt_w`: branch if first short > second
+pub const IF_SCMPGT_W: u8 = 0xA4;
+/// `if_scmple_w`: branch if first short <= second
+pub const IF_SCMPLE_W: u8 = 0xA5;
 
 /// `goto_w`: unconditional branch (2-byte signed offset)
 pub const GOTO_W: u8 = 0xA8;

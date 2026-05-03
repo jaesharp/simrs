@@ -1335,6 +1335,271 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     }
                 }
 
+                // --- Wide-offset conditional branches (JCVM 3.2 § 7.5) ---
+                //
+                // Each `*_w` opcode mirrors its narrow counterpart at
+                // 0x60..=0x6F: same stack effect, same comparison; only
+                // the operand is a 2-byte signed offset instead of 1.
+                // The branch target is `(opcode_pc) + offset` where
+                // `opcode_pc = pc - 3` (1-byte opcode + 2-byte operand
+                // already consumed). The converter emits `_w` when the
+                // narrow `[-128, +127]` byte-offset reach is too short.
+                opcodes::IFEQ_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val == 0 {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFNE_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val != 0 {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFLT_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val < 0 {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFGE_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val >= 0 {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFGT_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val > 0 {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFLE_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val <= 0 {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFNULL_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val == 0 {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IFNONNULL_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let val = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if val != 0 {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_ACMPEQ_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a == b {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_ACMPNE_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a != b {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPEQ_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a == b {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPNE_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a != b {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPLT_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a < b {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPGE_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a >= b {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPGT_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a > b {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
+                opcodes::IF_SCMPLE_W => {
+                    let Some(offset) = self.fetch_i16(bytecode, bytecode_len) else {
+                        return ExecResult::EndOfBytecode;
+                    };
+                    let b = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    let a = match self.pop_i16() {
+                        Ok(v) => v,
+                        Err(e) => return e,
+                    };
+                    if a <= b {
+                        let if_pc = self.pc.wrapping_sub(3);
+                        self.pc = (i32::from(if_pc) + i32::from(offset)).cast_unsigned() as u16;
+                    }
+                }
+
                 // --- Return ---
                 opcodes::SRETURN => {
                     let val = match self.pop_i16() {
@@ -3362,6 +3627,315 @@ mod tests {
         let bc = [SCONST_2, GOTO_W, 0x00, 0x05, SCONST_5, POP, SRETURN];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(2));
+    }
+
+    // -------------------------------------------------------------------
+    // Wide-offset conditional branches (JCVM 3.2 § 7.5)
+    // -------------------------------------------------------------------
+    //
+    // Each test exercises:
+    //   * the comparison logic: branches taken when the predicate
+    //     holds, fallthrough otherwise
+    //   * the wide operand decoding: 2-byte big-endian signed offset
+    //   * the relative-to-opcode addressing: target = (pc-3) + offset
+    //
+    // Bytecode shape used throughout (forward jump, taken):
+    //   [..push operands..]
+    //   [<opcode>, hi, lo,  -- 3-byte branch
+    //    SCONST_5, SRETURN, -- fall-through path returns 5
+    //    SCONST_1, SRETURN] -- taken path returns 1
+    //
+    // The opcode is at PC = N (the operand-push length); after the
+    // operand bytes, PC = N+3. With offset = 5, target = N + 5.
+
+    #[test]
+    fn ifeq_w_taken_when_zero() {
+        let bc = [
+            SCONST_0, IFEQ_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifeq_w_not_taken_when_nonzero_falls_through() {
+        let bc = [
+            SCONST_3, IFEQ_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
+    }
+
+    #[test]
+    fn ifne_w_taken_when_nonzero() {
+        let bc = [
+            SCONST_3, IFNE_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn iflt_w_taken_when_negative() {
+        // sconst_m1 pushes -1.
+        let bc = [
+            SCONST_M1, IFLT_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifge_w_taken_when_zero() {
+        // Zero is the boundary: ifge means >= 0, which includes 0.
+        let bc = [
+            SCONST_0, IFGE_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifgt_w_taken_when_positive() {
+        let bc = [
+            SCONST_3, IFGT_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifle_w_taken_when_zero() {
+        // <= 0 boundary case at zero.
+        let bc = [
+            SCONST_0, IFLE_W, 0x00, 0x05, SCONST_5, SRETURN, SCONST_1, SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifnull_w_taken_when_null() {
+        // ACONST_NULL pushes 0 as a reference.
+        let bc = [
+            ACONST_NULL,
+            IFNULL_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifnonnull_w_taken_when_nonnull() {
+        let bc = [
+            SCONST_3,
+            IFNONNULL_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_acmpeq_w_taken_when_equal_refs() {
+        // Two ACONST_NULLs are equal references.
+        let bc = [
+            ACONST_NULL,
+            ACONST_NULL,
+            IF_ACMPEQ_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_acmpne_w_taken_when_unequal_refs() {
+        // ACONST_NULL (0) vs SCONST_1 (1): different reference values.
+        let bc = [
+            ACONST_NULL,
+            SCONST_1,
+            IF_ACMPNE_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_scmpeq_w_taken_when_shorts_equal() {
+        let bc = [
+            SCONST_3,
+            SCONST_3,
+            IF_SCMPEQ_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_scmpne_w_taken_when_shorts_differ() {
+        let bc = [
+            SCONST_3,
+            SCONST_4,
+            IF_SCMPNE_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_scmplt_w_taken_when_first_lt_second() {
+        let bc = [
+            SCONST_2,
+            SCONST_5,
+            IF_SCMPLT_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_scmpge_w_taken_when_equal() {
+        // Boundary: equal shorts satisfy `>=`.
+        let bc = [
+            SCONST_3,
+            SCONST_3,
+            IF_SCMPGE_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_scmpgt_w_taken_when_first_gt_second() {
+        let bc = [
+            SCONST_5,
+            SCONST_2,
+            IF_SCMPGT_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn if_scmple_w_taken_when_equal() {
+        // Boundary: equal shorts satisfy `<=`.
+        let bc = [
+            SCONST_3,
+            SCONST_3,
+            IF_SCMPLE_W,
+            0x00,
+            0x05,
+            SCONST_5,
+            SRETURN,
+            SCONST_1,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
+    }
+
+    #[test]
+    fn ifeq_w_reaches_offset_beyond_narrow_range() {
+        // The whole point of the wide form: jump distances that the
+        // narrow `[-128,+127]` byte-offset can't express. Layout:
+        //   [0]    sconst_0          -- predicate value
+        //   [1]    ifeq_w 0x00 0xC7  -- offset 199 doesn't fit in i8
+        //   [4]    nop * 196         -- padding
+        //   [200]  sconst_1
+        //   [201]  sreturn
+        // Branch target = (opcode_pc=1) + 199 = 200.
+        let mut bc = [NOP; 202];
+        bc[0] = SCONST_0;
+        bc[1] = IFEQ_W;
+        bc[2] = 0x00;
+        bc[3] = 0xC7;
+        // bc[4..200] left as NOP padding.
+        bc[200] = SCONST_1;
+        bc[201] = SRETURN;
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(
+            vm.execute(0, 0),
+            ExecResult::ReturnShort(1),
+            "wide IFEQ_W must reach offset 199 -- beyond narrow i8 range"
+        );
+    }
+
+    #[test]
+    fn ifeq_w_handles_negative_offset_for_backward_branch() {
+        // Sign-extension regression: a 0xFFFx offset must move PC
+        // backward. We jump forward over a return, then back into it.
+        //
+        //   [0]   goto_w +6            -- forward to pc=6
+        //   [3]   nop                  -- padding
+        //   [4]   sconst_1
+        //   [5]   sreturn              <- backward IFEQ_W target
+        //   [6]   sconst_0             -- predicate (true for IFEQ)
+        //   [7]   ifeq_w 0xFFFD (-3)   -- opcode_pc=7, target = 7-3 = 4
+        //   [10]  sconst_5
+        //   [11]  sreturn              -- not reached if branch taken
+        let bc = [
+            GOTO_W, 0x00, 0x06, NOP, SCONST_1, SRETURN, SCONST_0, IFEQ_W, 0xFF, 0xFD, SCONST_5,
+            SRETURN,
+        ];
+        let mut vm = vm_with_method(&bc);
+        assert_eq!(
+            vm.execute(0, 0),
+            ExecResult::ReturnShort(1),
+            "backward IFEQ_W with offset 0xFFFD must land at pc=4 (sconst_1; sreturn)"
+        );
     }
 
     #[test]
