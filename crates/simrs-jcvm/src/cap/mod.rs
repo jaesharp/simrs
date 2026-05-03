@@ -1820,39 +1820,45 @@ mod tests {
     // helpers all consult one source of truth. Bumping a `MAX_*` field
     // count then cascades through every site without per-call-site
     // re-derivation.
+    //
+    // The `*_START_FROM_END` constants below are *cumulative* offsets:
+    // each one names the byte distance from `n` (snapshot total length)
+    // back to the start of that block. They're built top-down so the
+    // last-written block (static-field) is closest to the end and the
+    // first-written block (applet) is the deepest. Adding a new
+    // trailing block requires inserting one line at the head of the
+    // chain; all dependent offsets cascade automatically.
+    //
+    // Each test offset helper then collapses to one subtraction.
 
-    /// Total trailing block size after the CP block: applet +
-    /// import + method-offsets + export + ref-loc + static-field.
-    const TRAILING_BLOCKS_AFTER_CP: usize = APPLET_BLOCK_SIZE
-        + IMPORT_BLOCK_SIZE
-        + METHOD_OFFSETS_BLOCK_SIZE
-        + EXPORT_BLOCK_SIZE
-        + REF_LOC_BLOCK_SIZE
-        + STATIC_FIELD_SUMMARY_BLOCK_SIZE;
+    /// Distance from snapshot end to start of the static-field block.
+    const STATIC_FIELD_START_FROM_END: usize = STATIC_FIELD_SUMMARY_BLOCK_SIZE;
+    /// Distance from snapshot end to start of the ref-loc block.
+    const REF_LOC_START_FROM_END: usize = STATIC_FIELD_START_FROM_END + REF_LOC_BLOCK_SIZE;
+    /// Distance from snapshot end to start of the export block.
+    const EXPORT_START_FROM_END: usize = REF_LOC_START_FROM_END + EXPORT_BLOCK_SIZE;
+    /// Distance from snapshot end to start of the method-offsets block.
+    const METHOD_OFFSETS_START_FROM_END: usize = EXPORT_START_FROM_END + METHOD_OFFSETS_BLOCK_SIZE;
+    /// Distance from snapshot end to start of the import block.
+    const IMPORT_START_FROM_END: usize = METHOD_OFFSETS_START_FROM_END + IMPORT_BLOCK_SIZE;
+    /// Distance from snapshot end to start of the applet block.
+    const APPLET_START_FROM_END: usize = IMPORT_START_FROM_END + APPLET_BLOCK_SIZE;
 
-    /// Locate the `cp_count` u16 in a snapshot whose CP, applet,
-    /// import, export, ref-loc, and static-field blocks are empty.
+    /// Locate the `cp_count` u16. Sits two bytes before the applet
+    /// block (the `cp_entries` follow the count, so when CP is empty
+    /// the count itself is right at the boundary).
     const fn cp_count_offset_when_empty(n: usize) -> usize {
-        n - TRAILING_BLOCKS_AFTER_CP - 2
+        n - APPLET_START_FROM_END - 2
     }
 
     /// Locate the `applet_count` byte.
     const fn applet_count_offset_when_empty(n: usize) -> usize {
-        n - STATIC_FIELD_SUMMARY_BLOCK_SIZE
-            - REF_LOC_BLOCK_SIZE
-            - EXPORT_BLOCK_SIZE
-            - METHOD_OFFSETS_BLOCK_SIZE
-            - IMPORT_BLOCK_SIZE
-            - APPLET_BLOCK_SIZE
+        n - APPLET_START_FROM_END
     }
 
     /// Locate the `import_count` byte.
     const fn import_count_offset_when_empty(n: usize) -> usize {
-        n - STATIC_FIELD_SUMMARY_BLOCK_SIZE
-            - REF_LOC_BLOCK_SIZE
-            - EXPORT_BLOCK_SIZE
-            - METHOD_OFFSETS_BLOCK_SIZE
-            - IMPORT_BLOCK_SIZE
+        n - IMPORT_START_FROM_END
     }
 
     #[test]
@@ -1909,7 +1915,7 @@ mod tests {
         // the snapshot wrote 3 * 4 = 12 entry bytes after cp_count,
         // then the empty applet block, the empty import block, the
         // method-offsets block, and the empty export block at the tail.
-        let cp_count_off = n - TRAILING_BLOCKS_AFTER_CP - 12 - 2;
+        let cp_count_off = n - APPLET_START_FROM_END - 12 - 2;
         // Truncate to: cp_count_off + cp_count(2) + 1 entry(4) -- 2
         // entries short. The parser must refuse to read past the
         // buffer when cp_count promises 3 entries but only 1 fits.
@@ -1986,7 +1992,7 @@ mod tests {
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap[..n - TRAILING_BLOCKS_AFTER_CP];
+        let truncated = &snap[..n - APPLET_START_FROM_END];
 
         let mut pkg2 = Package::empty();
         // Pre-populate to make the assertion meaningful.
@@ -2102,7 +2108,7 @@ mod tests {
         let n = pkg.save_state(&mut snap);
         // export_count is the first byte of the export block; the
         // ref-loc and static-field blocks follow it at the tail.
-        let off = n - STATIC_FIELD_SUMMARY_BLOCK_SIZE - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE;
+        let off = n - EXPORT_START_FROM_END;
         #[allow(clippy::cast_possible_truncation)]
         let bad = (MAX_EXPORTED_CLASSES_PER_PACKAGE as u8) + 1;
         snap[off] = bad;
@@ -2151,7 +2157,7 @@ mod tests {
         let n = pkg.save_state(&mut snap);
         // ref_loc_byte_count is the first u16 of the ref-loc block;
         // the static-field block follows.
-        let off = n - STATIC_FIELD_SUMMARY_BLOCK_SIZE - REF_LOC_BLOCK_SIZE;
+        let off = n - REF_LOC_START_FROM_END;
         #[allow(clippy::cast_possible_truncation)]
         let bad = (MAX_REF_LOC_BYTE_INDICES as u16) + 1;
         snap[off..off + 2].copy_from_slice(&bad.to_le_bytes());
@@ -2172,8 +2178,7 @@ mod tests {
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated =
-            &snap[..n - STATIC_FIELD_SUMMARY_BLOCK_SIZE - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE];
+        let truncated = &snap[..n - EXPORT_START_FROM_END];
 
         let mut pkg2 = Package::empty();
         pkg2.export_count = 7;
@@ -2193,12 +2198,7 @@ mod tests {
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap[..n
-            - STATIC_FIELD_SUMMARY_BLOCK_SIZE
-            - REF_LOC_BLOCK_SIZE
-            - EXPORT_BLOCK_SIZE
-            - METHOD_OFFSETS_BLOCK_SIZE
-            - IMPORT_BLOCK_SIZE];
+        let truncated = &snap[..n - IMPORT_START_FROM_END];
 
         let mut pkg2 = Package::empty();
         pkg2.import_count = 7;
