@@ -496,6 +496,13 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
       `invokespecial` opcodes do not yet route through them. This is
       the next step before the bytecode interpreter can run real
       multi-class applets.
+- [x] First component-tagged consumer wired (2026-05-03):
+      INSTALL [for install] in `simrs-gp-open` now resolves the
+      applet's `install_method_offset` from `Package::applets` via
+      `Package::method_index_by_component_offset` rather than
+      hard-coding method 0. Falls back to method 0 for blob-path
+      packages (which have no Applet metadata). Closes the
+      "parsing-only plumbing" gap noted in earlier self-review.
 - [ ] Component-tagged parser coverage for the remaining components:
       Class, StaticField, RefLocation, Export, Debug, StaticResources.
       Phase 2 sub-items as their consumers come online (Class for the

@@ -223,6 +223,22 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
         None
     }
 
+    /// Borrow a loaded package by index. Returns `None` for unused
+    /// slots or out-of-range indices.
+    ///
+    /// Callers (e.g. the Card Manager's INSTALL [for install] path)
+    /// use this to consult the package's Applet table and resolve
+    /// `install_method_offset` to a method index.
+    #[must_use]
+    pub const fn package(&self, index: u8) -> Option<&Package> {
+        let idx = index as usize;
+        if idx < MAX_PACKAGES {
+            self.packages[idx].as_ref()
+        } else {
+            None
+        }
+    }
+
     /// Mutable reference to the transaction journal.
     pub const fn journal_mut(&mut self) -> &mut TransactionJournal<JOURNAL_CAP> {
         &mut self.journal

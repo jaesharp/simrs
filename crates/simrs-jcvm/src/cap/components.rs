@@ -183,11 +183,12 @@ fn parse_header(body: &[u8]) -> Result<([u8; MAX_AID_LEN], u8), ParseError> {
 /// (excludes the 2- or 4-byte header). When empty, the parser
 /// extracts a single method spanning the whole post-handler-table
 /// region.
+/// Decoded methods plus their per-method offsets within the Method
+/// component body (parallel arrays indexed by method index).
+type ParsedMethods = ([Option<MethodInfo>; MAX_METHODS], [u16; MAX_METHODS], u8);
+
 #[allow(clippy::cast_possible_truncation)]
-fn parse_methods(
-    body: &[u8],
-    method_offsets: &[(u16, u16)],
-) -> Result<([Option<MethodInfo>; MAX_METHODS], u8), ParseError> {
+fn parse_methods(body: &[u8], method_offsets: &[(u16, u16)]) -> Result<ParsedMethods, ParseError> {
     if body.is_empty() {
         return Err(ParseError::TooShort);
     }
@@ -201,15 +202,19 @@ fn parse_methods(
     }
 
     let mut methods: [Option<MethodInfo>; MAX_METHODS] = [None; MAX_METHODS];
+    let mut offsets: [u16; MAX_METHODS] = [0u16; MAX_METHODS];
     let mut count: u8 = 0;
 
     if method_offsets.is_empty() {
         // Fallback: treat the whole post-handler region as a single
-        // method. Bytecodes run to the end of the body.
+        // method. Bytecodes run to the end of the body. Without a
+        // Descriptor we can't pin down the exact offset, so leave
+        // `offsets[0]` at 0 -- callers using the resolver will get
+        // None for any non-zero query, which is the right answer.
         let m = parse_one_method(&body[methods_start..])?;
         methods[0] = Some(m);
         count = 1;
-        return Ok((methods, count));
+        return Ok((methods, offsets, count));
     }
 
     for &(offset, bytecode_count) in method_offsets {
@@ -235,9 +240,10 @@ fn parse_methods(
         }
         let m = parse_one_method(&body[start..end])?;
         methods[count as usize] = Some(m);
+        offsets[count as usize] = offset;
         count += 1;
     }
-    Ok((methods, count))
+    Ok((methods, offsets, count))
 }
 
 /// Parse a single `method_info` whose bytecode spans the rest of `slice`.
@@ -623,13 +629,14 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     };
     let offset_slice = &offsets[..count as usize];
 
-    let (methods, method_count) = parse_methods(method_body, offset_slice)?;
+    let (methods, method_offsets, method_count) = parse_methods(method_body, offset_slice)?;
 
     Ok(Package {
         aid,
         aid_len,
         methods,
         method_count,
+        method_offsets,
         constant_pool,
         cp_count,
         applets,
@@ -1765,6 +1772,117 @@ mod tests {
             &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
         );
         assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Method-component offset -> method index resolution
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn method_offsets_populated_from_descriptor_match_layout() {
+        // With a Descriptor present, every method's offset within the
+        // Method component must round-trip through `method_offsets`.
+        // Construction mirrors `descriptor_drives_per_method_bytecode_split`:
+        // three methods of distinct bytecode lengths, expected offsets
+        // computed via the same `method_offset` helper used to build
+        // the Descriptor body.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let m1: &[u8] = &[0x03, 0x78];
+        let m2: &[u8] = &[0x04, 0x41, 0x78];
+        let m3: &[u8] = &[0x05, 0x78];
+        let bytecode_lens = [m1.len(), m2.len(), m3.len()];
+        let descriptor = descriptor_body_for(&bytecode_lens);
+        let cap = build_cap(
+            &aid,
+            &[
+                (m1, 0x80, 4, 0, 1),
+                (m2, 0x80, 4, 0, 1),
+                (m3, 0x80, 4, 0, 1),
+            ],
+            Some(&descriptor),
+        );
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.method_count, 3);
+        assert_eq!(pkg.method_offsets[0], method_offset(&bytecode_lens, 0));
+        assert_eq!(pkg.method_offsets[1], method_offset(&bytecode_lens, 1));
+        assert_eq!(pkg.method_offsets[2], method_offset(&bytecode_lens, 2));
+    }
+
+    #[test]
+    fn method_index_by_offset_resolves_each_method() {
+        // The Applet component's `install_method_offset` is one of
+        // these offsets; the dispatch path needs to map it back to
+        // the method index.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let m1: &[u8] = &[0x78];
+        let m2: &[u8] = &[0x04, 0x78];
+        let bytecode_lens = [m1.len(), m2.len()];
+        let descriptor = descriptor_body_for(&bytecode_lens);
+        let cap = build_cap(
+            &aid,
+            &[(m1, 0x80, 4, 0, 1), (m2, 0x80, 4, 0, 1)],
+            Some(&descriptor),
+        );
+        let pkg = parse(&cap).expect("parse");
+        let off0 = method_offset(&bytecode_lens, 0);
+        let off1 = method_offset(&bytecode_lens, 1);
+        assert_eq!(pkg.method_index_by_component_offset(off0), Some(0));
+        assert_eq!(pkg.method_index_by_component_offset(off1), Some(1));
+    }
+
+    #[test]
+    fn method_index_by_offset_returns_none_for_unknown_offset() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let m1: &[u8] = &[0x78];
+        let bytecode_lens = [m1.len()];
+        let descriptor = descriptor_body_for(&bytecode_lens);
+        let cap = build_cap(&aid, &[(m1, 0x80, 4, 0, 1)], Some(&descriptor));
+        let pkg = parse(&cap).expect("parse");
+        // Pick an offset the parser didn't record.
+        assert_eq!(pkg.method_index_by_component_offset(0xFFFE), None);
+    }
+
+    #[test]
+    fn method_index_by_offset_does_not_match_unset_slots_with_zero() {
+        // Slots past `method_count` keep `method_offsets[i] == 0`.
+        // Querying for offset 0 must NOT match those stale slots --
+        // only a method that was actually parsed at offset 0 should
+        // resolve. With a Descriptor, no method actually starts at
+        // offset 0 (the handler_count byte sits there), so the
+        // resolver must return None.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let m1: &[u8] = &[0x78];
+        let bytecode_lens = [m1.len()];
+        let descriptor = descriptor_body_for(&bytecode_lens);
+        let cap = build_cap(&aid, &[(m1, 0x80, 4, 0, 1)], Some(&descriptor));
+        let pkg = parse(&cap).expect("parse");
+        // The first method's actual offset is 1 (handler_count).
+        assert_eq!(pkg.method_index_by_component_offset(1), Some(0));
+        assert_eq!(
+            pkg.method_index_by_component_offset(0),
+            None,
+            "offset 0 must not collide with unset slots"
+        );
+    }
+
+    #[test]
+    fn method_index_by_offset_returns_none_for_blob_path() {
+        // The simplified-blob parser leaves every offset at 0.
+        // A non-zero query reliably returns None; querying for 0
+        // would collide with all unset slots, which is also wrong --
+        // the resolver bounds-checks against `method_count` and
+        // requires the slot's `methods[i]` to be `Some`, but the blob
+        // path's method 0 IS Some at offset 0. That's the documented
+        // limitation: blob-path packages have no offset-to-index
+        // mapping. Verify the non-zero case explicitly.
+        let aid = [0xA0u8, 0x00, 0x00, 0x00, 0x62];
+        let bc: &[u8] = &[0x78];
+        let mut blob = [0u8; 64];
+        let len = super::super::build_cap_blob(&aid, &[bc], &mut blob);
+        let pkg = super::super::parse_cap(&blob[..len]).expect("blob parse");
+        assert_eq!(pkg.method_count, 1);
+        assert_eq!(pkg.method_offsets[0], 0);
+        assert_eq!(pkg.method_index_by_component_offset(0xABCD), None);
     }
 
     #[test]

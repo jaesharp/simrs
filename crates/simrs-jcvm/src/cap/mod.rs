@@ -408,6 +408,14 @@ pub struct Package {
     pub methods: [Option<MethodInfo>; MAX_METHODS],
     /// Number of methods loaded.
     pub method_count: u8,
+    /// Each method's byte offset within the Method component body
+    /// (parallel to [`Self::methods`], indexed by method index).
+    /// Populated by the component-tagged parser from the Descriptor
+    /// component; left at zero by the simplified-blob parser, which
+    /// has no concept of component-relative offsets. Used to resolve
+    /// the Applet component's `install_method_offset` to a method
+    /// index for INSTALL [for install] dispatch.
+    pub method_offsets: [u16; MAX_METHODS],
     /// Constant Pool entries (JCVM 3.2 § 6.8). Stored in raw 4-byte
     /// form; decode via `CpInfo::as_*` helpers at resolve-time.
     pub constant_pool: [CpInfo; MAX_CP_ENTRIES],
@@ -433,6 +441,7 @@ impl Package {
             aid_len: 0,
             methods: [None; MAX_METHODS],
             method_count: 0,
+            method_offsets: [0u16; MAX_METHODS],
             constant_pool: [CpInfo {
                 tag: 0,
                 info: [0u8; 3],
@@ -500,6 +509,32 @@ impl Package {
             .iter()
             .flatten()
             .find(|info| info.aid_matches(aid))
+    }
+
+    /// Resolve a Method-component byte offset to a method index.
+    ///
+    /// Used by INSTALL [for install] dispatch: the Applet component
+    /// records each applet's `install_method_offset` as a byte offset
+    /// into the Method component body, but the JCVM addresses methods
+    /// by index. This walks [`Self::method_offsets`] (only valid
+    /// indices `< method_count`) and returns the matching index, or
+    /// `None` if no method begins at that offset.
+    ///
+    /// Returns `None` for the simplified-blob path: that path leaves
+    /// every offset at 0, so a non-zero query never matches and a
+    /// zero query collides with the unset slots.
+    #[must_use]
+    pub fn method_index_by_component_offset(&self, offset: u16) -> Option<u8> {
+        for i in 0..self.method_count {
+            let idx = i as usize;
+            if idx >= MAX_METHODS {
+                break;
+            }
+            if self.method_offsets[idx] == offset && self.methods[idx].is_some() {
+                return Some(i);
+            }
+        }
+        None
     }
 
     /// Look up an imported-package entry by `package_token`. Returns
@@ -740,6 +775,7 @@ pub fn parse_cap_blob(data: &[u8]) -> Result<Package, ParseError> {
         aid_len,
         methods,
         method_count,
+        method_offsets: [0u16; MAX_METHODS],
         constant_pool: [CpInfo::default(); MAX_CP_ENTRIES],
         cp_count: 0,
         applets: [None; MAX_APPLETS_PER_PACKAGE],
@@ -820,7 +856,8 @@ impl Package {
         + 1
         + MAX_APPLETS_PER_PACKAGE * (1 + 1 + MAX_AID_LEN + 2)
         + 1
-        + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN);
+        + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN)
+        + MAX_METHODS * 2;
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     #[allow(clippy::too_many_lines)]
@@ -956,6 +993,16 @@ impl Package {
                     off += MAX_AID_LEN;
                 }
             }
+        }
+
+        // Method component offsets: MAX_METHODS * u16 LE.
+        let offsets_block = MAX_METHODS * 2;
+        if off + offsets_block > buf.len() {
+            return 0;
+        }
+        for off_val in &self.method_offsets {
+            buf[off..off + 2].copy_from_slice(&off_val.to_le_bytes());
+            off += 2;
         }
 
         off
@@ -1166,6 +1213,17 @@ impl Package {
                     aid,
                     aid_len,
                 });
+            }
+        }
+
+        // Method component offsets: trailing block. Older snapshots
+        // without this block restore to all-zeros (matching the
+        // simplified-blob default).
+        self.method_offsets = [0u16; MAX_METHODS];
+        if off + MAX_METHODS * 2 <= buf.len() {
+            for slot in &mut self.method_offsets {
+                *slot = u16::from_le_bytes([buf[off], buf[off + 1]]);
+                off += 2;
             }
         }
 
@@ -1380,23 +1438,32 @@ mod tests {
     const IMPORT_BLOCK_SIZE_EMPTY: usize =
         1 + MAX_IMPORTS_PER_PACKAGE * (1 + 1 + 1 + 1 + MAX_AID_LEN);
 
+    /// Snapshot byte size of the method-offsets block (always
+    /// `MAX_METHODS * 2`, regardless of `method_count`).
+    const METHOD_OFFSETS_BLOCK_SIZE: usize = MAX_METHODS * 2;
+
+    /// Total trailing block size after the CP block: applet block +
+    /// import block + method-offsets block.
+    const TRAILING_BLOCKS_AFTER_CP: usize =
+        APPLET_BLOCK_SIZE_EMPTY + IMPORT_BLOCK_SIZE_EMPTY + METHOD_OFFSETS_BLOCK_SIZE;
+
     /// Locate the `cp_count` u16 in a snapshot whose CP, applet,
     /// and import blocks are all empty. `cp_count` sits before the
-    /// applet block, which sits before the import block at the tail.
+    /// applet block; the method-offsets block sits at the tail.
     const fn cp_count_offset_when_empty(n: usize) -> usize {
-        n - IMPORT_BLOCK_SIZE_EMPTY - APPLET_BLOCK_SIZE_EMPTY - 2
+        n - TRAILING_BLOCKS_AFTER_CP - 2
     }
 
-    /// Locate the `applet_count` byte in a snapshot whose applet
-    /// and import blocks are empty.
+    /// Locate the `applet_count` byte in a snapshot whose applet,
+    /// import, and method-offsets blocks are empty.
     const fn applet_count_offset_when_empty(n: usize) -> usize {
-        n - IMPORT_BLOCK_SIZE_EMPTY - APPLET_BLOCK_SIZE_EMPTY
+        n - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY - APPLET_BLOCK_SIZE_EMPTY
     }
 
     /// Locate the `import_count` byte in a snapshot whose import
-    /// block is empty.
+    /// and method-offsets blocks are empty.
     const fn import_count_offset_when_empty(n: usize) -> usize {
-        n - IMPORT_BLOCK_SIZE_EMPTY
+        n - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY
     }
 
     #[test]
@@ -1451,8 +1518,9 @@ mod tests {
         let n = pkg.save_state(&mut snap);
         // cp_count sits right after the method block. With cp_count = 3,
         // the snapshot wrote 3 * 4 = 12 entry bytes after cp_count,
-        // then the empty applet block, then the empty import block.
-        let cp_count_off = n - IMPORT_BLOCK_SIZE_EMPTY - APPLET_BLOCK_SIZE_EMPTY - 12 - 2;
+        // then the empty applet block, then the empty import block,
+        // then the method-offsets block.
+        let cp_count_off = n - TRAILING_BLOCKS_AFTER_CP - 12 - 2;
         // Truncate to: cp_count_off + cp_count(2) + 1 entry(4) -- 2
         // entries short. The parser must refuse to read past the
         // buffer when cp_count promises 3 entries but only 1 fits.
@@ -1520,24 +1588,26 @@ mod tests {
 
     #[test]
     fn old_snapshot_without_applet_block_restores_to_empty_applets() {
-        // Forward compat: snapshots saved before the applet/import
-        // blocks existed end after the CP block. Restore must accept
-        // the truncated form and surface `applet_count = 0` and
-        // `import_count = 0`.
+        // Forward compat: snapshots saved before the applet/import/
+        // offsets blocks existed end after the CP block. Restore must
+        // accept the truncated form and surface zeros for everything
+        // beyond the CP.
         let mut pkg = Package::empty();
         pkg.aid_len = 1;
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap[..n - APPLET_BLOCK_SIZE_EMPTY - IMPORT_BLOCK_SIZE_EMPTY];
+        let truncated = &snap[..n - TRAILING_BLOCKS_AFTER_CP];
 
         let mut pkg2 = Package::empty();
         // Pre-populate to make the assertion meaningful.
         pkg2.applet_count = 7;
         pkg2.import_count = 9;
+        pkg2.method_offsets[0] = 0xBEEF;
         assert!(pkg2.restore_state(truncated));
         assert_eq!(pkg2.applet_count, 0);
         assert_eq!(pkg2.import_count, 0);
+        assert_eq!(pkg2.method_offsets[0], 0);
     }
 
     #[test]
@@ -1597,17 +1667,20 @@ mod tests {
     fn old_snapshot_without_import_block_restores_to_empty_imports() {
         // A snapshot ending right after the applet block predates
         // the import block; restore must accept and zero imports.
+        // Same forward-compat for the trailing method-offsets block.
         let mut pkg = Package::empty();
         pkg.aid_len = 1;
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap[..n - IMPORT_BLOCK_SIZE_EMPTY];
+        let truncated = &snap[..n - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE_EMPTY];
 
         let mut pkg2 = Package::empty();
         pkg2.import_count = 7;
+        pkg2.method_offsets[1] = 0xCAFE;
         assert!(pkg2.restore_state(truncated));
         assert_eq!(pkg2.import_count, 0);
+        assert_eq!(pkg2.method_offsets[1], 0);
     }
 
     #[test]

@@ -389,13 +389,26 @@ pub fn install<const N: usize, const L: usize>(
 
     registry[slot] = Some(AppletEntry::new(app_aid, lifecycle, 0x00));
 
-    // Link to JCVM package if one with matching load file AID is loaded.
+    // Link to JCVM package if one with matching load file AID is
+    // loaded. The install method index defaults to 0 (compat with the
+    // simplified-blob loader, which has no Applet component); when
+    // the package was loaded via the component-tagged path and its
+    // Applet table names this `app_aid`, dispatch through the
+    // recorded `install_method_offset` instead.
     if load_len > 0 {
         let lf_aid = &data[1..=load_len];
         if let Some(pkg_idx) = jcvm.find_package_by_aid(lf_aid)
             && let Some(entry) = &mut registry[slot]
         {
-            entry.set_jcvm(pkg_idx, 0);
+            let install_method_idx = jcvm
+                .package(pkg_idx)
+                .and_then(|pkg| {
+                    pkg.applet_by_aid(app_aid).and_then(|info| {
+                        pkg.method_index_by_component_offset(info.install_method_offset)
+                    })
+                })
+                .unwrap_or(0);
+            entry.set_jcvm(pkg_idx, install_method_idx);
         }
     }
 
