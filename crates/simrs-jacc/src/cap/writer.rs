@@ -521,12 +521,15 @@ fn build_constant_pool_body() -> Vec<u8> {
     vec![0, 0]
 }
 
-/// Build the `ReferenceLocation` component body (JCVM 3.1 Section 6.12).
+/// Build the `ReferenceLocation` component body (JCVM 3.2 § 6.12).
 ///
-/// Empty for standalone applets with no external references.
-#[allow(clippy::missing_const_for_fn)]
+/// Per spec the body has two count-prefixed delta lists. For
+/// standalone applets with no external references, both counts are
+/// zero -- so the body is exactly four zero bytes (two u16 BE counts
+/// of zero) rather than an empty buffer; the runtime parser
+/// requires the count fields to be present.
 fn build_reference_location_body() -> Vec<u8> {
-    Vec::new()
+    vec![0, 0, 0, 0]
 }
 
 /// Build the Export component body (JCVM 3.2 Section 6.13).
@@ -863,6 +866,18 @@ mod tests {
     }
 
     #[test]
+    fn writer_ref_location_round_trips_to_zero_deltas() {
+        // The writer emits a zero-length RefLocation body; runtime
+        // surfaces both delta lists as empty.
+        let cap = CapWriter::new(&sample_compiled()).write();
+        let pkg = parse_cap(&cap).expect("parse");
+        assert_eq!(pkg.ref_loc_byte_count, 0);
+        assert_eq!(pkg.ref_loc_byte2_count, 0);
+        assert_eq!(pkg.ref_loc_byte_deltas(), &[] as &[u8]);
+        assert_eq!(pkg.ref_loc_byte2_deltas(), &[] as &[u8]);
+    }
+
+    #[test]
     fn writer_export_component_round_trips_to_zero_classes() {
         // The writer emits an Export component with `class_count = 0`.
         // The runtime parser must surface `export_count == 0`.
@@ -1076,9 +1091,9 @@ mod tests {
         let cp_body = find_component_body(&cap, TAG_CONSTANT_POOL).unwrap();
         assert_eq!(cp_body.len(), 2);
 
-        // Reference location: body size = 0.
+        // Reference location: body size = 4 (two u16 BE counts of 0).
         let rl_body = find_component_body(&cap, TAG_REFERENCE_LOCATION).unwrap();
-        assert_eq!(rl_body.len(), 0);
+        assert_eq!(rl_body, &[0u8, 0, 0, 0]);
     }
 
     #[test]

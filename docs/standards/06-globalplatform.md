@@ -511,7 +511,7 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
       it requires a new JCVM-level invocation hook rather than
       replacing the existing process-method linkage.
 - [ ] Component-tagged parser coverage for the remaining components:
-      Class, StaticField, RefLocation, Debug, StaticResources.
+      Class, StaticField, Debug, StaticResources.
       Phase 2 sub-items as their consumers come online (Class for the
       firewall, StaticField for proper static initialisation). As of
       2026-05-04 the parser also surfaces:
@@ -530,6 +530,13 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
         per-class field/method offset arrays are then indexed by the
         `static_field_token` / `static_method_token` to land on the
         StaticField / Method component offset.
+      - **`ReferenceLocation`** (tag 9): two delta-encoded byte-offset
+        lists on `Package::ref_loc_byte_deltas` /
+        `ref_loc_byte2_deltas`, marking every byte / 2-byte field in
+        the Method and StaticField components that holds a CP token
+        needing resolution at load time. The `0xFF` continuation byte
+        per JCVM 3.2 § 6.12.2 is preserved verbatim; absolute-offset
+        reconstruction is consumer-side.
 - [x] `simrs-jacc` writer: emit Export (tag 10), Debug (tag 12),
       StaticResources (tag 13). Standalone applets emit empty bodies
       (Export `class_count = 0`, Debug zero-length, StaticResources

@@ -42,8 +42,8 @@
 use super::{
     AppletInfo, CAP_MAGIC, CpInfo, ExportInfo, ImportInfo, MAX_AID_LEN, MAX_APPLETS_PER_PACKAGE,
     MAX_BYTECODE, MAX_CP_ENTRIES, MAX_EXPORTED_CLASSES_PER_PACKAGE, MAX_EXPORTED_FIELDS_PER_CLASS,
-    MAX_EXPORTED_METHODS_PER_CLASS, MAX_IMPORTS_PER_PACKAGE, MAX_METHODS, MethodInfo, Package,
-    ParseError, cp_tag,
+    MAX_EXPORTED_METHODS_PER_CLASS, MAX_IMPORTS_PER_PACKAGE, MAX_METHODS, MAX_REF_LOC_BYTE_INDICES,
+    MAX_REF_LOC_BYTE2_INDICES, MethodInfo, Package, ParseError, cp_tag,
 };
 
 /// Component tag constants per JCVM 3.2 Section 6.2.
@@ -385,6 +385,69 @@ fn parse_descriptor_method_offsets(
     Ok((offsets, total))
 }
 
+/// Parse the Reference Location component body (JCVM 3.2 § 6.12).
+///
+/// Layout:
+/// ```text
+/// byte_index_count:           u2 BE
+/// offsets_to_byte_indices:    u1 * byte_index_count
+/// byte2_index_count:          u2 BE
+/// offsets_to_byte2_indices:   u1 * byte2_index_count
+/// ```
+///
+/// Stored as raw delta bytes; consumers (the future token-patch
+/// pass) reconstruct absolute offsets by accumulating deltas, with
+/// the spec-defined `0xFF` continuation byte meaning "advance 254
+/// without emitting a patch site here".
+///
+/// Rejects:
+/// - 1-byte index count > `MAX_REF_LOC_BYTE_INDICES` -> `TooManyRefLocByteIndices`
+/// - 2-byte index count > `MAX_REF_LOC_BYTE2_INDICES` -> `TooManyRefLocByte2Indices`
+#[allow(clippy::similar_names)] // narrow_count vs wide_count would mislead.
+fn parse_ref_location_component(
+    body: &[u8],
+) -> Result<
+    (
+        [u8; MAX_REF_LOC_BYTE_INDICES],
+        u16,
+        [u8; MAX_REF_LOC_BYTE2_INDICES],
+        u16,
+    ),
+    ParseError,
+> {
+    let mut pos = 0usize;
+    if body.len() < pos + 2 {
+        return Err(ParseError::TooShort);
+    }
+    let byte_count = u16::from_be_bytes([body[pos], body[pos + 1]]);
+    pos += 2;
+    if byte_count as usize > MAX_REF_LOC_BYTE_INDICES {
+        return Err(ParseError::TooManyRefLocByteIndices);
+    }
+    if body.len() < pos + byte_count as usize {
+        return Err(ParseError::TooShort);
+    }
+    let mut byte_deltas = [0u8; MAX_REF_LOC_BYTE_INDICES];
+    byte_deltas[..byte_count as usize].copy_from_slice(&body[pos..pos + byte_count as usize]);
+    pos += byte_count as usize;
+
+    if body.len() < pos + 2 {
+        return Err(ParseError::TooShort);
+    }
+    let byte2_count = u16::from_be_bytes([body[pos], body[pos + 1]]);
+    pos += 2;
+    if byte2_count as usize > MAX_REF_LOC_BYTE2_INDICES {
+        return Err(ParseError::TooManyRefLocByte2Indices);
+    }
+    if body.len() < pos + byte2_count as usize {
+        return Err(ParseError::TooShort);
+    }
+    let mut byte2_deltas = [0u8; MAX_REF_LOC_BYTE2_INDICES];
+    byte2_deltas[..byte2_count as usize].copy_from_slice(&body[pos..pos + byte2_count as usize]);
+
+    Ok((byte_deltas, byte_count, byte2_deltas, byte2_count))
+}
+
 /// Parse the Export component body (JCVM 3.2 § 6.13).
 ///
 /// Layout:
@@ -633,6 +696,7 @@ fn parse_constant_pool(body: &[u8]) -> Result<([CpInfo; MAX_CP_ENTRIES], u16), P
 ///
 /// Returns [`ParseError`] if any component header is malformed or the
 /// extracted Package would exceed `MAX_*` capacity bounds.
+#[allow(clippy::similar_names)] // ref_loc_byte_* vs ref_loc_byte2_* mirrors spec naming.
 pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     let mut pos = 0;
     let mut aid = [0u8; MAX_AID_LEN];
@@ -650,6 +714,10 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     let mut exports: [Option<ExportInfo>; MAX_EXPORTED_CLASSES_PER_PACKAGE] =
         [None; MAX_EXPORTED_CLASSES_PER_PACKAGE];
     let mut export_count: u8 = 0;
+    let mut ref_loc_byte_deltas = [0u8; MAX_REF_LOC_BYTE_INDICES];
+    let mut ref_loc_byte_count: u16 = 0;
+    let mut ref_loc_byte2_deltas = [0u8; MAX_REF_LOC_BYTE2_INDICES];
+    let mut ref_loc_byte2_count: u16 = 0;
 
     while pos < data.len() {
         if data.len() < pos + 3 {
@@ -696,11 +764,17 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
                 exports = e;
                 export_count = n;
             }
+            tag::REFERENCE_LOCATION => {
+                let (b1, n1, b2, n2) = parse_ref_location_component(body)?;
+                ref_loc_byte_deltas = b1;
+                ref_loc_byte_count = n1;
+                ref_loc_byte2_deltas = b2;
+                ref_loc_byte2_count = n2;
+            }
             // Recognised-but-skipped components (Directory, Class,
-            // StaticField, RefLocation, Debug, StaticResources) and
-            // unknown components (vendor-custom) all fall through.
-            // Class hierarchy and StaticField images are Phase 2
-            // follow-ups.
+            // StaticField, Debug, StaticResources) and unknown
+            // components (vendor-custom) all fall through. Class
+            // hierarchy and StaticField images are Phase 2 follow-ups.
             _ => {}
         }
     }
@@ -732,6 +806,10 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
         import_count,
         exports,
         export_count,
+        ref_loc_byte_deltas,
+        ref_loc_byte_count,
+        ref_loc_byte2_deltas,
+        ref_loc_byte2_count,
     })
 }
 
@@ -2170,6 +2248,176 @@ mod tests {
             &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
         );
         assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Reference Location component
+    // -----------------------------------------------------------------------
+
+    /// Build a `RefLocation` component body from raw delta lists.
+    #[allow(clippy::cast_possible_truncation, clippy::similar_names)]
+    fn ref_loc_body(byte_deltas: &[u8], byte2_deltas: &[u8]) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.extend_from_slice(&(byte_deltas.len() as u16).to_be_bytes());
+        body.extend_from_slice(byte_deltas);
+        body.extend_from_slice(&(byte2_deltas.len() as u16).to_be_bytes());
+        body.extend_from_slice(byte2_deltas);
+        body
+    }
+
+    /// Build a CAP with Header + `RefLocation` + Method.
+    #[allow(clippy::similar_names)]
+    fn build_cap_with_ref_loc(pkg_aid: &[u8], byte_deltas: &[u8], byte2_deltas: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        emit(&mut out, tag::HEADER, &header_body(pkg_aid));
+        emit(
+            &mut out,
+            tag::REFERENCE_LOCATION,
+            &ref_loc_body(byte_deltas, byte2_deltas),
+        );
+        emit(
+            &mut out,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        out
+    }
+
+    #[test]
+    fn no_ref_location_component_yields_zero_counts() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap(&aid, &[(&[0x78u8][..], 0x80, 4, 0, 1)], None);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.ref_loc_byte_count, 0);
+        assert_eq!(pkg.ref_loc_byte2_count, 0);
+        assert_eq!(pkg.ref_loc_byte_deltas(), &[] as &[u8]);
+        assert_eq!(pkg.ref_loc_byte2_deltas(), &[] as &[u8]);
+    }
+
+    #[test]
+    fn empty_ref_location_component_yields_zero_counts() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_ref_loc(&aid, &[], &[]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.ref_loc_byte_count, 0);
+        assert_eq!(pkg.ref_loc_byte2_count, 0);
+    }
+
+    #[test]
+    fn single_byte_delta_round_trips() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_ref_loc(&aid, &[0x05], &[]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.ref_loc_byte_count, 1);
+        assert_eq!(pkg.ref_loc_byte_deltas(), &[0x05]);
+        assert_eq!(pkg.ref_loc_byte2_count, 0);
+    }
+
+    #[test]
+    #[allow(clippy::similar_names)]
+    fn multi_delta_lists_preserve_byte_order_and_0xff_continuation() {
+        // The 0xFF continuation byte is part of the spec's delta
+        // encoding (advance 254 without emitting a patch site).
+        // The parser stores it verbatim -- decoding is consumer-side.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let byte_deltas = [0x10, 0xFF, 0x05, 0x00, 0xFE];
+        let byte2_deltas = [0x07, 0x21, 0xFF, 0x40];
+        let cap = build_cap_with_ref_loc(&aid, &byte_deltas, &byte2_deltas);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.ref_loc_byte_count, 5);
+        assert_eq!(pkg.ref_loc_byte_deltas(), &byte_deltas);
+        assert_eq!(pkg.ref_loc_byte2_count, 4);
+        assert_eq!(pkg.ref_loc_byte2_deltas(), &byte2_deltas);
+    }
+
+    #[test]
+    fn rejects_byte_index_count_over_max() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let too_many = vec![0u8; MAX_REF_LOC_BYTE_INDICES + 1];
+        let cap = build_cap_with_ref_loc(&aid, &too_many, &[]);
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::TooManyRefLocByteIndices)
+        ));
+    }
+
+    #[test]
+    fn rejects_byte2_index_count_over_max() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let too_many = vec![0u8; MAX_REF_LOC_BYTE2_INDICES + 1];
+        let cap = build_cap_with_ref_loc(&aid, &[], &too_many);
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::TooManyRefLocByte2Indices)
+        ));
+    }
+
+    #[test]
+    fn accepts_ref_loc_at_exactly_max() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let max_byte = vec![0xAAu8; MAX_REF_LOC_BYTE_INDICES];
+        let max_byte2 = vec![0xBBu8; MAX_REF_LOC_BYTE2_INDICES];
+        let cap = build_cap_with_ref_loc(&aid, &max_byte, &max_byte2);
+        let pkg = parse(&cap).expect("parse at MAX_REF_LOC_*");
+        #[allow(clippy::cast_possible_truncation)]
+        let expected_byte = MAX_REF_LOC_BYTE_INDICES as u16;
+        #[allow(clippy::cast_possible_truncation)]
+        let expected_byte2 = MAX_REF_LOC_BYTE2_INDICES as u16;
+        assert_eq!(pkg.ref_loc_byte_count, expected_byte);
+        assert_eq!(pkg.ref_loc_byte2_count, expected_byte2);
+        assert_eq!(pkg.ref_loc_byte_deltas(), max_byte.as_slice());
+        assert_eq!(pkg.ref_loc_byte2_deltas(), max_byte2.as_slice());
+    }
+
+    #[test]
+    fn rejects_truncated_byte_deltas() {
+        // count says 3 but only 1 byte follows.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = Vec::new();
+        body.extend_from_slice(&3u16.to_be_bytes());
+        body.push(0xAA);
+        // Note: the 2nd count would need to follow but we're already short.
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&aid));
+        emit(&mut cap, tag::REFERENCE_LOCATION, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    #[test]
+    fn rejects_truncated_byte2_deltas() {
+        // First list ends cleanly; second list count promises more
+        // than the body holds.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let mut body = Vec::new();
+        body.extend_from_slice(&0u16.to_be_bytes());
+        body.extend_from_slice(&5u16.to_be_bytes());
+        body.extend_from_slice(&[0x10, 0x20]); // only 2 of 5 bytes
+        let mut cap = Vec::new();
+        emit(&mut cap, tag::HEADER, &header_body(&aid));
+        emit(&mut cap, tag::REFERENCE_LOCATION, &body);
+        emit(
+            &mut cap,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    #[test]
+    fn ref_loc_accessors_bound_to_count_not_storage() {
+        // If `ref_loc_byte_count` is 2, accessor must yield 2 bytes
+        // even though the underlying array has MAX_REF_LOC_BYTE_INDICES
+        // capacity. Stale bytes past `count` must not leak.
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_ref_loc(&aid, &[0x10, 0x20], &[]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.ref_loc_byte_deltas().len(), 2);
+        assert_eq!(pkg.ref_loc_byte_deltas(), &[0x10, 0x20]);
     }
 
     #[test]

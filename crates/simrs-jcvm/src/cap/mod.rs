@@ -92,6 +92,17 @@ pub const MAX_EXPORTED_FIELDS_PER_CLASS: usize = 16;
 /// Maximum static methods a single exported class can publish.
 pub const MAX_EXPORTED_METHODS_PER_CLASS: usize = 16;
 
+/// Maximum 1-byte CP-token reference locations the runtime tracks.
+///
+/// JCVM 3.2 § 6.12 carries one entry per byte in the Method /
+/// `StaticField` components that contains a 1-byte CP token; real
+/// applets typically have 50..200. This conservative cap covers
+/// small and moderate applets and is a per-deployment knob.
+pub const MAX_REF_LOC_BYTE_INDICES: usize = 128;
+
+/// Maximum 2-byte CP-token reference locations the runtime tracks.
+pub const MAX_REF_LOC_BYTE2_INDICES: usize = 64;
+
 // ---------------------------------------------------------------------------
 // Snapshot slot/block sizes -- single source of truth.
 //
@@ -128,6 +139,12 @@ pub(crate) const EXPORT_BLOCK_SIZE: usize = 1 + MAX_EXPORTED_CLASSES_PER_PACKAGE
 /// Snapshot bytes for the method-component-offsets parallel array
 /// (always `MAX_METHODS * 2` regardless of `method_count`).
 pub(crate) const METHOD_OFFSETS_BLOCK_SIZE: usize = MAX_METHODS * 2;
+
+/// Snapshot bytes for the reference-location block:
+/// `byte_count`(2) + `byte_deltas`(`MAX_REF_LOC_BYTE_INDICES`) +
+/// `byte2_count`(2) + `byte2_deltas`(`MAX_REF_LOC_BYTE2_INDICES`).
+pub(crate) const REF_LOC_BLOCK_SIZE: usize =
+    2 + MAX_REF_LOC_BYTE_INDICES + 2 + MAX_REF_LOC_BYTE2_INDICES;
 
 /// One entry in the Export component (JCVM 3.2 § 6.13).
 ///
@@ -551,6 +568,17 @@ pub struct Package {
     pub exports: [Option<ExportInfo>; MAX_EXPORTED_CLASSES_PER_PACKAGE],
     /// Number of valid export entries (`<= MAX_EXPORTED_CLASSES_PER_PACKAGE`).
     pub export_count: u8,
+    /// Delta-encoded byte offsets of 1-byte CP tokens in the Method
+    /// and `StaticField` components (JCVM 3.2 § 6.12). The token
+    /// patcher walks these deltas to find every byte that holds a
+    /// CP index needing resolution.
+    pub ref_loc_byte_deltas: [u8; MAX_REF_LOC_BYTE_INDICES],
+    /// Number of valid entries in [`Self::ref_loc_byte_deltas`].
+    pub ref_loc_byte_count: u16,
+    /// Delta-encoded byte offsets of 2-byte CP tokens.
+    pub ref_loc_byte2_deltas: [u8; MAX_REF_LOC_BYTE2_INDICES],
+    /// Number of valid entries in [`Self::ref_loc_byte2_deltas`].
+    pub ref_loc_byte2_count: u16,
 }
 
 impl Package {
@@ -573,6 +601,10 @@ impl Package {
             import_count: 0,
             exports: [None; MAX_EXPORTED_CLASSES_PER_PACKAGE],
             export_count: 0,
+            ref_loc_byte_deltas: [0u8; MAX_REF_LOC_BYTE_INDICES],
+            ref_loc_byte_count: 0,
+            ref_loc_byte2_deltas: [0u8; MAX_REF_LOC_BYTE2_INDICES],
+            ref_loc_byte2_count: 0,
         }
     }
 
@@ -694,6 +726,24 @@ impl Package {
             None
         }
     }
+
+    /// Slice of valid 1-byte-token reference-location deltas
+    /// (JCVM 3.2 § 6.12). The token patcher walks this sequence,
+    /// accumulating each byte as a delta from the previous absolute
+    /// offset; per spec, a byte of `0xFF` means "advance 254 and
+    /// continue without emitting a patch site".
+    #[must_use]
+    pub fn ref_loc_byte_deltas(&self) -> &[u8] {
+        let n = (self.ref_loc_byte_count as usize).min(MAX_REF_LOC_BYTE_INDICES);
+        &self.ref_loc_byte_deltas[..n]
+    }
+
+    /// Slice of valid 2-byte-token reference-location deltas.
+    #[must_use]
+    pub fn ref_loc_byte2_deltas(&self) -> &[u8] {
+        let n = (self.ref_loc_byte2_count as usize).min(MAX_REF_LOC_BYTE2_INDICES);
+        &self.ref_loc_byte2_deltas[..n]
+    }
 }
 
 /// Error returned when CAP parsing fails.
@@ -731,6 +781,10 @@ pub enum ParseError {
     /// One exported class names more static methods than
     /// `MAX_EXPORTED_METHODS_PER_CLASS`.
     TooManyExportedMethods,
+    /// `RefLocation` byte-index list exceeds `MAX_REF_LOC_BYTE_INDICES`.
+    TooManyRefLocByteIndices,
+    /// `RefLocation` byte2-index list exceeds `MAX_REF_LOC_BYTE2_INDICES`.
+    TooManyRefLocByte2Indices,
 }
 
 pub mod components;
@@ -933,6 +987,10 @@ pub fn parse_cap_blob(data: &[u8]) -> Result<Package, ParseError> {
         import_count: 0,
         exports: [None; MAX_EXPORTED_CLASSES_PER_PACKAGE],
         export_count: 0,
+        ref_loc_byte_deltas: [0u8; MAX_REF_LOC_BYTE_INDICES],
+        ref_loc_byte_count: 0,
+        ref_loc_byte2_deltas: [0u8; MAX_REF_LOC_BYTE2_INDICES],
+        ref_loc_byte2_count: 0,
     })
 }
 
@@ -1012,7 +1070,8 @@ impl Package {
         + APPLET_BLOCK_SIZE
         + IMPORT_BLOCK_SIZE
         + METHOD_OFFSETS_BLOCK_SIZE
-        + EXPORT_BLOCK_SIZE;
+        + EXPORT_BLOCK_SIZE
+        + REF_LOC_BLOCK_SIZE;
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     #[allow(clippy::too_many_lines)]
@@ -1192,11 +1251,25 @@ impl Package {
             }
         }
 
+        // RefLocation: byte_count(2 LE) + MAX_REF_LOC_BYTE_INDICES bytes +
+        // byte2_count(2 LE) + MAX_REF_LOC_BYTE2_INDICES bytes.
+        if off + REF_LOC_BLOCK_SIZE > buf.len() {
+            return 0;
+        }
+        buf[off..off + 2].copy_from_slice(&self.ref_loc_byte_count.to_le_bytes());
+        off += 2;
+        buf[off..off + MAX_REF_LOC_BYTE_INDICES].copy_from_slice(&self.ref_loc_byte_deltas);
+        off += MAX_REF_LOC_BYTE_INDICES;
+        buf[off..off + 2].copy_from_slice(&self.ref_loc_byte2_count.to_le_bytes());
+        off += 2;
+        buf[off..off + MAX_REF_LOC_BYTE2_INDICES].copy_from_slice(&self.ref_loc_byte2_deltas);
+        off += MAX_REF_LOC_BYTE2_INDICES;
+
         off
     }
 
     /// Restore package state from buffer. Returns success.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::similar_names)]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         let mut off = 0;
         let min_size = 1 + MAX_AID_LEN + 1;
@@ -1472,6 +1545,34 @@ impl Package {
             }
         }
 
+        // RefLocation: trailing block. Forward-compat for snapshots
+        // saved before the ref-loc section existed.
+        self.ref_loc_byte_count = 0;
+        self.ref_loc_byte_deltas = [0u8; MAX_REF_LOC_BYTE_INDICES];
+        self.ref_loc_byte2_count = 0;
+        self.ref_loc_byte2_deltas = [0u8; MAX_REF_LOC_BYTE2_INDICES];
+        if off + REF_LOC_BLOCK_SIZE <= buf.len() {
+            let byte_count = u16::from_le_bytes([buf[off], buf[off + 1]]);
+            off += 2;
+            if byte_count as usize > MAX_REF_LOC_BYTE_INDICES {
+                return false;
+            }
+            self.ref_loc_byte_count = byte_count;
+            self.ref_loc_byte_deltas
+                .copy_from_slice(&buf[off..off + MAX_REF_LOC_BYTE_INDICES]);
+            off += MAX_REF_LOC_BYTE_INDICES;
+            let byte2_count = u16::from_le_bytes([buf[off], buf[off + 1]]);
+            off += 2;
+            if byte2_count as usize > MAX_REF_LOC_BYTE2_INDICES {
+                return false;
+            }
+            self.ref_loc_byte2_count = byte2_count;
+            self.ref_loc_byte2_deltas
+                .copy_from_slice(&buf[off..off + MAX_REF_LOC_BYTE2_INDICES]);
+            off += MAX_REF_LOC_BYTE2_INDICES;
+        }
+        let _ = off;
+
         true
     }
 }
@@ -1676,27 +1777,34 @@ mod tests {
     // count then cascades through every site without per-call-site
     // re-derivation.
 
-    /// Total trailing block size after the CP block: applet block +
-    /// import block + method-offsets block + export block.
-    const TRAILING_BLOCKS_AFTER_CP: usize =
-        APPLET_BLOCK_SIZE + IMPORT_BLOCK_SIZE + METHOD_OFFSETS_BLOCK_SIZE + EXPORT_BLOCK_SIZE;
+    /// Total trailing block size after the CP block: applet +
+    /// import + method-offsets + export + ref-loc.
+    const TRAILING_BLOCKS_AFTER_CP: usize = APPLET_BLOCK_SIZE
+        + IMPORT_BLOCK_SIZE
+        + METHOD_OFFSETS_BLOCK_SIZE
+        + EXPORT_BLOCK_SIZE
+        + REF_LOC_BLOCK_SIZE;
 
     /// Locate the `cp_count` u16 in a snapshot whose CP, applet,
-    /// import, and export blocks are all empty.
+    /// import, export, and ref-loc blocks are all empty.
     const fn cp_count_offset_when_empty(n: usize) -> usize {
         n - TRAILING_BLOCKS_AFTER_CP - 2
     }
 
     /// Locate the `applet_count` byte in a snapshot whose applet,
-    /// import, method-offsets, and export blocks are empty.
+    /// import, method-offsets, export, and ref-loc blocks are empty.
     const fn applet_count_offset_when_empty(n: usize) -> usize {
-        n - EXPORT_BLOCK_SIZE - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE - APPLET_BLOCK_SIZE
+        n - REF_LOC_BLOCK_SIZE
+            - EXPORT_BLOCK_SIZE
+            - METHOD_OFFSETS_BLOCK_SIZE
+            - IMPORT_BLOCK_SIZE
+            - APPLET_BLOCK_SIZE
     }
 
     /// Locate the `import_count` byte in a snapshot whose import,
-    /// method-offsets, and export blocks are empty.
+    /// method-offsets, export, and ref-loc blocks are empty.
     const fn import_count_offset_when_empty(n: usize) -> usize {
-        n - EXPORT_BLOCK_SIZE - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE
+        n - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE
     }
 
     #[test]
@@ -1838,11 +1946,15 @@ mod tests {
         pkg2.import_count = 9;
         pkg2.export_count = 3;
         pkg2.method_offsets[0] = 0xBEEF;
+        pkg2.ref_loc_byte_count = 5;
+        pkg2.ref_loc_byte2_count = 7;
         assert!(pkg2.restore_state(truncated));
         assert_eq!(pkg2.applet_count, 0);
         assert_eq!(pkg2.import_count, 0);
         assert_eq!(pkg2.export_count, 0);
         assert_eq!(pkg2.method_offsets[0], 0);
+        assert_eq!(pkg2.ref_loc_byte_count, 0);
+        assert_eq!(pkg2.ref_loc_byte2_count, 0);
     }
 
     #[test]
@@ -1940,9 +2052,9 @@ mod tests {
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        // export_count is the first byte of the export block, which
-        // is the tail of the snapshot.
-        let off = n - EXPORT_BLOCK_SIZE;
+        // export_count is the first byte of the export block; the
+        // ref-loc block follows it at the tail.
+        let off = n - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE;
         #[allow(clippy::cast_possible_truncation)]
         let bad = (MAX_EXPORTED_CLASSES_PER_PACKAGE as u8) + 1;
         snap[off] = bad;
@@ -1955,41 +2067,98 @@ mod tests {
     }
 
     #[test]
-    fn old_snapshot_without_export_block_restores_to_empty_exports() {
+    #[allow(clippy::cast_possible_truncation)]
+    fn package_snapshot_roundtrip_with_ref_loc_deltas() {
+        // Snapshot adversarial ref-loc deltas (including 0xFF
+        // continuation bytes) and verify they round-trip byte-for-byte.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        pkg.ref_loc_byte_deltas[0] = 0x10;
+        pkg.ref_loc_byte_deltas[1] = 0xFF;
+        pkg.ref_loc_byte_deltas[2] = 0x05;
+        pkg.ref_loc_byte_count = 3;
+        pkg.ref_loc_byte2_deltas[0] = 0x21;
+        pkg.ref_loc_byte2_deltas[1] = 0xFE;
+        pkg.ref_loc_byte2_count = 2;
+
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        assert!(n > 0);
+
+        let mut pkg2 = Package::empty();
+        assert!(pkg2.restore_state(&snap[..n]));
+        assert_eq!(pkg2.ref_loc_byte_count, 3);
+        assert_eq!(pkg2.ref_loc_byte_deltas(), &[0x10, 0xFF, 0x05]);
+        assert_eq!(pkg2.ref_loc_byte2_count, 2);
+        assert_eq!(pkg2.ref_loc_byte2_deltas(), &[0x21, 0xFE]);
+    }
+
+    #[test]
+    fn restore_rejects_snapshot_with_ref_loc_byte_count_over_max() {
         let mut pkg = Package::empty();
         pkg.aid_len = 1;
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated = &snap[..n - EXPORT_BLOCK_SIZE];
+        // ref_loc_byte_count is the first u16 of the ref-loc block.
+        let off = n - REF_LOC_BLOCK_SIZE;
+        #[allow(clippy::cast_possible_truncation)]
+        let bad = (MAX_REF_LOC_BYTE_INDICES as u16) + 1;
+        snap[off..off + 2].copy_from_slice(&bad.to_le_bytes());
+
+        let mut pkg2 = Package::empty();
+        assert!(
+            !pkg2.restore_state(&snap[..n]),
+            "restore must reject ref_loc_byte_count > MAX_REF_LOC_BYTE_INDICES"
+        );
+    }
+
+    #[test]
+    fn old_snapshot_without_export_block_restores_to_empty_exports() {
+        // Forward compat: drop both ref-loc and export blocks to
+        // simulate a snapshot saved before either existed.
+        let mut pkg = Package::empty();
+        pkg.aid_len = 1;
+        pkg.aid[0] = 0xAA;
+        let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+        let n = pkg.save_state(&mut snap);
+        let truncated = &snap[..n - REF_LOC_BLOCK_SIZE - EXPORT_BLOCK_SIZE];
 
         let mut pkg2 = Package::empty();
         pkg2.export_count = 7;
+        pkg2.ref_loc_byte_count = 5;
         assert!(pkg2.restore_state(truncated));
         assert_eq!(pkg2.export_count, 0);
+        assert_eq!(pkg2.ref_loc_byte_count, 0);
     }
 
     #[test]
     fn old_snapshot_without_import_block_restores_to_empty_imports() {
         // A snapshot ending right after the applet block predates
-        // the import / method-offsets / export blocks; restore must
-        // accept and zero each of them.
+        // the import / method-offsets / export / ref-loc blocks;
+        // restore must accept and zero each of them.
         let mut pkg = Package::empty();
         pkg.aid_len = 1;
         pkg.aid[0] = 0xAA;
         let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
         let n = pkg.save_state(&mut snap);
-        let truncated =
-            &snap[..n - EXPORT_BLOCK_SIZE - METHOD_OFFSETS_BLOCK_SIZE - IMPORT_BLOCK_SIZE];
+        let truncated = &snap[..n
+            - REF_LOC_BLOCK_SIZE
+            - EXPORT_BLOCK_SIZE
+            - METHOD_OFFSETS_BLOCK_SIZE
+            - IMPORT_BLOCK_SIZE];
 
         let mut pkg2 = Package::empty();
         pkg2.import_count = 7;
         pkg2.export_count = 9;
         pkg2.method_offsets[1] = 0xCAFE;
+        pkg2.ref_loc_byte_count = 5;
         assert!(pkg2.restore_state(truncated));
         assert_eq!(pkg2.import_count, 0);
         assert_eq!(pkg2.export_count, 0);
         assert_eq!(pkg2.method_offsets[1], 0);
+        assert_eq!(pkg2.ref_loc_byte_count, 0);
     }
 
     #[test]
