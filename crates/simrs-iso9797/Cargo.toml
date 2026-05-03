@@ -8,6 +8,10 @@ description = "ISO 9797-1 CBC-MAC and CBC encrypt/decrypt for DES/3DES/AES -- no
 [features]
 default = []
 std     = []
+# Constant-time validation (tacet Bayesian timing analysis) -- dev/test only.
+# Marker that gates the `ct_validation` test module; the actual
+# `simrs-consttime-validation` dev-dep is always linked at test time.
+ct-validation = []
 
 [dependencies]
 simrs-des      = { workspace = true }
@@ -15,7 +19,8 @@ simrs-rijndael = { workspace = true }
 simrs-secret   = { workspace = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest                   = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

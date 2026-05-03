@@ -667,3 +667,324 @@ mod proptests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (tacet Bayesian timing analysis)
+//
+// Run via: cargo test -p simrs-iso9797 --features ct-validation ct_validation
+//
+// Each test compares two execution-time distributions:
+//   * class 0: fixed (all-zero) secret key + random data
+//   * class 1: random secret key + random data
+//
+// A constant-time implementation must show no statistically-detectable
+// timing difference between the classes. The block ciphers underneath
+// (DES/3DES/AES) are individually validated in their own crates;
+// these tests confirm that the multi-block CBC chaining loops, padding
+// helpers, and CMAC subkey derivation introduce no additional timing
+// dependence on the secret key or data.
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+#[allow(clippy::cast_possible_truncation)]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
+
+    // ---- AES-128 CBC ----
+
+    #[test]
+    fn aes128_cbc_mac_ct() {
+        let outcome = ct_test(
+            0xA1A1_C9AC,
+            |rng| {
+                let key = [0u8; 16];
+                let mut data = [0u8; 32];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 32];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                let secret = Secret::new(*key);
+                let mac = aes128_cbc_mac(&secret, data);
+                black_box(mac);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn aes128_cbc_encrypt_ct() {
+        let outcome = ct_test(
+            0xA1A1_C9CE,
+            |rng| {
+                let key = [0u8; 16];
+                let mut data = [0u8; 32];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 32];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                let secret = Secret::new(*key);
+                let mut buf = *data;
+                aes128_cbc_encrypt(&secret, &[0u8; 16], &mut buf);
+                black_box(buf);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn aes128_cbc_decrypt_ct() {
+        let outcome = ct_test(
+            0xA1A1_C9CD,
+            |rng| {
+                let key = [0u8; 16];
+                let mut data = [0u8; 32];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 32];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                let secret = Secret::new(*key);
+                let mut buf = *data;
+                aes128_cbc_decrypt(&secret, &[0u8; 16], &mut buf);
+                black_box(buf);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn aes_cmac_ct() {
+        let outcome = ct_test(
+            0xA1AC_C0AC,
+            |rng| {
+                let key = [0u8; 16];
+                let mut data = [0u8; 24]; // not block-aligned -> exercises padding path
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 24];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                let secret = Secret::new(*key);
+                let mac = aes_cmac(&secret, data);
+                black_box(mac);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    // ---- DES / 3DES CBC ----
+
+    #[test]
+    fn des_cbc_mac_ct() {
+        let outcome = ct_test(
+            0xDE5C_C9AC,
+            |rng| {
+                let key = [0u8; 8];
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 8];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                let secret = Secret::new(*key);
+                let mac = des_cbc_mac(&secret, data);
+                black_box(mac);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn des3_2key_cbc_mac_ct() {
+        let outcome = ct_test(
+            0x3DE5_2C9A,
+            |rng| {
+                let key = [0u8; 16];
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                let secret = Secret::new(*key);
+                let mac = des3_2key_cbc_mac(&secret, data);
+                black_box(mac);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn des3_2key_cbc_encrypt_ct() {
+        let outcome = ct_test(
+            0x3DE5_2CCE,
+            |rng| {
+                let key = [0u8; 16];
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                let secret = Secret::new(*key);
+                let mut buf = *data;
+                des3_2key_cbc_encrypt(&secret, &[0u8; 8], &mut buf);
+                black_box(buf);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn des3_2key_cbc_decrypt_ct() {
+        let outcome = ct_test(
+            0x3DE5_2CCD,
+            |rng| {
+                let key = [0u8; 16];
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                let secret = Secret::new(*key);
+                let mut buf = *data;
+                des3_2key_cbc_decrypt(&secret, &[0u8; 8], &mut buf);
+                black_box(buf);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn des3_3key_cbc_mac_ct() {
+        let outcome = ct_test(
+            0x3DE5_3C9A,
+            |rng| {
+                let key = [0u8; 24];
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |rng| {
+                let mut key = [0u8; 24];
+                rng.fill_bytes(&mut key);
+                let mut data = [0u8; 16];
+                rng.fill_bytes(&mut data);
+                (key, data)
+            },
+            |(key, data)| {
+                let secret = Secret::new(*key);
+                let mac = des3_3key_cbc_mac(&secret, data);
+                black_box(mac);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    // ---- DES / 3DES ECB single-block ----
+
+    #[test]
+    fn des3_2key_ecb_encrypt_ct() {
+        let outcome = ct_test(
+            0x3DE5_2EBE,
+            |rng| {
+                let key = [0u8; 16];
+                let mut block = [0u8; 8];
+                rng.fill_bytes(&mut block);
+                (key, block)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut block = [0u8; 8];
+                rng.fill_bytes(&mut block);
+                (key, block)
+            },
+            |(key, block)| {
+                let secret = Secret::new(*key);
+                let ct = des3_2key_ecb_encrypt(&secret, block);
+                black_box(ct);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn des3_2key_ecb_decrypt_ct() {
+        let outcome = ct_test(
+            0x3DE5_2EBD,
+            |rng| {
+                let key = [0u8; 16];
+                let mut block = [0u8; 8];
+                rng.fill_bytes(&mut block);
+                (key, block)
+            },
+            |rng| {
+                let mut key = [0u8; 16];
+                rng.fill_bytes(&mut key);
+                let mut block = [0u8; 8];
+                rng.fill_bytes(&mut block);
+                (key, block)
+            },
+            |(key, block)| {
+                let secret = Secret::new(*key);
+                let pt = des3_2key_ecb_decrypt(&secret, block);
+                black_box(pt);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+}

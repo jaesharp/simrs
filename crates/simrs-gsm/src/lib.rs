@@ -54,6 +54,9 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+#[cfg(test)]
+extern crate alloc;
+
 pub mod profile;
 
 pub use simrs_comp128::Comp128Version;
@@ -449,7 +452,7 @@ impl GsmApp {
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
             return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
-        self.rsp_queue.get_response(cmd.le(), buf)
+        self.rsp_queue.get_response(cmd.response_len(), buf)
     }
 
     // -- PIN access gate --
@@ -475,7 +478,7 @@ impl GsmApp {
             return write_sw_raw(buf, SW_NO_EF_SELECTED[0], SW_NO_EF_SELECTED[1]);
         };
         let offset = u16::from_be_bytes([cmd.p1(), cmd.p2()]);
-        let le = u16::from(cmd.le().unwrap_or(0));
+        let le = u16::from(cmd.response_len().unwrap_or(0));
 
         match self.data.read_binary(ef, offset, le) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
@@ -579,7 +582,7 @@ impl GsmApp {
         }
         let mut rsp = [0u8; DF_RSP_LEN];
         build_df_response(self.fs.current_df(), &mut rsp);
-        let le = cmd.le().unwrap_or(0) as usize;
+        let le = cmd.response_len().unwrap_or(0) as usize;
         let n = if le == 0 {
             DF_RSP_LEN
         } else {
@@ -747,6 +750,7 @@ fn build_ef_response(ef: &EfDef, out: &mut [u8; 23]) {
 mod tests {
     use super::*;
     use simrs_fs::{EfDef, Fid, FileRef, Sfi};
+    use simrs_iso7816::apdu_with_data;
 
     // -- Test filesystem --
 
@@ -1073,14 +1077,8 @@ mod tests {
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
             0x0F, 0x10,
         ];
-        let mut apdu = [0u8; 4 + 1 + 16];
-        apdu[0] = 0xA0;
-        apdu[1] = 0x88;
-        apdu[2] = 0x00;
-        apdu[3] = 0x00;
-        apdu[4] = 0x10;
-        apdu[5..21].copy_from_slice(&rand);
-
+        // RUN GSM ALGORITHM (CLA 0xA0, INS 0x88) with 16-byte RAND.
+        let apdu = apdu_with_data(0xA0, 0x88, 0x00, 0x00, &rand);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x9F, 0x0C)); // 12 bytes available
 
@@ -1528,19 +1526,13 @@ mod tests {
         // SELECT DF.TELECOM, then EF.ADN
         send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x10]);
         send(&mut app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x6F, 0x3A]);
-        // UPDATE RECORD 3 (14 bytes) with new data
-        let mut apdu = [0u8; 5 + 14];
-        apdu[0] = 0xA0; // CLA
-        apdu[1] = 0xDC; // INS: UPDATE RECORD
-        apdu[2] = 0x03; // P1: record 3
-        apdu[3] = 0x04; // P2: absolute
-        apdu[4] = 0x0E; // Lc: 14 bytes
-        // Fill record with "Charlie" + padding
-        apdu[5] = 0x43; // 'C'
-        apdu[6] = 0x68; // 'h'
-        apdu[7] = 0x61; // 'a'
-        apdu[8] = 0x72; // 'r'
-        apdu[9..19].fill(0xFF);
+        // UPDATE RECORD 3 (14 bytes) with new data: "Char" + 0xFF padding.
+        let mut record = [0xFFu8; 14];
+        record[0] = 0x43; // 'C'
+        record[1] = 0x68; // 'h'
+        record[2] = 0x61; // 'a'
+        record[3] = 0x72; // 'r'
+        let apdu = apdu_with_data(0xA0, 0xDC, 0x03, 0x04, &record);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // READ RECORD 3
@@ -1739,11 +1731,7 @@ mod tests {
         let mut app = app();
         // Run GSM algorithm with known RAND.
         let rand_bytes: [u8; 16] = [0xAA; 16];
-        let mut algo_apdu = [0u8; 21];
-        algo_apdu[0] = 0xA0;
-        algo_apdu[1] = 0x88;
-        algo_apdu[4] = 0x10;
-        algo_apdu[5..21].copy_from_slice(&rand_bytes);
+        let algo_apdu = apdu_with_data(0xA0, 0x88, 0x00, 0x00, &rand_bytes);
         send(&mut app, &algo_apdu);
         let (orig_buf, orig_len) = send(&mut app, &[0xA0, 0xC0, 0x00, 0x00, 0x0C]);
         assert_eq!(sw(&orig_buf, orig_len), (0x90, 0x00));
@@ -1799,13 +1787,8 @@ mod tests {
     #[test]
     fn gsm_run_gsm_algo_without_pin1_rejected() {
         let mut app = app_with_pin1_enabled();
-        // RUN GSM ALGORITHM without PIN1 verification.
-        let mut apdu = [0u8; 4 + 1 + 16];
-        apdu[0] = 0xA0;
-        apdu[1] = 0x88;
-        apdu[2] = 0x00;
-        apdu[3] = 0x00;
-        apdu[4] = 0x10;
+        // RUN GSM ALGORITHM without PIN1 verification (16-byte zero RAND).
+        let apdu = apdu_with_data(0xA0, 0x88, 0x00, 0x00, &[0u8; 16]);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x69, 0x82));
     }
@@ -1950,19 +1933,13 @@ mod tests {
         // -- RUN GSM ALGORITHM (INS 0x88) -----------------------------------
 
         /// Build a RUN GSM ALGORITHM APDU with a 16-byte RAND.
-        fn run_gsm_algo_apdu() -> [u8; 21] {
-            let mut apdu = [0u8; 21];
-            apdu[0] = 0xA0;
-            apdu[1] = 0x88;
-            apdu[2] = 0x00;
-            apdu[3] = 0x00;
-            apdu[4] = 0x10;
+        fn run_gsm_algo_apdu() -> alloc::vec::Vec<u8> {
             // Non-trivial RAND to avoid any identity-element concerns.
-            apdu[5..21].copy_from_slice(&[
+            let rand: [u8; 16] = [
                 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE,
                 0xFF, 0x01,
-            ]);
-            apdu
+            ];
+            apdu_with_data(0xA0, 0x88, 0x00, 0x00, &rand)
         }
 
         #[test]
@@ -2633,12 +2610,7 @@ mod tests {
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
             0xBF, 0x35,
         ];
-        let mut apdu = [0u8; 21];
-        apdu[0] = 0xA0;
-        apdu[1] = 0x88;
-        apdu[4] = 0x10;
-        apdu[5..21].copy_from_slice(&rand);
-
+        let apdu = apdu_with_data(0xA0, 0x88, 0x00, 0x00, &rand);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(
             sw(&buf, len),
@@ -2792,6 +2764,7 @@ mod proptests {
     use super::*;
     use proptest::prelude::*;
     use simrs_fs::{EfDef, Fid, FileRef};
+    use simrs_iso7816::apdu_with_data;
 
     static PT_EF: EfDef = EfDef::transparent(
         Fid::new(0x2FE2),
@@ -2848,12 +2821,7 @@ mod proptests {
         fn run_gsm_algo_matches_comp128(rand in proptest::collection::vec(any::<u8>(), 16..=16)) {
             let ki = SubscriberKey::classify([0xAB; 16]);
             let mut app = GsmApp::new(&PT_MF, ki);
-            let mut apdu = [0u8; 21];
-            apdu[0] = 0xA0;
-            apdu[1] = 0x88;
-            apdu[4] = 0x10;
-            apdu[5..21].copy_from_slice(&rand);
-
+            let apdu = apdu_with_data(0xA0, 0x88, 0x00, 0x00, &rand);
             let cmd = Command::parse(&apdu).unwrap();
             let mut buf = [0u8; 256];
             let _ = app.handle(&cmd, &mut buf);
@@ -2901,15 +2869,8 @@ mod proptests {
             let _ = app.handle(&cmd, &mut buf);
 
             let lc = data.len() as u8;
-            let mut apdu = [0u8; 5 + 8];
-            apdu[0] = 0xA0;
-            apdu[1] = 0xD6;
-            apdu[2] = 0x00;
-            apdu[3] = 0x00;
-            apdu[4] = lc;
-            apdu[5..5 + data.len()].copy_from_slice(&data);
-
-            let cmd = Command::parse(&apdu[..5 + data.len()]).unwrap();
+            let apdu = apdu_with_data(0xA0, 0xD6, 0x00, 0x00, &data);
+            let cmd = Command::parse(&apdu).unwrap();
             let rsp = app.handle(&cmd, &mut buf);
             let len = rsp.len();
             prop_assert_eq!((buf[len-2], buf[len-1]), (0x90, 0x00),

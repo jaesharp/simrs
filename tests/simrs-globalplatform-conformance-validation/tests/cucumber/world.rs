@@ -1,11 +1,16 @@
 use cucumber::World;
-use simrs_card_api::{SimEvent, SimResponse};
-use simrs_gp_card::GpCard;
+use simrs_card_api::{DeterministicRng, SimEvent, SimResponse};
+use simrs_gp_card::{DEFAULT_RSP_CAP, GpCard};
 use simrs_gp_keys::KeySet;
 use simrs_gp_scp::ScpVersion;
 
 /// Default test key material (matches simrs-globalplatform-conformance-validation lib.rs constants).
 const KEY_BYTES: [u8; 16] = [0x40; 16];
+
+/// Fixed seed for the conformance test entropy source. Gherkin
+/// scenarios assert deterministic behaviour, so a deterministic RNG
+/// keeps card-challenge bytes stable across runs.
+const TEST_RNG_SEED: u64 = 0xC0FE_C0FE_C0FE_C0FE;
 
 /// Host-side SCP session: wraps commands with version-specific MAC.
 ///
@@ -17,7 +22,7 @@ pub trait ScpSessionHost {
     /// Session S-ENC key.
     fn session_enc(&self) -> [u8; 16];
     /// Session S-MAC key.
-    fn session_mac(&self) -> [u8; 16];
+    fn command_mac(&self) -> [u8; 16];
     /// Security level (P1 from EXT AUTH).
     fn security_level(&self) -> u8;
     /// Compute C-MAC for a command and advance chaining state.
@@ -42,7 +47,7 @@ impl ScpSessionHost for Scp01Session {
     fn session_enc(&self) -> [u8; 16] {
         self.enc
     }
-    fn session_mac(&self) -> [u8; 16] {
+    fn command_mac(&self) -> [u8; 16] {
         self.mac
     }
     fn security_level(&self) -> u8 {
@@ -73,7 +78,7 @@ impl ScpSessionHost for Scp02Session {
     fn session_enc(&self) -> [u8; 16] {
         self.enc
     }
-    fn session_mac(&self) -> [u8; 16] {
+    fn command_mac(&self) -> [u8; 16] {
         self.mac
     }
     fn security_level(&self) -> u8 {
@@ -105,7 +110,7 @@ impl ScpSessionHost for Scp03Session {
     fn session_enc(&self) -> [u8; 16] {
         self.enc
     }
-    fn session_mac(&self) -> [u8; 16] {
+    fn command_mac(&self) -> [u8; 16] {
         self.mac
     }
     fn security_level(&self) -> u8 {
@@ -125,11 +130,11 @@ impl ScpSessionHost for Scp03Session {
 
 /// Test world for GlobalPlatform BDD scenarios.
 ///
-/// Holds a live `GpCard<261>` instance and tracks APDU exchange state.
+/// Holds a live `GpCard<DeterministicRng, DEFAULT_RSP_CAP>` instance and tracks APDU exchange state.
 #[derive(World)]
 pub struct GpWorld {
     /// The in-process GP card being tested.
-    pub card: GpCard<261>,
+    pub card: GpCard<DeterministicRng, DEFAULT_RSP_CAP>,
     /// Whether the card has been powered on.
     pub powered: bool,
     /// Last raw response (data + SW1 + SW2).
@@ -149,7 +154,7 @@ pub struct GpWorld {
     /// Last APDU bytes sent (for replay tests).
     pub last_sent_apdu: Vec<u8>,
     /// Saved old session MAC key (for re-auth tests).
-    pub old_session_mac: [u8; 16],
+    pub old_command_mac: [u8; 16],
     /// Key version to use for INIT UPDATE (default: TEST_KEY_VERSION).
     pub init_update_kv: u8,
     /// Saved AID from FCI response (for next-occurrence comparison).
@@ -187,7 +192,7 @@ impl std::fmt::Debug for GpWorld {
 impl Default for GpWorld {
     fn default() -> Self {
         let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-        let mut card = GpCard::with_default_atr(&keys);
+        let mut card = GpCard::with_default_atr(&keys, DeterministicRng::new(TEST_RNG_SEED));
         // Add AES-128 keys at version 0x03 for SCP03 testing.
         let aes_keys = KeySet::aes128(KEY_BYTES, KEY_BYTES, KEY_BYTES);
         let _ = card.open_mut().add_key(0x03, &aes_keys);
@@ -202,7 +207,7 @@ impl Default for GpWorld {
             card_challenge: [0; 8],
             scp_session: None,
             last_sent_apdu: Vec::new(),
-            old_session_mac: [0; 16],
+            old_command_mac: [0; 16],
             init_update_kv: 0x01, // default key version (TEST_KEY_VERSION)
             saved_fci_aid: Vec::new(),
             host_cryptogram: [0; 8],
@@ -226,8 +231,8 @@ impl GpWorld {
         self.scp_session.as_ref().unwrap().session_enc()
     }
     /// Shorthand: session MAC key (panics if no session).
-    pub fn session_mac(&self) -> [u8; 16] {
-        self.scp_session.as_ref().unwrap().session_mac()
+    pub fn command_mac(&self) -> [u8; 16] {
+        self.scp_session.as_ref().unwrap().command_mac()
     }
     /// Shorthand: security level (panics if no session).
     pub fn security_level(&self) -> u8 {
@@ -376,8 +381,7 @@ impl GpWorld {
         let sel = simrs_globalplatform_conformance_validation::select_by_aid(
             simrs_globalplatform_conformance_validation::ISD_AID,
         );
-        let sel_len = 5 + simrs_globalplatform_conformance_validation::ISD_AID.len();
-        self.send_apdu(&sel[..sel_len]);
+        self.send_apdu(&sel);
         assert_eq!(
             self.sw1, 0x90,
             "SELECT ISD failed: {:02X}{:02X}",

@@ -4,16 +4,22 @@
 //!
 //! | Field | Size | Description |
 //! |-------|------|-------------|
-//! | card_lifecycle | 1 | `CardLifecycle` byte |
-//! | isd | 1+16+1+1 = 19 | aid_len + aid + lifecycle + privileges |
-//! | sd_count | 1 | number of active SDs |
-//! | sds[..] | sd_count * 19 | same layout as isd |
-//! | app_count | 1 | number of registered applets |
-//! | apps[..] | app_count * 19 | same layout |
-//! | channels[0..3] | 4 * 2 = 8 | state + selected_applet per channel |
-//! | scp_state | 76 | delegated to `simrs_gp_scp::save_scp_state` |
-//! | sequence_counter | 2 | SCP02 persistent counter |
-//! | default_selected | 1 | 0xFF = none, else registry index |
+//! | `card_lifecycle` | 1 | `CardLifecycle` byte |
+//! | `isd` | 1+16+1+1 = 19 | `aid_len` + aid + lifecycle + privileges |
+//! | `sd_count` | 1 | number of active SDs |
+//! | `sds[..]` | `sd_count` * 19 | same layout as `isd` |
+//! | `app_count` | 1 | number of registered applets |
+//! | `apps[..]` | `app_count` * 19 | same layout |
+//! | `channels[0..3]` | 4 * 2 = 8 | state + `selected_applet` per channel |
+//! | `scp_state` | 76 | delegated to `simrs_gp_scp::save_scp_state` |
+//! | `sequence_counter` | 2 | SCP02 persistent counter |
+//! | `default_selected` | 1 | 0xFF = none, else registry index |
+//! | `personalization_target` | 1 | 0xFF = none, else registry index of the recipient set by INSTALL [for personalization] |
+//!
+//! Transient state NOT persisted: the in-flight STORE DATA accumulator
+//! (`StoreDataState`) and the JCVM heap. A snapshot taken in the middle
+//! of a STORE DATA chain loses any blocks accumulated so far; the host
+//! must restart the chain after restoring.
 
 // TODO: JCVM snapshot integration is deferred -- the JCVM itself (packages,
 // heap, static fields) is not yet persisted in the GpOpen snapshot. Only the
@@ -88,6 +94,7 @@ pub const fn snapshot_size(max_applets: usize, max_sds: usize) -> usize {
     + SCP_STATE_SNAPSHOT_SIZE // scp_state
     + 2 // sequence_counter
     + 1 // default_selected
+    + 1 // personalization_target
 }
 
 /// Save the entire `GpOpen` state into `buf`. Returns bytes written.
@@ -106,6 +113,7 @@ pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     scp_state: &ScpState,
     sequence_counter: u16,
     default_selected: Option<u8>,
+    personalization_target: Option<u8>,
     buf: &mut [u8],
 ) -> usize {
     let needed = snapshot_size(MAX_APPLETS, MAX_SDS);
@@ -239,6 +247,10 @@ pub fn save_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     buf[off] = default_selected.unwrap_or(0xFF);
     off += 1;
 
+    // Personalization target (INSTALL [for personalization] recipient).
+    buf[off] = personalization_target.unwrap_or(0xFF);
+    off += 1;
+
     off
 }
 
@@ -258,6 +270,7 @@ pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     scp_state: &mut ScpState,
     sequence_counter: &mut u16,
     default_selected: &mut Option<u8>,
+    personalization_target: &mut Option<u8>,
     buf: &[u8],
 ) -> bool {
     let needed = snapshot_size(MAX_APPLETS, MAX_SDS);
@@ -408,6 +421,11 @@ pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     // Default selected.
     let ds = buf[off];
     *default_selected = if ds == 0xFF { None } else { Some(ds) };
+    off += 1;
+
+    // Personalization target.
+    let pt = buf[off];
+    *personalization_target = if pt == 0xFF { None } else { Some(pt) };
 
     true
 }

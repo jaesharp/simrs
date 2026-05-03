@@ -89,28 +89,38 @@ All 3GPP, ETSI, ISO, and NIST specifications referenced by simrs, with latest kn
 
 ## GlobalPlatform Card Specifications
 
-| Spec | Title | Version | Ref | simrs Crate |
-|------|-------|---------|-----|-------------|
-| GP Card Specification | Card Management, OPEN, Security Domains | v2.1.1 | GPC_SPE_006 | gp-open, gp-scp, gp-keys |
-| GP Card Specification | (intermediate) | v2.2, v2.2.1 | -- | gp-open (reference) |
-| GP Card Specification | Current CC-certified | v2.3.1 | GPC_SPE_034 | gp-scp (SCP03 forward compat) |
-| GP Amendment A | Confidential Card Content Management | v1.2 | GPC_SPE_007 | gp-open (DAP) |
-| GP Amendment B | Remote Application Management over HTTP | v1.1.3 | GPC_SPE_011 | (future) |
-| GP Amendment C | Contactless Services | v1.2 | GPC_SPE_025 | gp-card (JCOP21+) |
-| GP Amendment D | Secure Channel Protocol 03 | v1.1.2 | GPC_SPE_014 | gp-scp |
-| GP Amendment E | Security Upgrade (ECC/RSA) | v1.1 | GPC_SPE_042 | gp-scp (re-integrated into GPCS) |
-| GP SE Access Control | Secure Element Access Control | v1.1 | GPD_SPE_013 | gp-card (Android HCE) |
+Primary target: **GP 2.3.1** (CC-certified) + Amendment D (SCP03). Legacy
+target: GP 2.1.1 (JCOP10..JCOP31bio compatibility). Detailed conformance
+status is tracked in [06-globalplatform.md](06-globalplatform.md#conformance-status-2026-04-snapshot).
+
+| Spec | Title | Version | Ref | Status | simrs Crate |
+|------|-------|---------|-----|--------|-------------|
+| GP Card Specification | Card Management, OPEN, Security Domains | v2.3.1 | GPC_SPE_034 | Primary | gp-open, gp-scp, gp-keys |
+| GP Card Specification | (legacy compat for JCOP10..JCOP31bio) | v2.1.1 | GPC_SPE_006 | Legacy | gp-open, gp-scp, gp-keys |
+| GP Card Specification | (intermediate) | v2.2, v2.2.1 | -- | Reference | gp-open (reference) |
+| GP Amendment A | Confidential Card Content Management | v1.2 | GPC_SPE_007 | Not implemented | gp-open (DAP) -- planned |
+| GP Amendment B | Remote Application Management over HTTP (SCP81) | v1.1.3 | GPC_SPE_011 | Not implemented | (future) |
+| GP Amendment C | Contactless Services | v1.2 | GPC_SPE_025 | N/A by design (transport layer) | -- |
+| GP Amendment D | Secure Channel Protocol 03 | v1.1.2 | GPC_SPE_014 | Implemented (i-parameter parsed but not enforced) | gp-scp |
+| GP Amendment E | Security Upgrade (ECC/RSA) | v1.1 | GPC_SPE_042 | Not implemented | gp-scp -- enables JCOP3x |
+| GP SE Access Control | Secure Element Access Control | v1.1 | GPD_SPE_013 | Not implemented | hle (Android HCE) |
 
 ## JavaCard Platform Specifications
 
-| Spec | Title | Version | simrs Crate | Notes |
-|------|-------|---------|-------------|-------|
-| JC Virtual Machine Spec | Bytecode set, CAP format, type system | 2.1.1 | jcvm | JCOP target spec |
-| JC Runtime Environment Spec | Applet lifecycle, firewall, transactions | 2.1.1 | jcre | JCOP target spec |
-| JC API | Framework classes, crypto API | 2.1.1 | jcre | JCOP target spec |
-| JC VM Spec | (many applets target this) | 2.2.2 | jcvm (reference) | Extended int support |
-| JC VM Spec + RE Spec | (current classic) | 3.0.5 | jcvm, jcre (reference) | Normative clarity |
-| JC VM Spec + RE Spec | (latest free) | 3.1, 3.2 | jcvm, jcre (reference) | Best normative source |
+Primary target: **JavaCard Classic Edition 3.2** (January 2023). Legacy target:
+JC 2.1.1 (JCOP target spec, ~82% of bytecodes implemented today). Detailed
+conformance status and the phased upgrade plan live in
+[06-globalplatform.md](06-globalplatform.md#phased-upgrade-plan).
+
+| Spec | Title | Version | Status | simrs Crate | Notes |
+|------|-------|---------|--------|-------------|-------|
+| JC Virtual Machine Spec | Bytecode set, CAP format, type system | 3.2 | Primary, in flight | jcvm | Most opcodes implemented; CAP parser is internal blob (Phase 2 fix) |
+| JC Runtime Environment Spec | Applet lifecycle, firewall, transactions | 3.2 | Primary, in flight | jcre | 2.1.1 baseline; multiselect/SIO/extended-APDU pending |
+| JC API | Framework, security, crypto, NIO, events, KDF, certs | 3.2 | Primary, in flight | jcre, jcvm/native | Small subset of packages today; Phase 5 is the bulk |
+| JC VM Spec + RE Spec | (latest classic) | 3.1 | Reference | -- | Normative clarity for 3.2 ambiguity |
+| JC VM Spec + RE Spec | (mid-classic) | 3.0.5 | Reference | -- | StaticResources component introduced |
+| JC VM Spec | (many older applets target this) | 2.2.2 | Reference | -- | Extended int support |
+| JC VM Spec + RE Spec + API | (legacy) | 2.1.1 | Legacy | jcvm, jcre | JCOP target spec |
 
 ## IBM JCOP Product Documentation
 

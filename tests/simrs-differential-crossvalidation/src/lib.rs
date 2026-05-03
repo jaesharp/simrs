@@ -61,10 +61,15 @@ pub use session::{DiffSession, DiffSessionBuilder};
 pub use simrs_interposer::diff::{DiffEngine, DiffRecord};
 pub use simrs_interposer::divergence::{CompareResult, DivergenceStats};
 
-use simrs_card_api::{SimEvent, SimResponse};
-use simrs_gp_card::GpCard;
+use simrs_card_api::{DeterministicRng, SimEvent, SimResponse};
+use simrs_gp_card::{DEFAULT_RSP_CAP, GpCard};
 use simrs_gp_keys::KeySet;
 use simrs_transport::{Transport, TransportError};
+
+/// Fixed seed for the test entropy source. Differential vectors are
+/// reproducible, so using a deterministic RNG anchors any byte-equality
+/// snapshots to a known value.
+pub const TEST_RNG_SEED: u64 = 0xDEAD_BEEF_CAFE_BABE;
 
 /// Allocate a free TCP port from the OS.
 ///
@@ -330,13 +335,13 @@ pub fn display_path(path: &std::path::Path) -> String {
 /// used interchangeably with any [`ReferenceBackend`] in the
 /// [`DiffEngine`].
 pub struct GpCardTerminal {
-    card: GpCard<261>,
+    card: GpCard<DeterministicRng, DEFAULT_RSP_CAP>,
     powered: bool,
 }
 
 impl GpCardTerminal {
     /// Create a new terminal wrapping the given card.
-    pub const fn new(card: GpCard<261>) -> Self {
+    pub const fn new(card: GpCard<DeterministicRng, DEFAULT_RSP_CAP>) -> Self {
         Self {
             card,
             powered: false,
@@ -352,7 +357,7 @@ impl GpCardTerminal {
     }
 
     /// Access the inner card.
-    pub const fn card(&self) -> &GpCard<261> {
+    pub const fn card(&self) -> &GpCard<DeterministicRng, DEFAULT_RSP_CAP> {
         &self.card
     }
 }
@@ -476,11 +481,16 @@ pub const KEY_BYTES: [u8; 16] = [
     0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
 ];
 
-/// ISD AID used by simrs (7 bytes, GP 2.1.1 default).
-pub const SIMRS_ISD_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+/// ISD AID used by simrs and Oracle jcsl (8 bytes, GP 2.3.1 default).
+///
+/// The two simulators now share the GP 2.3.1 8-byte default ISD AID,
+/// so the differential vectors use a single constant for both.
+pub const SIMRS_ISD_AID: [u8; 8] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00, 0x00];
 
-/// ISD AID used by Oracle jcsl (8 bytes, GP 2.3 default).
-pub const ORACLE_ISD_AID: [u8; 8] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00, 0x00];
+/// Backward-compatible alias for [`SIMRS_ISD_AID`]. Kept so existing
+/// differential vector code referring to the Oracle name compiles
+/// unchanged.
+pub const ORACLE_ISD_AID: [u8; 8] = SIMRS_ISD_AID;
 
 /// Build a SELECT-by-AID APDU: `00 A4 04 00 <Lc> <AID>`.
 ///
@@ -509,7 +519,7 @@ pub fn select_aid(aid: &[u8]) -> Vec<u8> {
 /// can be re-used across backends.
 pub struct DualCard<B: ReferenceBackend> {
     /// In-process simrs card.
-    pub simrs: GpCard<261>,
+    pub simrs: GpCard<DeterministicRng, DEFAULT_RSP_CAP>,
     /// Reference backend (implementor drops child process on Drop).
     pub reference: B,
 }
@@ -584,9 +594,9 @@ impl<B: ReferenceBackend> DualCard<B> {
 
 /// Configure an in-process `GpCard` with the shared differential test
 /// keys (DES3-2key + AES-128 @ KVN 0x03). Used by every factory.
-fn build_simrs_card() -> GpCard<261> {
+fn build_simrs_card() -> GpCard<DeterministicRng, DEFAULT_RSP_CAP> {
     let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-    let mut card = GpCard::with_default_atr(&keys);
+    let mut card = GpCard::with_default_atr(&keys, DeterministicRng::new(TEST_RNG_SEED));
     let aes_keys = KeySet::aes128(KEY_BYTES, KEY_BYTES, KEY_BYTES);
     let _ = card.open_mut().add_key(0x03, &aes_keys);
     card
@@ -694,7 +704,7 @@ mod tests {
     #[test]
     fn snap_gp_terminal_select_isd() {
         let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-        let card = GpCard::with_default_atr(&keys);
+        let card = GpCard::with_default_atr(&keys, DeterministicRng::new(TEST_RNG_SEED));
         let mut terminal = GpCardTerminal::new(card);
         terminal.power_on();
 
@@ -711,7 +721,7 @@ mod tests {
     #[test]
     fn snap_gp_terminal_select_unknown_aid() {
         let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-        let card = GpCard::with_default_atr(&keys);
+        let card = GpCard::with_default_atr(&keys, DeterministicRng::new(TEST_RNG_SEED));
         let mut terminal = GpCardTerminal::new(card);
         terminal.power_on();
 
@@ -725,7 +735,7 @@ mod tests {
     #[test]
     fn snap_gp_terminal_get_data_0066() {
         let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-        let card = GpCard::with_default_atr(&keys);
+        let card = GpCard::with_default_atr(&keys, DeterministicRng::new(TEST_RNG_SEED));
         let mut terminal = GpCardTerminal::new(card);
         terminal.power_on();
 
@@ -739,7 +749,7 @@ mod tests {
     #[test]
     fn snap_gp_terminal_invalid_ins() {
         let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-        let card = GpCard::with_default_atr(&keys);
+        let card = GpCard::with_default_atr(&keys, DeterministicRng::new(TEST_RNG_SEED));
         let mut terminal = GpCardTerminal::new(card);
         terminal.power_on();
 
@@ -753,7 +763,7 @@ mod tests {
     #[test]
     fn snap_gp_terminal_init_update() {
         let keys = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-        let card = GpCard::with_default_atr(&keys);
+        let card = GpCard::with_default_atr(&keys, DeterministicRng::new(TEST_RNG_SEED));
         let mut terminal = GpCardTerminal::new(card);
         terminal.power_on();
 

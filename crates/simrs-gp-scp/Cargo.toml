@@ -8,6 +8,10 @@ description = "GlobalPlatform SCP01/SCP02/SCP03 secure channel protocols -- no_s
 [features]
 default = []
 std     = []
+# Constant-time validation (tacet Bayesian timing analysis) -- dev/test only.
+# Marker that gates the `ct_validation` test module; the actual
+# `simrs-consttime-validation` dev-dep is always linked at test time.
+ct-validation = []
 
 [dependencies]
 simrs-des         = { workspace = true }
@@ -19,7 +23,9 @@ simrs-secret      = { workspace = true }
 simrs-apdu-schema = { workspace = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest                   = { workspace = true }
+simrs-consttime-validation = { workspace = true }
+simrs-iso7816              = { workspace = true }
 
 [lints]
 workspace = true

@@ -8,12 +8,15 @@ description = "Const-generic big integer arithmetic for RSA -- no_std, no_alloc"
 [features]
 default = []
 std     = []
+# Constant-time validation (tacet Bayesian timing analysis) -- dev/test only.
+ct-validation = []
 
 [dependencies]
 simrs-consttime = { workspace = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest                   = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

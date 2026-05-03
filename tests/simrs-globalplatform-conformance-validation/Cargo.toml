@@ -10,7 +10,7 @@ publish     = false
 crate-type = ["rlib"]
 
 [dependencies]
-simrs-iso7816  = { workspace = true }
+simrs-iso7816  = { workspace = true, features = ["alloc"] }
 simrs-bertlv   = { workspace = true }
 simrs-des      = { workspace = true }
 simrs-secret   = { workspace = true }

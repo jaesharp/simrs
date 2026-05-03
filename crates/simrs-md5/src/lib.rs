@@ -352,3 +352,59 @@ mod proptests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (tacet Bayesian timing analysis)
+//
+// MD5 itself processes public data in most uses, but it appears in JC API
+// `javacard.security.MessageDigest` where applet-supplied input may be
+// secret. These tests assert that the hash compression function shows no
+// statistically-detectable timing dependence on the input bytes.
+//
+// Run via: cargo test -p simrs-md5 --features ct-validation ct_validation
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
+
+    #[test]
+    fn md5_oneshot_is_constant_time_in_input() {
+        let outcome = ct_test(
+            0x00D5_C9A0,
+            |_rng| [0u8; 64],
+            |rng| {
+                let mut data = [0u8; 64];
+                rng.fill_bytes(&mut data);
+                data
+            },
+            |data| {
+                let h = md5(data);
+                black_box(h);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn md5_streaming_is_constant_time_in_input() {
+        let outcome = ct_test(
+            0x00D5_C9A1,
+            |_rng| [0u8; 128],
+            |rng| {
+                let mut data = [0u8; 128];
+                rng.fill_bytes(&mut data);
+                data
+            },
+            |data| {
+                let mut h = Md5::new();
+                h.update(data);
+                let out = h.finalize();
+                black_box(out);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+}

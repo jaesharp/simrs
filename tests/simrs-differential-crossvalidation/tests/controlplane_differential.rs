@@ -26,12 +26,14 @@
 //!   cargo test -p simrs-differential-crossvalidation --test controlplane_differential
 //! ```
 
+use simrs_card_api::DeterministicRng;
 use simrs_card_api::SimEvent;
 use simrs_controlplane::{
     CONTROLPLANE_AID, ControlplaneCard,
     probes::ping::{P2_PING, P2_VERSION, VERSION_STRING},
     protocol::{CLA as CP_CLA, Category, INS as CP_INS},
 };
+use simrs_differential_crossvalidation::TEST_RNG_SEED;
 use simrs_differential_crossvalidation::{
     GpCardTerminal, KEY_BYTES, ReferenceBackend, panic_or_skip_on_missing_backend, select_aid,
     select_backend, try_start_and_power_on,
@@ -47,7 +49,7 @@ use simrs_transport::Transport;
 /// the inner `GpCard` so subsequent APDUs are immediately valid.
 fn make_simrs_with_controlplane() -> ControlplaneCard<GpCardTerminal> {
     let keyset = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-    let mut card = GpCard::with_default_atr(&keyset);
+    let mut card = GpCard::with_default_atr(&keyset, DeterministicRng::new(TEST_RNG_SEED));
     // Power on the raw card so the first ATR is available before the
     // controlplane wrapper sees APDUs.
     let _atr = card.process(SimEvent::PowerOn);

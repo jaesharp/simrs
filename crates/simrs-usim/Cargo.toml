@@ -34,7 +34,7 @@ profile-all  = ["profile-full", "isim", "hpsim", "telecom", "gba"]
 ct-validation = []
 
 [dependencies]
-simrs-iso7816   = { workspace = true }
+simrs-iso7816   = { workspace = true, features = ["alloc"] }
 simrs-bertlv    = { workspace = true }
 simrs-milenage  = { workspace = true }
 simrs-fs        = { workspace = true }

@@ -21,11 +21,20 @@
 //! integrate with the same infrastructure (HLE, interposer, fuzzer, QEMU).
 //!
 //! # `no_std`
-//! This crate is fully `no_std`. No heap allocation.
+//! This crate is `no_std`. The embedded `JcVM` inside `GpOpen` is
+//! `Box`-allocated to avoid stack overflow (so the `GpOpen` crate
+//! pulls in `alloc`), but `GpCard` itself does no heap allocation in
+//! production paths -- the on-card entropy source is a generic type
+//! parameter.
 #![no_std]
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 #![allow(clippy::doc_markdown)]
+
+// Tests need `alloc::vec::Vec` for APDU buffers; the production paths
+// are heap-free.
+#[cfg(test)]
+extern crate alloc;
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -33,8 +42,15 @@ extern crate std;
 pub use simrs_card_api::{CardState, SimEvent, SimResponse, fnv1a};
 
 use simrs_gp_keys::KeySet;
-use simrs_gp_open::GpOpen;
+use simrs_gp_open::{DEFAULT_MAX_APPLETS, DEFAULT_MAX_SDS, GpOpen, snapshot::snapshot_size};
 use simrs_iso7816::StatusWord;
+
+/// Default response-buffer capacity for [`GpCard`].
+///
+/// Sized for the worst case of a 256-byte response + R-ENC padding
+/// (Method 2 adds up to 16 bytes for an already-aligned input) +
+/// 8-byte R-MAC trailer + 2-byte SW = 282 bytes, with 8 bytes of slack.
+pub const DEFAULT_RSP_CAP: usize = 290;
 
 #[cfg(feature = "sim")]
 use simrs_gp_open::AppletLifecycle;
@@ -69,11 +85,12 @@ const USIM_AID: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
 
 /// Fixed upper bound for the state hash buffer.
 ///
-/// `SNAPSHOT_SIZE` is `1 + GpOpen::<16, 4>::SNAPSHOT_SIZE` and does not
-/// depend on the `RSP_CAP` const generic, but Rust cannot prove that in
-/// array-length position on a generic impl. This module-level constant
-/// avoids the `const-evaluatable-unchecked` lint.
-const STATE_HASH_BUF: usize = 1 + GpOpen::<16, 4>::SNAPSHOT_SIZE;
+/// Equal to `1 + GpOpen` snapshot size for the default applet/SD
+/// capacities. Computed via the standalone `snapshot_size` const fn so
+/// the value does not depend on the `E` or `RSP_CAP` const generics --
+/// Rust cannot prove independence in array-length position on a generic
+/// impl, hence this module-level constant.
+const STATE_HASH_BUF: usize = 1 + snapshot_size(DEFAULT_MAX_APPLETS, DEFAULT_MAX_SDS);
 
 // ---------------------------------------------------------------------------
 // GpCard
@@ -81,24 +98,35 @@ const STATE_HASH_BUF: usize = 1 + GpOpen::<16, 4>::SNAPSHOT_SIZE;
 
 /// Top-level `GlobalPlatform` card simulator.
 ///
-/// `RSP_CAP` is the internal response buffer size (default 261 bytes,
-/// sufficient for a 256-byte response + 2-byte SW + 3-byte overhead).
+/// Generic parameters:
+/// - `E`: on-card entropy source ([`simrs_card_api::EntropySource`]).
+///   Production callers inject a hardware-backed implementation; tests
+///   inject [`simrs_card_api::DeterministicRng`] with an explicit seed.
+/// - `RSP_CAP`: internal response buffer size (default 290 bytes,
+///   sufficient for the worst case of a 256-byte response + R-ENC
+///   padding (Method 2 adds up to 16 bytes for an already-aligned
+///   input) + 8-byte R-MAC trailer + 2-byte SW = 282 bytes, with
+///   8 bytes of slack). Smaller buffers are accepted as the
+///   const-generic parameter; in those cases `maybe_wrap_rmac` skips
+///   R-MAC wrapping rather than panicking when the response would
+///   overflow.
 ///
 /// # Usage
 ///
 /// ```ignore
+/// use simrs_card_api::DeterministicRng;
 /// use simrs_gp_card::{GpCard, SimEvent, SimResponse};
 /// use simrs_gp_keys::KeySet;
 ///
 /// let keys = KeySet::des3_2key([0x40; 16], [0x40; 16], [0x40; 16]);
-/// let mut card = GpCard::new(DEFAULT_ATR, keys);
+/// let mut card = GpCard::new(DEFAULT_ATR, &keys, DeterministicRng::new(0x42));
 /// let rsp = card.process(SimEvent::PowerOn);
 /// // rsp is SimResponse::Atr(...)
 /// ```
-pub struct GpCard<const RSP_CAP: usize = 261> {
+pub struct GpCard<E: simrs_card_api::EntropySource, const RSP_CAP: usize = DEFAULT_RSP_CAP> {
     atr: &'static [u8],
     state: CardState,
-    open: GpOpen<16, 4>,
+    open: GpOpen<E, DEFAULT_MAX_APPLETS, DEFAULT_MAX_SDS>,
     rsp_buf: [u8; RSP_CAP],
     #[cfg(feature = "sim")]
     sim_applet: Option<SimApplet<MilenageParams>>,
@@ -107,16 +135,19 @@ pub struct GpCard<const RSP_CAP: usize = 261> {
     sim_registry_idx: u8,
 }
 
-impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
-    /// Create a new GP card with the given ATR and ISD key set.
+impl<E: simrs_card_api::EntropySource, const RSP_CAP: usize> GpCard<E, RSP_CAP> {
+    /// Create a new GP card with the given ATR, ISD key set, and entropy source.
     ///
     /// The card starts powered off. The ISD is initialized with the
-    /// provided keys and the card lifecycle is set to `OpReady`.
-    pub fn new(atr: &'static [u8], isd_keys: &KeySet) -> Self {
+    /// provided keys and the card lifecycle is set to `OpReady`. The
+    /// entropy source drives SCP01/SCP02-explicit-mode card-challenge
+    /// generation; see [`simrs_card_api::EntropySource`] for the trait
+    /// contract.
+    pub fn new(atr: &'static [u8], isd_keys: &KeySet, rng: E) -> Self {
         Self {
             atr,
             state: CardState::Off,
-            open: GpOpen::new(isd_keys),
+            open: GpOpen::new(isd_keys, rng),
             rsp_buf: [0u8; RSP_CAP],
             #[cfg(feature = "sim")]
             sim_applet: None,
@@ -125,9 +156,10 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
         }
     }
 
-    /// Create a new GP card with the default ATR and the given ISD key set.
-    pub fn with_default_atr(isd_keys: &KeySet) -> Self {
-        Self::new(DEFAULT_ATR, isd_keys)
+    /// Create a new GP card with the default ATR and the given ISD
+    /// key set + entropy source.
+    pub fn with_default_atr(isd_keys: &KeySet, rng: E) -> Self {
+        Self::new(DEFAULT_ATR, isd_keys, rng)
     }
 
     /// Create a GP card with a SIM/USIM applet deployed.
@@ -144,8 +176,9 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
         atr: &'static [u8],
         isd_keys: &KeySet,
         sim_applet: SimApplet<MilenageParams>,
+        rng: E,
     ) -> Self {
-        let mut open = GpOpen::new(isd_keys);
+        let mut open = GpOpen::new(isd_keys, rng);
 
         // Register the USIM AID in the GP registry.
         let slot = registry::find_empty_slot(open.registry())
@@ -262,12 +295,12 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
     // -- Accessors --
 
     /// Reference to the underlying GP OPEN runtime.
-    pub const fn open(&self) -> &GpOpen<16, 4> {
+    pub const fn open(&self) -> &GpOpen<E, DEFAULT_MAX_APPLETS, DEFAULT_MAX_SDS> {
         &self.open
     }
 
     /// Mutable reference to the underlying GP OPEN runtime.
-    pub const fn open_mut(&mut self) -> &mut GpOpen<16, 4> {
+    pub const fn open_mut(&mut self) -> &mut GpOpen<E, DEFAULT_MAX_APPLETS, DEFAULT_MAX_SDS> {
         &mut self.open
     }
 
@@ -314,7 +347,9 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
     // -- Snapshot --
 
     /// Snapshot buffer size: 1 (card state) + GpOpen snapshot size.
-    pub const SNAPSHOT_SIZE: usize = 1 + GpOpen::<16, 4>::SNAPSHOT_SIZE;
+    /// Computed via the standalone `snapshot_size` const fn so the
+    /// value does not depend on the `E` type parameter.
+    pub const SNAPSHOT_SIZE: usize = 1 + snapshot_size(DEFAULT_MAX_APPLETS, DEFAULT_MAX_SDS);
 
     /// Save the entire card state to `buf`.
     ///
@@ -364,12 +399,12 @@ impl<const RSP_CAP: usize> GpCard<RSP_CAP> {
     }
 }
 
-/// A GP card with the standard response buffer capacity (261 bytes)
-/// and SIM applet support.
+/// A GP card with the default response buffer capacity and SIM
+/// applet support, parameterised by an `EntropySource` `E`.
 ///
 /// This is the most common configuration for a combined GP+USIM card.
 #[cfg(feature = "sim")]
-pub type GpSimCard = GpCard<261>;
+pub type GpSimCard<E> = GpCard<E, DEFAULT_RSP_CAP>;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -378,8 +413,15 @@ pub type GpSimCard = GpCard<261>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use simrs_card_api::DeterministicRng;
     use simrs_gp_keys::KeySet;
     use simrs_gp_open::{CardLifecycle, INS_GET_DATA, INS_INITIALIZE_UPDATE};
+    use simrs_iso7816::{apdu_header, apdu_with_data};
+
+    /// Fixed seed for the test entropy source. Inlined so tests have a
+    /// single, named anchor for reproducibility -- bare hex literals
+    /// scattered through the suite would drift.
+    pub const TEST_RNG_SEED: u64 = 0xCAFE_BABE_DEAD_BEEF;
 
     fn test_keys() -> KeySet {
         let k = [
@@ -389,8 +431,12 @@ mod tests {
         KeySet::des3_2key(k, k, k)
     }
 
-    fn make_card() -> GpCard<261> {
-        GpCard::new(DEFAULT_ATR, &test_keys())
+    fn make_card() -> GpCard<DeterministicRng, DEFAULT_RSP_CAP> {
+        GpCard::new(
+            DEFAULT_ATR,
+            &test_keys(),
+            DeterministicRng::new(TEST_RNG_SEED),
+        )
     }
 
     // -- Test 1: PowerOn returns ATR --
@@ -433,16 +479,8 @@ mod tests {
         let mut card = make_card();
         let _ = card.process(SimEvent::PowerOn);
 
-        // SELECT by AID: 00 A4 04 00 07 <ISD AID>
-        let isd_aid: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
-        let mut apdu = [0u8; 12];
-        apdu[0] = 0x00; // CLA interindustry
-        apdu[1] = 0xA4; // INS SELECT
-        apdu[2] = 0x04; // P1 = select by name
-        apdu[3] = 0x00; // P2
-        apdu[4] = 0x07; // Lc = 7
-        apdu[5..12].copy_from_slice(&isd_aid);
-
+        let isd_aid: [u8; 8] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00, 0x00];
+        let apdu = apdu_with_data(0x00, 0xA4, 0x04, 0x00, &isd_aid);
         let rsp = card.process(SimEvent::Apdu(&apdu));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
@@ -463,15 +501,9 @@ mod tests {
         let mut card = make_card();
         let _ = card.process(SimEvent::PowerOn);
 
-        // INITIALIZE UPDATE: 80 50 00 00 08 <host_challenge[8]>
-        let mut apdu = [0u8; 13];
-        apdu[0] = 0x80;
-        apdu[1] = INS_INITIALIZE_UPDATE;
-        apdu[2] = 0x00; // P1 = key version 0 (any)
-        apdu[3] = 0x00;
-        apdu[4] = 0x08; // Lc
-        apdu[5..13].copy_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
-
+        // INITIALIZE UPDATE with key_version = 0 (any), 8-byte host challenge.
+        let host_challenge = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let apdu = apdu_with_data(0x80, INS_INITIALIZE_UPDATE, 0x00, 0x00, &host_challenge);
         let rsp = card.process(SimEvent::Apdu(&apdu));
         match rsp {
             SimResponse::Apdu { data, sw } => {
@@ -504,8 +536,8 @@ mod tests {
         let _ = card.process(SimEvent::PowerOn);
 
         // GET DATA 0066 does not require auth and returns card lifecycle.
-        // GP 2.1.1 clause 9.6: GET DATA is auth-exempt.
-        let apdu = [0x80, INS_GET_DATA, 0x00, 0x66];
+        // GP 2.3.1 § 11.3 (legacy 2.1.1 § 9.6): GET DATA is auth-exempt.
+        let apdu = apdu_header(0x80, INS_GET_DATA, 0x00, 0x66);
         let rsp = card.process(SimEvent::Apdu(&apdu));
         match rsp {
             SimResponse::Apdu { data, sw } => {
@@ -530,17 +562,12 @@ mod tests {
         let _ = card.process(SimEvent::PowerOn);
 
         // Issue INITIALIZE UPDATE to change SCP state.
-        let mut apdu = [0u8; 13];
-        apdu[0] = 0x80;
-        apdu[1] = INS_INITIALIZE_UPDATE;
-        apdu[2] = 0x00;
-        apdu[3] = 0x00;
-        apdu[4] = 0x08;
-        apdu[5..13].copy_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+        let host_challenge = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let apdu = apdu_with_data(0x80, INS_INITIALIZE_UPDATE, 0x00, 0x00, &host_challenge);
         let _ = card.process(SimEvent::Apdu(&apdu));
 
         // Save state.
-        let mut snap_buf = [0u8; GpCard::<261>::SNAPSHOT_SIZE];
+        let mut snap_buf = [0u8; GpCard::<DeterministicRng, DEFAULT_RSP_CAP>::SNAPSHOT_SIZE];
         let written = card.save_state(&mut snap_buf);
         assert!(written > 0, "snapshot should write bytes");
 
@@ -552,8 +579,8 @@ mod tests {
         assert!(card2.is_ready());
 
         // Verify restored card can process APDUs. Use GET DATA 0066 which
-        // is auth-exempt (GP 2.1.1 clause 9.6).
-        let get_data = [0x80, INS_GET_DATA, 0x00, 0x66];
+        // is auth-exempt (GP 2.3.1 § 11.3 / legacy 2.1.1 § 9.6).
+        let get_data = apdu_header(0x80, INS_GET_DATA, 0x00, 0x66);
         let rsp = card2.process(SimEvent::Apdu(&get_data));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
@@ -575,13 +602,8 @@ mod tests {
         let _ = card.process(SimEvent::PowerOn);
 
         // Start SCP session with INITIALIZE UPDATE.
-        let mut apdu = [0u8; 13];
-        apdu[0] = 0x80;
-        apdu[1] = INS_INITIALIZE_UPDATE;
-        apdu[2] = 0x00;
-        apdu[3] = 0x00;
-        apdu[4] = 0x08;
-        apdu[5..13].copy_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+        let host_challenge = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let apdu = apdu_with_data(0x80, INS_INITIALIZE_UPDATE, 0x00, 0x00, &host_challenge);
         let _ = card.process(SimEvent::Apdu(&apdu));
 
         // Verify SCP state is InitUpdateDone.
@@ -646,7 +668,7 @@ mod tests {
     #[test]
     fn snapshot_invalid_card_state_returns_false() {
         let mut card = make_card();
-        let mut buf = [0u8; GpCard::<261>::SNAPSHOT_SIZE];
+        let mut buf = [0u8; GpCard::<DeterministicRng, DEFAULT_RSP_CAP>::SNAPSHOT_SIZE];
         buf[0] = 0xFF; // invalid card state byte
         // Rest is zeros, which will also fail GpOpen restore, but we hit the
         // card state check first.
@@ -685,11 +707,14 @@ mod tests {
 #[cfg(test)]
 #[cfg(feature = "sim")]
 mod sim_tests {
+    use super::tests::TEST_RNG_SEED;
     use super::*;
+    use simrs_card_api::DeterministicRng;
     use simrs_fs::{AdfSlot, DfDef, EfDef, Fid, FileRef};
     use simrs_gp_keys::KeySet;
     use simrs_gp_open::{INS_GET_STATUS, INS_INITIALIZE_UPDATE};
     use simrs_gp_scp::ScpVersion;
+    use simrs_iso7816::{apdu_header, apdu_with_data};
     use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
     use simrs_sim::gp_adapter::SimApplet;
 
@@ -712,7 +737,7 @@ mod sim_tests {
     };
 
     static USIM_AID_BYTES: [u8; 7] = [0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02];
-    static ISD_AID_BYTES: [u8; 7] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00];
+    static ISD_AID_BYTES: [u8; 8] = [0xA0, 0x00, 0x00, 0x01, 0x51, 0x00, 0x00, 0x00];
 
     static ADF_TABLE: [AdfSlot; 1] = [AdfSlot {
         aid: &USIM_AID_BYTES,
@@ -735,15 +760,20 @@ mod sim_tests {
         SimApplet::new(&MF, &ADF_TABLE, mil)
     }
 
-    fn make_gp_sim_card() -> GpCard<261> {
-        GpCard::with_sim(DEFAULT_ATR, &test_keys(), make_sim_applet())
+    fn make_gp_sim_card() -> GpCard<DeterministicRng, DEFAULT_RSP_CAP> {
+        GpCard::with_sim(
+            DEFAULT_ATR,
+            &test_keys(),
+            make_sim_applet(),
+            DeterministicRng::new(TEST_RNG_SEED),
+        )
     }
 
     /// Perform full SCP02 mutual authentication on a powered-on card.
     ///
     /// Sends SELECT ISD, INITIALIZE UPDATE, derives session keys,
     /// computes host cryptogram + C-MAC, and sends EXTERNAL AUTHENTICATE.
-    fn scp02_authenticate(card: &mut GpCard<261>) {
+    fn scp02_authenticate(card: &mut GpCard<DeterministicRng, DEFAULT_RSP_CAP>) {
         let keys = test_keys();
 
         // 1. SELECT ISD.
@@ -756,16 +786,10 @@ mod sim_tests {
             _ => panic!("expected Apdu response for SELECT ISD"),
         }
 
-        // 2. INITIALIZE UPDATE: 80 50 00 00 08 <host_challenge[8]>
+        // 2. INITIALIZE UPDATE with key_version = 0 (any), 8-byte host
+        //    challenge.
         let hc: [u8; 8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let mut iu_apdu = [0u8; 13];
-        iu_apdu[0] = 0x80;
-        iu_apdu[1] = INS_INITIALIZE_UPDATE;
-        iu_apdu[2] = 0x00; // key version
-        iu_apdu[3] = 0x00; // key ID
-        iu_apdu[4] = 0x08; // Lc
-        iu_apdu[5..13].copy_from_slice(&hc);
-
+        let iu_apdu = apdu_with_data(0x80, INS_INITIALIZE_UPDATE, 0x00, 0x00, &hc);
         let rsp = card.process(SimEvent::Apdu(&iu_apdu));
         let iu_data = match rsp {
             SimResponse::Apdu { data, sw } => {
@@ -804,16 +828,11 @@ mod sim_tests {
             ScpVersion::Scp02,
         );
 
-        // 7. EXTERNAL AUTHENTICATE: 84 82 <sec_level> 00 10 <host_crypto[8]> <cmac[8]>
-        let mut ea_apdu = [0u8; 21];
-        ea_apdu[0] = 0x84;
-        ea_apdu[1] = 0x82;
-        ea_apdu[2] = security_level;
-        ea_apdu[3] = 0x00;
-        ea_apdu[4] = 0x10; // Lc = 16
-        ea_apdu[5..13].copy_from_slice(&host_crypto);
-        ea_apdu[13..21].copy_from_slice(&cmac);
-
+        // 7. EXTERNAL AUTHENTICATE with `host_cryptogram[8] || C-MAC[8]`.
+        let mut body = [0u8; 16];
+        body[..8].copy_from_slice(&host_crypto);
+        body[8..].copy_from_slice(&cmac);
+        let ea_apdu = apdu_with_data(0x84, 0x82, security_level, 0x00, &body);
         let rsp = card.process(SimEvent::Apdu(&ea_apdu));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
@@ -828,18 +847,8 @@ mod sim_tests {
     }
 
     /// Build a SELECT-by-AID APDU for the given AID.
-    fn select_aid_apdu(aid: &[u8]) -> [u8; 12] {
-        let mut apdu = [0u8; 12];
-        apdu[0] = 0x00; // CLA interindustry
-        apdu[1] = 0xA4; // INS SELECT
-        apdu[2] = 0x04; // P1 = select by name
-        apdu[3] = 0x00; // P2
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            apdu[4] = aid.len() as u8;
-        }
-        apdu[5..5 + aid.len()].copy_from_slice(aid);
-        apdu
+    fn select_aid_apdu(aid: &[u8]) -> alloc::vec::Vec<u8> {
+        apdu_with_data(0x00, 0xA4, 0x04, 0x00, aid)
     }
 
     // -- Test 1: SELECT USIM AID routes to SIM applet ----------------------
@@ -921,19 +930,18 @@ mod sim_tests {
         // Authenticate via SCP02 (GET STATUS requires an authenticated session).
         scp02_authenticate(&mut card);
 
-        // GET STATUS P1=0x80 (ISD): 80 F2 80 00
-        let apdu = [0x80, INS_GET_STATUS, 0x80, 0x00];
+        let apdu = apdu_header(0x80, INS_GET_STATUS, 0x80, 0x00);
         let rsp = card.process(SimEvent::Apdu(&apdu));
         match rsp {
             SimResponse::Apdu { data, sw } => {
                 assert_eq!(sw.to_bytes(), [0x90, 0x00], "GET STATUS should succeed");
-                // Response is E3 TLV per GP 2.1.1 Table 9-7:
+                // Response is E3 TLV per GP 2.3.1 § 11.4.3:
                 // E3 <len> { 4F <aid_len> <aid> 9F70 01 <lifecycle> C5 01 <privileges> }
                 assert!(data.len() >= 18, "GET STATUS should return ISD TLV data");
                 assert_eq!(data[0], 0xE3, "response should start with E3 tag");
                 assert_eq!(data[2], 0x4F, "AID tag should be 4F");
-                assert_eq!(data[3], 7, "ISD AID length should be 7");
-                assert_eq!(&data[4..11], &ISD_AID_BYTES, "ISD AID should match");
+                assert_eq!(data[3], 8, "ISD AID length should be 8 (GP 2.3.1)");
+                assert_eq!(&data[4..12], &ISD_AID_BYTES, "ISD AID should match");
             }
             _ => panic!("expected Apdu response for GET STATUS"),
         }
@@ -949,10 +957,10 @@ mod sim_tests {
         // Authenticate via SCP02 (GET STATUS requires an authenticated session).
         scp02_authenticate(&mut card);
 
-        // 1. SELECT USIM and issue a SIM command.
+        // 1. SELECT USIM and issue a SIM STATUS.
         let select_usim = select_aid_apdu(&USIM_AID_BYTES);
         let _ = card.process(SimEvent::Apdu(&select_usim));
-        let status_cmd = [0x00, 0xF2, 0x00, 0x0C];
+        let status_cmd = apdu_header(0x00, 0xF2, 0x00, 0x0C);
         let rsp = card.process(SimEvent::Apdu(&status_cmd));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
@@ -965,7 +973,7 @@ mod sim_tests {
         // 2. SELECT ISD and issue a GP command.
         let select_isd = select_aid_apdu(&ISD_AID_BYTES);
         let _ = card.process(SimEvent::Apdu(&select_isd));
-        let get_status = [0x80, INS_GET_STATUS, 0x80, 0x00];
+        let get_status = apdu_header(0x80, INS_GET_STATUS, 0x80, 0x00);
         let rsp = card.process(SimEvent::Apdu(&get_status));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
@@ -999,8 +1007,7 @@ mod sim_tests {
         // Authenticate via SCP02 (GET STATUS requires an authenticated session).
         scp02_authenticate(&mut card);
 
-        // GET STATUS P1=0x40 (applications): 80 F2 40 00
-        let apdu = [0x80, INS_GET_STATUS, 0x40, 0x00];
+        let apdu = apdu_header(0x80, INS_GET_STATUS, 0x40, 0x00);
         let rsp = card.process(SimEvent::Apdu(&apdu));
         match rsp {
             SimResponse::Apdu { data, sw } => {
@@ -1037,8 +1044,8 @@ mod sim_tests {
         let select_usim = select_aid_apdu(&USIM_AID_BYTES);
         let _ = card.process(SimEvent::Apdu(&select_usim));
 
-        // SELECT MF (FID 3F00): 00 A4 00 04 02 3F 00
-        let select_mf = [0x00, 0xA4, 0x00, 0x04, 0x02, 0x3F, 0x00];
+        // SELECT MF by FID 3F00 (case 3, 2-byte body).
+        let select_mf = apdu_with_data(0x00, 0xA4, 0x00, 0x04, &[0x3F, 0x00]);
         let rsp = card.process(SimEvent::Apdu(&select_mf));
         match rsp {
             SimResponse::Apdu { sw, .. } => {
@@ -1060,15 +1067,10 @@ mod sim_tests {
         let mut card = make_gp_sim_card();
         let _ = card.process(SimEvent::PowerOn);
 
-        // INITIALIZE UPDATE: 80 50 00 00 08 <host_challenge[8]>
-        let mut apdu = [0u8; 13];
-        apdu[0] = 0x80;
-        apdu[1] = INS_INITIALIZE_UPDATE;
-        apdu[2] = 0x00;
-        apdu[3] = 0x00;
-        apdu[4] = 0x08;
-        apdu[5..13].copy_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
-
+        // INITIALIZE UPDATE with key_version = 0 (any), 8-byte host
+        // challenge.
+        let host_challenge = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let apdu = apdu_with_data(0x80, INS_INITIALIZE_UPDATE, 0x00, 0x00, &host_challenge);
         let rsp = card.process(SimEvent::Apdu(&apdu));
         match rsp {
             SimResponse::Apdu { data, sw } => {
@@ -1091,7 +1093,12 @@ mod sim_tests {
 
     #[test]
     fn gp_sim_card_alias_compiles() {
-        let _card: GpSimCard = GpCard::with_sim(DEFAULT_ATR, &test_keys(), make_sim_applet());
+        let _card: GpSimCard<DeterministicRng> = GpCard::with_sim(
+            DEFAULT_ATR,
+            &test_keys(),
+            make_sim_applet(),
+            DeterministicRng::new(TEST_RNG_SEED),
+        );
     }
 
     // -- Test 10: sim_applet accessor works ---------------------------------
@@ -1104,7 +1111,11 @@ mod sim_tests {
             "with_sim card should have SIM applet"
         );
 
-        let card_no_sim: GpCard<261> = GpCard::new(DEFAULT_ATR, &test_keys());
+        let card_no_sim: GpCard<DeterministicRng, DEFAULT_RSP_CAP> = GpCard::new(
+            DEFAULT_ATR,
+            &test_keys(),
+            DeterministicRng::new(TEST_RNG_SEED),
+        );
         assert!(
             card_no_sim.sim_applet().is_none(),
             "regular card should not have SIM applet"

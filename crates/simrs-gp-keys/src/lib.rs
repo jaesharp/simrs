@@ -219,6 +219,28 @@ struct KeyEntry {
 /// Number (KVN). The KVN range is 0x01-0x7F per GP 2.1.1 Table 9-47.
 ///
 /// The ISD typically has 1-3 key versions. Supplementary SDs usually have 1.
+///
+/// # Constant-time properties
+///
+/// The lookup methods ([`get`](Self::get), [`has`](Self::has),
+/// [`get_or_default`](Self::get_or_default), [`remove`](Self::remove),
+/// [`put`](Self::put)) are **not** constant-time in the queried KVN: they
+/// short-circuit on the first match, so timing reveals the position of
+/// the matching entry within `entries`.
+///
+/// This is **acceptable by spec** because KVN is non-secret data:
+/// - GP 2.3.1 § 11.5.2 (INITIALIZE UPDATE) transmits the KVN in cleartext
+///   in P1 and echoes it back in the response.
+/// - GP 2.3.1 § 11.8.2.3 (PUT KEY) transmits the KVN in P1 and in the
+///   leading byte of the data field (also cleartext).
+/// - The GET STATUS response includes KVN information unencrypted.
+///
+/// **Do not pass secret data as a `version` argument** -- the timing
+/// channel will leak it. The KVN type system intentionally uses a plain
+/// `u8` rather than `Secret<u8>` to keep this contract visible.
+///
+/// The *key material* stored at a given KVN is secret, and the
+/// `KeySet`'s `Secret`-wrapped fields enforce that separately.
 pub struct KeyStore<const MAX_VERSIONS: usize> {
     entries: [Option<KeyEntry>; MAX_VERSIONS],
 }

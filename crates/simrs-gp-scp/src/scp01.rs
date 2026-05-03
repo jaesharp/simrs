@@ -53,7 +53,7 @@ pub fn scp01_derive_session_key(static_key: &[u8], derivation_data: &[u8; 16]) -
 
 /// Derive SCP01 session keys from static keys and challenges.
 ///
-/// Returns `(session_enc, session_mac, session_dek)`.
+/// Returns `(session_enc, command_mac, session_dek)`.
 pub fn derive_scp01_session_keys(
     keys: &KeySet,
     host_challenge: &[u8; 8],
@@ -92,4 +92,71 @@ pub fn compute_scp01_host_cryptogram(
     input[0..8].copy_from_slice(card_challenge);
     input[8..16].copy_from_slice(host_challenge);
     compute_cryptogram(session_enc, &input)
+}
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (tacet Bayesian timing analysis)
+//
+// Run via: cargo test -p simrs-gp-scp --features ct-validation ct_validation
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
+
+    #[test]
+    fn scp01_derive_session_key_ct() {
+        let outcome = ct_test(
+            0x5C_01D90,
+            |rng| {
+                let static_key = [0u8; 16];
+                let mut dd = [0u8; 16];
+                rng.fill_bytes(&mut dd);
+                (static_key, dd)
+            },
+            |rng| {
+                let mut static_key = [0u8; 16];
+                rng.fill_bytes(&mut static_key);
+                let mut dd = [0u8; 16];
+                rng.fill_bytes(&mut dd);
+                (static_key, dd)
+            },
+            |(static_key, dd)| {
+                let derived = scp01_derive_session_key(static_key, dd);
+                black_box(derived);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn scp01_compute_card_cryptogram_ct() {
+        let outcome = ct_test(
+            0x5C_01C90,
+            |rng| {
+                let session_enc = [0u8; 16];
+                let mut hc = [0u8; 8];
+                rng.fill_bytes(&mut hc);
+                let mut cc = [0u8; 8];
+                rng.fill_bytes(&mut cc);
+                (session_enc, hc, cc)
+            },
+            |rng| {
+                let mut session_enc = [0u8; 16];
+                rng.fill_bytes(&mut session_enc);
+                let mut hc = [0u8; 8];
+                rng.fill_bytes(&mut hc);
+                let mut cc = [0u8; 8];
+                rng.fill_bytes(&mut cc);
+                (session_enc, hc, cc)
+            },
+            |(session_enc, hc, cc)| {
+                let crypto = compute_scp01_card_cryptogram(session_enc, hc, cc);
+                black_box(crypto);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
 }

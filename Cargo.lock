@@ -1515,12 +1515,14 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "simrs-consttime",
+ "simrs-consttime-validation",
 ]
 
 [[package]]
 name = "simrs-card-api"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.2.17",
  "simrs-iso7816",
 ]
 
@@ -1676,10 +1678,12 @@ dependencies = [
  "proptest",
  "simrs-apdu-schema",
  "simrs-bertlv",
+ "simrs-card-api",
  "simrs-consttime",
  "simrs-gp-keys",
  "simrs-gp-scp",
  "simrs-iso7816",
+ "simrs-iso9797",
  "simrs-jcasm",
  "simrs-jcre",
  "simrs-jcvm",
@@ -1694,8 +1698,10 @@ dependencies = [
  "proptest",
  "simrs-apdu-schema",
  "simrs-consttime",
+ "simrs-consttime-validation",
  "simrs-des",
  "simrs-gp-keys",
+ "simrs-iso7816",
  "simrs-iso9797",
  "simrs-rijndael",
  "simrs-secret",
@@ -1718,6 +1724,7 @@ dependencies = [
 name = "simrs-hle"
 version = "0.1.0"
 dependencies = [
+ "simrs-card-api",
  "simrs-fs",
  "simrs-gp-card",
  "simrs-gp-keys",
@@ -1765,6 +1772,7 @@ name = "simrs-iso9797"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "simrs-consttime-validation",
  "simrs-des",
  "simrs-rijndael",
  "simrs-secret",
@@ -1879,6 +1887,7 @@ name = "simrs-md5"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "simrs-consttime-validation",
 ]
 
 [[package]]
@@ -2001,6 +2010,7 @@ dependencies = [
  "proptest",
  "simrs-bignum",
  "simrs-consttime",
+ "simrs-consttime-validation",
  "simrs-secret",
  "simrs-sha1",
 ]

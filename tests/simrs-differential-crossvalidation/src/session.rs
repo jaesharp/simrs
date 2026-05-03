@@ -33,7 +33,10 @@ use crate::reference::JcardengineBackend;
 #[cfg(feature = "jcsl-backend")]
 use crate::reference::JcslBackend;
 use crate::{GpCardTerminal, KEY_BYTES, ReferenceBackend};
+use simrs_card_api::DeterministicRng;
 use simrs_gp_card::GpCard;
+
+use crate::TEST_RNG_SEED;
 use simrs_gp_keys::KeySet;
 use simrs_interposer::diff::{DiffEngine, DiffRecord};
 use simrs_interposer::divergence::{CompareResult, DivergenceStats};
@@ -185,7 +188,8 @@ impl DiffSessionBuilder {
             match backend {
                 PendingBackend::SimrsGpCard => {
                     let keyset = KeySet::des3_2key(KEY_BYTES, KEY_BYTES, KEY_BYTES);
-                    let card = GpCard::with_default_atr(&keyset);
+                    let card =
+                        GpCard::with_default_atr(&keyset, DeterministicRng::new(TEST_RNG_SEED));
                     let mut terminal = GpCardTerminal::new(card);
                     terminal.power_on();
                     engine.add_backend("simrs", Box::new(terminal));

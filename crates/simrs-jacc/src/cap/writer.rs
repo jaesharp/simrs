@@ -612,6 +612,98 @@ mod tests {
         assert_eq!(pkg.method_count, 1);
     }
 
+    // -- Component-tagged round-trip via the new parser ---------------------
+    //
+    // These tests are the cross-crate validation for
+    // `simrs_jcvm::cap::components` -- they prove the writer's output
+    // is consumed correctly by the new parser, end to end.
+
+    #[test]
+    fn component_tagged_roundtrip_single_method_aid_and_bytecode() {
+        let compiled = sample_compiled();
+        let cap = CapWriter::new(&compiled).write();
+        // Sanity: this is the component-tagged shape (Header tag = 1).
+        assert_eq!(cap[0], TAG_HEADER);
+
+        // parse_cap must auto-route to the components parser.
+        let pkg = parse_cap(&cap).expect("component-tagged parse");
+        assert_eq!(
+            pkg.aid_slice(),
+            &compiled.aid,
+            "AID round-trips byte-for-byte through writer + parser"
+        );
+        assert_eq!(pkg.method_count, 1);
+        let m = pkg.method(0).unwrap();
+        assert_eq!(m.bytecode_len as usize, compiled.methods[0].len());
+        assert_eq!(
+            &m.bytecode[..compiled.methods[0].len()],
+            compiled.methods[0].as_slice(),
+            "bytecode survives the writer's extended-header framing"
+        );
+    }
+
+    #[test]
+    fn component_tagged_roundtrip_multi_method_distinct_bodies() {
+        // Adversarial: the two methods have different lengths AND
+        // different content. A parser that conflates the methods (e.g.
+        // single-method fallback path) would mis-attribute bytecodes;
+        // a parser that mis-computes the per-method offset/length
+        // would get the byte count wrong.
+        let compiled = sample_compiled_multi();
+        let cap = CapWriter::new(&compiled).write();
+
+        let pkg = parse_cap(&cap).expect("multi-method parse");
+        // method_count is u8; sample_compiled_multi has 2 methods, so
+        // the cast is provably non-truncating in this test.
+        #[allow(clippy::cast_possible_truncation)]
+        let expected_count = compiled.methods.len() as u8;
+        assert_eq!(pkg.method_count, expected_count);
+        for (i, expected_bc) in compiled.methods.iter().enumerate() {
+            #[allow(clippy::cast_possible_truncation)]
+            let m = pkg.method(i as u8).unwrap_or_else(|| panic!("method {i}"));
+            assert_eq!(
+                m.bytecode_len as usize,
+                expected_bc.len(),
+                "method {i} length round-trips"
+            );
+            assert_eq!(
+                &m.bytecode[..expected_bc.len()],
+                expected_bc.as_slice(),
+                "method {i} bytecode round-trips byte-for-byte"
+            );
+        }
+    }
+
+    #[test]
+    fn component_tagged_roundtrip_with_aid_at_max_length() {
+        // Boundary check: AIDs are 5..=16 bytes per ISO 7816-4. The
+        // writer's Header packs aid_length as a u8 followed by aid
+        // bytes; the parser must walk the same field correctly when
+        // the AID hits the upper bound.
+        let aid: Vec<u8> = (0..16u8).collect();
+        let compiled = CompiledClass {
+            aid: aid.clone(),
+            methods: vec![vec![0x78]],
+        };
+        let cap = CapWriter::new(&compiled).write();
+        let pkg = parse_cap(&cap).expect("16-byte AID parse");
+        assert_eq!(pkg.aid_slice(), aid.as_slice());
+    }
+
+    #[test]
+    fn writer_output_first_byte_is_header_tag_for_dispatch() {
+        // The dispatcher in `parse_cap` distinguishes formats by the
+        // first byte: tag 1 = component-tagged, 0xDE = simplified
+        // blob. If the writer ever changes which component appears
+        // first, this test fails loudly so the dispatcher can be
+        // adjusted in lockstep.
+        let cap = CapWriter::new(&sample_compiled()).write();
+        assert_eq!(
+            cap[0], TAG_HEADER,
+            "Header must be the first component for parse_cap dispatch to work"
+        );
+    }
+
     // -- Full CAP format tests --
 
     #[test]

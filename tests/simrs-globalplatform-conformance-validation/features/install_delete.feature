@@ -64,7 +64,7 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
 
   Background:
     Given a GP card in SECURED state
-    And the ISD has AID [A0 00 00 01 51 00 00]
+    And the ISD has AID [A0 00 00 01 51 00 00 00]
     And an authenticated SCP session with C-MAC is established
 
   # ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ Feature: INSTALL and DELETE Application Management (GP 2.1.1 clauses 9.5, 9.2)
     When I send INSTALL [for load] (P1=0x02) with:
       | field             | value                         |
       | Load File AID     | A0 00 00 00 62 01 01          |
-      | Security Domain   | A0 00 00 01 51 00 00 (ISD)    |
+      | Security Domain   | A0 00 00 01 51 00 00 00 (ISD) |
       | Data Block Hash   | (empty)                       |
       | Load Parameters   | (empty)                       |
     Then SW is 90 00

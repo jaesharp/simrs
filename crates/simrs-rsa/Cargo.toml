@@ -8,6 +8,8 @@ description = "RSA encryption/decryption and PKCS#1 v1.5 signing/verification --
 [features]
 default = []
 std     = []
+# Constant-time validation (tacet Bayesian timing analysis) -- dev/test only.
+ct-validation = []
 
 [dependencies]
 simrs-bignum    = { workspace = true }
@@ -16,7 +18,8 @@ simrs-secret    = { workspace = true }
 simrs-sha1      = { workspace = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest                   = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

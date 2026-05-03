@@ -78,7 +78,7 @@ fn cryptogram_dd(label: u8, context: &[u8; 16]) -> [u8; 32] {
 
 /// Derive SCP03 session keys from static key material and challenges.
 ///
-/// Returns `(s_enc, s_mac, s_rmac)`.
+/// Returns `(s_enc, command_mac, response_mac)`.
 ///
 /// Per Amendment D Section 6.2.2:
 /// - S-ENC derived from `static_enc` with label 0x04
@@ -86,7 +86,6 @@ fn cryptogram_dd(label: u8, context: &[u8; 16]) -> [u8; 32] {
 /// - S-RMAC derived from `static_mac` with label 0x07
 ///
 /// Context = `host_challenge(8) || card_challenge(8)`.
-#[allow(clippy::similar_names)]
 pub fn derive_session_keys(
     static_enc: &[u8; 16],
     static_mac: &[u8; 16],
@@ -98,10 +97,10 @@ pub fn derive_session_keys(
     context[8..16].copy_from_slice(card_challenge);
 
     let s_enc = kdf(static_enc, DERIV_S_ENC, 0x00, 128, &context);
-    let s_mac = kdf(static_mac, DERIV_S_MAC, 0x00, 128, &context);
-    let s_rmac = kdf(static_mac, DERIV_S_RMAC, 0x00, 128, &context);
+    let command_mac = kdf(static_mac, DERIV_S_MAC, 0x00, 128, &context);
+    let response_mac = kdf(static_mac, DERIV_S_RMAC, 0x00, 128, &context);
 
-    (s_enc, s_mac, s_rmac)
+    (s_enc, command_mac, response_mac)
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +114,7 @@ pub fn derive_session_keys(
 /// Where `derivation_data` uses label `DERIV_CARD_CRYPTO` (0x00) and L=64 bits.
 /// Context = `host_challenge(8) || card_challenge(8)`.
 pub fn compute_card_cryptogram(
-    s_mac: &[u8; 16],
+    command_mac: &[u8; 16],
     host_challenge: &[u8; 8],
     card_challenge: &[u8; 8],
 ) -> [u8; 8] {
@@ -124,7 +123,7 @@ pub fn compute_card_cryptogram(
     context[8..16].copy_from_slice(card_challenge);
 
     let dd = cryptogram_dd(DERIV_CARD_CRYPTO, &context);
-    let key = Secret::new(*s_mac);
+    let key = Secret::new(*command_mac);
     let mac = aes_cmac(&key, &dd);
     let mut result = [0u8; 8];
     result.copy_from_slice(&mac[..8]);
@@ -135,7 +134,7 @@ pub fn compute_card_cryptogram(
 ///
 /// Same as card cryptogram but with label `DERIV_HOST_CRYPTO` (0x01).
 pub fn compute_host_cryptogram(
-    s_mac: &[u8; 16],
+    command_mac: &[u8; 16],
     host_challenge: &[u8; 8],
     card_challenge: &[u8; 8],
 ) -> [u8; 8] {
@@ -144,7 +143,7 @@ pub fn compute_host_cryptogram(
     context[8..16].copy_from_slice(card_challenge);
 
     let dd = cryptogram_dd(DERIV_HOST_CRYPTO, &context);
-    let key = Secret::new(*s_mac);
+    let key = Secret::new(*command_mac);
     let mac = aes_cmac(&key, &dd);
     let mut result = [0u8; 8];
     result.copy_from_slice(&mac[..8]);
@@ -164,7 +163,7 @@ pub fn compute_host_cryptogram(
 /// The full 16-byte AES-CMAC output becomes the chaining value for the next command.
 #[allow(clippy::cast_possible_truncation)]
 pub fn generate_cmac(
-    s_mac: &[u8; 16],
+    command_mac: &[u8; 16],
     mac_chaining_value: &[u8; 16],
     apdu_header: &[u8; 4],
     data: &[u8],
@@ -181,7 +180,7 @@ pub fn generate_cmac(
     input[20] = new_lc as u8;
     input[21..21 + data.len()].copy_from_slice(data);
 
-    let key = Secret::new(*s_mac);
+    let key = Secret::new(*command_mac);
     let full_mac = aes_cmac(&key, &input[..input_len]);
     let mut mac8 = [0u8; 8];
     mac8.copy_from_slice(&full_mac[..8]);
@@ -222,7 +221,7 @@ pub(crate) const fn cenc_iv(s_enc: &[u8; 16], enc_counter: u16) -> [u8; 16] {
 #[allow(clippy::cast_possible_truncation, clippy::missing_errors_doc)]
 pub fn unwrap_command(
     session_enc: &[u8; 16],
-    session_mac: &[u8; 16],
+    command_mac: &[u8; 16],
     security_level: u8,
     mac_chaining_value: &mut [u8; 16],
     enc_counter: &mut u16,
@@ -275,7 +274,7 @@ pub fn unwrap_command(
         mac_input[21..21 + (data_end - 5)].copy_from_slice(&apdu[5..data_end]);
     }
 
-    let key = Secret::new(*session_mac);
+    let key = Secret::new(*command_mac);
     let expected_full = aes_cmac(&key, &mac_input[..input_len]);
 
     if !ct_eq(received_mac, &expected_full[..8]).into_bool() {
@@ -313,16 +312,13 @@ pub fn unwrap_command(
 // R-MAC (and optional R-ENC) for responses
 // ---------------------------------------------------------------------------
 
-/// Apply SCP03 R-MAC (and optionally R-ENC) to a response.
+/// Apply SCP03 R-MAC (and optionally R-ENC) to a response per
+/// GP 2.3.1 Amendment D § 6.2.7.
 ///
 /// Returns the number of bytes written to `output`.
-#[allow(
-    dead_code,
-    clippy::cast_possible_truncation,
-    clippy::too_many_arguments
-)]
-pub(crate) fn wrap_response(
-    session_rmac: &[u8; 16],
+#[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
+pub fn wrap_response(
+    response_mac: &[u8; 16],
     session_enc: &[u8; 16],
     security_level: u8,
     mac_chaining_value: &[u8; 16],
@@ -365,7 +361,7 @@ pub(crate) fn wrap_response(
     rmac_input[16 + enc_data_len] = sw1;
     rmac_input[16 + enc_data_len + 1] = sw2;
 
-    let rmac_key = Secret::new(*session_rmac);
+    let rmac_key = Secret::new(*response_mac);
     let full_rmac = aes_cmac(&rmac_key, &rmac_input[..rmac_input_len]);
 
     // Output: response_data || R-MAC(8) || SW1 || SW2
@@ -450,4 +446,217 @@ fn unpad_method2(data: &[u8]) -> usize {
         }
     }
     0
+}
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (tacet Bayesian timing analysis)
+//
+// Run via: cargo test -p simrs-gp-scp --features ct-validation ct_validation
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
+
+    #[test]
+    fn scp03_derive_session_keys_ct() {
+        let outcome = ct_test(
+            0x5C_03D90,
+            |rng| {
+                let static_enc = [0u8; 16];
+                let static_mac = [0u8; 16];
+                let mut hc = [0u8; 8];
+                rng.fill_bytes(&mut hc);
+                let mut cc = [0u8; 8];
+                rng.fill_bytes(&mut cc);
+                (static_enc, static_mac, hc, cc)
+            },
+            |rng| {
+                let mut static_enc = [0u8; 16];
+                rng.fill_bytes(&mut static_enc);
+                let mut static_mac = [0u8; 16];
+                rng.fill_bytes(&mut static_mac);
+                let mut hc = [0u8; 8];
+                rng.fill_bytes(&mut hc);
+                let mut cc = [0u8; 8];
+                rng.fill_bytes(&mut cc);
+                (static_enc, static_mac, hc, cc)
+            },
+            |(static_enc, static_mac, hc, cc)| {
+                let keys = derive_session_keys(static_enc, static_mac, hc, cc);
+                black_box(keys);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn scp03_compute_host_cryptogram_ct() {
+        let outcome = ct_test(
+            0x5C03_C9A1,
+            |rng| {
+                let command_mac = [0u8; 16];
+                let mut hc = [0u8; 8];
+                rng.fill_bytes(&mut hc);
+                let mut cc = [0u8; 8];
+                rng.fill_bytes(&mut cc);
+                (command_mac, hc, cc)
+            },
+            |rng| {
+                let mut command_mac = [0u8; 16];
+                rng.fill_bytes(&mut command_mac);
+                let mut hc = [0u8; 8];
+                rng.fill_bytes(&mut hc);
+                let mut cc = [0u8; 8];
+                rng.fill_bytes(&mut cc);
+                (command_mac, hc, cc)
+            },
+            |(command_mac, hc, cc)| {
+                let crypto = compute_host_cryptogram(command_mac, hc, cc);
+                black_box(crypto);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn scp03_compute_card_cryptogram_ct() {
+        let outcome = ct_test(
+            0x5C_03C90,
+            |rng| {
+                let command_mac = [0u8; 16];
+                let mut hc = [0u8; 8];
+                rng.fill_bytes(&mut hc);
+                let mut cc = [0u8; 8];
+                rng.fill_bytes(&mut cc);
+                (command_mac, hc, cc)
+            },
+            |rng| {
+                let mut command_mac = [0u8; 16];
+                rng.fill_bytes(&mut command_mac);
+                let mut hc = [0u8; 8];
+                rng.fill_bytes(&mut hc);
+                let mut cc = [0u8; 8];
+                rng.fill_bytes(&mut cc);
+                (command_mac, hc, cc)
+            },
+            |(command_mac, hc, cc)| {
+                let crypto = compute_card_cryptogram(command_mac, hc, cc);
+                black_box(crypto);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    /// Build a properly-AES-CMAC'd SCP03 command APDU for the given session
+    /// keys, chaining value, header, and payload. Returns `(apdu, total_len)`.
+    fn build_authenticated_scp03_apdu(
+        command_mac: &[u8; 16],
+        chaining_value: &[u8; 16],
+        header: [u8; 4],
+        data: &[u8],
+    ) -> ([u8; 32], usize) {
+        let mut mac_input = [0u8; 32];
+        mac_input[..16].copy_from_slice(chaining_value);
+        mac_input[16] = header[0] | 0x04;
+        mac_input[17] = header[1];
+        mac_input[18] = header[2];
+        mac_input[19] = header[3];
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            mac_input[20] = (data.len() + 8) as u8;
+        }
+        mac_input[21..21 + data.len()].copy_from_slice(data);
+        let input_len = 21 + data.len();
+        let key = Secret::new(*command_mac);
+        let full_mac = aes_cmac(&key, &mac_input[..input_len]);
+        let mut apdu = [0u8; 32];
+        apdu[0] = header[0] | 0x04;
+        apdu[1] = header[1];
+        apdu[2] = header[2];
+        apdu[3] = header[3];
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            apdu[4] = (data.len() + 8) as u8;
+        }
+        apdu[5..5 + data.len()].copy_from_slice(data);
+        apdu[5 + data.len()..5 + data.len() + 8].copy_from_slice(&full_mac[..8]);
+        (apdu, 5 + data.len() + 8)
+    }
+
+    #[test]
+    fn scp03_unwrap_command_ct() {
+        // Tests the SCP03 successful-MAC path. Both classes produce a
+        // valid AES-CMAC'd APDU; only the session key class varies.
+        let outcome = ct_test(
+            0x5C03_C9A2,
+            |rng| {
+                let session_enc = [0u8; 16];
+                let command_mac = [0u8; 16];
+                let mut data = [0u8; 8];
+                rng.fill_bytes(&mut data);
+                (session_enc, command_mac, data)
+            },
+            |rng| {
+                let mut session_enc = [0u8; 16];
+                rng.fill_bytes(&mut session_enc);
+                let mut command_mac = [0u8; 16];
+                rng.fill_bytes(&mut command_mac);
+                let mut data = [0u8; 8];
+                rng.fill_bytes(&mut data);
+                (session_enc, command_mac, data)
+            },
+            |(session_enc, command_mac, data)| {
+                let chaining = [0u8; 16];
+                let (apdu, total_len) = build_authenticated_scp03_apdu(
+                    command_mac,
+                    &chaining,
+                    [0x80, 0xF2, 0x80, 0x00],
+                    data,
+                );
+                let mut chain = chaining;
+                let mut counter = 0u16;
+                let mut output = [0u8; 32];
+                let result = unwrap_command(
+                    session_enc,
+                    command_mac,
+                    0x01, // C-MAC required
+                    &mut chain,
+                    &mut counter,
+                    &apdu[..total_len],
+                    &mut output,
+                );
+                let _ = black_box(result);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn scp03_generate_cmac_ct() {
+        let outcome = ct_test(
+            0x5C03_C9A0,
+            |rng| {
+                let command_mac = [0u8; 16];
+                let mut data = [0u8; 8];
+                rng.fill_bytes(&mut data);
+                (command_mac, data)
+            },
+            |rng| {
+                let mut command_mac = [0u8; 16];
+                rng.fill_bytes(&mut command_mac);
+                let mut data = [0u8; 8];
+                rng.fill_bytes(&mut data);
+                (command_mac, data)
+            },
+            |(command_mac, data)| {
+                let (mac, cv) =
+                    generate_cmac(command_mac, &[0u8; 16], &[0x84, 0x82, 0x01, 0x00], data);
+                black_box((mac, cv));
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
 }

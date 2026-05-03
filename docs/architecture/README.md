@@ -48,7 +48,7 @@
 - [Data Flows](#data-flows)
 - [Standards Reference](#standards-reference)
 
-**32 crates** | **1371 tests** | zero clippy/doc warnings
+Workspace-wide policy: zero clippy and doc warnings.
 
 ---
 
@@ -1003,9 +1003,31 @@ Binary crate (`simrs-auth`). Milenage authentication vector CLI for LTE/UMTS tes
 
 ### `simrs-consttime-validation`
 
-**Deps:** `getrandom`
+**Deps:** `getrandom`, `tacet`
 
-Constant-time timing verification utilities. Used as a dev-dependency by `simrs-consttime`, `simrs-tuak`, and `simrs-ota` to validate constant-time properties of cryptographic implementations.
+Adaptive Bayesian timing analysis for constant-time validation of
+cryptographic implementations. Wraps the `tacet` crate so consumers see
+a stable internal API.
+
+Used as a dev-dependency (gated behind each consumer's `ct-validation`
+feature) by every crate that processes secret key material:
+
+- **Foundation:** `simrs-des`, `simrs-rijndael`, `simrs-keccak`,
+  `simrs-sha1`, `simrs-sha256`, `simrs-md5`, `simrs-bignum`
+- **Composition:** `simrs-iso9797`, `simrs-rsa`, `simrs-kdf`,
+  `simrs-comp128`, `simrs-milenage`, `simrs-tuak`, `simrs-ecies`,
+  `simrs-pin`, `simrs-ota`, `simrs-gp-scp`
+- **Application:** `simrs-usim`
+
+Run validation per-crate with
+`cargo test -p <crate> --features ct-validation ct_validation`. Each
+test compares two execution-time distributions (fixed-zero vs random
+secret input); a leak triggers `assert_no_timing_leak!`.
+
+**Known coverage gap:** JCVM bytecode-level CT properties are not
+validated -- see the project README's
+[Known limitations](../../README.md#known-limitations) section and
+the [GP/JC Phase 4 upgrade plan](../standards/06-globalplatform.md#phased-upgrade-plan).
 
 ---
 

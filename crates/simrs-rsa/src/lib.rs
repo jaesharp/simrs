@@ -1098,3 +1098,106 @@ mod proptests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (tacet Bayesian timing analysis)
+//
+// `rsa_decrypt_raw` is the RSA private-key operation -- the highest-leverage
+// CT target for any RSA implementation. It delegates entirely to
+// `simrs_bignum::mod_exp` (Montgomery ladder + ct_select; itself separately
+// tacet-validated). These tests confirm the RSA-level wrapper introduces
+// no additional timing dependence on either the secret ciphertext or the
+// secret private exponent.
+//
+// Run via: cargo test -p simrs-rsa --features ct-validation ct_validation
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
+
+    /// 256-bit modulus for tractable test runtime. The CT properties are
+    /// independent of key size; matches simrs-bignum's CT test scale.
+    const N_BYTES: [u8; 32] = [
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF,
+        0xFC, 0x2F,
+    ];
+
+    #[test]
+    fn rsa_decrypt_raw_is_constant_time_in_ciphertext() {
+        // Class 0: zero ciphertext. Class 1: random ciphertext.
+        // Private exponent is fixed; only the (secret) ciphertext varies.
+        let d_bytes = [0x01u8; 32]; // arbitrary fixed private exponent
+        let priv_key = RsaPrivateKey::<4>::new(&N_BYTES, &d_bytes, 65537);
+
+        let outcome = ct_test(
+            0xA5_C09A0,
+            |_rng| [0u8; 32],
+            |rng| {
+                let mut bytes = [0u8; 32];
+                rng.fill_bytes(&mut bytes);
+                bytes
+            },
+            |bytes| {
+                let cipher = simrs_bignum::BigUint::<4>::from_be_bytes(bytes);
+                let result = rsa_decrypt_raw(&priv_key, &cipher);
+                black_box(result);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn rsa_decrypt_raw_is_constant_time_in_private_exponent() {
+        // The most security-critical CT property: the secret private
+        // exponent d must not leak through timing. Class 0: fixed
+        // exponent. Class 1: random exponent. Both decrypt the same
+        // fixed ciphertext.
+        let cipher_bytes = [0x42u8; 32];
+        let cipher = simrs_bignum::BigUint::<4>::from_be_bytes(&cipher_bytes);
+
+        let outcome = ct_test(
+            0xA5_C09A1,
+            |_rng| [0x01u8; 32],
+            |rng| {
+                let mut bytes = [0u8; 32];
+                rng.fill_bytes(&mut bytes);
+                bytes
+            },
+            |d_bytes| {
+                let priv_key = RsaPrivateKey::<4>::new(&N_BYTES, d_bytes, 65537);
+                let result = rsa_decrypt_raw(&priv_key, &cipher);
+                black_box(result);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn sign_pkcs1_sha1_is_constant_time_in_message() {
+        // PKCS#1 v1.5 signing applies the private exponent over a
+        // padded SHA-1 hash of the message. Class 0: zero message.
+        // Class 1: random message.
+        let d_bytes = [0x01u8; 32];
+        let priv_key = RsaPrivateKey::<4>::new(&N_BYTES, &d_bytes, 65537);
+
+        let outcome = ct_test(
+            0xA5_C09A2,
+            |_rng| [0u8; 32],
+            |rng| {
+                let mut bytes = [0u8; 32];
+                rng.fill_bytes(&mut bytes);
+                bytes
+            },
+            |bytes| {
+                let mut sig = [0u8; 32];
+                sign_pkcs1_sha1(&priv_key, bytes, &mut sig);
+                black_box(sig);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+}

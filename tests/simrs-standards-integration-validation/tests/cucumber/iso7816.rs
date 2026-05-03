@@ -20,7 +20,7 @@ fn when_bytes_parsed_as_command(world: &mut SpecWorld, hex: String) {
         Ok(cmd) => {
             world.parsed_ins = Some(cmd.ins());
             world.parsed_data = cmd.data().to_vec();
-            world.parsed_le = Some(cmd.le());
+            world.parsed_le = Some(cmd.response_len());
             world.parse_error = None;
         }
         Err(ApduError::TooShort) => {

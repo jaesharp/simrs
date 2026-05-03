@@ -16,7 +16,7 @@ profile-full     = []   # TCA eUICC profile trees (160 EFs, FsData<8192, 160>)
 redact-secrets-in-logs = ["simrs-redact/redact-secrets-in-logs"]
 
 [dependencies]
-simrs-iso7816 = { workspace = true }
+simrs-iso7816 = { workspace = true, features = ["alloc"] }
 simrs-comp128 = { workspace = true }
 simrs-fs      = { workspace = true }
 simrs-pin     = { workspace = true }

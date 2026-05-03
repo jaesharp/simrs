@@ -8,11 +8,14 @@ description = "MD5 hash per RFC 1321 -- no_std, no_alloc"
 [features]
 default = []
 std     = []
+# Constant-time validation (tacet Bayesian timing analysis) -- dev/test only.
+ct-validation = []
 
 [dependencies]
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest                   = { workspace = true }
+simrs-consttime-validation = { workspace = true }
 
 [lints]
 workspace = true

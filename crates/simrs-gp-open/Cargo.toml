@@ -10,8 +10,9 @@ default = []
 std     = []
 
 [dependencies]
-simrs-iso7816     = { workspace = true }
+simrs-iso7816     = { workspace = true, features = ["alloc"] }
 simrs-bertlv      = { workspace = true }
+simrs-card-api    = { workspace = true }
 simrs-gp-scp      = { workspace = true }
 simrs-gp-keys     = { workspace = true }
 simrs-jcre        = { workspace = true }
@@ -22,8 +23,9 @@ simrs-secret      = { workspace = true }
 simrs-apdu-schema = { workspace = true }
 
 [dev-dependencies]
-proptest  = { workspace = true }
-simrs-jcasm = { workspace = true }
+proptest      = { workspace = true }
+simrs-jcasm   = { workspace = true }
+simrs-iso9797 = { workspace = true }
 
 [lints]
 workspace = true

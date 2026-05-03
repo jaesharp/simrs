@@ -7,10 +7,14 @@ description = "Shared card event/response types for SIM and GlobalPlatform cards
 
 [features]
 default = []
-std     = []
+# Enables [`OsRng`], a host-OS-backed `EntropySource` implemented via
+# `getrandom`. Hosted callers (HLE, fuzzer, conformance tests) enable
+# this; embedded targets stick with custom hardware-TRNG wrappers.
+os-rng  = ["dep:getrandom"]
 
 [dependencies]
 simrs-iso7816 = { workspace = true }
+getrandom     = { workspace = true, optional = true }
 
 [lints]
 workspace = true

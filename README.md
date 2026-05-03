@@ -16,9 +16,10 @@ specifies those chips well enough that anyone can make one in any way they want.
     - OTA (TS 102 225, TS 102 226)
       - Secured packet structure, remote APDU support
   - Runs standalone or as a GlobalPlatform-Compatible applet alongside JavaCard Bytecode or Rust Native Applets
-- **GlobalPlatform-Compatible card OS** (GP 2.1.1, GP 2.3.1 Amd D)
+- **GlobalPlatform-Compatible card OS** (primary target GP 2.3.1; legacy GP 2.1.1)
   - OPEN, ISD, applet registry, SCP01/SCP02/SCP03, card lifecycle
-- **Complete JavaCard-Compatible toolchain** (JavaCard v2.1.1 Compatible, v3.2.0 Compatibility Planned)
+  - Conformance status and phased upgrade plan: [docs/standards/06-globalplatform.md](docs/standards/06-globalplatform.md)
+- **JavaCard-Compatible toolchain** (primary target JavaCard 3.2; legacy 2.1.1)
   - Interpreter (Full Instrumentation and Introspection)
   - Assembler (HLA support)
   - Compiler (Fully Optimising HLL IR with Source Maps)
@@ -95,7 +96,9 @@ with Sim.with_credentials(creds) as sim:
 - **Zero external runtime deps** -- every cryptographic algorithm is self-contained and validated against
   NIST/ETSI/3GPP published test vectors, property-tested with [proptest](https://crates.io/crates/proptest), checked for
   undefined behavior under [Miri](https://github.com/rust-lang/miri), verified for constant-time execution
-  with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis),
+  with [tacet](crates/simrs-consttime-validation/) (adaptive Bayesian timing analysis -- block ciphers, hashes,
+  bigint arithmetic, RSA, ECIES, KDF, AKA, COMP128, secure-channel SCP01/02/03, PUT KEY unwrap, PIN/OTA flows;
+  see the [Known limitations](#known-limitations) section for one CT path that is **not** yet validated),
   and [adversarially tested](tests/simrs-adversarial-countervalidation/) for protocol-level vulnerabilities.
   See [simrs-ref](crates/simrs-ref/) for reference test vectors.
 - **State machine driven** -- [`Sim::process(SimEvent) -> SimResponse`](crates/simrs-sim/); single entry point, no
@@ -117,6 +120,38 @@ enforcement, information flow controls, Miri validation, adversarial testing,
 and differential compliance against reference implementations -- this project
 should not be used in production security-critical applications without
 independent review.
+
+### Known limitations
+
+**JCVM bytecode-level constant-time properties are not yet validated.** The
+host-side cryptographic primitives an applet calls into (`javacard.security`,
+`javacardx.crypto`, the underlying ciphers/hashes/RSA/bignum) are all under
+tacet Bayesian timing analysis. But if an applet processes secret data via
+JavaCard *bytecode* -- for example, a custom PIN comparison, a key-search
+loop, or a constant-time branch implemented in Java Card source -- whether
+the [`simrs-jcvm`](crates/simrs-jcvm/) bytecode interpreter preserves the
+applet's CT discipline depends on:
+
+- Constant-time bytecode dispatch (no jump-table or branch-prediction
+  optimisations that vary with secret stack values)
+- Constant-time array bounds checks
+- Data-independent allocation patterns and frame management
+- Spec-faithful operand-stack discipline (no operand-value-dependent
+  shortcuts)
+
+These are deeper invariants than primitive-level CT and require both
+implementation work and a separate validation regime. See the
+[GP/JC upgrade plan](docs/standards/06-globalplatform.md#phased-upgrade-plan)
+Phase 4 (JCRE 3.x runtime semantics); the JCVM-level CT validation work
+plugs into that phase rather than the host-crypto coverage already in
+place.
+
+Until that work lands, **applets that need timing-attack resistance must
+not rely on bytecode-level CT in this VM** -- they should perform
+sensitive comparisons via host-validated primitives
+(e.g. [`javacard.framework.Util.arrayCompare`](https://docs.oracle.com/en/java/javacard/3.2/javacard-platform-3.2-api/api/javacard/framework/Util.html#arrayCompare-byte:A-short-byte:A-short-short-)
+once it is wrapped to dispatch into [`simrs-consttime::ct_eq`](crates/simrs-consttime/),
+or via direct calls to the validated `javacardx.crypto` primitives).
 
 ## Quick start
 

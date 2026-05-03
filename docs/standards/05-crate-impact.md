@@ -113,23 +113,29 @@ Note: many proactive commands are already implemented (DISPLAY TEXT, GET INPUT, 
 
 ## GlobalPlatform / JavaCard Impact
 
-New crates planned for the GP/JavaCard card OS extension (JCOP10-31bio):
+Crates implementing the GP/JavaCard card OS. **Primary spec targets are
+GP 2.3.1 and JavaCard 3.2**; the JCOP10-31bio family (GP 2.1.1, JC 2.1.1) is
+retained as a legacy compatibility target. See
+[06-globalplatform.md](06-globalplatform.md) for conformance status and the
+phased upgrade plan.
 
-| Crate | Layer | `no_std` | GP Impact | Primary Spec |
-|-------|-------|----------|-----------|-------------|
+| Crate | Layer | `no_std` | GP/JC Impact | Primary Spec |
+|-------|-------|----------|--------------|-------------|
 | simrs-sha1 | Foundation | yes | SHA-1 for SCP01/SCP02 key derivation, Data Block Hash | FIPS 180-1 |
 | simrs-md5 | Foundation | yes | MD5 for JCVM crypto API (JC MessageDigest) | RFC 1321 |
 | simrs-rsa | Foundation | yes | RSA 512-2048 for PKCS#1, DAP verification, EMV | RFC 2437 |
 | simrs-iso9797 | Composition | yes | CBC-MAC Method 1/2 for SCP C-MAC, tokens, receipts | ISO 9797-1 |
-| simrs-gp-keys | Composition | yes | Key store (ENC+MAC+DEK per SD, versioned) | GP 2.1.1 Appendix C |
-| simrs-gp-scp | Composition | yes | SCP01/SCP02/SCP03 state machines | GP 2.1.1 Appendix D/E |
-| simrs-jcre | Composition | yes | Applet trait, memory model, transactions, crypto API | JC RE 2.1.1 |
-| simrs-jcvm | Composition | yes | Bytecode interpreter, CAP parser, firewall | JC VM 2.1.1 |
-| simrs-gp-open | Application | yes | Card Manager, ISD, AID dispatch, lifecycle | GP 2.1.1 Ch 6-7 |
-| simrs-gp-card | Application | yes | Top-level GP card (SimEvent/SimResponse) | GP 2.1.1 Ch 3-5 |
-| simrs-jcop-profile | Meta | no | JCOP10-31bio variant definitions | IBM JCOP Family |
-| simrs-gp-applet-openpgp | Meta | yes | OpenPGP Card v2.0 | OpenPGP 2.0 |
-| simrs-gp-applet-piv | Meta | yes | PIV per NIST SP 800-73 | FIPS 201 |
+| simrs-gp-keys | Composition | yes | Key store (ENC+MAC+DEK per SD, versioned) | GP 2.3.1 Appendix B (was 2.1.1 Appendix C) |
+| simrs-gp-scp | Composition | yes | SCP01/SCP02/SCP03 state machines | GP 2.3.1 Appendix D/E + Amendment D |
+| simrs-jcre | Composition | yes | Applet trait, memory model, transactions | JCRE 3.2 (2.1.1 baseline today; Phase 4 closes the gap) |
+| simrs-jcvm | Composition | yes | Bytecode interpreter, CAP parser, firewall | JCVM 3.2 (most bytecodes implemented; CAP parser is internal blob -- Phase 2) |
+| simrs-jcvm-opcodes | Composition | yes | Shared opcode constants | JCVM 3.2 Chapter 7 |
+| simrs-jacc | Tool (host) | no | .java -> .cap converter | JCVM 3.2 (CAP writer covers most components; StaticResources/Export/Debug pending) |
+| simrs-jccompile | Tool (host) | no | Java -> JcClass IR -> bytecode | JCVM 3.2 instruction set |
+| simrs-jcasm | Tool (host) | no | JCVM HLA assembler | JCVM 3.2 instruction set |
+| simrs-gp-open | Application | yes | Card Manager, ISD, AID dispatch, lifecycle | GP 2.3.1 clause 11 -- all commands Functional |
+| simrs-gp-card | Application | yes | Top-level GP card (SimEvent/SimResponse) | GP 2.3.1 clause 5 |
+| simrs-jcop-profile | Meta | no | JCOP10-31bio variant definitions (legacy) | IBM JCOP Family |
 
 Impact on existing crates:
 

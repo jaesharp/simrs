@@ -186,15 +186,53 @@ pub enum ParseError {
     TooManyExceptions,
 }
 
-/// Parse a binary CAP blob into a [`Package`].
+pub mod components;
+
+/// Parse a CAP file into a [`Package`].
 ///
-/// See module-level docs for the expected format.
+/// Auto-detects the input format:
+///
+/// - **Standard component-tagged CAP** (JCVM 3.2 Chapter 6): a sequence
+///   of `tag(1) | size(2 BE) | body` triples starting with the
+///   Header component (tag = 1). Produced by Oracle's converter and
+///   by [`simrs_jacc::CapWriter::write`].
+/// - **Simplified internal blob**: starts with magic `0xDECAFFED`.
+///   Produced by [`build_cap_blob`] for `no_std` embedded loading
+///   where the full component machinery would be overkill.
+///
+/// Both formats yield the same [`Package`] structure.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if the input is empty or malformed in the
+/// detected format.
+pub fn parse_cap(data: &[u8]) -> Result<Package, ParseError> {
+    match data.first() {
+        // Header component tag — standard JCVM 3.2 CAP file.
+        Some(&components::tag::HEADER) => components::parse(data),
+        // Anything else: try the simplified blob path. The first byte
+        // of `CAP_MAGIC` (`0xDE`) ends up here, as do malformed inputs
+        // (which the blob parser will reject with a more specific
+        // error than a tag mismatch could give).
+        _ => parse_cap_blob(data),
+    }
+}
+
+/// Parse a simplified-blob CAP into a [`Package`].
+///
+/// The simplified blob is a flat concatenation of magic + AID + method
+/// records, designed for `no_std` embedded loading without the
+/// full component machinery. See module-level docs for the layout.
+///
+/// Most callers want [`parse_cap`] (which auto-detects format);
+/// this entry point is exposed for tests and tooling that specifically
+/// need the simplified path.
 ///
 /// # Errors
 ///
 /// Returns [`ParseError`] if the blob is malformed.
 #[allow(clippy::too_many_lines)]
-pub fn parse_cap(data: &[u8]) -> Result<Package, ParseError> {
+pub fn parse_cap_blob(data: &[u8]) -> Result<Package, ParseError> {
     let mut pos = 0;
 
     // Magic (4 bytes).

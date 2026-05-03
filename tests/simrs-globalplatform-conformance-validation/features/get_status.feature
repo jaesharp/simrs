@@ -41,7 +41,7 @@ Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
 
   Background:
     Given a GP card in SECURED state
-    And the ISD has AID [A0 00 00 01 51 00 00]
+    And the ISD has AID [A0 00 00 01 51 00 00 00]
     And a test applet with AID [A0 00 00 00 62 01 01 02] is installed and selectable
     And a test load file with AID [A0 00 00 00 62 01 01] is loaded
     And an authenticated SCP session with C-MAC is established
@@ -57,7 +57,7 @@ Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
     When I send GET STATUS [80 F2 80 00 02 4F 00 00] with C-MAC
     Then SW is 90 00
     And the response contains a GP Registry entry (tag E3)
-    And the entry contains AID (tag 4F) matching [A0 00 00 01 51 00 00]
+    And the entry contains AID (tag 4F) matching [A0 00 00 01 51 00 00 00]
     And the entry contains lifecycle state (tag 9F70) reflecting SECURED
     And the entry contains privileges (tag C5) with Security Domain privilege set
 
@@ -95,7 +95,7 @@ Feature: GET STATUS Registry Query (GP 2.1.1 clause 9.4)
     When I send GET STATUS (P1=0x40) with AID filter [A0 00 00 00 62] with C-MAC
     Then SW is 90 00
     And every returned entry has an AID starting with [A0 00 00 00 62]
-    And no entry with AID [A0 00 00 01 51 00 00] is returned
+    And no entry with AID [A0 00 00 01 51 00 00 00] is returned
 
   # ---------------------------------------------------------------------------
   # GP 2.1.1 clause 9.4: response TLV structure validation

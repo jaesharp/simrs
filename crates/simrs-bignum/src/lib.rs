@@ -1338,3 +1338,150 @@ mod proptests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Constant-time validation (tacet Bayesian timing analysis)
+//
+// `mod_exp` is the RSA private-key operation -- the highest-leverage CT
+// target on a smart card. The Montgomery-ladder + ct_select pattern in
+// this crate is the standard CT-by-construction approach; these tests
+// confirm no statistically-detectable timing dependence on either the
+// secret base (the message m being decrypted/signed) or the secret
+// exponent (the private exponent d).
+//
+// Run via: cargo test -p simrs-bignum --features ct-validation ct_validation
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "ct-validation"))]
+mod ct_validation {
+    use super::*;
+    use core::hint::black_box;
+    use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
+
+    /// 256-bit odd modulus for tests. Real RSA uses 1024 / 2048 / 3072 bit
+    /// keys; the CT property is the same across sizes -- shorter keys keep
+    /// the test runtime tractable.
+    const fn test_modulus() -> BigUint<4> {
+        BigUint {
+            limbs: [
+                0xFFFF_FFFE_FFFF_FC2F,
+                0xFFFF_FFFF_FFFF_FFFF,
+                0xFFFF_FFFF_FFFF_FFFF,
+                0xFFFF_FFFF_FFFF_FFFF,
+            ],
+        }
+    }
+
+    #[test]
+    fn mont_mul_is_constant_time_in_operands() {
+        let modulus = test_modulus();
+        let params = MontParams::<4>::new(&modulus);
+        let outcome = ct_test(
+            0xB16_C09A0,
+            |_rng| ([0u8; 32], [0u8; 32]),
+            |rng| {
+                let mut lbytes = [0u8; 32];
+                rng.fill_bytes(&mut lbytes);
+                let mut rbytes = [0u8; 32];
+                rng.fill_bytes(&mut rbytes);
+                (lbytes, rbytes)
+            },
+            |(lbytes, rbytes)| {
+                let lhs = BigUint::<4>::from_be_bytes(lbytes);
+                let rhs = BigUint::<4>::from_be_bytes(rbytes);
+                let result = mont_mul(&lhs, &rhs, &params);
+                black_box(result);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn mod_exp_is_constant_time_in_base() {
+        let modulus = test_modulus();
+        let params = MontParams::<4>::new(&modulus);
+        let exp = BigUint::<4>::from_u64(65537);
+        let outcome = ct_test(
+            0xB16_C09A1,
+            |_rng| [0u8; 32],
+            |rng| {
+                let mut bytes = [0u8; 32];
+                rng.fill_bytes(&mut bytes);
+                bytes
+            },
+            |bytes| {
+                let base = BigUint::<4>::from_be_bytes(bytes);
+                let result = mod_exp(&base, &exp, &params);
+                black_box(result);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn mod_exp_is_constant_time_in_exponent() {
+        // The bigger concern: does the secret exponent (RSA private d)
+        // leak via timing? Montgomery ladder must take the same path
+        // regardless of bit value.
+        let modulus = test_modulus();
+        let params = MontParams::<4>::new(&modulus);
+        let base = BigUint::<4>::from_u64(0x1234_5678);
+        let outcome = ct_test(
+            0xB16_C09A2,
+            |_rng| [0u8; 32],
+            |rng| {
+                let mut bytes = [0u8; 32];
+                rng.fill_bytes(&mut bytes);
+                bytes
+            },
+            |bytes| {
+                let exp = BigUint::<4>::from_be_bytes(bytes);
+                let result = mod_exp(&base, &exp, &params);
+                black_box(result);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn to_mont_is_constant_time_in_input() {
+        let modulus = test_modulus();
+        let params = MontParams::<4>::new(&modulus);
+        let outcome = ct_test(
+            0xB16_C09A3,
+            |_rng| [0u8; 32],
+            |rng| {
+                let mut bytes = [0u8; 32];
+                rng.fill_bytes(&mut bytes);
+                bytes
+            },
+            |bytes| {
+                let x = BigUint::<4>::from_be_bytes(bytes);
+                let result = to_mont(&x, &params);
+                black_box(result);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+
+    #[test]
+    fn from_mont_is_constant_time_in_input() {
+        let modulus = test_modulus();
+        let params = MontParams::<4>::new(&modulus);
+        let outcome = ct_test(
+            0xB16_C09A4,
+            |_rng| [0u8; 32],
+            |rng| {
+                let mut bytes = [0u8; 32];
+                rng.fill_bytes(&mut bytes);
+                bytes
+            },
+            |bytes| {
+                let x = BigUint::<4>::from_be_bytes(bytes);
+                let result = from_mont(&x, &params);
+                black_box(result);
+            },
+        );
+        assert_no_timing_leak!(outcome);
+    }
+}

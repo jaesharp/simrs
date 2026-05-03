@@ -5,8 +5,12 @@ use crate::{ScpState, ScpVersion};
 /// Snapshot size for [`ScpState`].
 ///
 /// Layout:
-/// - 1 byte: variant tag (0 = `NoSession`, 1 = `InitUpdateDone`, 2/4 = `Authenticated`)
-/// - For `InitUpdateDone` (tag 1): 8+8+10+16+16+8+1+2 = 69 bytes
+/// - 1 byte: variant tag (0 = `NoSession`, 1 = legacy `InitUpdateDone`,
+///   2/4 = `Authenticated`, 5 = `InitUpdateDone` with `session_dek`)
+/// - For legacy `InitUpdateDone` (tag 1, deserialise-only):
+///   8+8+10+16+16+8+1+2 = 69 bytes; `session_dek` defaults to zeros
+/// - For `InitUpdateDone` (tag 5, current): 8+8+10+16+16+16+8+1+2 = 85 bytes;
+///   includes `session_dek` after `command_mac`
 /// - For `Authenticated` SCP01/02 (tag 2): 16+16+16+16+1+8+1+1 = 75 bytes
 /// - For `Authenticated` SCP03 (tag 4): 16+16+16+16+1+16+1+1+2 = 85 bytes
 ///
@@ -27,13 +31,17 @@ pub fn save_scp_state(state: &ScpState, buf: &mut [u8]) -> usize {
             card_challenge,
             key_diversification,
             session_enc,
-            session_mac,
-            session_rmac: _, // not saved in legacy format; re-derived if needed
+            command_mac,
+            response_mac: _, // re-derivable from static keys if needed
+            session_dek,
             card_cryptogram,
             scp_version,
             sequence_counter,
         } => {
-            buf[off] = 1;
+            // Tag 5: InitUpdateDone with session_dek included. Tag 1 (legacy
+            // without session_dek) is still accepted on restore for
+            // backward compatibility with older snapshots.
+            buf[off] = 5;
             off += 1;
             buf[off..off + 8].copy_from_slice(host_challenge);
             off += 8;
@@ -43,7 +51,9 @@ pub fn save_scp_state(state: &ScpState, buf: &mut [u8]) -> usize {
             off += 10;
             buf[off..off + 16].copy_from_slice(session_enc);
             off += 16;
-            buf[off..off + 16].copy_from_slice(session_mac);
+            buf[off..off + 16].copy_from_slice(command_mac);
+            off += 16;
+            buf[off..off + 16].copy_from_slice(session_dek);
             off += 16;
             buf[off..off + 8].copy_from_slice(card_cryptogram);
             off += 8;
@@ -59,23 +69,28 @@ pub fn save_scp_state(state: &ScpState, buf: &mut [u8]) -> usize {
         }
         ScpState::Authenticated {
             session_enc,
-            session_mac,
-            session_rmac,
+            command_mac,
+            response_mac,
             session_dek,
             security_level,
             icv,
+            rmac_icv,
             rmac_active,
             scp_version,
             enc_counter,
         } => {
             let is_scp03 = matches!(scp_version, ScpVersion::Scp03);
-            buf[off] = if is_scp03 { 4 } else { 2 };
+            // Tag 4: SCP03 Authenticated. Tag 6: SCP01/02 Authenticated
+            // with the running R-MAC chaining value (8 bytes) appended
+            // after the legacy tag-2 layout. Tag 2 remains a valid
+            // input for backward compatibility on the reader side.
+            buf[off] = if is_scp03 { 4 } else { 6 };
             off += 1;
             buf[off..off + 16].copy_from_slice(session_enc);
             off += 16;
-            buf[off..off + 16].copy_from_slice(session_mac);
+            buf[off..off + 16].copy_from_slice(command_mac);
             off += 16;
-            buf[off..off + 16].copy_from_slice(session_rmac);
+            buf[off..off + 16].copy_from_slice(response_mac);
             off += 16;
             buf[off..off + 16].copy_from_slice(session_dek);
             off += 16;
@@ -93,7 +108,7 @@ pub fn save_scp_state(state: &ScpState, buf: &mut [u8]) -> usize {
                 buf[off + 1] = *enc_counter as u8;
                 off += 2;
             } else {
-                // SCP01/02: 8-byte ICV, no enc_counter
+                // SCP01/02: 8-byte ICV, no enc_counter, then 8-byte rmac_icv.
                 buf[off..off + 8].copy_from_slice(&icv[0..8]);
                 off += 8;
                 buf[off] = u8::from(*rmac_active);
@@ -104,6 +119,8 @@ pub fn save_scp_state(state: &ScpState, buf: &mut [u8]) -> usize {
                     ScpVersion::Scp03 => unreachable!(),
                 };
                 off += 1;
+                buf[off..off + 8].copy_from_slice(rmac_icv);
+                off += 8;
             }
         }
     }
@@ -111,7 +128,7 @@ pub fn save_scp_state(state: &ScpState, buf: &mut [u8]) -> usize {
 }
 
 /// Restore SCP state from a buffer. Returns `true` on success.
-#[allow(clippy::similar_names, clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)]
 pub fn restore_scp_state(state: &mut ScpState, buf: &[u8]) -> bool {
     if buf.is_empty() {
         return false;
@@ -121,8 +138,12 @@ pub fn restore_scp_state(state: &mut ScpState, buf: &[u8]) -> bool {
             *state = ScpState::NoSession;
             true
         }
-        1 => {
-            if buf.len() < 70 {
+        1 | 5 => {
+            // Tag 1: legacy InitUpdateDone (no session_dek; defaults to zeros).
+            // Tag 5: current InitUpdateDone (with session_dek after command_mac).
+            let has_dek = buf[0] == 5;
+            let min_len = if has_dek { 86 } else { 70 };
+            if buf.len() < min_len {
                 return false;
             }
             let mut off = 1;
@@ -138,9 +159,14 @@ pub fn restore_scp_state(state: &mut ScpState, buf: &[u8]) -> bool {
             let mut session_enc = [0u8; 16];
             session_enc.copy_from_slice(&buf[off..off + 16]);
             off += 16;
-            let mut session_mac = [0u8; 16];
-            session_mac.copy_from_slice(&buf[off..off + 16]);
+            let mut command_mac = [0u8; 16];
+            command_mac.copy_from_slice(&buf[off..off + 16]);
             off += 16;
+            let mut session_dek = [0u8; 16];
+            if has_dek {
+                session_dek.copy_from_slice(&buf[off..off + 16]);
+                off += 16;
+            }
             let mut card_cryptogram = [0u8; 8];
             card_cryptogram.copy_from_slice(&buf[off..off + 8]);
             off += 8;
@@ -157,28 +183,33 @@ pub fn restore_scp_state(state: &mut ScpState, buf: &[u8]) -> bool {
                 card_challenge,
                 key_diversification,
                 session_enc,
-                session_mac,
-                session_rmac: [0u8; 16], // not persisted in legacy format
+                command_mac,
+                response_mac: [0u8; 16], // not persisted; re-derivable
+                session_dek,
                 card_cryptogram,
                 scp_version,
                 sequence_counter,
             };
             true
         }
-        2 => {
-            // SCP01/02 Authenticated (legacy format: 8-byte ICV)
-            if buf.len() < 76 {
+        2 | 6 => {
+            // Tag 2: legacy SCP01/02 Authenticated (no rmac_icv -- defaults to zero).
+            // Tag 6: current SCP01/02 Authenticated with the 8-byte R-MAC
+            //        running chaining value appended.
+            let has_rmac_icv = buf[0] == 6;
+            let min_len = if has_rmac_icv { 84 } else { 76 };
+            if buf.len() < min_len {
                 return false;
             }
             let mut off = 1;
             let mut session_enc = [0u8; 16];
             session_enc.copy_from_slice(&buf[off..off + 16]);
             off += 16;
-            let mut session_mac = [0u8; 16];
-            session_mac.copy_from_slice(&buf[off..off + 16]);
+            let mut command_mac = [0u8; 16];
+            command_mac.copy_from_slice(&buf[off..off + 16]);
             off += 16;
-            let mut session_rmac = [0u8; 16];
-            session_rmac.copy_from_slice(&buf[off..off + 16]);
+            let mut response_mac = [0u8; 16];
+            response_mac.copy_from_slice(&buf[off..off + 16]);
             off += 16;
             let mut session_dek = [0u8; 16];
             session_dek.copy_from_slice(&buf[off..off + 16]);
@@ -195,13 +226,19 @@ pub fn restore_scp_state(state: &mut ScpState, buf: &[u8]) -> bool {
                 0x02 => ScpVersion::Scp02,
                 _ => return false,
             };
+            off += 1;
+            let mut rmac_icv = [0u8; 8];
+            if has_rmac_icv {
+                rmac_icv.copy_from_slice(&buf[off..off + 8]);
+            }
             *state = ScpState::Authenticated {
                 session_enc,
-                session_mac,
-                session_rmac,
+                command_mac,
+                response_mac,
                 session_dek,
                 security_level,
                 icv,
+                rmac_icv,
                 rmac_active,
                 scp_version,
                 enc_counter: 0,
@@ -217,11 +254,11 @@ pub fn restore_scp_state(state: &mut ScpState, buf: &[u8]) -> bool {
             let mut session_enc = [0u8; 16];
             session_enc.copy_from_slice(&buf[off..off + 16]);
             off += 16;
-            let mut session_mac = [0u8; 16];
-            session_mac.copy_from_slice(&buf[off..off + 16]);
+            let mut command_mac = [0u8; 16];
+            command_mac.copy_from_slice(&buf[off..off + 16]);
             off += 16;
-            let mut session_rmac = [0u8; 16];
-            session_rmac.copy_from_slice(&buf[off..off + 16]);
+            let mut response_mac = [0u8; 16];
+            response_mac.copy_from_slice(&buf[off..off + 16]);
             off += 16;
             let mut session_dek = [0u8; 16];
             session_dek.copy_from_slice(&buf[off..off + 16]);
@@ -241,11 +278,14 @@ pub fn restore_scp_state(state: &mut ScpState, buf: &[u8]) -> bool {
             let enc_counter = u16::from_be_bytes([buf[off], buf[off + 1]]);
             *state = ScpState::Authenticated {
                 session_enc,
-                session_mac,
-                session_rmac,
+                command_mac,
+                response_mac,
                 session_dek,
                 security_level,
                 icv,
+                // SCP03 uses its own counter for R-MAC chaining; this
+                // field is unused but kept zeroed for snapshot symmetry.
+                rmac_icv: [0u8; 8],
                 rmac_active,
                 scp_version: ScpVersion::Scp03,
                 enc_counter,

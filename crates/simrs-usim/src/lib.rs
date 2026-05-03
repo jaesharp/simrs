@@ -53,6 +53,9 @@
 // USIM documentation uses many standard 3GPP terms (OPc, FCP, ADF, etc.)
 #![allow(clippy::doc_markdown)]
 
+#[cfg(test)]
+extern crate alloc;
+
 pub mod profile;
 
 use simrs_bertlv::Encoder;
@@ -1278,7 +1281,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
         if cmd.p1() != 0x00 || cmd.p2() != 0x00 {
             return write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2));
         }
-        self.rsp_queue.get_response(cmd.le(), buf)
+        self.rsp_queue.get_response(cmd.response_len(), buf)
     }
 
     // -- PIN access gate --
@@ -1365,7 +1368,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
                 StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
             );
         }
-        let le = u16::from(cmd.le().unwrap_or(0));
+        let le = u16::from(cmd.response_len().unwrap_or(0));
 
         match self.data.read_binary(ef, offset, le) {
             Ok(data) => write_data_sw(buf, data, StatusWord::Success),
@@ -2478,7 +2481,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
             );
         }
 
-        let le = cmd.le().unwrap_or(0) as usize;
+        let le = cmd.response_len().unwrap_or(0) as usize;
         let pending = self.proactive.pending_len();
         let fetch_len = if le == 0 { pending } else { le.min(pending) };
 
@@ -2896,8 +2899,63 @@ fn write_ber_len(enc: &mut Encoder<'_>, len: usize) -> Result<(), simrs_bertlv::
 mod tests {
     use super::*;
     use simrs_fs::{AdfSlot, EfDef, Fid, FileRef, Sfi};
+    use simrs_iso7816::apdu_with_data;
     use simrs_milenage::{AuthManagementField, OperatorVariant, SequenceNumber, SubscriberKey};
     use simrs_proactive::ProactiveCommand;
+
+    // -- AUTHENTICATE APDU builders ----------------------------------------
+    //
+    // AUTHENTICATE (INS 0x88) is the most-used APDU in this test module.
+    // P2 selects the security context (TS 31.102 § 7.1.2):
+    //   P2 = 0x00: GSM context (RAND only)
+    //   P2 = 0x81: UMTS / EPS-AKA / 5G-AKA context (RAND || AUTN)
+    //   P2 = 0x82: GBA bootstrapping context (RAND || AUTN)
+    //   P2 = 0x84: GBA NAF derivation context (NAF_ID || IMPI || ...)
+    // Body is always length-prefixed: `0x10 || RAND [|| 0x10 || AUTN]`.
+
+    /// AUTHENTICATE UMTS / 5G-AKA context (P2 = 0x81): `0x10 RAND 0x10 AUTN`.
+    fn auth_umts(rand: &[u8; 16], autn: &[u8; 16]) -> alloc::vec::Vec<u8> {
+        let mut body = [0u8; 34];
+        body[0] = 0x10;
+        body[1..17].copy_from_slice(rand);
+        body[17] = 0x10;
+        body[18..34].copy_from_slice(autn);
+        apdu_with_data(0x00, 0x88, 0x00, 0x81, &body)
+    }
+
+    /// AUTHENTICATE GSM context (P2 = 0x00): `0x10 RAND`.
+    fn auth_gsm(rand: &[u8; 16]) -> alloc::vec::Vec<u8> {
+        let mut body = [0u8; 17];
+        body[0] = 0x10;
+        body[1..17].copy_from_slice(rand);
+        apdu_with_data(0x00, 0x88, 0x00, 0x00, &body)
+    }
+
+    /// AUTHENTICATE GBA bootstrap (P2 = 0x82): same body shape as UMTS.
+    #[cfg_attr(not(feature = "gba"), allow(dead_code))]
+    fn auth_gba_bootstrap(rand: &[u8; 16], autn: &[u8; 16]) -> alloc::vec::Vec<u8> {
+        let mut body = [0u8; 34];
+        body[0] = 0x10;
+        body[1..17].copy_from_slice(rand);
+        body[17] = 0x10;
+        body[18..34].copy_from_slice(autn);
+        apdu_with_data(0x00, 0x88, 0x00, 0x82, &body)
+    }
+
+    /// AUTHENTICATE GBA NAF derivation (P2 = 0x84):
+    /// body = `NAF_ID_len NAF_ID IMPI_len IMPI`.
+    #[cfg_attr(not(feature = "gba"), allow(dead_code))]
+    fn auth_gba_naf(naf_id: &[u8], impi: &[u8]) -> alloc::vec::Vec<u8> {
+        assert!(naf_id.len() <= 255 && impi.len() <= 255);
+        let mut body = alloc::vec::Vec::with_capacity(2 + naf_id.len() + impi.len());
+        #[allow(clippy::cast_possible_truncation)]
+        body.push(naf_id.len() as u8);
+        body.extend_from_slice(naf_id);
+        #[allow(clippy::cast_possible_truncation)]
+        body.push(impi.len() as u8);
+        body.extend_from_slice(impi);
+        apdu_with_data(0x00, 0x88, 0x00, 0x84, &body)
+    }
 
     // -- Test filesystem --
 
@@ -3316,18 +3374,7 @@ mod tests {
         auth_token[6..8].copy_from_slice(&management_field);
         auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
 
-        // Build AUTHENTICATE APDU.
-        let mut apdu = [0u8; 5 + 34];
-        apdu[0] = 0x00; // CLA
-        apdu[1] = 0x88; // INS
-        apdu[2] = 0x00; // P1
-        apdu[3] = 0x81; // P2 = UMTS context
-        apdu[4] = 0x22; // Lc = 34
-        apdu[5] = 0x10; // RAND length
-        apdu[6..22].copy_from_slice(&rand_val);
-        apdu[22] = 0x10; // AUTN length
-        apdu[23..39].copy_from_slice(&auth_token);
-
+        let apdu = auth_umts(&rand_val, &auth_token);
         let (buf, _len) = send(&mut app, &apdu);
         assert_eq!(buf[0], 0x61); // data available
         let rsp_len = buf[1] as usize;
@@ -3355,17 +3402,8 @@ mod tests {
     #[test]
     fn authenticate_mac_failure() {
         let mut app = app();
-        // Build AUTHENTICATE with garbage AUTN.
-        let mut apdu = [0u8; 5 + 34];
-        apdu[0] = 0x00;
-        apdu[1] = 0x88;
-        apdu[3] = 0x81;
-        apdu[4] = 0x22;
-        apdu[5] = 0x10;
-        // RAND = all zeros.
-        apdu[22] = 0x10;
-        // AUTN = all zeros (invalid MAC).
-
+        // AUTHENTICATE UMTS context with all-zero RAND/AUTN -- invalid MAC.
+        let apdu = auth_umts(&[0u8; 16], &[0u8; 16]);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x98, 0x62));
     }
@@ -3392,16 +3430,7 @@ mod tests {
             0xBF, 0x35,
         ];
 
-        // Build AUTHENTICATE APDU: P2=0x00 (GSM context), data = 0x10 || RAND.
-        let mut apdu = [0u8; 5 + 17];
-        apdu[0] = 0x00; // CLA
-        apdu[1] = 0x88; // INS = AUTHENTICATE
-        apdu[2] = 0x00; // P1
-        apdu[3] = 0x00; // P2 = GSM context
-        apdu[4] = 0x11; // Lc = 17
-        apdu[5] = 0x10; // RAND length prefix
-        apdu[6..22].copy_from_slice(&rand_val);
-
+        let apdu = auth_gsm(&rand_val);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x61, 0x0E)); // 14 bytes available
 
@@ -3448,14 +3477,11 @@ mod tests {
     #[test]
     fn authenticate_unknown_p2_rejected() {
         let mut app = app();
-        // P2=0x42 is not a valid security context.
-        let mut apdu = [0u8; 5 + 17];
-        apdu[0] = 0x00;
-        apdu[1] = 0x88;
-        apdu[2] = 0x00;
-        apdu[3] = 0x42; // invalid P2
-        apdu[4] = 0x11;
-        apdu[5] = 0x10;
+        // P2 = 0x42 is not a valid security context. Body is `0x10 RAND`
+        // (16-byte zero RAND).
+        let mut body = [0u8; 17];
+        body[0] = 0x10;
+        let apdu = apdu_with_data(0x00, 0x88, 0x00, 0x42, &body);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x6A, 0x86)); // wrong P1-P2
     }
@@ -3909,12 +3935,9 @@ mod tests {
         };
         app.proactive_state().queue_command(&cmd).unwrap();
 
+        // FETCH (INS 0x12), Le = pending bytes.
         let pending = app.proactive_state().pending_len();
-        let mut apdu = [0u8; 5];
-        apdu[0] = 0x80;
-        apdu[1] = 0x12;
-        apdu[4] = pending as u8;
-
+        let apdu = simrs_iso7816::apdu_with_response_len(0x80, 0x12, 0x00, 0x00, pending as u8);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
         // Data starts with 0xD0 (proactive command envelope).
@@ -4594,16 +4617,7 @@ mod tests {
         assert!(dst.restore_state(&snap));
 
         // AUTHENTICATE should succeed with restored K/OPc.
-        let mut apdu = [0u8; 5 + 34];
-        apdu[0] = 0x00;
-        apdu[1] = 0x88;
-        apdu[3] = 0x81;
-        apdu[4] = 0x22;
-        apdu[5] = 0x10;
-        apdu[6..22].copy_from_slice(&rand_val);
-        apdu[22] = 0x10;
-        apdu[23..39].copy_from_slice(&auth_token);
-
+        let apdu = auth_umts(&rand_val, &auth_token);
         let (buf, _) = send(&mut dst, &apdu);
         assert_eq!(buf[0], 0x61); // data available
     }
@@ -4806,15 +4820,8 @@ mod tests {
         // AUTHENTICATE has its own security context per ETSI TS 102 221
         // and does not require PIN1 verification.
         let mut app = app_with_pin1_enabled();
-        // Build AUTHENTICATE APDU (P2=0x81 UMTS context).
-        let mut apdu = [0u8; 4 + 1 + 34];
-        apdu[0] = 0x00; // CLA
-        apdu[1] = 0x88; // INS
-        apdu[2] = 0x00; // P1
-        apdu[3] = 0x81; // P2
-        apdu[4] = 0x22; // Lc = 34
-        apdu[5] = 0x10; // RAND len prefix
-        apdu[22] = 0x10; // AUTN len prefix
+        // AUTHENTICATE UMTS context with all-zero RAND/AUTN: invalid MAC.
+        let apdu = auth_umts(&[0u8; 16], &[0u8; 16]);
         let (buf, len) = send(&mut app, &apdu);
         // Should get MAC failure (98 62), not security error (69 82).
         assert_eq!(sw(&buf, len), (0x98, 0x62));
@@ -5231,15 +5238,8 @@ mod tests {
         fn authenticate_not_gated_by_pin1() {
             let mut app = app_with_pin1_enabled();
             // Build AUTHENTICATE APDU with P2=0x81 (UMTS context),
-            // zeroed RAND + AUTN (will cause MAC failure, not security error).
-            let mut apdu = [0u8; 5 + 34];
-            apdu[0] = 0x00; // CLA
-            apdu[1] = 0x88; // INS = AUTHENTICATE
-            apdu[2] = 0x00; // P1
-            apdu[3] = 0x81; // P2 = UMTS context
-            apdu[4] = 0x22; // Lc = 34
-            apdu[5] = 0x10; // RAND length prefix
-            apdu[22] = 0x10; // AUTN length prefix
+            // Zeroed RAND + AUTN -- causes MAC failure, not security error.
+            let apdu = auth_umts(&[0u8; 16], &[0u8; 16]);
             let (buf, len) = send(&mut app, &apdu);
             let status = sw_from_response(&buf, len);
             assert_ne!(
@@ -5375,14 +5375,8 @@ mod tests {
             0x81, 0x03, 0x01, 0x21, 0x00, // Command Details
             0x83, 0x01, 0x00, // Result: success
         ];
-        let mut apdu = [0u8; 4 + 1 + 8];
-        apdu[0] = 0x80; // CLA
-        apdu[1] = 0x14; // INS TERMINAL RESPONSE
-        apdu[2] = 0x00; // P1
-        apdu[3] = 0x00; // P2
-        apdu[4] = data.len() as u8; // Lc
-        apdu[5..13].copy_from_slice(&data);
-
+        // TERMINAL RESPONSE (INS 0x14).
+        let apdu = apdu_with_data(0x80, 0x14, 0x00, 0x00, &data);
         let (buf, len) = send(&mut app, &apdu);
         // Should be rejected: 69 85 (conditions of use not satisfied, no session).
         assert_eq!(
@@ -5433,13 +5427,7 @@ mod tests {
             0x81, 0x03, 0x01, 0x21, 0x00, // Command Details
             0x83, 0x01, 0x00, // Result: success
         ];
-        let mut tr_apdu = [0u8; 4 + 1 + 8];
-        tr_apdu[0] = 0x80;
-        tr_apdu[1] = 0x14;
-        tr_apdu[2] = 0x00;
-        tr_apdu[3] = 0x00;
-        tr_apdu[4] = tr_data.len() as u8;
-        tr_apdu[5..13].copy_from_slice(&tr_data);
+        let tr_apdu = apdu_with_data(0x80, 0x14, 0x00, 0x00, &tr_data);
         let (buf, len) = send(&mut app, &tr_apdu);
         assert_eq!(
             sw(&buf, len),
@@ -5479,13 +5467,7 @@ mod tests {
 
         // Send TERMINAL RESPONSE.
         let tr_data = [0x81, 0x03, 0x01, 0x21, 0x00, 0x83, 0x01, 0x00];
-        let mut tr_apdu = [0u8; 4 + 1 + 8];
-        tr_apdu[0] = 0x80;
-        tr_apdu[1] = 0x14;
-        tr_apdu[2] = 0x00;
-        tr_apdu[3] = 0x00;
-        tr_apdu[4] = tr_data.len() as u8;
-        tr_apdu[5..13].copy_from_slice(&tr_data);
+        let tr_apdu = apdu_with_data(0x80, 0x14, 0x00, 0x00, &tr_data);
         send(&mut app, &tr_apdu);
 
         // Now FETCH again -- should fail with 69 00 (no pending command).
@@ -5995,17 +5977,7 @@ mod tests {
         auth_token[6..8].copy_from_slice(&management_field);
         auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
 
-        // Build AUTHENTICATE APDU.
-        let mut apdu = [0u8; 5 + 34];
-        apdu[0] = 0x00;
-        apdu[1] = 0x88;
-        apdu[3] = 0x81;
-        apdu[4] = 0x22;
-        apdu[5] = 0x10;
-        apdu[6..22].copy_from_slice(&rand_val);
-        apdu[22] = 0x10;
-        apdu[23..39].copy_from_slice(&auth_token);
-
+        let apdu = auth_umts(&rand_val, &auth_token);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(
             sw(&buf, len),
@@ -6082,16 +6054,7 @@ mod tests {
         // MAC-A = garbage (extremely unlikely to match real MAC)
         auth_token[8..16].copy_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22]);
 
-        let mut apdu = [0u8; 5 + 34];
-        apdu[0] = 0x00;
-        apdu[1] = 0x88;
-        apdu[3] = 0x81;
-        apdu[4] = 0x22;
-        apdu[5] = 0x10;
-        apdu[6..22].copy_from_slice(&rand_val);
-        apdu[22] = 0x10;
-        apdu[23..39].copy_from_slice(&auth_token);
-
+        let apdu = auth_umts(&rand_val, &auth_token);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(
             sw(&buf, len),
@@ -6106,15 +6069,9 @@ mod tests {
     fn authenticate_p2_context_selection() {
         let mut app = app();
 
-        // P2=0x81 (UMTS context) with garbage AUTN: should return 98 62 (MAC fail),
-        // proving the UMTS path was entered.
-        let mut umts_apdu = [0u8; 5 + 34];
-        umts_apdu[0] = 0x00;
-        umts_apdu[1] = 0x88;
-        umts_apdu[3] = 0x81; // UMTS
-        umts_apdu[4] = 0x22;
-        umts_apdu[5] = 0x10;
-        umts_apdu[22] = 0x10;
+        // P2 = 0x81 (UMTS context) with garbage AUTN: 98 62 (MAC fail)
+        // proves the UMTS path was entered.
+        let umts_apdu = auth_umts(&[0u8; 16], &[0u8; 16]);
         let (buf, len) = send(&mut app, &umts_apdu);
         assert_eq!(
             sw(&buf, len),
@@ -6122,19 +6079,13 @@ mod tests {
             "P2=0x81 must route to UMTS AUTHENTICATE"
         );
 
-        // P2=0x00 (GSM context) with valid-format data: should return 61 0E (success),
-        // proving the GSM path was entered.
+        // P2 = 0x00 (GSM context) with valid-format data: 61 0E (success)
+        // proves the GSM path was entered.
         let rand_val: [u8; 16] = [
             0x23, 0x55, 0x3C, 0xBE, 0x96, 0x37, 0xA8, 0x9D, 0x21, 0x8A, 0xE6, 0x4D, 0xAE, 0x47,
             0xBF, 0x35,
         ];
-        let mut gsm_apdu = [0u8; 5 + 17];
-        gsm_apdu[0] = 0x00;
-        gsm_apdu[1] = 0x88;
-        gsm_apdu[3] = 0x00; // GSM
-        gsm_apdu[4] = 0x11;
-        gsm_apdu[5] = 0x10;
-        gsm_apdu[6..22].copy_from_slice(&rand_val);
+        let gsm_apdu = auth_gsm(&rand_val);
         let (buf, len) = send(&mut app, &gsm_apdu);
         assert_eq!(
             sw(&buf, len),
@@ -6142,14 +6093,11 @@ mod tests {
             "P2=0x00 must route to GSM AUTHENTICATE and return 14 bytes"
         );
 
-        // P2=0x82 (GBA bootstrap): behaviour depends on `gba` feature.
-        let mut gba_apdu = [0u8; 5 + 34];
-        gba_apdu[0] = 0x00;
-        gba_apdu[1] = 0x88;
-        gba_apdu[3] = 0x82;
-        gba_apdu[4] = 0x22;
-        gba_apdu[5] = 0x10;
-        gba_apdu[22] = 0x10;
+        // P2 = 0x82 (GBA bootstrap): same body shape as UMTS.
+        let mut gba_body = [0u8; 34];
+        gba_body[0] = 0x10;
+        gba_body[17] = 0x10;
+        let gba_apdu = apdu_with_data(0x00, 0x88, 0x00, 0x82, &gba_body);
         let (buf, len) = send(&mut app, &gba_apdu);
         #[cfg(feature = "gba")]
         assert_eq!(
@@ -6164,17 +6112,14 @@ mod tests {
             "P2=0x82 without gba feature must return 6A 86"
         );
 
-        // P2=0x84 (GBA NAF derivation): behaviour depends on `gba` feature.
-        let mut naf_apdu = [0u8; 5 + 10];
-        naf_apdu[0] = 0x00;
-        naf_apdu[1] = 0x88;
-        naf_apdu[3] = 0x84;
-        naf_apdu[4] = 0x0A; // Lc = 10
-        // NAF_ID_len=4, NAF_ID="test", IMPI_len=4, IMPI="user"
-        naf_apdu[5] = 0x04;
-        naf_apdu[6..10].copy_from_slice(b"test");
-        naf_apdu[10] = 0x04;
-        naf_apdu[11..15].copy_from_slice(b"user");
+        // P2 = 0x84 (GBA NAF derivation): body is
+        // `NAF_ID_len(4) NAF_ID("test") IMPI_len(4) IMPI("user")`.
+        let mut naf_body = [0u8; 10];
+        naf_body[0] = 0x04;
+        naf_body[1..5].copy_from_slice(b"test");
+        naf_body[5] = 0x04;
+        naf_body[6..10].copy_from_slice(b"user");
+        let naf_apdu = apdu_with_data(0x00, 0x88, 0x00, 0x84, &naf_body);
         let (buf, len) = send(&mut app, &naf_apdu);
         #[cfg(feature = "gba")]
         assert_eq!(
@@ -6189,14 +6134,11 @@ mod tests {
             "P2=0x84 without gba feature must return 6A 86"
         );
 
-        // P2=0xFF (invalid): should also return 6A 86.
-        let mut inv_apdu = [0u8; 5 + 34];
-        inv_apdu[0] = 0x00;
-        inv_apdu[1] = 0x88;
-        inv_apdu[3] = 0xFF;
-        inv_apdu[4] = 0x22;
-        inv_apdu[5] = 0x10;
-        inv_apdu[22] = 0x10;
+        // P2 = 0xFF (invalid context): should return 6A 86.
+        let mut inv_body = [0u8; 34];
+        inv_body[0] = 0x10;
+        inv_body[17] = 0x10;
+        let inv_apdu = apdu_with_data(0x00, 0x88, 0x00, 0xFF, &inv_body);
         let (buf, len) = send(&mut app, &inv_apdu);
         assert_eq!(
             sw(&buf, len),
@@ -6228,21 +6170,6 @@ mod tests {
         auth_token[6..8].copy_from_slice(&management_field);
         auth_token[8..16].copy_from_slice(auth_mac.as_bytes());
         auth_token
-    }
-
-    /// Helper: build an AUTHENTICATE APDU (INS=0x88, P2=0x81 UMTS context).
-    fn build_authenticate_apdu(challenge: &[u8; 16], auth_token: &[u8; 16]) -> [u8; 5 + 34] {
-        let mut apdu = [0u8; 5 + 34];
-        apdu[0] = 0x00; // CLA
-        apdu[1] = 0x88; // INS = AUTHENTICATE
-        apdu[2] = 0x00; // P1
-        apdu[3] = 0x81; // P2 = UMTS context
-        apdu[4] = 0x22; // Lc = 34
-        apdu[5] = 0x10; // RAND length prefix
-        apdu[6..22].copy_from_slice(challenge);
-        apdu[22] = 0x10; // AUTN length prefix
-        apdu[23..39].copy_from_slice(auth_token);
-        apdu
     }
 
     /// SELECT ADF USIM APDU (P1=0x04 select by AID, P2=0x04 FCP).
@@ -6284,7 +6211,7 @@ mod tests {
         let sequence_number = [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x07];
         let management_field = [0xB9, 0xB9];
         let auth_token = build_autn(&params, &rand_val, sequence_number, management_field);
-        let apdu = build_authenticate_apdu(&rand_val, &auth_token);
+        let apdu = auth_umts(&rand_val, &auth_token);
 
         let (buf, _len) = send(&mut app, &apdu);
         assert_eq!(
@@ -6396,7 +6323,7 @@ mod tests {
             *b = !*b;
         }
 
-        let apdu = build_authenticate_apdu(&rand_val, &auth_token);
+        let apdu = auth_umts(&rand_val, &auth_token);
         let (buf, len) = send(&mut app, &apdu);
 
         // Must get SW 98 62 (authentication error / MAC failure).
@@ -6436,7 +6363,7 @@ mod tests {
             0xBF, 0x35,
         ];
         let auth_token_1 = build_autn(&params, &rand1, sequence_number_1, management_field);
-        let apdu1 = build_authenticate_apdu(&rand1, &auth_token_1);
+        let apdu1 = auth_umts(&rand1, &auth_token_1);
 
         let (buf, _len) = send(&mut app, &apdu1);
         assert_eq!(buf[0], 0x61, "first AUTHENTICATE must succeed (61 XX)");
@@ -6457,7 +6384,7 @@ mod tests {
             0x55, 0xB4,
         ];
         let auth_token_2 = build_autn(&params, &rand2, sequence_number_2, management_field);
-        let apdu2 = build_authenticate_apdu(&rand2, &auth_token_2);
+        let apdu2 = auth_umts(&rand2, &auth_token_2);
 
         let (buf, _len) = send(&mut app, &apdu2);
         assert_eq!(buf[0], 0x61, "second AUTHENTICATE must succeed (61 XX)");
@@ -6533,18 +6460,7 @@ mod tests {
         let management_field = [0xB9, 0xB9];
         let auth_token = build_autn(&params, &rand_val, sequence_number, management_field);
 
-        // Build GBA bootstrap APDU (P2=0x82)
-        let mut apdu = [0u8; 5 + 34];
-        apdu[0] = 0x00; // CLA
-        apdu[1] = 0x88; // INS = AUTHENTICATE
-        apdu[2] = 0x00; // P1
-        apdu[3] = 0x82; // P2 = GBA bootstrap
-        apdu[4] = 0x22; // Lc = 34
-        apdu[5] = 0x10; // RAND length prefix
-        apdu[6..22].copy_from_slice(&rand_val);
-        apdu[22] = 0x10; // AUTN length prefix
-        apdu[23..39].copy_from_slice(&auth_token);
-
+        let apdu = auth_gba_bootstrap(&rand_val, &auth_token);
         let (buf, _len) = send(&mut app, &apdu);
         assert_eq!(buf[0], 0x61, "GBA bootstrap must succeed (61 XX)");
         let rsp_len = buf[1];
@@ -6595,15 +6511,7 @@ mod tests {
         let auth_token = build_autn(&params, &rand_val, sequence_number, management_field);
 
         // Step 1: GBA bootstrap
-        let mut boot_apdu = [0u8; 5 + 34];
-        boot_apdu[0] = 0x00;
-        boot_apdu[1] = 0x88;
-        boot_apdu[3] = 0x82;
-        boot_apdu[4] = 0x22;
-        boot_apdu[5] = 0x10;
-        boot_apdu[6..22].copy_from_slice(&rand_val);
-        boot_apdu[22] = 0x10;
-        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let boot_apdu = auth_gba_bootstrap(&rand_val, &auth_token);
         let (buf, _) = send(&mut app, &boot_apdu);
         assert_eq!(buf[0], 0x61, "bootstrap must succeed");
         // Consume the GET RESPONSE for bootstrap
@@ -6612,18 +6520,8 @@ mod tests {
         // Step 2: NAF derivation
         let naf_id = b"naf.example.com";
         let impi = b"user@ims.example.com";
-        let mut naf_apdu = [0u8; 5 + 1 + 15 + 1 + 20]; // header + NAF_ID_len + NAF_ID + IMPI_len + IMPI
-        naf_apdu[0] = 0x00;
-        naf_apdu[1] = 0x88;
-        naf_apdu[3] = 0x84; // GBA NAF derivation
-        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
-        naf_apdu[4] = lc;
-        naf_apdu[5] = naf_id.len() as u8;
-        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
-        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
-        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
-
-        let (buf, _) = send(&mut app, &naf_apdu[..5 + lc as usize]);
+        let naf_apdu = auth_gba_naf(naf_id, impi);
+        let (buf, _) = send(&mut app, &naf_apdu);
         assert_eq!(buf[0], 0x61, "NAF derivation must succeed (61 XX)");
         let naf_rsp_len = buf[1];
         assert_eq!(
@@ -6660,18 +6558,8 @@ mod tests {
 
         let naf_id = b"naf.example.com";
         let impi = b"user@example.com";
-        let mut apdu = [0u8; 5 + 1 + 15 + 1 + 16];
-        apdu[0] = 0x00;
-        apdu[1] = 0x88;
-        apdu[3] = 0x84;
-        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
-        apdu[4] = lc;
-        apdu[5] = naf_id.len() as u8;
-        apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
-        apdu[6 + naf_id.len()] = impi.len() as u8;
-        apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
-
-        let (buf, len) = send(&mut app, &apdu[..5 + lc as usize]);
+        let apdu = auth_gba_naf(naf_id, impi);
+        let (buf, len) = send(&mut app, &apdu);
         assert_eq!(
             sw(&buf, len),
             (0x69, 0x85),
@@ -6685,15 +6573,8 @@ mod tests {
     fn gba_bootstrap_mac_failure() {
         let mut app = app();
 
-        let mut apdu = [0u8; 5 + 34];
-        apdu[0] = 0x00;
-        apdu[1] = 0x88;
-        apdu[3] = 0x82;
-        apdu[4] = 0x22;
-        apdu[5] = 0x10; // RAND prefix
-        apdu[22] = 0x10; // AUTN prefix
-        // RAND and AUTN are zeros (invalid AUTN)
-
+        // GBA bootstrap with all-zero RAND/AUTN: invalid MAC.
+        let apdu = auth_gba_bootstrap(&[0u8; 16], &[0u8; 16]);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(
             sw(&buf, len),
@@ -6718,15 +6599,7 @@ mod tests {
         let auth_token = build_autn(&params, &rand_val, sequence_number, management_field);
 
         // Bootstrap
-        let mut boot_apdu = [0u8; 5 + 34];
-        boot_apdu[0] = 0x00;
-        boot_apdu[1] = 0x88;
-        boot_apdu[3] = 0x82;
-        boot_apdu[4] = 0x22;
-        boot_apdu[5] = 0x10;
-        boot_apdu[6..22].copy_from_slice(&rand_val);
-        boot_apdu[22] = 0x10;
-        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let boot_apdu = auth_gba_bootstrap(&rand_val, &auth_token);
         let (buf, _) = send(&mut app, &boot_apdu);
         assert_eq!(buf[0], 0x61);
         send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
@@ -6796,15 +6669,7 @@ mod tests {
         );
 
         // Bootstrap
-        let mut boot_apdu = [0u8; 5 + 34];
-        boot_apdu[0] = 0x00;
-        boot_apdu[1] = 0x88;
-        boot_apdu[3] = 0x82;
-        boot_apdu[4] = 0x22;
-        boot_apdu[5] = 0x10;
-        boot_apdu[6..22].copy_from_slice(&rand_val);
-        boot_apdu[22] = 0x10;
-        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let boot_apdu = auth_gba_bootstrap(&rand_val, &auth_token);
         let (buf, _) = send(&mut app, &boot_apdu);
         assert_eq!(buf[0], 0x61);
         send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
@@ -6822,17 +6687,8 @@ mod tests {
         // NAF derivation on restored app must succeed
         let naf_id = b"naf.example.com";
         let impi = b"user@example.com";
-        let mut naf_apdu = [0u8; 64];
-        naf_apdu[0] = 0x00;
-        naf_apdu[1] = 0x88;
-        naf_apdu[3] = 0x84;
-        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
-        naf_apdu[4] = lc;
-        naf_apdu[5] = naf_id.len() as u8;
-        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
-        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
-        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
-        let (buf, _) = send(&mut dst, &naf_apdu[..5 + lc as usize]);
+        let naf_apdu = auth_gba_naf(naf_id, impi);
+        let (buf, _) = send(&mut dst, &naf_apdu);
         assert_eq!(
             buf[0], 0x61,
             "NAF derivation must succeed after snapshot restore"
@@ -6862,15 +6718,7 @@ mod tests {
         );
 
         // Bootstrap
-        let mut boot_apdu = [0u8; 5 + 34];
-        boot_apdu[0] = 0x00;
-        boot_apdu[1] = 0x88;
-        boot_apdu[3] = 0x82;
-        boot_apdu[4] = 0x22;
-        boot_apdu[5] = 0x10;
-        boot_apdu[6..22].copy_from_slice(&rand_val);
-        boot_apdu[22] = 0x10;
-        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let boot_apdu = auth_gba_bootstrap(&rand_val, &auth_token);
         let (buf, _) = send(&mut app, &boot_apdu);
         assert_eq!(buf[0], 0x61);
         send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
@@ -6882,17 +6730,8 @@ mod tests {
         // NAF derivation must fail
         let naf_id = b"naf.example.com";
         let impi = b"user@example.com";
-        let mut naf_apdu = [0u8; 64];
-        naf_apdu[0] = 0x00;
-        naf_apdu[1] = 0x88;
-        naf_apdu[3] = 0x84;
-        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
-        naf_apdu[4] = lc;
-        naf_apdu[5] = naf_id.len() as u8;
-        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
-        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
-        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
-        let (buf, total) = send(&mut app, &naf_apdu[..5 + lc as usize]);
+        let naf_apdu = auth_gba_naf(naf_id, impi);
+        let (buf, total) = send(&mut app, &naf_apdu);
         assert_eq!(
             sw(&buf, total),
             (0x69, 0x85),
@@ -6919,15 +6758,7 @@ mod tests {
         );
 
         // First bootstrap
-        let mut boot_apdu = [0u8; 5 + 34];
-        boot_apdu[0] = 0x00;
-        boot_apdu[1] = 0x88;
-        boot_apdu[3] = 0x82;
-        boot_apdu[4] = 0x22;
-        boot_apdu[5] = 0x10;
-        boot_apdu[6..22].copy_from_slice(&rand_val);
-        boot_apdu[22] = 0x10;
-        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let boot_apdu = auth_gba_bootstrap(&rand_val, &auth_token);
         let (buf, _) = send(&mut app, &boot_apdu);
         assert_eq!(buf[0], 0x61);
         send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
@@ -6947,26 +6778,16 @@ mod tests {
             [0xFF, 0x9B, 0xB4, 0xD0, 0xB6, 0x08],
             [0xB9, 0xB9],
         );
-        boot_apdu[6..22].copy_from_slice(&rand_val2);
-        boot_apdu[23..39].copy_from_slice(&auth_token2);
-        let (buf, _) = send(&mut app, &boot_apdu);
+        let boot_apdu2 = auth_gba_bootstrap(&rand_val2, &auth_token2);
+        let (buf, _) = send(&mut app, &boot_apdu2);
         assert_eq!(buf[0], 0x61, "re-bootstrap must succeed");
         send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
 
         // NAF derivation must now succeed (lifetime reset to infinite)
         let naf_id = b"naf.example.com";
         let impi = b"user@example.com";
-        let mut naf_apdu = [0u8; 64];
-        naf_apdu[0] = 0x00;
-        naf_apdu[1] = 0x88;
-        naf_apdu[3] = 0x84;
-        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
-        naf_apdu[4] = lc;
-        naf_apdu[5] = naf_id.len() as u8;
-        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
-        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
-        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
-        let (buf, _) = send(&mut app, &naf_apdu[..5 + lc as usize]);
+        let naf_apdu = auth_gba_naf(naf_id, impi);
+        let (buf, _) = send(&mut app, &naf_apdu);
         assert_eq!(
             buf[0], 0x61,
             "NAF derivation must succeed after re-bootstrap"
@@ -6992,15 +6813,7 @@ mod tests {
         );
 
         // Bootstrap (default lifetime = u32::MAX = infinite)
-        let mut boot_apdu = [0u8; 5 + 34];
-        boot_apdu[0] = 0x00;
-        boot_apdu[1] = 0x88;
-        boot_apdu[3] = 0x82;
-        boot_apdu[4] = 0x22;
-        boot_apdu[5] = 0x10;
-        boot_apdu[6..22].copy_from_slice(&rand_val);
-        boot_apdu[22] = 0x10;
-        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let boot_apdu = auth_gba_bootstrap(&rand_val, &auth_token);
         let (buf, _) = send(&mut app, &boot_apdu);
         assert_eq!(buf[0], 0x61);
         send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
@@ -7011,17 +6824,8 @@ mod tests {
         // NAF derivation must still succeed
         let naf_id = b"naf.example.com";
         let impi = b"user@example.com";
-        let mut naf_apdu = [0u8; 64];
-        naf_apdu[0] = 0x00;
-        naf_apdu[1] = 0x88;
-        naf_apdu[3] = 0x84;
-        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
-        naf_apdu[4] = lc;
-        naf_apdu[5] = naf_id.len() as u8;
-        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
-        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
-        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
-        let (buf, _) = send(&mut app, &naf_apdu[..5 + lc as usize]);
+        let naf_apdu = auth_gba_naf(naf_id, impi);
+        let (buf, _) = send(&mut app, &naf_apdu);
         assert_eq!(
             buf[0], 0x61,
             "NAF derivation must succeed with infinite lifetime"
@@ -7047,15 +6851,7 @@ mod tests {
         );
 
         // Bootstrap
-        let mut boot_apdu = [0u8; 5 + 34];
-        boot_apdu[0] = 0x00;
-        boot_apdu[1] = 0x88;
-        boot_apdu[3] = 0x82;
-        boot_apdu[4] = 0x22;
-        boot_apdu[5] = 0x10;
-        boot_apdu[6..22].copy_from_slice(&rand_val);
-        boot_apdu[22] = 0x10;
-        boot_apdu[23..39].copy_from_slice(&auth_token);
+        let boot_apdu = auth_gba_bootstrap(&rand_val, &auth_token);
         let (buf, _) = send(&mut app, &boot_apdu);
         assert_eq!(buf[0], 0x61);
         send(&mut app, &[0x00, 0xC0, 0x00, 0x00, buf[1]]);
@@ -7081,17 +6877,8 @@ mod tests {
         // NAF derivation must fail on restored app
         let naf_id = b"naf.example.com";
         let impi = b"user@example.com";
-        let mut naf_apdu = [0u8; 64];
-        naf_apdu[0] = 0x00;
-        naf_apdu[1] = 0x88;
-        naf_apdu[3] = 0x84;
-        let lc = (1 + naf_id.len() + 1 + impi.len()) as u8;
-        naf_apdu[4] = lc;
-        naf_apdu[5] = naf_id.len() as u8;
-        naf_apdu[6..6 + naf_id.len()].copy_from_slice(naf_id);
-        naf_apdu[6 + naf_id.len()] = impi.len() as u8;
-        naf_apdu[7 + naf_id.len()..7 + naf_id.len() + impi.len()].copy_from_slice(impi);
-        let (buf, total) = send(&mut dst, &naf_apdu[..5 + lc as usize]);
+        let naf_apdu = auth_gba_naf(naf_id, impi);
+        let (buf, total) = send(&mut dst, &naf_apdu);
         assert_eq!(
             sw(&buf, total),
             (0x69, 0x85),
@@ -8000,13 +7787,8 @@ mod tests {
         ]);
         ext1[12] = 0xFF; // no next record
 
-        let mut apdu = [0u8; 5 + 13];
-        apdu[0] = 0x00;
-        apdu[1] = 0xDC;
-        apdu[2] = 0x01;
-        apdu[3] = 0x04;
-        apdu[4] = 13;
-        apdu[5..18].copy_from_slice(&ext1);
+        // UPDATE RECORD (INS 0xDC), record 1, P2=0x04 (absolute), 13-byte body.
+        let apdu = apdu_with_data(0x00, 0xDC, 0x01, 0x04, &ext1);
         let (buf, len) = send(&mut app, &apdu);
         assert_eq!(sw(&buf, len), (0x90, 0x00));
 
@@ -8027,6 +7809,7 @@ mod proptests {
     use super::*;
     use proptest::prelude::*;
     use simrs_fs::{EfDef, Fid, FileRef};
+    use simrs_iso7816::apdu_with_data;
     use simrs_milenage::{OperatorVariant, SubscriberKey};
 
     static PT_EF: EfDef = EfDef::transparent(
@@ -8142,17 +7925,10 @@ mod proptests {
             let mut buf = [0u8; 256];
             let _ = app.handle(&cmd, &mut buf);
 
-            // Build UPDATE BINARY APDU
+            // UPDATE BINARY (INS 0xD6) at offset 0.
             let lc = data.len() as u8;
-            let mut apdu = [0u8; 5 + 8];
-            apdu[0] = 0x00; // CLA
-            apdu[1] = 0xD6; // INS: UPDATE BINARY
-            apdu[2] = 0x00; // P1: offset high
-            apdu[3] = 0x00; // P2: offset low
-            apdu[4] = lc;
-            apdu[5..5 + data.len()].copy_from_slice(&data);
-
-            let cmd = Command::parse(&apdu[..5 + data.len()]).unwrap();
+            let apdu = apdu_with_data(0x00, 0xD6, 0x00, 0x00, &data);
+            let cmd = Command::parse(&apdu).unwrap();
             let rsp = app.handle(&cmd, &mut buf);
             let len = rsp.len();
             prop_assert_eq!((buf[len-2], buf[len-1]), (0x90, 0x00),

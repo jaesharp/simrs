@@ -25,7 +25,7 @@
 #       Tag 9F65: lifecycle state (1 byte)
 #       Tag 73: Security Domain management data
 #
-# Default ISD AID: A0 00 00 01 51 00 00
+# Default ISD AID per GP 2.3.1: A0 00 00 01 51 00 00 00
 #
 # Status words:
 #   90 00  command processed successfully (FCI returned)
@@ -41,7 +41,7 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
 
   Background:
     Given a GP card in SECURED state
-    And the ISD has AID [A0 00 00 01 51 00 00]
+    And the ISD has AID [A0 00 00 01 51 00 00 00]
     And a test applet with AID [A0 00 00 00 62 01 01 02] is installed and selectable
     And a second test applet with AID [A0 00 00 00 62 01 01 03] is installed and selectable
 
@@ -52,10 +52,10 @@ Feature: SELECT by AID (GP 2.1.1 clause 9.9 / 6.3)
 
   Scenario: SELECT ISD by full AID returns FCI with lifecycle byte
     # GP 2.1.1 clause 9.9
-    When I send SELECT [00 A4 04 00 07 A0 00 00 01 51 00 00 00]
+    When I send SELECT [00 A4 04 00 08 A0 00 00 01 51 00 00 00 00]
     Then SW is 90 00
     And the response contains FCI template (tag 6F)
-    And the FCI contains DF name (tag 84) matching [A0 00 00 01 51 00 00]
+    And the FCI contains DF name (tag 84) matching [A0 00 00 01 51 00 00 00]
     And the FCI contains lifecycle state reflecting the ISD's current state
 
   # ---------------------------------------------------------------------------

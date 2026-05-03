@@ -14,7 +14,7 @@ sim     = ["dep:simrs-sim", "dep:simrs-milenage"]
 simrs-card-api = { workspace = true }
 simrs-gp-open  = { workspace = true }
 simrs-gp-keys  = { workspace = true }
-simrs-iso7816  = { workspace = true }
+simrs-iso7816  = { workspace = true, features = ["alloc"] }
 simrs-jcre     = { workspace = true }
 simrs-sim      = { workspace = true, features = ["usim", "gp-applet"], optional = true }
 simrs-milenage = { workspace = true, optional = true }

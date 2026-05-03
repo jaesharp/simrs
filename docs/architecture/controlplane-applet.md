@@ -390,7 +390,7 @@ Not yet started; the Rust side runs standalone today because
 
 ## Testing Strategy
 
-1. **Rust unit tests** in `simrs-controlplane` (59 tests today) --
+1. **Rust unit tests** in `simrs-controlplane` --
    matrix of P1/P2 across every landed probe, plus capability
    semantics, AID matching, protocol constants, ring buffer
    behaviour.

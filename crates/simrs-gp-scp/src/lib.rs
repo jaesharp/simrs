@@ -19,7 +19,7 @@
 //! derivation = card_challenge[4..8] || host_challenge[0..4]
 //!           || card_challenge[0..4] || host_challenge[4..8]
 //! session_enc = 3DES_ECB(static_enc, derivation)
-//! session_mac = 3DES_ECB(static_mac, derivation)
+//! command_mac = 3DES_ECB(static_mac, derivation)
 //! ```
 //!
 //! INITIALIZE UPDATE (Table D-4): `80 50 <kv> <kid> 08 <host_challenge[8]>`
@@ -62,25 +62,29 @@
 extern crate std;
 
 mod cmac;
+pub mod keywrap;
 mod scp01;
 mod scp02;
 pub mod scp03;
 mod snapshot;
 
 // Re-export all public items so the crate API is unchanged.
-pub use cmac::{des_ecb_encrypt_left_half, generate_cmac, unwrap_command, wrap_response};
+pub use cmac::{
+    des_ecb_encrypt_left_half, des3_2key_cbc_mac_with_iv, generate_cmac, seed_rmac_chain_scp02,
+    unwrap_command, wrap_response,
+};
 pub use scp01::{
     compute_scp01_card_cryptogram, compute_scp01_host_cryptogram, derive_scp01_session_keys,
 };
 pub use scp02::{
     compute_scp02_card_cryptogram, compute_scp02_host_cryptogram, derive_scp02_session_key,
-    derive_scp02_session_keys,
+    derive_scp02_session_keys, scp02_pseudo_random_card_challenge,
 };
 pub use scp03::{
     Scp03InitUpdateResponse, compute_card_cryptogram as compute_scp03_card_cryptogram,
     compute_host_cryptogram as compute_scp03_host_cryptogram,
     derive_session_keys as derive_scp03_session_keys, generate_cmac as scp03_generate_cmac,
-    parse_init_update as parse_scp03_init_update,
+    parse_init_update as parse_scp03_init_update, wrap_response as scp03_wrap_response,
 };
 pub use snapshot::{SCP_STATE_SNAPSHOT_SIZE, restore_scp_state, save_scp_state};
 
@@ -90,7 +94,7 @@ use simrs_iso9797::pad_method2;
 use simrs_secret::Secret;
 
 // Internal imports used by process_initialize_update / process_external_authenticate.
-use cmac::{compute_cryptogram, des3_2key_cbc_mac_with_iv};
+use cmac::compute_cryptogram;
 use scp01::{scp01_derivation_data, scp01_derive_session_key};
 use scp02::scp02_derive_session_key;
 
@@ -146,9 +150,16 @@ pub enum ScpState {
         /// Derived session S-ENC key (16 bytes).
         session_enc: [u8; 16],
         /// Derived session C-MAC key (16 bytes).
-        session_mac: [u8; 16],
+        command_mac: [u8; 16],
         /// Derived session R-MAC key (16 bytes; SCP03 only, zeros for SCP01/02).
-        session_rmac: [u8; 16],
+        response_mac: [u8; 16],
+        /// Derived session DEK key (16 bytes).
+        ///
+        /// SCP01: `3DES_ECB(static_DEK, derivation_data)` per Appendix D.
+        /// SCP02: `3DES_CBC(static_DEK, [0x01, 0x81] || seq || zeros)` per Appendix E.
+        /// SCP03: copy of the static DEK from the keystore -- Amendment D § 4.2.4.1
+        /// uses the static DEK directly (not session-derived) for PUT KEY unwrapping.
+        session_dek: [u8; 16],
         /// Computed card cryptogram (8 bytes).
         card_cryptogram: [u8; 8],
         /// SCP version for this session.
@@ -161,9 +172,9 @@ pub enum ScpState {
         /// Session S-ENC key.
         session_enc: [u8; 16],
         /// Session C-MAC key.
-        session_mac: [u8; 16],
+        command_mac: [u8; 16],
         /// Session R-MAC key.
-        session_rmac: [u8; 16],
+        response_mac: [u8; 16],
         /// Session DEK key (SCP01/02 only; zero for SCP03).
         session_dek: [u8; 16],
         /// Security level from `EXTERNAL AUTHENTICATE` P1.
@@ -173,6 +184,12 @@ pub enum ScpState {
         /// SCP01/02: only `[0..8]` used (8-byte 3DES MAC).
         /// SCP03: full 16 bytes (AES-CMAC chaining value).
         icv: [u8; 16],
+        /// R-MAC running chaining value for SCP01/02 (GP 2.3.1
+        /// Appendix E.4.6.2). Initialised to all zeros at BEGIN R-MAC
+        /// SESSION; updated to the most recent R-MAC after each
+        /// response is wrapped. SCP03 uses its own counter-based
+        /// derivation and ignores this field.
+        rmac_icv: [u8; 8],
         /// Whether R-MAC session is active.
         rmac_active: bool,
         /// SCP version for this session.
@@ -266,18 +283,24 @@ pub fn process_initialize_update(
     key_diversification: &[u8; 10],
     sequence_counter: Option<u16>,
 ) -> [u8; 28] {
-    let (session_enc, session_mac);
+    let (session_enc, command_mac, response_mac, session_dek);
 
     match scp_version {
         ScpVersion::Scp01 => {
             let dd = scp01_derivation_data(*host_challenge, *card_challenge);
             session_enc = scp01_derive_session_key(keys.enc(), &dd);
-            session_mac = scp01_derive_session_key(keys.mac(), &dd);
+            command_mac = scp01_derive_session_key(keys.mac(), &dd);
+            session_dek = scp01_derive_session_key(keys.dek(), &dd);
+            // SCP01 has no separate R-MAC key; PUT KEY / response auth uses
+            // the same MAC scheme as commands.
+            response_mac = [0u8; 16];
         }
         ScpVersion::Scp02 => {
             let seq = sequence_counter.unwrap_or(0);
             session_enc = scp02_derive_session_key(keys.enc(), [0x01, 0x82], seq);
-            session_mac = scp02_derive_session_key(keys.mac(), [0x01, 0x01], seq);
+            command_mac = scp02_derive_session_key(keys.mac(), [0x01, 0x01], seq);
+            response_mac = scp02_derive_session_key(keys.mac(), [0x01, 0x02], seq);
+            session_dek = scp02_derive_session_key(keys.dek(), [0x01, 0x81], seq);
         }
         ScpVersion::Scp03 => unreachable!("use process_*_scp03"),
     }
@@ -339,8 +362,9 @@ pub fn process_initialize_update(
         card_challenge: *card_challenge,
         key_diversification: *key_diversification,
         session_enc,
-        session_mac,
-        session_rmac: [0u8; 16], // SCP01/02: not used in InitUpdateDone
+        command_mac,
+        response_mac,
+        session_dek,
         card_cryptogram,
         scp_version,
         sequence_counter: seq,
@@ -375,44 +399,121 @@ pub fn process_external_authenticate(
     security_level: u8,
     host_cryptogram_and_mac: &[u8; 16],
 ) -> Result<(), ScpError> {
-    // Extract state fields (must be `InitUpdateDone`).
-    let (host_challenge, card_challenge, session_enc, session_mac, scp_version, seq_counter) =
-        match state {
-            ScpState::InitUpdateDone {
-                host_challenge,
-                card_challenge,
-                session_enc,
-                session_mac,
-                scp_version,
-                sequence_counter,
-                ..
-            } => (
-                *host_challenge,
-                *card_challenge,
-                *session_enc,
-                *session_mac,
-                *scp_version,
-                *sequence_counter,
-            ),
-            _ => return Err(ScpError::InvalidState),
-        };
-
+    let extracted = extract_init_update_done_for_scp01_02(state)?;
     let host_cryptogram = &host_cryptogram_and_mac[0..8];
     let received_cmac = &host_cryptogram_and_mac[8..16];
 
-    // Compute expected host cryptogram.
-    let expected_host_cryptogram = match scp_version {
+    let expected_host_cryptogram = compute_expected_host_cryptogram_scp01_02(
+        extracted.scp_version,
+        &extracted.session_enc,
+        extracted.host_challenge,
+        extracted.card_challenge,
+        extracted.seq_counter,
+    );
+
+    // Constant-time comparison. Keep InitUpdateDone on failure: GP 2.1.1
+    // does not mandate session abandonment before the session is
+    // established. Keeping the state allows terminal retry and ensures
+    // uniform error responses for the padding oracle defence
+    // (Avoine & Ferreira, TCHES 2018).
+    if !ct_eq(host_cryptogram, &expected_host_cryptogram).into_bool() {
+        return Err(ScpError::HostCryptogramMismatch);
+    }
+
+    let expected_cmac = compute_external_authenticate_cmac_scp01_02(
+        extracted.scp_version,
+        &extracted.command_mac,
+        security_level,
+        host_cryptogram,
+    );
+
+    if !ct_eq(received_cmac, &expected_cmac).into_bool() {
+        return Err(ScpError::CmacMismatch);
+    }
+
+    // The C-MAC we just verified becomes the ICV for the next command (SCP02).
+    // Store in the first 8 bytes of the 16-byte ICV field.
+    // The C-MAC we just verified becomes the ICV for the next command (SCP02).
+    let mut next_icv = [0u8; 16];
+    next_icv[0..8].copy_from_slice(&expected_cmac);
+
+    *state = ScpState::Authenticated {
+        session_enc: extracted.session_enc,
+        command_mac: extracted.command_mac,
+        response_mac: extracted.response_mac,
+        session_dek: extracted.session_dek,
+        security_level,
+        icv: next_icv,
+        rmac_icv: [0u8; 8],
+        rmac_active: false,
+        scp_version: extracted.scp_version,
+        enc_counter: 0,
+    };
+
+    Ok(())
+}
+
+/// State extracted from `InitUpdateDone` for SCP01/SCP02 EXTERNAL AUTHENTICATE.
+struct InitUpdateDoneScp01Or02 {
+    host_challenge: [u8; 8],
+    card_challenge: [u8; 8],
+    session_enc: [u8; 16],
+    command_mac: [u8; 16],
+    response_mac: [u8; 16],
+    session_dek: [u8; 16],
+    scp_version: ScpVersion,
+    seq_counter: u16,
+}
+
+/// Pull the relevant fields out of `InitUpdateDone`. Returns
+/// `InvalidState` if the SCP state isn't in the expected variant.
+const fn extract_init_update_done_for_scp01_02(
+    state: &ScpState,
+) -> Result<InitUpdateDoneScp01Or02, ScpError> {
+    match state {
+        ScpState::InitUpdateDone {
+            host_challenge,
+            card_challenge,
+            session_enc,
+            command_mac,
+            response_mac,
+            session_dek,
+            scp_version,
+            sequence_counter,
+            ..
+        } => Ok(InitUpdateDoneScp01Or02 {
+            host_challenge: *host_challenge,
+            card_challenge: *card_challenge,
+            session_enc: *session_enc,
+            command_mac: *command_mac,
+            response_mac: *response_mac,
+            session_dek: *session_dek,
+            scp_version: *scp_version,
+            seq_counter: *sequence_counter,
+        }),
+        _ => Err(ScpError::InvalidState),
+    }
+}
+
+/// Compute the expected host cryptogram per SCP01/SCP02 spec.
+///
+/// - **SCP01:** `MAC(session_ENC, card_challenge || host_challenge)` per Appendix D.
+/// - **SCP02:** `MAC(session_ENC, seq[2] || card_challenge[2..8] || host_challenge)`
+///   per Appendix E.
+fn compute_expected_host_cryptogram_scp01_02(
+    scp_version: ScpVersion,
+    session_enc: &[u8; 16],
+    host_challenge: [u8; 8],
+    card_challenge: [u8; 8],
+    seq_counter: u16,
+) -> [u8; 8] {
+    let mut input = [0u8; 16];
+    match scp_version {
         ScpVersion::Scp01 => {
-            // Host cryptogram = MAC(`session_ENC`, card_challenge || host_challenge)
-            let mut input = [0u8; 16];
             input[0..8].copy_from_slice(&card_challenge);
             input[8..16].copy_from_slice(&host_challenge);
-            compute_cryptogram(&session_enc, &input)
         }
         ScpVersion::Scp02 => {
-            // Host cryptogram = MAC(`session_ENC`,
-            //   sequence_counter[2] || card_challenge[6] || host_challenge)
-            let mut input = [0u8; 16];
             #[allow(clippy::cast_possible_truncation)]
             {
                 input[0] = (seq_counter >> 8) as u8;
@@ -420,81 +521,51 @@ pub fn process_external_authenticate(
             }
             input[2..8].copy_from_slice(&card_challenge[2..8]);
             input[8..16].copy_from_slice(&host_challenge);
-            compute_cryptogram(&session_enc, &input)
         }
         ScpVersion::Scp03 => unreachable!("use process_*_scp03"),
-    };
-
-    // Constant-time comparison.
-    // Keep InitUpdateDone on failure: GP 2.1.1 does not mandate session
-    // abandonment before the session is established. Keeping the state
-    // allows terminal retry and ensures uniform error responses for the
-    // padding oracle defense (Avoine & Ferreira, TCHES 2018).
-    if !ct_eq(host_cryptogram, &expected_host_cryptogram).into_bool() {
-        return Err(ScpError::HostCryptogramMismatch);
     }
+    compute_cryptogram(session_enc, &input)
+}
 
-    // Verify C-MAC on the EXTERNAL AUTHENTICATE command itself.
-    // APDU header: CLA=0x84, INS=0x82, P1=security_level, P2=0x00, Lc=0x10
-    // MAC input: 0x84 || 0x82 || P1 || 0x00 || 0x10 || host_cryptogram[8]
-    let cmac_key = Secret::new(session_mac);
-    let mut cmac_input_buf = [0u8; 24]; // 5 header + 8 cryptogram = 13 bytes, padded to 16
+/// Compute the expected C-MAC over the EXTERNAL AUTHENTICATE APDU header
+/// per SCP01/SCP02 spec.
+///
+/// MAC input: `0x84 || 0x82 || P1 || 0x00 || 0x10 || host_cryptogram[8]`,
+/// padded with ISO 9797-1 method 2 to a multiple of 8 bytes. The effective
+/// ICV differs by SCP version (SCP01: zero; SCP02: single-DES ECB on zero
+/// using the left half of `command_mac`).
+fn compute_external_authenticate_cmac_scp01_02(
+    scp_version: ScpVersion,
+    command_mac: &[u8; 16],
+    security_level: u8,
+    host_cryptogram: &[u8],
+) -> [u8; 8] {
+    let cmac_key = Secret::new(*command_mac);
+    let mut cmac_input_buf = [0u8; 24];
     let cmac_data = [
         0x84,
         0x82,
         security_level,
         0x00,
         0x10,
-        host_cryptogram_and_mac[0],
-        host_cryptogram_and_mac[1],
-        host_cryptogram_and_mac[2],
-        host_cryptogram_and_mac[3],
-        host_cryptogram_and_mac[4],
-        host_cryptogram_and_mac[5],
-        host_cryptogram_and_mac[6],
-        host_cryptogram_and_mac[7],
+        host_cryptogram[0],
+        host_cryptogram[1],
+        host_cryptogram[2],
+        host_cryptogram[3],
+        host_cryptogram[4],
+        host_cryptogram[5],
+        host_cryptogram[6],
+        host_cryptogram[7],
     ];
     let padded_len = pad_method2(&cmac_data, 8, &mut cmac_input_buf);
 
     let effective_icv = match scp_version {
         ScpVersion::Scp01 => [0u8; 8],
-        ScpVersion::Scp02 => {
-            // SCP02: encrypt the zero ICV with single-DES ECB (left half of session MAC)
-            des_ecb_encrypt_left_half(&session_mac, [0u8; 8])
-        }
+        ScpVersion::Scp02 => des_ecb_encrypt_left_half(command_mac, [0u8; 8]),
         ScpVersion::Scp03 => unreachable!("use process_*_scp03"),
     };
 
-    let expected_cmac =
-        des3_2key_cbc_mac_with_iv(&cmac_key, effective_icv, &cmac_input_buf[..padded_len]);
-
-    if !ct_eq(received_cmac, &expected_cmac).into_bool() {
-        return Err(ScpError::CmacMismatch);
-    }
-
-    // SCP02 R-MAC and DEK keys would need the original static keys, which
-    // are not stored in `InitUpdateDone`. For now, store zeros; a real
-    // implementation should derive these during `INITIALIZE UPDATE`.
-    let (sess_rmac, sess_dek) = ([0u8; 16], [0u8; 16]);
-
-    // The C-MAC we just verified becomes the ICV for the next command (SCP02).
-    // Store in the first 8 bytes of the 16-byte ICV field.
-    let mut next_icv = [0u8; 16];
-    next_icv[0..8].copy_from_slice(&expected_cmac);
-
-    *state = ScpState::Authenticated {
-        session_enc,
-        session_mac,
-        session_rmac: sess_rmac,
-        session_dek: sess_dek,
-        security_level,
-        icv: next_icv,
-        rmac_active: false,
-        scp_version,
-        enc_counter: 0,
-    };
-
-    Ok(())
+    des3_2key_cbc_mac_with_iv(&cmac_key, effective_icv, &cmac_input_buf[..padded_len])
 }
 
 // ---------------------------------------------------------------------------
@@ -536,15 +607,34 @@ pub fn process_initialize_update_scp02_full(
 /// Process `INITIALIZE UPDATE` for SCP03.
 ///
 /// Derives session keys (S-ENC, S-MAC, S-RMAC) using AES-CMAC KDF and
-/// computes the card cryptogram. Returns the 29-byte response:
+/// computes the card cryptogram. The response layout depends on the
+/// configured `i_param` (GP 2.3.1 Amendment D § 6.2):
 ///
+/// **Random card challenge** (`i & 0x40 == 0`, 29 bytes):
 /// ```text
 /// key_diversification[10] || key_version[1] || 0x03[1] || i_param[1]
 ///   || card_challenge[8] || card_cryptogram[8]
 /// ```
 ///
-/// Uses `i=0x00` (explicit challenge mode).
-#[allow(clippy::similar_names)]
+/// **Pseudo-random card challenge** (`i & 0x40 != 0`, 32 bytes):
+/// ```text
+/// key_diversification[10] || key_version[1] || 0x03[1] || i_param[1]
+///   || card_challenge[8] || card_cryptogram[8] || sequence_counter[3]
+/// ```
+///
+/// Recognised `i_param` bits (Amd D Table 6-1):
+/// - `0x10`: card supports R-MAC on response messages.
+/// - `0x20`: card supports R-ENC on response messages.
+/// - `0x40`: pseudo-random card challenge mode (otherwise random).
+///
+/// Bits not honoured today are accepted-but-ignored: the function still
+/// emits the correct response size and stores the configured `i_param`
+/// in `state` for follow-up processing. To preserve current behaviour for
+/// callers that don't care about `i`, pass `0x00`.
+///
+/// Returns `(buffer, len)` where `len` is 29 or 32. The buffer is fixed
+/// at 32 bytes; bytes past `len` are zero.
+#[allow(clippy::too_many_arguments)]
 pub fn process_initialize_update_scp03(
     state: &mut ScpState,
     key_version: u8,
@@ -552,42 +642,71 @@ pub fn process_initialize_update_scp03(
     keys: &KeySet,
     card_challenge: &[u8; 8],
     key_diversification: &[u8; 10],
-) -> [u8; 29] {
+    i_param: u8,
+    sequence_counter: u32,
+) -> ([u8; 32], usize) {
     // Derive session keys via AES-CMAC KDF.
     let mut static_enc = [0u8; 16];
     static_enc.copy_from_slice(&keys.enc()[..16]);
     let mut static_mac = [0u8; 16];
     static_mac.copy_from_slice(&keys.mac()[..16]);
 
-    let (s_enc, s_mac, s_rmac) =
+    let (s_enc, command_mac, response_mac) =
         scp03::derive_session_keys(&static_enc, &static_mac, host_challenge, card_challenge);
 
     // Compute card cryptogram.
-    let card_cryptogram = scp03::compute_card_cryptogram(&s_mac, host_challenge, card_challenge);
+    let card_cryptogram =
+        scp03::compute_card_cryptogram(&command_mac, host_challenge, card_challenge);
 
-    // Build 29-byte response.
-    let mut response = [0u8; 29];
+    // Build response. Header is identical across modes.
+    let mut response = [0u8; 32];
     response[0..10].copy_from_slice(key_diversification);
     response[10] = key_version;
     response[11] = 0x03; // SCP03 identifier
-    response[12] = 0x00; // i parameter: explicit challenge mode
+    response[12] = i_param;
     response[13..21].copy_from_slice(card_challenge);
     response[21..29].copy_from_slice(&card_cryptogram);
 
-    // Store intermediate state for EXTERNAL AUTHENTICATE.
+    let pseudo_random = i_param & 0x40 != 0;
+    let len = if pseudo_random {
+        // Sequence counter (3 bytes, big-endian) appended after the
+        // cryptogram. Per Amd D § 6.2.2 the counter is the running
+        // pseudo-random challenge counter; callers track it.
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            response[29] = (sequence_counter >> 16) as u8;
+            response[30] = (sequence_counter >> 8) as u8;
+            response[31] = sequence_counter as u8;
+        }
+        32
+    } else {
+        29
+    };
+
+    // SCP03 PUT KEY (Amendment D § 4.2.4.1) wraps key components with the
+    // *static* DEK directly, not a session-derived one. Stash it here so
+    // EXTERNAL AUTHENTICATE can copy it through to Authenticated.
+    let mut static_dek = [0u8; 16];
+    static_dek.copy_from_slice(&keys.dek()[..16]);
+
+    // Store intermediate state for EXTERNAL AUTHENTICATE. SCP03 doesn't
+    // use the persistent SCP02 16-bit counter, so `sequence_counter` in the
+    // state stays at zero; the 24-bit pseudo-random counter is encoded into
+    // `card_challenge` derivation by callers (Phase 1.5).
     *state = ScpState::InitUpdateDone {
         host_challenge: *host_challenge,
         card_challenge: *card_challenge,
         key_diversification: *key_diversification,
         session_enc: s_enc,
-        session_mac: s_mac,
-        session_rmac: s_rmac,
+        command_mac,
+        response_mac,
+        session_dek: static_dek,
         card_cryptogram,
         scp_version: ScpVersion::Scp03,
-        sequence_counter: 0, // SCP03 does not use a persistent sequence counter
+        sequence_counter: 0,
     };
 
-    response
+    (response, len)
 }
 
 // ---------------------------------------------------------------------------
@@ -598,27 +717,29 @@ pub fn process_initialize_update_scp03(
 ///
 /// Verifies the host cryptogram and C-MAC using AES-CMAC (not 3DES).
 /// On success, transitions to `Authenticated` state.
-#[allow(clippy::missing_errors_doc, clippy::similar_names)]
+#[allow(clippy::missing_errors_doc)]
 pub fn process_external_authenticate_scp03(
     state: &mut ScpState,
     security_level: u8,
     host_cryptogram_and_mac: &[u8; 16],
 ) -> Result<(), ScpError> {
-    let (host_challenge, card_challenge, s_enc, s_mac, s_rmac) = match state {
+    let (host_challenge, card_challenge, s_enc, command_mac, response_mac, s_dek) = match state {
         ScpState::InitUpdateDone {
             host_challenge,
             card_challenge,
             session_enc,
-            session_mac,
-            session_rmac,
+            command_mac,
+            response_mac,
+            session_dek,
             scp_version: ScpVersion::Scp03,
             ..
         } => (
             *host_challenge,
             *card_challenge,
             *session_enc,
-            *session_mac,
-            *session_rmac,
+            *command_mac,
+            *response_mac,
+            *session_dek,
         ),
         _ => return Err(ScpError::InvalidState),
     };
@@ -628,7 +749,7 @@ pub fn process_external_authenticate_scp03(
 
     // Verify host cryptogram.
     let expected_host_crypto =
-        scp03::compute_host_cryptogram(&s_mac, &host_challenge, &card_challenge);
+        scp03::compute_host_cryptogram(&command_mac, &host_challenge, &card_challenge);
 
     if !ct_eq(host_cryptogram, &expected_host_crypto).into_bool() {
         return Err(ScpError::HostCryptogramMismatch);
@@ -637,7 +758,7 @@ pub fn process_external_authenticate_scp03(
     // Verify C-MAC on the EXTERNAL AUTHENTICATE command.
     // APDU: CLA=0x84, INS=0x82, P1=security_level, P2=0x00
     let (expected_mac, new_chaining) = scp03::generate_cmac(
-        &s_mac,
+        &command_mac,
         &[0u8; 16], // initial chaining value (zeros for first command)
         &[0x84, 0x82, security_level, 0x00],
         host_cryptogram,
@@ -649,11 +770,16 @@ pub fn process_external_authenticate_scp03(
 
     *state = ScpState::Authenticated {
         session_enc: s_enc,
-        session_mac: s_mac,
-        session_rmac: s_rmac,
-        session_dek: [0u8; 16], // SCP03 does not use a separate DEK
+        command_mac,
+        response_mac,
+        // SCP03 stores the static DEK from the keystore (per Amd D § 4.2.4.1
+        // PUT KEY uses the static DEK directly, not a session-derived one).
+        session_dek: s_dek,
         security_level,
         icv: new_chaining,
+        // SCP03 derives R-MAC chaining from its own counter; this field is
+        // unused for SCP03 but kept zeroed for snapshot symmetry.
+        rmac_icv: [0u8; 8],
         rmac_active: security_level & 0x10 != 0,
         scp_version: ScpVersion::Scp03,
         enc_counter: 0,
@@ -667,14 +793,43 @@ pub fn process_external_authenticate_scp03(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::similar_names)]
 mod tests {
     use super::*;
     use simrs_gp_keys::KeySet;
+    use simrs_iso7816::write_apdu_with_data;
     use simrs_iso9797::{
         des3_2key_cbc_encrypt, des3_2key_cbc_mac, des3_2key_ecb_encrypt, pad_method2,
     };
     use simrs_secret::Secret;
+
+    #[test]
+    fn seed_rmac_chain_empty_data_returns_zero() {
+        let key = [0xAAu8; 16];
+        assert_eq!(seed_rmac_chain_scp02(&key, &[]), [0u8; 8]);
+    }
+
+    #[test]
+    fn seed_rmac_chain_matches_padded_cbc_mac_reference() {
+        // Compute the helper's output and an independent CBC-MAC over
+        // Method-2-padded(data) and assert byte equality.
+        let key_bytes = [0x40u8; 16];
+        let data = [0x01u8, 0x02, 0x03, 0x04, 0x05];
+        let observed = seed_rmac_chain_scp02(&key_bytes, &data);
+
+        let mut padded = [0u8; 32];
+        let padded_len = pad_method2(&data, 8, &mut padded);
+        let key = Secret::new(key_bytes);
+        let expected = des3_2key_cbc_mac_with_iv(&key, [0u8; 8], &padded[..padded_len]);
+        assert_eq!(observed, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds 24-byte spec limit")]
+    fn seed_rmac_chain_panics_on_data_over_24_bytes() {
+        let key = [0u8; 16];
+        let too_long = [0u8; 25];
+        let _ = seed_rmac_chain_scp02(&key, &too_long);
+    }
 
     // Re-import pub(crate) items for tests.
     use crate::cmac::unpad_method2;
@@ -710,7 +865,7 @@ mod tests {
         let hc = test_host_challenge();
         let cc = test_card_challenge_scp01();
 
-        let (session_enc, session_mac, session_dek) = derive_scp01_session_keys(&keys, &hc, &cc);
+        let (session_enc, command_mac, session_dek) = derive_scp01_session_keys(&keys, &hc, &cc);
 
         // Verify derivation data construction.
         let dd = scp01_derivation_data(hc, cc);
@@ -726,7 +881,7 @@ mod tests {
         let expected_dek = scp01_derive_session_key(keys.dek(), &dd);
 
         assert_eq!(session_enc, expected_enc);
-        assert_eq!(session_mac, expected_mac);
+        assert_eq!(command_mac, expected_mac);
         assert_eq!(session_dek, expected_dek);
 
         // Keys must not be the same as static keys (unless by extraordinary coincidence).
@@ -803,12 +958,12 @@ mod tests {
         assert!(matches!(state, ScpState::InitUpdateDone { .. }));
 
         // Extract session keys from state.
-        let (session_enc, session_mac) = match &state {
+        let (session_enc, command_mac) = match &state {
             ScpState::InitUpdateDone {
                 session_enc,
-                session_mac,
+                command_mac,
                 ..
-            } => (*session_enc, *session_mac),
+            } => (*session_enc, *command_mac),
             _ => panic!("expected InitUpdateDone"),
         };
 
@@ -817,7 +972,7 @@ mod tests {
 
         // Compute C-MAC for EXTERNAL AUTHENTICATE.
         let (ext_auth_mac, _) = generate_cmac(
-            &session_mac,
+            &command_mac,
             &[0x84, 0x82, 0x00, 0x00],
             &host_crypto,
             &[0u8; 8],
@@ -882,13 +1037,13 @@ mod tests {
 
         // Independently compute session keys.
         let expected_enc = scp02_derive_session_key(keys.enc(), [0x01, 0x82], 0x0000);
-        let expected_mac = scp02_derive_session_key(keys.mac(), [0x01, 0x01], 0x0000);
-        let expected_rmac = scp02_derive_session_key(keys.mac(), [0x01, 0x02], 0x0000);
+        let expected_command_mac = scp02_derive_session_key(keys.mac(), [0x01, 0x01], 0x0000);
+        let expected_response_mac = scp02_derive_session_key(keys.mac(), [0x01, 0x02], 0x0000);
         let expected_dek = scp02_derive_session_key(keys.dek(), [0x01, 0x81], 0x0000);
 
         assert_eq!(enc, expected_enc);
-        assert_eq!(mac, expected_mac);
-        assert_eq!(rmac, expected_rmac);
+        assert_eq!(mac, expected_command_mac);
+        assert_eq!(rmac, expected_response_mac);
         assert_eq!(dek, expected_dek);
 
         // Keys must differ from static keys.
@@ -944,14 +1099,14 @@ mod tests {
         let hc = test_host_challenge();
         let cc = test_card_challenge_scp01();
 
-        let (_, session_mac, _) = derive_scp01_session_keys(&keys, &hc, &cc);
+        let (_, command_mac, _) = derive_scp01_session_keys(&keys, &hc, &cc);
 
         // GET STATUS: 80 F2 80 00 02 4F 00
         let header = [0x80, 0xF2, 0x80, 0x00];
         let data = [0x4F, 0x00];
         let icv = [0u8; 8];
 
-        let (mac, _) = generate_cmac(&session_mac, &header, &data, &icv, ScpVersion::Scp01);
+        let (mac, _) = generate_cmac(&command_mac, &header, &data, &icv, ScpVersion::Scp01);
 
         // Independently compute:
         // Input = 84 F2 80 00 0A 4F 00  (CLA|=0x04, Lc = 2+8 = 10)
@@ -959,7 +1114,7 @@ mod tests {
         let mac_input = [0x84, 0xF2, 0x80, 0x00, 0x0A, 0x4F, 0x00];
         let mut padded = [0u8; 16];
         let padded_len = pad_method2(&mac_input, 8, &mut padded);
-        let mac_key = Secret::new(session_mac);
+        let mac_key = Secret::new(command_mac);
         let expected = des3_2key_cbc_mac(&mac_key, &padded[..padded_len]);
 
         assert_eq!(mac, expected);
@@ -987,19 +1142,19 @@ mod tests {
             &kdiv,
             None,
         );
-        let (session_enc, session_mac) = match &state {
+        let (session_enc, command_mac) = match &state {
             ScpState::InitUpdateDone {
                 session_enc,
-                session_mac,
+                command_mac,
                 ..
-            } => (*session_enc, *session_mac),
+            } => (*session_enc, *command_mac),
             _ => panic!("expected InitUpdateDone"),
         };
 
         // Complete authentication.
         let host_crypto = compute_scp01_host_cryptogram(&session_enc, &hc, &cc);
         let (ext_auth_mac, _) = generate_cmac(
-            &session_mac,
+            &command_mac,
             &[0x84, 0x82, 0x01, 0x00],
             &host_crypto,
             &[0u8; 8],
@@ -1014,20 +1169,18 @@ mod tests {
         let header = [0x80, 0xF2, 0x80, 0x00];
         let data = [0x4F, 0x00];
         let (cmd_mac, _) =
-            generate_cmac(&session_mac, &header, &data, &[0u8; 8], ScpVersion::Scp01);
+            generate_cmac(&command_mac, &header, &data, &[0u8; 8], ScpVersion::Scp01);
 
-        // Build APDU: CLA=0x84, INS=0xF2, P1=0x80, P2=0x00, Lc=0x0A, data, MAC
-        let mut apdu = [0u8; 15];
-        apdu[0] = 0x84;
-        apdu[1] = 0xF2;
-        apdu[2] = 0x80;
-        apdu[3] = 0x00;
-        apdu[4] = 0x0A; // 2 data + 8 MAC
-        apdu[5..7].copy_from_slice(&data);
-        apdu[7..15].copy_from_slice(&cmd_mac);
+        // Build APDU with CLA = 0x84 (with-C-MAC variant of GET STATUS).
+        // Body = `data || MAC`.
+        let mut body = [0u8; 10];
+        body[..2].copy_from_slice(&data);
+        body[2..].copy_from_slice(&cmd_mac);
+        let mut buf = [0u8; 15];
+        let apdu = write_apdu_with_data(&mut buf, 0x84, 0xF2, 0x80, 0x00, &body);
 
         let mut output = [0u8; 256];
-        let result = unwrap_command(&mut state, &apdu, &mut output);
+        let result = unwrap_command(&mut state, apdu, &mut output);
         assert!(result.is_ok(), "unwrap_command failed: {result:?}");
         let len = result.unwrap();
         assert_eq!(len, 2);
@@ -1052,18 +1205,18 @@ mod tests {
             &kdiv,
             None,
         );
-        let (session_enc, session_mac) = match &state {
+        let (session_enc, command_mac) = match &state {
             ScpState::InitUpdateDone {
                 session_enc,
-                session_mac,
+                command_mac,
                 ..
-            } => (*session_enc, *session_mac),
+            } => (*session_enc, *command_mac),
             _ => panic!("expected InitUpdateDone"),
         };
 
         let host_crypto = compute_scp01_host_cryptogram(&session_enc, &hc, &cc);
         let (ext_auth_mac, _) = generate_cmac(
-            &session_mac,
+            &command_mac,
             &[0x84, 0x82, 0x01, 0x00],
             &host_crypto,
             &[0u8; 8],
@@ -1074,18 +1227,15 @@ mod tests {
         crypto_and_mac[8..16].copy_from_slice(&ext_auth_mac);
         assert!(process_external_authenticate(&mut state, 0x01, &crypto_and_mac).is_ok());
 
-        // Send a command with a bad C-MAC.
-        let mut apdu = [0u8; 15];
-        apdu[0] = 0x84;
-        apdu[1] = 0xF2;
-        apdu[2] = 0x80;
-        apdu[3] = 0x00;
-        apdu[4] = 0x0A;
-        apdu[5..7].copy_from_slice(&[0x4F, 0x00]);
-        apdu[7..15].copy_from_slice(&[0xFF; 8]); // bad MAC
+        // Send a command with a bad C-MAC. Body = `4F 00 || FF*8`.
+        let mut body = [0u8; 10];
+        body[..2].copy_from_slice(&[0x4F, 0x00]);
+        body[2..].copy_from_slice(&[0xFF; 8]);
+        let mut buf = [0u8; 15];
+        let apdu = write_apdu_with_data(&mut buf, 0x84, 0xF2, 0x80, 0x00, &body);
 
         let mut output = [0u8; 256];
-        let result = unwrap_command(&mut state, &apdu, &mut output);
+        let result = unwrap_command(&mut state, apdu, &mut output);
         assert_eq!(result, Err(ScpError::CmacMismatch));
     }
 
@@ -1114,18 +1264,18 @@ mod tests {
         assert!(matches!(state, ScpState::InitUpdateDone { .. }));
 
         // InitUpdateDone -> Authenticated
-        let (session_enc, session_mac) = match &state {
+        let (session_enc, command_mac) = match &state {
             ScpState::InitUpdateDone {
                 session_enc,
-                session_mac,
+                command_mac,
                 ..
-            } => (*session_enc, *session_mac),
+            } => (*session_enc, *command_mac),
             _ => panic!("expected InitUpdateDone"),
         };
 
         let host_crypto = compute_scp01_host_cryptogram(&session_enc, &hc, &cc);
         let (ext_auth_mac, _) = generate_cmac(
-            &session_mac,
+            &command_mac,
             &[0x84, 0x82, 0x00, 0x00],
             &host_crypto,
             &[0u8; 8],
@@ -1185,18 +1335,18 @@ mod tests {
             None,
         );
 
-        let (session_enc, session_mac) = match &state {
+        let (session_enc, command_mac) = match &state {
             ScpState::InitUpdateDone {
                 session_enc,
-                session_mac,
+                command_mac,
                 ..
-            } => (*session_enc, *session_mac),
+            } => (*session_enc, *command_mac),
             _ => panic!("expected InitUpdateDone"),
         };
 
         let host_crypto = compute_scp01_host_cryptogram(&session_enc, &hc, &cc);
         let (ext_auth_mac, _) = generate_cmac(
-            &session_mac,
+            &command_mac,
             &[0x84, 0x82, 0x01, 0x00],
             &host_crypto,
             &[0u8; 8],
@@ -1220,7 +1370,7 @@ mod tests {
             (
                 ScpState::Authenticated {
                     session_enc: enc1,
-                    session_mac: mac1,
+                    command_mac: mac1,
                     security_level: sl1,
                     icv: icv1,
                     scp_version: sv1,
@@ -1228,7 +1378,7 @@ mod tests {
                 },
                 ScpState::Authenticated {
                     session_enc: enc2,
-                    session_mac: mac2,
+                    command_mac: mac2,
                     security_level: sl2,
                     icv: icv2,
                     scp_version: sv2,
@@ -1282,12 +1432,12 @@ mod tests {
         assert_eq!(response[13], 0x00); // seq low
         assert_eq!(&response[14..20], &cc[2..8]); // 6-byte challenge
 
-        let (session_enc, session_mac) = match &state {
+        let (session_enc, command_mac) = match &state {
             ScpState::InitUpdateDone {
                 session_enc,
-                session_mac,
+                command_mac,
                 ..
-            } => (*session_enc, *session_mac),
+            } => (*session_enc, *command_mac),
             _ => panic!("expected InitUpdateDone"),
         };
 
@@ -1303,7 +1453,7 @@ mod tests {
         // Compute C-MAC for EXTERNAL AUTHENTICATE.
         // For SCP02, first EXT AUTH ICV = zeros.
         let (ext_auth_mac, _) = generate_cmac(
-            &session_mac,
+            &command_mac,
             &[0x84, 0x82, 0x01, 0x00],
             &host_crypto,
             &[0u8; 8],
@@ -1362,18 +1512,18 @@ mod tests {
             None,
         );
 
-        let (session_enc, session_mac) = match &state {
+        let (session_enc, command_mac) = match &state {
             ScpState::InitUpdateDone {
                 session_enc,
-                session_mac,
+                command_mac,
                 ..
-            } => (*session_enc, *session_mac),
+            } => (*session_enc, *command_mac),
             _ => panic!("expected InitUpdateDone"),
         };
 
         let host_crypto = compute_scp01_host_cryptogram(&session_enc, &hc, &cc);
         let (ext_auth_mac, _) = generate_cmac(
-            &session_mac,
+            &command_mac,
             &[0x84, 0x82, 0x01, 0x00],
             &host_crypto,
             &[0u8; 8],
@@ -1410,18 +1560,18 @@ mod tests {
             None,
         );
 
-        let (session_enc, session_mac) = match &state {
+        let (session_enc, command_mac) = match &state {
             ScpState::InitUpdateDone {
                 session_enc,
-                session_mac,
+                command_mac,
                 ..
-            } => (*session_enc, *session_mac),
+            } => (*session_enc, *command_mac),
             _ => panic!("expected InitUpdateDone"),
         };
 
         let host_crypto = compute_scp01_host_cryptogram(&session_enc, &hc, &cc);
         let (ext_auth_mac, _) = generate_cmac(
-            &session_mac,
+            &command_mac,
             &[0x84, 0x82, 0x03, 0x00],
             &host_crypto,
             &[0u8; 8],
@@ -1518,24 +1668,25 @@ mod tests {
         let hc = test_host_challenge();
         let cc = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
 
-        let (s_enc, s_mac, s_rmac) = derive_scp03_session_keys(&static_key, &static_key, &hc, &cc);
+        let (s_enc, command_mac, response_mac) =
+            derive_scp03_session_keys(&static_key, &static_key, &hc, &cc);
 
-        assert_ne!(s_enc, s_mac, "S-ENC and S-MAC should differ");
-        assert_ne!(s_mac, s_rmac, "S-MAC and S-RMAC should differ");
-        assert_ne!(s_enc, s_rmac, "S-ENC and S-RMAC should differ");
+        assert_ne!(s_enc, command_mac, "S-ENC and S-MAC should differ");
+        assert_ne!(command_mac, response_mac, "S-MAC and S-RMAC should differ");
+        assert_ne!(s_enc, response_mac, "S-ENC and S-RMAC should differ");
         assert_ne!(s_enc, [0u8; 16]);
-        assert_ne!(s_mac, [0u8; 16]);
-        assert_ne!(s_rmac, [0u8; 16]);
+        assert_ne!(command_mac, [0u8; 16]);
+        assert_ne!(response_mac, [0u8; 16]);
     }
 
     #[test]
     fn scp03_cryptograms_differ() {
-        let s_mac = [0x40u8; 16];
+        let command_mac = [0x40u8; 16];
         let hc = test_host_challenge();
         let cc = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
 
-        let card_crypto = compute_scp03_card_cryptogram(&s_mac, &hc, &cc);
-        let host_crypto = compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
+        let card_crypto = compute_scp03_card_cryptogram(&command_mac, &hc, &cc);
+        let host_crypto = compute_scp03_host_cryptogram(&command_mac, &hc, &cc);
 
         assert_ne!(
             card_crypto, host_crypto,
@@ -1552,23 +1703,212 @@ mod tests {
         let hc = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         let cc = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
 
-        let (s_enc, s_mac, s_rmac) = derive_scp03_session_keys(&static_enc, &static_mac, &hc, &cc);
+        let (s_enc, command_mac, response_mac) =
+            derive_scp03_session_keys(&static_enc, &static_mac, &hc, &cc);
 
         // Same inputs -> same outputs.
-        let (s_enc2, s_mac2, s_rmac2) =
+        let (s_enc_again, command_mac_again, response_mac_again) =
             derive_scp03_session_keys(&static_enc, &static_mac, &hc, &cc);
-        assert_eq!(s_enc, s_enc2);
-        assert_eq!(s_mac, s_mac2);
-        assert_eq!(s_rmac, s_rmac2);
+        assert_eq!(s_enc, s_enc_again);
+        assert_eq!(command_mac, command_mac_again);
+        assert_eq!(response_mac, response_mac_again);
 
         // Changing one byte of host challenge changes all keys.
         let mut hc2 = hc;
         hc2[0] ^= 0x01;
-        let (s_enc3, s_mac3, s_rmac3) =
+        let (s_enc_other, command_mac_other, response_mac_other) =
             derive_scp03_session_keys(&static_enc, &static_mac, &hc2, &cc);
-        assert_ne!(s_enc, s_enc3);
-        assert_ne!(s_mac, s_mac3);
-        assert_ne!(s_rmac, s_rmac3);
+        assert_ne!(s_enc, s_enc_other);
+        assert_ne!(command_mac, command_mac_other);
+        assert_ne!(response_mac, response_mac_other);
+    }
+
+    /// Phase 1.5 #1 plumbing check: `session_dek` must be the spec-correct
+    /// derived value in `InitUpdateDone`, and the same value must transit
+    /// to `Authenticated` after EXTERNAL AUTHENTICATE. Before this plumbing
+    /// landed, `session_dek` in `Authenticated` was always `[0u8; 16]`.
+    #[test]
+    fn scp01_session_dek_is_derived_and_propagates_to_authenticated() {
+        let keys = test_keys();
+        let hc = test_host_challenge();
+        let cc = test_card_challenge_scp01();
+        let kdiv = test_key_diversification();
+
+        // SCP01 derives session_dek with the same derivation_data as ENC/MAC.
+        let dd = scp01_derivation_data(hc, cc);
+        let expected_dek = scp01_derive_session_key(keys.dek(), &dd);
+        assert_ne!(expected_dek, [0u8; 16], "expected_dek must be non-trivial");
+
+        let mut state = ScpState::NoSession;
+        let _ = process_initialize_update(
+            &mut state,
+            ScpVersion::Scp01,
+            0x01,
+            &hc,
+            &keys,
+            &cc,
+            &kdiv,
+            None,
+        );
+
+        match &state {
+            ScpState::InitUpdateDone { session_dek, .. } => {
+                assert_eq!(
+                    *session_dek, expected_dek,
+                    "session_dek in InitUpdateDone must equal scp01_derive_session_key(static_DEK, dd)"
+                );
+            }
+            _ => panic!("expected InitUpdateDone"),
+        }
+
+        // Drive EXTERNAL AUTHENTICATE through to Authenticated.
+        let session_enc = match &state {
+            ScpState::InitUpdateDone { session_enc, .. } => *session_enc,
+            _ => unreachable!(),
+        };
+        let command_mac = match &state {
+            ScpState::InitUpdateDone { command_mac, .. } => *command_mac,
+            _ => unreachable!(),
+        };
+        let host_crypto = compute_scp01_host_cryptogram(&session_enc, &hc, &cc);
+        let (ext_auth_mac, _) = generate_cmac(
+            &command_mac,
+            &[0x84, 0x82, 0x01, 0x00],
+            &host_crypto,
+            &[0u8; 8],
+            ScpVersion::Scp01,
+        );
+        let mut crypto_and_mac = [0u8; 16];
+        crypto_and_mac[0..8].copy_from_slice(&host_crypto);
+        crypto_and_mac[8..16].copy_from_slice(&ext_auth_mac);
+        process_external_authenticate(&mut state, 0x01, &crypto_and_mac).unwrap();
+
+        match &state {
+            ScpState::Authenticated { session_dek, .. } => {
+                assert_eq!(
+                    *session_dek, expected_dek,
+                    "session_dek must propagate unchanged from InitUpdateDone to Authenticated"
+                );
+            }
+            _ => panic!("expected Authenticated"),
+        }
+    }
+
+    /// SCP02 `session_dek` = `3DES_CBC(static_DEK, [0x01, 0x81] || seq || zeros)`.
+    #[test]
+    fn scp02_session_dek_is_derived_and_propagates_to_authenticated() {
+        let keys = test_keys();
+        let hc = test_host_challenge();
+        // SCP02: 6-byte card challenge stored in cc[2..8].
+        let cc = [0x00, 0x00, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6];
+        let kdiv = test_key_diversification();
+        let seq: u16 = 0x0042;
+
+        // Compute the expected SCP02 session DEK independently.
+        let expected_dek = derive_scp02_session_key(keys.dek(), [0x01, 0x81], seq);
+        assert_ne!(expected_dek, [0u8; 16], "expected_dek must be non-trivial");
+
+        let mut state = ScpState::NoSession;
+        let _ = process_initialize_update(
+            &mut state,
+            ScpVersion::Scp02,
+            0x01,
+            &hc,
+            &keys,
+            &cc,
+            &kdiv,
+            Some(seq),
+        );
+
+        match &state {
+            ScpState::InitUpdateDone { session_dek, .. } => {
+                assert_eq!(
+                    *session_dek, expected_dek,
+                    "SCP02 session_dek must equal derive_scp02_session_key(static_DEK, [0x01,0x81], seq)"
+                );
+            }
+            _ => panic!("expected InitUpdateDone"),
+        }
+
+        // Drive EXT AUTH and check the value transits to Authenticated.
+        let (session_enc, command_mac) = match &state {
+            ScpState::InitUpdateDone {
+                session_enc,
+                command_mac,
+                ..
+            } => (*session_enc, *command_mac),
+            _ => unreachable!(),
+        };
+        let host_crypto =
+            compute_scp02_host_cryptogram(&session_enc, &hc, seq, &cc[2..8].try_into().unwrap());
+        let (ext_auth_mac, _) = generate_cmac(
+            &command_mac,
+            &[0x84, 0x82, 0x01, 0x00],
+            &host_crypto,
+            &[0u8; 8],
+            ScpVersion::Scp02,
+        );
+        let mut crypto_and_mac = [0u8; 16];
+        crypto_and_mac[0..8].copy_from_slice(&host_crypto);
+        crypto_and_mac[8..16].copy_from_slice(&ext_auth_mac);
+        process_external_authenticate(&mut state, 0x01, &crypto_and_mac).unwrap();
+
+        match &state {
+            ScpState::Authenticated { session_dek, .. } => {
+                assert_eq!(*session_dek, expected_dek);
+            }
+            _ => panic!("expected Authenticated"),
+        }
+    }
+
+    /// SCP03 stores the static DEK directly (Amd D § 4.2.4.1 wraps with
+    /// the static DEK, not a session-derived one).
+    #[test]
+    fn scp03_session_dek_is_static_dek_and_propagates_to_authenticated() {
+        let keys = test_aes_keys();
+        let hc = test_host_challenge();
+        let cc = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
+        let kdiv = test_key_diversification();
+
+        let mut expected_dek = [0u8; 16];
+        expected_dek.copy_from_slice(&keys.dek()[..16]);
+
+        let mut state = ScpState::NoSession;
+        let _ = process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv, 0x00, 0);
+
+        match &state {
+            ScpState::InitUpdateDone { session_dek, .. } => {
+                assert_eq!(
+                    *session_dek, expected_dek,
+                    "SCP03 'session_dek' must be the static DEK (Amd D § 4.2.4.1)"
+                );
+            }
+            _ => panic!("expected InitUpdateDone"),
+        }
+
+        // Drive EXT AUTH and confirm the static DEK transits to Authenticated.
+        let command_mac = match &state {
+            ScpState::InitUpdateDone { command_mac, .. } => *command_mac,
+            _ => unreachable!(),
+        };
+        let host_crypto = compute_scp03_host_cryptogram(&command_mac, &hc, &cc);
+        let (ext_auth_mac, _) = scp03_generate_cmac(
+            &command_mac,
+            &[0u8; 16],
+            &[0x84, 0x82, 0x01, 0x00],
+            &host_crypto,
+        );
+        let mut crypto_and_mac = [0u8; 16];
+        crypto_and_mac[0..8].copy_from_slice(&host_crypto);
+        crypto_and_mac[8..16].copy_from_slice(&ext_auth_mac);
+        process_external_authenticate_scp03(&mut state, 0x01, &crypto_and_mac).unwrap();
+
+        match &state {
+            ScpState::Authenticated { session_dek, .. } => {
+                assert_eq!(*session_dek, expected_dek);
+            }
+            _ => panic!("expected Authenticated"),
+        }
     }
 
     #[test]
@@ -1579,9 +1919,10 @@ mod tests {
         let kdiv = test_key_diversification();
 
         let mut state = ScpState::NoSession;
-        let response = process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv);
+        let (response, len) =
+            process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv, 0x00, 0);
 
-        assert_eq!(response.len(), 29);
+        assert_eq!(len, 29);
         assert_eq!(&response[0..10], &kdiv);
         assert_eq!(response[10], 0x01); // key version
         assert_eq!(response[11], 0x03); // SCP03 identifier
@@ -1596,15 +1937,19 @@ mod tests {
             }
         ));
 
-        let s_mac = match &state {
-            ScpState::InitUpdateDone { session_mac, .. } => *session_mac,
+        let command_mac = match &state {
+            ScpState::InitUpdateDone { command_mac, .. } => *command_mac,
             _ => panic!("expected InitUpdateDone"),
         };
 
-        let host_crypto = compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
+        let host_crypto = compute_scp03_host_cryptogram(&command_mac, &hc, &cc);
 
-        let (ext_auth_mac, _) =
-            scp03_generate_cmac(&s_mac, &[0u8; 16], &[0x84, 0x82, 0x01, 0x00], &host_crypto);
+        let (ext_auth_mac, _) = scp03_generate_cmac(
+            &command_mac,
+            &[0u8; 16],
+            &[0x84, 0x82, 0x01, 0x00],
+            &host_crypto,
+        );
 
         let mut host_crypto_and_mac = [0u8; 16];
         host_crypto_and_mac[0..8].copy_from_slice(&host_crypto);
@@ -1631,7 +1976,7 @@ mod tests {
         let kdiv = test_key_diversification();
 
         let mut state = ScpState::NoSession;
-        let _ = process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv);
+        let _ = process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv, 0x00, 0);
 
         let bad_crypto_and_mac = [0xFF; 16];
         let result = process_external_authenticate_scp03(&mut state, 0x00, &bad_crypto_and_mac);
@@ -1641,18 +1986,18 @@ mod tests {
 
     #[test]
     fn scp03_cmac_chaining() {
-        let s_mac = [0x40u8; 16];
+        let command_mac = [0x40u8; 16];
         let initial_cv = [0u8; 16];
 
         let (mac1, cv1) = scp03_generate_cmac(
-            &s_mac,
+            &command_mac,
             &initial_cv,
             &[0x84, 0xF2, 0x80, 0x00],
             &[0x4F, 0x00],
         );
 
         let (mac2, cv2) =
-            scp03_generate_cmac(&s_mac, &cv1, &[0x84, 0xF2, 0x40, 0x00], &[0x4F, 0x00]);
+            scp03_generate_cmac(&command_mac, &cv1, &[0x84, 0xF2, 0x40, 0x00], &[0x4F, 0x00]);
 
         assert_ne!(mac1, mac2, "chained MACs should differ");
         assert_ne!(cv1, cv2);
@@ -1667,16 +2012,20 @@ mod tests {
         let kdiv = test_key_diversification();
 
         let mut state = ScpState::NoSession;
-        let _ = process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv);
+        let _ = process_initialize_update_scp03(&mut state, 0x01, &hc, &keys, &cc, &kdiv, 0x00, 0);
 
-        let s_mac = match &state {
-            ScpState::InitUpdateDone { session_mac, .. } => *session_mac,
+        let command_mac = match &state {
+            ScpState::InitUpdateDone { command_mac, .. } => *command_mac,
             _ => panic!("expected InitUpdateDone"),
         };
 
-        let host_crypto = compute_scp03_host_cryptogram(&s_mac, &hc, &cc);
-        let (ext_auth_mac, _) =
-            scp03_generate_cmac(&s_mac, &[0u8; 16], &[0x84, 0x82, 0x01, 0x00], &host_crypto);
+        let host_crypto = compute_scp03_host_cryptogram(&command_mac, &hc, &cc);
+        let (ext_auth_mac, _) = scp03_generate_cmac(
+            &command_mac,
+            &[0u8; 16],
+            &[0x84, 0x82, 0x01, 0x00],
+            &host_crypto,
+        );
 
         let mut hcm = [0u8; 16];
         hcm[0..8].copy_from_slice(&host_crypto);
@@ -1728,7 +2077,7 @@ mod proptests {
     proptest! {
         /// SCP02 key derivation is deterministic for the same inputs.
         #[test]
-        #[allow(clippy::similar_names)]
+
         fn scp02_key_derivation_deterministic(
             static_key in any::<[u8; 16]>(),
             seq in any::<u16>(),

@@ -12,9 +12,9 @@
 //! | `SIMRS_FUZZ_AUTH` | `milenage`, `tuak` | `milenage` (SIM only) |
 //! | `SIMRS_FUZZ_PCAP` | file path | disabled |
 
-use simrs_card_api::{SimEvent, SimResponse, fnv1a};
+use simrs_card_api::{DeterministicRng, SimEvent, SimResponse, fnv1a};
 use simrs_fs::{DfDef, EfDef, Fid, FileRef, Sfi};
-use simrs_gp_card::GpCard;
+use simrs_gp_card::{DEFAULT_RSP_CAP, GpCard};
 use simrs_gp_keys::KeySet;
 use simrs_hle::{
     GsmSubscriberKey, hle_apdu, hle_init, hle_init_from_snapshot, hle_init_tuak, hle_reset,
@@ -24,6 +24,15 @@ use simrs_pcap::{Direction, LinkType, PcapEncoder};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
+
+/// Seed for the SIM-target fuzz input Rng (drives APDU mutation).
+const FUZZ_SIM_RNG_SEED: u64 = 0xDEAD_BEEF_CAFE_BABE;
+/// Seed for the GP-target fuzz input Rng (drives APDU mutation).
+const FUZZ_GP_RNG_SEED: u64 = 0xCAFE_BABE_DEAD_BEEF;
+/// Seed for the GP card's on-card entropy source (drives card
+/// challenges in INIT UPDATE). Distinct from [`FUZZ_GP_RNG_SEED`] so
+/// the input-mutation and card-challenge streams stay decoupled.
+const GP_CARD_RNG_SEED: u64 = 0xF1E2_D3C4_B5A6_9788;
 
 // ---------------------------------------------------------------------------
 // Test filesystem
@@ -498,7 +507,7 @@ fn fuzz_sim(iters: usize, use_tuak: bool, pcap: &mut Option<PcapWriter>) {
     let n = hle_snapshot_save(&mut snapshot);
     assert!(n > 0, "initial snapshot failed");
 
-    let mut rng = Rng::new(0xDEAD_BEEF_CAFE_BABE);
+    let mut rng = Rng::new(FUZZ_SIM_RNG_SEED);
     let mut corpus = Corpus::new();
     let mut apdu_buf = [0u8; 261];
     let mut rsp_buf = [0u8; 261];
@@ -570,17 +579,18 @@ fn fuzz_gp(iters: usize, pcap: &mut Option<PcapWriter>) {
     eprintln!("[simrs-fuzz] initializing GP card...");
 
     let keys = KeySet::des3_2key(GP_KEY_BYTES, GP_KEY_BYTES, GP_KEY_BYTES);
-    let mut card: GpCard<261> = GpCard::with_default_atr(&keys);
+    let mut card: GpCard<DeterministicRng, DEFAULT_RSP_CAP> =
+        GpCard::with_default_atr(&keys, DeterministicRng::new(GP_CARD_RNG_SEED));
 
     // Power on to enter Ready state.
     let _ = card.process(SimEvent::PowerOn);
 
     // Take initial snapshot.
-    let mut snapshot = vec![0u8; GpCard::<261>::SNAPSHOT_SIZE];
+    let mut snapshot = vec![0u8; GpCard::<DeterministicRng, DEFAULT_RSP_CAP>::SNAPSHOT_SIZE];
     let snap_n = card.save_state(&mut snapshot);
     assert!(snap_n > 0, "GP initial snapshot failed");
 
-    let mut rng = Rng::new(0xCAFE_BABE_DEAD_BEEF);
+    let mut rng = Rng::new(FUZZ_GP_RNG_SEED);
     let mut corpus = Corpus::new();
     let mut apdu_buf = [0u8; 261];
     let seq_len_max = 8;
@@ -849,10 +859,11 @@ mod tests {
     #[test]
     fn smoke_test_gp_fuzz_run() {
         let keys = KeySet::des3_2key(GP_KEY_BYTES, GP_KEY_BYTES, GP_KEY_BYTES);
-        let mut card: GpCard<261> = GpCard::with_default_atr(&keys);
+        let mut card: GpCard<DeterministicRng, DEFAULT_RSP_CAP> =
+            GpCard::with_default_atr(&keys, DeterministicRng::new(GP_CARD_RNG_SEED));
         let _ = card.process(SimEvent::PowerOn);
 
-        let mut snapshot = vec![0u8; GpCard::<261>::SNAPSHOT_SIZE];
+        let mut snapshot = vec![0u8; GpCard::<DeterministicRng, DEFAULT_RSP_CAP>::SNAPSHOT_SIZE];
         let snap_n = card.save_state(&mut snapshot);
         assert!(snap_n > 0);
 

@@ -603,7 +603,7 @@ impl std::error::Error for ApduError {}
 /// // Case 1: header only
 /// let cmd = Command::parse(&[0x00, 0xA4, 0x00, 0x00]).unwrap();
 /// assert_eq!(cmd.data(), &[]);
-/// assert_eq!(cmd.le(), None);
+/// assert_eq!(cmd.response_len(), None);
 ///
 /// // Case 3: header + Lc + data
 /// let cmd = Command::parse(&[0x00, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]).unwrap();
@@ -833,15 +833,25 @@ impl<'a> Command<'a> {
     pub const fn data(&self) -> &[u8] {
         self.data
     }
-    /// Le (expected response length) for short APDUs, if present.
+    /// Expected response length (the `Le` field of ISO 7816-4) for
+    /// short APDUs, if present.
     ///
     /// Returns `None` for extended-length APDUs; use
-    /// [`le_extended()`](Self::le_extended) instead.
+    /// [`response_len_extended()`](Self::response_len_extended) instead.
+    pub const fn response_len(&self) -> Option<u8> {
+        self.le
+    }
+
+    /// Deprecated alias for [`response_len`](Self::response_len).
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `response_len` -- `le` is ISO 7816-4 jargon"
+    )]
     pub const fn le(&self) -> Option<u8> {
         self.le
     }
 
-    /// Extended Le (expected response length) as `u16`.
+    /// Expected response length (the `Le` field of ISO 7816-4) as `u16`.
     ///
     /// Works for both short and extended APDUs:
     /// - Short APDU: returns the short Le widened to `u16`
@@ -850,12 +860,21 @@ impl<'a> Command<'a> {
     ///
     /// A value of 0 means "maximum available" (256 for short, 65536 for
     /// extended).
-    pub const fn le_extended(&self) -> Option<u16> {
+    pub const fn response_len_extended(&self) -> Option<u16> {
         match (self.le, self.le_ext) {
             (_, Some(le)) => Some(le),
             (Some(le), None) => Some(le as u16),
             (None, None) => None,
         }
+    }
+
+    /// Deprecated alias for [`response_len_extended`](Self::response_len_extended).
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `response_len_extended` -- `le_extended` is ISO 7816-4 jargon"
+    )]
+    pub const fn le_extended(&self) -> Option<u16> {
+        self.response_len_extended()
     }
 
     /// Whether this command used extended-length encoding.
@@ -949,6 +968,290 @@ pub fn write_data_sw_raw<'buf>(buf: &'buf mut [u8], data: &[u8], sw1: u8, sw2: u
     buf[n] = sw1;
     buf[n + 1] = sw2;
     &buf[..n + 2]
+}
+
+// ---------------------------------------------------------------------------
+// APDU command builders (named by APDU shape; corresponds to
+// ISO/IEC 7816-4 § 5.1 Cases 1..4)
+// ---------------------------------------------------------------------------
+
+/// Build an APDU with header only (`CLA INS P1 P2`).
+///
+/// No body, no expected response length. Corresponds to ISO 7816-4 Case 1.
+/// Used for commands like SET STATUS without data, MANAGE CHANNEL OPEN.
+///
+/// ```
+/// use simrs_iso7816::apdu_header;
+/// assert_eq!(apdu_header(0x80, 0xF2, 0x80, 0x00), [0x80, 0xF2, 0x80, 0x00]);
+/// ```
+#[must_use]
+pub const fn apdu_header(cla: u8, ins: u8, p1: u8, p2: u8) -> [u8; 4] {
+    [cla, ins, p1, p2]
+}
+
+/// Build an APDU with header and expected response length
+/// (`CLA INS P1 P2 Le`).
+///
+/// Corresponds to ISO 7816-4 Case 2S. `response_len` is the `Le` field --
+/// the number of bytes the host expects the card to return. `0` means
+/// "max" (256 bytes for short, 65536 for extended).
+///
+/// ```
+/// use simrs_iso7816::apdu_with_response_len;
+/// assert_eq!(
+///     apdu_with_response_len(0x00, 0xB0, 0x00, 0x00, 0x10),
+///     [0x00, 0xB0, 0x00, 0x00, 0x10],
+/// );
+/// ```
+#[must_use]
+pub const fn apdu_with_response_len(cla: u8, ins: u8, p1: u8, p2: u8, response_len: u8) -> [u8; 5] {
+    [cla, ins, p1, p2, response_len]
+}
+
+/// Write an APDU with a body into a caller-supplied buffer
+/// (`CLA INS P1 P2 Lc Data`).
+///
+/// Corresponds to ISO 7816-4 Case 3S. Returns `&buf[..total]`, matching
+/// [`write_sw_raw`] and [`write_data_sw_raw`] for symmetry across this
+/// crate's request/response helpers. Allocator-free counterpart to
+/// [`apdu_with_data`].
+///
+/// # Panics
+///
+/// Panics if `data.len() > 255` or `buf.len() < 5 + data.len()`.
+///
+/// ```
+/// use simrs_iso7816::write_apdu_with_data;
+///
+/// let mut buf = [0u8; 16];
+/// let apdu = write_apdu_with_data(&mut buf, 0x80, 0xE6, 0x04, 0x00, &[0x01, 0x02, 0x03]);
+/// assert_eq!(apdu, &[0x80, 0xE6, 0x04, 0x00, 0x03, 0x01, 0x02, 0x03]);
+/// ```
+pub fn write_apdu_with_data<'buf>(
+    buf: &'buf mut [u8],
+    cla: u8,
+    ins: u8,
+    p1: u8,
+    p2: u8,
+    data: &[u8],
+) -> &'buf [u8] {
+    assert!(
+        data.len() <= 255,
+        "Case 3 APDU body must fit in a single short Lc"
+    );
+    let total = 5 + data.len();
+    assert!(buf.len() >= total, "buffer too small for Case 3 APDU");
+    buf[0] = cla;
+    buf[1] = ins;
+    buf[2] = p1;
+    buf[3] = p2;
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        buf[4] = data.len() as u8;
+    }
+    buf[5..total].copy_from_slice(data);
+    &buf[..total]
+}
+
+/// Write an APDU with both body and expected response length into a
+/// caller-supplied buffer (`CLA INS P1 P2 Lc Data Le`).
+///
+/// Corresponds to ISO 7816-4 Case 4S. `response_len` is the `Le` field.
+///
+/// # Panics
+///
+/// Panics if `data.len() > 255` or `buf.len() < 6 + data.len()`.
+///
+/// ```
+/// use simrs_iso7816::write_apdu_with_data_and_response_len;
+///
+/// let mut buf = [0u8; 16];
+/// let apdu = write_apdu_with_data_and_response_len(
+///     &mut buf, 0x00, 0xC0, 0x00, 0x00, &[0x01, 0x02], 0xFF,
+/// );
+/// assert_eq!(apdu, &[0x00, 0xC0, 0x00, 0x00, 0x02, 0x01, 0x02, 0xFF]);
+/// ```
+pub fn write_apdu_with_data_and_response_len<'buf>(
+    buf: &'buf mut [u8],
+    cla: u8,
+    ins: u8,
+    p1: u8,
+    p2: u8,
+    data: &[u8],
+    response_len: u8,
+) -> &'buf [u8] {
+    assert!(
+        data.len() <= 255,
+        "Case 4 APDU body must fit in a single short Lc"
+    );
+    let total = 6 + data.len();
+    assert!(buf.len() >= total, "buffer too small for Case 4 APDU");
+    write_apdu_with_data(buf, cla, ins, p1, p2, data);
+    buf[total - 1] = response_len;
+    &buf[..total]
+}
+
+// ---------------------------------------------------------------------------
+// Deprecated aliases (case1/2/3/4 etc.) -- retained for external callers.
+// Internal simrs code should use the descriptive names above.
+// ---------------------------------------------------------------------------
+
+/// Deprecated alias for [`apdu_header`].
+#[deprecated(
+    since = "0.2.0",
+    note = "use `apdu_header` -- `case1` is ISO 7816-4 § 5.1 jargon"
+)]
+#[must_use]
+pub const fn case1(cla: u8, ins: u8, p1: u8, p2: u8) -> [u8; 4] {
+    apdu_header(cla, ins, p1, p2)
+}
+
+/// Deprecated alias for [`apdu_with_response_len`].
+#[deprecated(
+    since = "0.2.0",
+    note = "use `apdu_with_response_len` -- `case2` is ISO 7816-4 § 5.1 jargon"
+)]
+#[must_use]
+pub const fn case2(cla: u8, ins: u8, p1: u8, p2: u8, le: u8) -> [u8; 5] {
+    apdu_with_response_len(cla, ins, p1, p2, le)
+}
+
+/// Deprecated alias for [`write_apdu_with_data`].
+#[deprecated(
+    since = "0.2.0",
+    note = "use `write_apdu_with_data` -- `write_case3` is ISO 7816-4 § 5.1 jargon"
+)]
+pub fn write_case3<'buf>(
+    buf: &'buf mut [u8],
+    cla: u8,
+    ins: u8,
+    p1: u8,
+    p2: u8,
+    data: &[u8],
+) -> &'buf [u8] {
+    write_apdu_with_data(buf, cla, ins, p1, p2, data)
+}
+
+/// Deprecated alias for [`write_apdu_with_data_and_response_len`].
+#[deprecated(
+    since = "0.2.0",
+    note = "use `write_apdu_with_data_and_response_len` -- `write_case4` is ISO 7816-4 § 5.1 jargon"
+)]
+pub fn write_case4<'buf>(
+    buf: &'buf mut [u8],
+    cla: u8,
+    ins: u8,
+    p1: u8,
+    p2: u8,
+    data: &[u8],
+    le: u8,
+) -> &'buf [u8] {
+    write_apdu_with_data_and_response_len(buf, cla, ins, p1, p2, data, le)
+}
+
+/// Build an APDU with body (`CLA INS P1 P2 Lc Data`) and return an owned
+/// [`alloc::vec::Vec`].
+///
+/// Corresponds to ISO 7816-4 Case 3S. Used for commands that send data
+/// without expecting a data response (PUT KEY, STORE DATA, INSTALL,
+/// DELETE, EXTERNAL AUTHENTICATE, ...). For hot paths or `no_alloc`
+/// contexts, prefer [`write_apdu_with_data`].
+///
+/// Available with the `alloc` feature.
+///
+/// # Panics
+///
+/// Panics if `data.len() > 255`. Use extended-length encoding for larger
+/// payloads.
+///
+/// ```
+/// # #[cfg(feature = "alloc")]
+/// # {
+/// use simrs_iso7816::apdu_with_data;
+///
+/// let apdu = apdu_with_data(0x80, 0xE6, 0x04, 0x00, &[0x01, 0x02, 0x03]);
+/// assert_eq!(&*apdu, &[0x80, 0xE6, 0x04, 0x00, 0x03, 0x01, 0x02, 0x03]);
+/// # }
+/// ```
+#[cfg(feature = "alloc")]
+#[must_use]
+pub fn apdu_with_data(cla: u8, ins: u8, p1: u8, p2: u8, data: &[u8]) -> alloc::vec::Vec<u8> {
+    assert!(
+        data.len() <= 255,
+        "Case 3 APDU body must fit in a single short Lc (<= 255 bytes)"
+    );
+    let mut v = alloc::vec::Vec::with_capacity(5 + data.len());
+    v.extend_from_slice(&[cla, ins, p1, p2]);
+    #[allow(clippy::cast_possible_truncation)]
+    v.push(data.len() as u8);
+    v.extend_from_slice(data);
+    v
+}
+
+/// Build an APDU with body and expected response length
+/// (`CLA INS P1 P2 Lc Data Le`) and return an owned [`alloc::vec::Vec`].
+///
+/// Corresponds to ISO 7816-4 Case 4S. For commands that both send body
+/// and request data back. `response_len` is the `Le` field.
+///
+/// Available with the `alloc` feature.
+///
+/// # Panics
+///
+/// Panics if `data.len() > 255`.
+///
+/// ```
+/// # #[cfg(feature = "alloc")]
+/// # {
+/// use simrs_iso7816::apdu_with_data_and_response_len;
+///
+/// let apdu = apdu_with_data_and_response_len(0x00, 0xC0, 0x00, 0x00, &[0x01, 0x02], 0xFF);
+/// assert_eq!(&*apdu, &[0x00, 0xC0, 0x00, 0x00, 0x02, 0x01, 0x02, 0xFF]);
+/// # }
+/// ```
+#[cfg(feature = "alloc")]
+#[must_use]
+pub fn apdu_with_data_and_response_len(
+    cla: u8,
+    ins: u8,
+    p1: u8,
+    p2: u8,
+    data: &[u8],
+    response_len: u8,
+) -> alloc::vec::Vec<u8> {
+    assert!(
+        data.len() <= 255,
+        "Case 4 APDU body must fit in a single short Lc"
+    );
+    let mut v = alloc::vec::Vec::with_capacity(6 + data.len());
+    v.extend_from_slice(&[cla, ins, p1, p2]);
+    #[allow(clippy::cast_possible_truncation)]
+    v.push(data.len() as u8);
+    v.extend_from_slice(data);
+    v.push(response_len);
+    v
+}
+
+/// Deprecated alias for [`apdu_with_data`].
+#[cfg(feature = "alloc")]
+#[deprecated(
+    since = "0.2.0",
+    note = "use `apdu_with_data` -- `case3` is ISO 7816-4 § 5.1 jargon"
+)]
+#[must_use]
+pub fn case3(cla: u8, ins: u8, p1: u8, p2: u8, data: &[u8]) -> alloc::vec::Vec<u8> {
+    apdu_with_data(cla, ins, p1, p2, data)
+}
+
+/// Deprecated alias for [`apdu_with_data_and_response_len`].
+#[cfg(feature = "alloc")]
+#[deprecated(
+    since = "0.2.0",
+    note = "use `apdu_with_data_and_response_len` -- `case4` is ISO 7816-4 § 5.1 jargon"
+)]
+#[must_use]
+pub fn case4(cla: u8, ins: u8, p1: u8, p2: u8, data: &[u8], le: u8) -> alloc::vec::Vec<u8> {
+    apdu_with_data_and_response_len(cla, ins, p1, p2, data, le)
 }
 
 // ---------------------------------------------------------------------------
@@ -1189,7 +1492,7 @@ mod tests {
         let cmd = Command::parse(&[0x00, 0xA4, 0x00, 0x00]).unwrap();
         assert_eq!(cmd.ins(), ins::SELECT);
         assert_eq!(cmd.data(), &[]);
-        assert_eq!(cmd.le(), None);
+        assert_eq!(cmd.response_len(), None);
     }
 
     #[test]
@@ -1198,7 +1501,7 @@ mod tests {
         let cmd = Command::parse(&[0x00, 0xC0, 0x00, 0x00, 0x1A]).unwrap();
         assert_eq!(cmd.ins(), ins::GET_RESPONSE);
         assert_eq!(cmd.data(), &[]);
-        assert_eq!(cmd.le(), Some(0x1A));
+        assert_eq!(cmd.response_len(), Some(0x1A));
     }
 
     #[test]
@@ -1207,7 +1510,7 @@ mod tests {
         let cmd = Command::parse(&[0x00, 0xA4, 0x00, 0x00, 0x02, 0x3F, 0x00]).unwrap();
         assert_eq!(cmd.ins(), ins::SELECT);
         assert_eq!(cmd.data(), &[0x3F, 0x00]);
-        assert_eq!(cmd.le(), None);
+        assert_eq!(cmd.response_len(), None);
     }
 
     #[test]
@@ -1216,7 +1519,7 @@ mod tests {
         let bytes = [0x00, 0xA4, 0x04, 0x00, 0x02, 0xAA, 0xBB, 0x00];
         let cmd = Command::parse(&bytes).unwrap();
         assert_eq!(cmd.data(), &[0xAA, 0xBB]);
-        assert_eq!(cmd.le(), Some(0x00));
+        assert_eq!(cmd.response_len(), Some(0x00));
     }
 
     #[test]
@@ -1266,8 +1569,8 @@ mod tests {
         assert_eq!(cmd.ins(), ins::READ_BINARY);
         assert!(cmd.is_extended());
         assert_eq!(cmd.data(), &[]);
-        assert_eq!(cmd.le(), None); // short le not available for extended
-        assert_eq!(cmd.le_extended(), Some(0x0100)); // 256
+        assert_eq!(cmd.response_len(), None); // short le not available for extended
+        assert_eq!(cmd.response_len_extended(), Some(0x0100)); // 256
     }
 
     #[test]
@@ -1276,7 +1579,7 @@ mod tests {
         let bytes = [0x00, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00];
         let cmd = Command::parse(&bytes).unwrap();
         assert!(cmd.is_extended());
-        assert_eq!(cmd.le_extended(), Some(0x0000)); // 0 = 65536
+        assert_eq!(cmd.response_len_extended(), Some(0x0000)); // 0 = 65536
     }
 
     #[test]
@@ -1294,8 +1597,8 @@ mod tests {
         let cmd = Command::parse(&bytes).unwrap();
         assert!(cmd.is_extended());
         assert_eq!(cmd.data(), &[0xA0, 0x00, 0x00, 0x00, 0x87, 0x10, 0x02]);
-        assert_eq!(cmd.le(), None);
-        assert_eq!(cmd.le_extended(), None); // no Le
+        assert_eq!(cmd.response_len(), None);
+        assert_eq!(cmd.response_len_extended(), None); // no Le
     }
 
     #[test]
@@ -1307,7 +1610,7 @@ mod tests {
         let cmd = Command::parse(&bytes).unwrap();
         assert!(cmd.is_extended());
         assert_eq!(cmd.data(), &[0x3F, 0x00]);
-        assert_eq!(cmd.le_extended(), Some(0x0100)); // 256
+        assert_eq!(cmd.response_len_extended(), Some(0x0100)); // 256
     }
 
     #[test]
@@ -1339,8 +1642,8 @@ mod tests {
         let bytes = [0x00, 0xC0, 0x00, 0x00, 0x00];
         let cmd = Command::parse(&bytes).unwrap();
         assert!(!cmd.is_extended());
-        assert_eq!(cmd.le(), Some(0x00)); // short le=0 means 256
-        assert_eq!(cmd.le_extended(), Some(0x0000)); // upconverted
+        assert_eq!(cmd.response_len(), Some(0x00)); // short le=0 means 256
+        assert_eq!(cmd.response_len_extended(), Some(0x0000)); // upconverted
     }
 
     #[test]
@@ -1358,8 +1661,8 @@ mod tests {
         let bytes = [0x00, 0xA4, 0x04, 0x00, 0x02, 0xAA, 0xBB, 0x1A];
         let cmd = Command::parse(&bytes).unwrap();
         assert!(!cmd.is_extended());
-        assert_eq!(cmd.le(), Some(0x1A));
-        assert_eq!(cmd.le_extended(), Some(0x001A));
+        assert_eq!(cmd.response_len(), Some(0x1A));
+        assert_eq!(cmd.response_len_extended(), Some(0x001A));
     }
 
     // -- INS constants --
@@ -1517,5 +1820,120 @@ mod tests {
                 "Display for {v:?} must produce non-empty string"
             );
         }
+    }
+
+    // ----------------------------------------------------------------------
+    // APDU command builders -- round-trip with Command::parse
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn apdu_header_builds_4_bytes() {
+        let apdu = apdu_header(0x80, 0xF2, 0x80, 0x00);
+        assert_eq!(apdu, [0x80, 0xF2, 0x80, 0x00]);
+
+        // Parses back to a Case 1 Command.
+        let cmd = Command::parse(&apdu).expect("apdu_header parses");
+        assert_eq!(cmd.cla().raw(), 0x80);
+        assert_eq!(cmd.ins(), 0xF2);
+        assert_eq!(cmd.p1(), 0x80);
+        assert_eq!(cmd.p2(), 0x00);
+        assert!(cmd.data().is_empty());
+        assert_eq!(cmd.response_len(), None);
+    }
+
+    #[test]
+    fn apdu_with_response_len_builds_5_bytes() {
+        let apdu = apdu_with_response_len(0x00, 0xB0, 0x00, 0x00, 0x10);
+        assert_eq!(apdu, [0x00, 0xB0, 0x00, 0x00, 0x10]);
+
+        let cmd = Command::parse(&apdu).expect("apdu_with_response_len parses");
+        assert!(cmd.data().is_empty());
+        assert_eq!(cmd.response_len(), Some(0x10));
+    }
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn apdu_with_data_builds_header_lc_data() {
+        let body = [0x01, 0x02, 0x03];
+        let apdu = apdu_with_data(0x80, 0xE6, 0x04, 0x00, &body);
+        assert_eq!(&*apdu, &[0x80, 0xE6, 0x04, 0x00, 0x03, 0x01, 0x02, 0x03]);
+
+        let cmd = Command::parse(&apdu).expect("apdu_with_data parses");
+        assert_eq!(cmd.cla().raw(), 0x80);
+        assert_eq!(cmd.ins(), 0xE6);
+        assert_eq!(cmd.data(), &body);
+        assert_eq!(cmd.response_len(), None);
+    }
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn apdu_with_data_empty_body_emits_lc_zero() {
+        // Lc = 0 with no following data is a valid Case 3S form.
+        let apdu = apdu_with_data(0x80, 0xCA, 0x00, 0x66, &[]);
+        assert_eq!(&*apdu, &[0x80, 0xCA, 0x00, 0x66, 0x00]);
+    }
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn apdu_with_data_and_response_len_builds_full() {
+        let body = [0x11, 0x22, 0x33, 0x44];
+        let apdu = apdu_with_data_and_response_len(0x80, 0x50, 0x00, 0x00, &body, 0x1C);
+        assert_eq!(
+            &*apdu,
+            &[0x80, 0x50, 0x00, 0x00, 0x04, 0x11, 0x22, 0x33, 0x44, 0x1C]
+        );
+
+        let cmd = Command::parse(&apdu).expect("apdu_with_data_and_response_len parses");
+        assert_eq!(cmd.data(), &body);
+        assert_eq!(cmd.response_len(), Some(0x1C));
+    }
+
+    #[test]
+    fn write_apdu_with_data_returns_written_slice() {
+        let mut buf = [0u8; 16];
+        let apdu = write_apdu_with_data(&mut buf, 0x80, 0xE6, 0x04, 0x00, &[0xAA, 0xBB]);
+        assert_eq!(apdu, &[0x80, 0xE6, 0x04, 0x00, 0x02, 0xAA, 0xBB]);
+        // Bytes past the slice must be untouched.
+        assert_eq!(buf[7..], [0u8; 9]);
+    }
+
+    #[test]
+    fn write_apdu_with_data_and_response_len_le_at_end() {
+        let mut buf = [0u8; 16];
+        let apdu = write_apdu_with_data_and_response_len(
+            &mut buf,
+            0x00,
+            0xC0,
+            0x00,
+            0x00,
+            &[0xAA, 0xBB],
+            0xFF,
+        );
+        assert_eq!(apdu, &[0x00, 0xC0, 0x00, 0x00, 0x02, 0xAA, 0xBB, 0xFF]);
+        // Le must be the last byte; off-by-one regression guard.
+        assert_eq!(apdu[apdu.len() - 1], 0xFF);
+    }
+
+    #[test]
+    #[should_panic(expected = "buffer too small")]
+    fn write_apdu_with_data_panics_on_undersized_buffer() {
+        let mut buf = [0u8; 4]; // need 5 + 2 = 7
+        let _ = write_apdu_with_data(&mut buf, 0x80, 0xE6, 0x04, 0x00, &[0xAA, 0xBB]);
+    }
+
+    #[test]
+    #[should_panic(expected = "must fit in a single short Lc")]
+    fn write_apdu_with_data_panics_on_oversized_body() {
+        let big = [0u8; 256];
+        let mut buf = [0u8; 512];
+        let _ = write_apdu_with_data(&mut buf, 0x80, 0xE6, 0x04, 0x00, &big);
+    }
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    #[should_panic(expected = "must fit in a single short Lc")]
+    fn apdu_with_data_panics_on_oversized_body() {
+        let big = alloc::vec![0u8; 256];
+        let _ = apdu_with_data(0x80, 0xE6, 0x04, 0x00, &big);
     }
 }

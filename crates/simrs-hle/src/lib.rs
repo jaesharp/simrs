@@ -37,7 +37,7 @@ pub mod profile_registry;
 
 use core::cell::RefCell;
 use simrs_fs::{AdfSlot, DfDef};
-use simrs_gp_card::GpCard;
+use simrs_gp_card::{DEFAULT_RSP_CAP, GpCard};
 use simrs_gp_keys::KeySet;
 use simrs_milenage::{MilenageParams, OperatorVariant as MilOp, SubscriberKey};
 use simrs_profile::{AuthConfig, ProfileConfig};
@@ -64,8 +64,9 @@ enum SimInstance {
     Milenage(Sim<MilenageParams, 256>),
     /// TUAK ([3GPP TS 35.231 V19.0.0](../../../docs/specs/3gpp/ts-35.231/ts_135231v190000p.pdf)).
     Tuak(Sim<TuakParams, 256>),
-    /// `GlobalPlatform` card with SIM applet (Milenage).
-    GpMilenage(GpCard<261>),
+    /// `GlobalPlatform` card with SIM applet (Milenage). The card's
+    /// entropy source is the host OS via [`simrs_card_api::OsRng`].
+    GpMilenage(GpCard<simrs_card_api::OsRng>),
 }
 
 thread_local! {
@@ -120,7 +121,7 @@ macro_rules! with_sim {
 pub const MAX_SNAPSHOT_SIZE: usize = 3 + {
     let mil = Sim::<MilenageParams, 256>::SNAPSHOT_SIZE;
     let tuak = Sim::<TuakParams, 256>::SNAPSHOT_SIZE;
-    let gp = GpCard::<261>::SNAPSHOT_SIZE;
+    let gp = GpCard::<simrs_card_api::OsRng, DEFAULT_RSP_CAP>::SNAPSHOT_SIZE;
     let mut max = mil;
     if tuak > max {
         max = tuak;
@@ -230,10 +231,11 @@ pub fn hle_init_tuak_with_adf(
 
 /// Initialize the thread-local SIM as a `GlobalPlatform` card with a SIM applet.
 ///
-/// Creates a `GpCard<261>` with an ISD key set and a Milenage-based SIM
-/// applet registered at the USIM AID. The card supports both GP card
-/// management (SELECT ISD, INITIALIZE UPDATE, etc.) and SIM/USIM
-/// operations (SELECT USIM AID, then standard 3GPP APDUs).
+/// Creates a [`GpCard`] with an ISD key set, a Milenage-based SIM
+/// applet registered at the USIM AID, and a host-OS-backed
+/// [`simrs_card_api::OsRng`] entropy source. The card supports both
+/// GP card management (SELECT ISD, INITIALIZE UPDATE, etc.) and
+/// SIM/USIM operations (SELECT USIM AID, then standard 3GPP APDUs).
 ///
 /// Calling this (or any other `hle_init*` function) replaces the previous instance.
 #[allow(clippy::too_many_arguments)]
@@ -253,7 +255,7 @@ pub fn hle_init_gp(
         MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
     let gsm = simrs_gsm::GsmApp::new(mf, GsmSubscriberKey::classify(ki));
     let sim_applet = SimApplet::with_gsm(mf, adfs, mil, gsm);
-    let card = GpCard::with_sim(atr, &isd_keys, sim_applet);
+    let card = GpCard::with_sim(atr, &isd_keys, sim_applet, simrs_card_api::OsRng);
     SIM.with(|cell| {
         *cell.borrow_mut() = Some(SimInstance::GpMilenage(card));
     });
@@ -355,7 +357,10 @@ pub fn hle_snapshot_save(buf: &mut [u8]) -> usize {
         let (discriminant, inner_size) = match instance {
             SimInstance::Milenage(_) => (0x00u8, Sim::<MilenageParams, 256>::SNAPSHOT_SIZE),
             SimInstance::Tuak(_) => (0x01u8, Sim::<TuakParams, 256>::SNAPSHOT_SIZE),
-            SimInstance::GpMilenage(_) => (0x02u8, GpCard::<261>::SNAPSHOT_SIZE),
+            SimInstance::GpMilenage(_) => (
+                0x02u8,
+                GpCard::<simrs_card_api::OsRng, DEFAULT_RSP_CAP>::SNAPSHOT_SIZE,
+            ),
         };
         if buf.len() < 3 + inner_size {
             return 0;
@@ -450,7 +455,9 @@ pub fn hle_snapshot_size_current() -> usize {
         match borrow.as_ref() {
             Some(SimInstance::Milenage(_)) => 3 + Sim::<MilenageParams, 256>::SNAPSHOT_SIZE,
             Some(SimInstance::Tuak(_)) => 3 + Sim::<TuakParams, 256>::SNAPSHOT_SIZE,
-            Some(SimInstance::GpMilenage(_)) => 3 + GpCard::<261>::SNAPSHOT_SIZE,
+            Some(SimInstance::GpMilenage(_)) => {
+                3 + GpCard::<simrs_card_api::OsRng, DEFAULT_RSP_CAP>::SNAPSHOT_SIZE
+            }
             None => 0,
         }
     })

@@ -11,11 +11,9 @@
 //!
 //! # `no_std`
 //! This crate is fully `no_std`. No heap allocation. No dependencies
-//! except `simrs-iso7816` (for [`StatusWord`]).
+//! except `simrs-iso7816` (for [`StatusWord`]). The optional `os-rng`
+//! feature pulls in `getrandom` to expose [`OsRng`] for hosted callers.
 #![no_std]
-
-#[cfg(feature = "std")]
-extern crate std;
 
 use simrs_iso7816::StatusWord;
 
@@ -177,4 +175,148 @@ pub const fn fnv1a(data: &[u8]) -> u64 {
         i += 1;
     }
     hash
+}
+
+// ---------------------------------------------------------------------------
+// Card-level entropy source
+// ---------------------------------------------------------------------------
+
+/// On-card source of entropy.
+///
+/// Real cards use a hardware TRNG; the simulator can plug in any
+/// implementation -- a host `OsRng` for production use, or a
+/// deterministic seeded RNG ([`DeterministicRng`]) for reproducible
+/// tests and replay.
+///
+/// Used by GP secure-channel session establishment for card-challenge
+/// generation in the SCP01/SCP02-explicit and SCP03-random modes.
+/// Plumbed through `GpOpen` / `GpCard` as a generic type parameter so
+/// no heap allocation is required for trait-object dispatch.
+pub trait EntropySource {
+    /// Fill `dest` with random bytes.
+    fn fill_bytes(&mut self, dest: &mut [u8]);
+}
+
+/// Deterministic xorshift64 RNG, seeded once per construction.
+///
+/// Useful for test reproducibility and replay vectors. **Not** suitable
+/// for production card challenges -- xorshift64 is statistically weak
+/// and the seed is observable.
+#[derive(Debug, Clone, Copy)]
+pub struct DeterministicRng {
+    state: u64,
+}
+
+impl DeterministicRng {
+    /// Construct a deterministic RNG with the given seed. Zero seed is
+    /// remapped to a fixed non-zero constant (xorshift64 is
+    /// stationary at zero).
+    #[must_use]
+    pub const fn new(seed: u64) -> Self {
+        Self {
+            state: if seed == 0 {
+                0xDEAD_BEEF_CAFE_BABE
+            } else {
+                seed
+            },
+        }
+    }
+
+    /// Pull the next 64-bit word from the stream.
+    const fn next_u64(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+}
+
+impl EntropySource for DeterministicRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        for chunk in dest.chunks_mut(8) {
+            let bytes = self.next_u64().to_le_bytes();
+            let n = chunk.len();
+            chunk.copy_from_slice(&bytes[..n]);
+        }
+    }
+}
+
+/// Host-OS-backed entropy source (gated behind the `std` feature).
+///
+/// Wraps `getrandom::getrandom` so hosted callers (HLE, fuzzer,
+/// conformance tests) can plug a real CSPRNG into `GpOpen` / `GpCard`
+/// without re-implementing the wrapper at every call site.
+///
+/// # Panics
+///
+/// `fill_bytes` panics if the underlying `getrandom` call fails. This
+/// matches the realistic failure mode for a card RNG: hardware-level
+/// entropy starvation is a non-recoverable condition; tests that need
+/// to exercise that path should use [`DeterministicRng`] instead.
+#[cfg(feature = "os-rng")]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct OsRng;
+
+#[cfg(feature = "os-rng")]
+impl EntropySource for OsRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        getrandom::getrandom(dest).expect("OsRng: getrandom failed");
+    }
+}
+
+#[cfg(test)]
+mod card_rng_tests {
+    use super::{DeterministicRng, EntropySource};
+
+    #[test]
+    fn deterministic_same_seed_same_stream() {
+        let mut a = DeterministicRng::new(42);
+        let mut b = DeterministicRng::new(42);
+        let mut ba = [0u8; 32];
+        let mut bb = [0u8; 32];
+        a.fill_bytes(&mut ba);
+        b.fill_bytes(&mut bb);
+        assert_eq!(ba, bb);
+    }
+
+    #[test]
+    fn deterministic_different_seeds_diverge() {
+        let mut a = DeterministicRng::new(1);
+        let mut b = DeterministicRng::new(2);
+        let mut ba = [0u8; 16];
+        let mut bb = [0u8; 16];
+        a.fill_bytes(&mut ba);
+        b.fill_bytes(&mut bb);
+        assert_ne!(ba, bb);
+    }
+
+    #[test]
+    fn deterministic_zero_seed_remapped_to_nonzero() {
+        let mut a = DeterministicRng::new(0);
+        let mut buf = [0u8; 8];
+        a.fill_bytes(&mut buf);
+        assert_ne!(buf, [0u8; 8]);
+    }
+
+    #[test]
+    fn deterministic_fill_advances_stream() {
+        let mut rng = DeterministicRng::new(99);
+        let mut a = [0u8; 16];
+        let mut b = [0u8; 16];
+        rng.fill_bytes(&mut a);
+        rng.fill_bytes(&mut b);
+        // Two consecutive draws from a single RNG must differ.
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn deterministic_short_buffers_dont_panic() {
+        let mut rng = DeterministicRng::new(7);
+        for n in 0..32 {
+            let mut buf = [0u8; 32];
+            rng.fill_bytes(&mut buf[..n]);
+        }
+    }
 }
