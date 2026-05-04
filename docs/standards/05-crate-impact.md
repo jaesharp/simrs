@@ -128,9 +128,9 @@ phased upgrade plan.
 | simrs-gp-keys | Composition | yes | Key store (ENC+MAC+DEK per SD, versioned) | GP 2.3.1 Appendix B (was 2.1.1 Appendix C) |
 | simrs-gp-scp | Composition | yes | SCP01/SCP02/SCP03 state machines | GP 2.3.1 Appendix D/E + Amendment D |
 | simrs-jcre | Composition | yes | Applet trait, memory model, transactions | JCRE 3.2 (2.1.1 baseline today; Phase 4 closes the gap) |
-| simrs-jcvm | Composition | yes | Bytecode interpreter, CAP parser, firewall | JCVM 3.2 (most narrow opcodes + 16 wide-offset conditional branches; component-tagged CAP parser surfaces 10 of 13 components on `Package`: Header / Method / Descriptor / ConstantPool / Applet / Import / Export / RefLocation / StaticField summary / Class MVP) |
-| simrs-jcvm-opcodes | Composition | yes | Shared opcode constants | JCVM 3.2 Chapter 7 (narrow + 16 wide-offset conditional branches at 0x96..=0xA5) |
-| simrs-jacc | Tool (host) | no | .java -> .cap converter | JCVM 3.2 (CAP writer emits all 13 components; standalone-applet output is strictly spec-compliant for Header/Directory/Applet/Import/ConstantPool/Class/Method/StaticField/RefLocation/Export/Descriptor/Debug/StaticResources) |
+| simrs-jcvm | Composition | yes | Bytecode interpreter, CAP parser, firewall | JCVM 3.2 (CAP parser surfaces 10 of 13 components; opcode set has known compliance gap -- see [07-jcvm-opcode-compliance.md](07-jcvm-opcode-compliance.md)) |
+| simrs-jcvm-opcodes | Composition | yes | Shared opcode constants | JCVM 3.2 Chapter 7 -- ~20 opcodes use non-spec values, ~20 spec opcodes missing, wide-branch range unverified. See [07-jcvm-opcode-compliance.md](07-jcvm-opcode-compliance.md) |
+| simrs-jacc | Tool (host) | no | .java -> .cap converter | JCVM 3.2 (CAP writer emits all 13 components; possible Descriptor structural deviations -- see [07-jcvm-opcode-compliance.md](07-jcvm-opcode-compliance.md)) |
 | simrs-jccompile | Tool (host) | no | Java -> JcClass IR -> bytecode | JCVM 3.2 instruction set |
 | simrs-jcasm | Tool (host) | no | JCVM HLA assembler | JCVM 3.2 instruction set |
 | simrs-gp-open | Application | yes | Card Manager, ISD, AID dispatch, lifecycle | GP 2.3.1 clause 11 -- all commands Functional |

@@ -191,8 +191,8 @@ graph TB
 | [`simrs-gp-scp`](simrs-gp-scp/) | Composition | yes | SCP01/SCP02/SCP03 secure channel protocols (GP 2.3.1 + Amendment D) | [des](simrs-des/), [rijndael](simrs-rijndael/), [iso9797](simrs-iso9797/), [gp-keys](simrs-gp-keys/) | -- |
 | [`simrs-gp-open`](simrs-gp-open/) | Composition | yes | GlobalPlatform OPEN card manager, applet registry, lifecycle | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/), [gp-keys](simrs-gp-keys/), [gp-scp](simrs-gp-scp/) | -- |
 | [`simrs-gp-card`](simrs-gp-card/) | Composition | yes | GP card composition (ISD + applet registry + SCP session) | [gp-open](simrs-gp-open/), [jcre](simrs-jcre/)^opt^ | -- |
-| [`simrs-jcvm-opcodes`](simrs-jcvm-opcodes/) | Composition | yes | JavaCard bytecode opcode constants (JCVM 3.2 § 7.5; narrow + 16 wide-offset conditional branches at 0x96..=0xA5) | -- | -- |
-| [`simrs-jcvm`](simrs-jcvm/) | Composition | yes | JavaCard Virtual Machine interpreter (JCVM 3.2 most opcodes; component-tagged CAP parser surfaces 10 of 13 components on `Package`) | [jcvm-opcodes](simrs-jcvm-opcodes/) | -- |
+| [`simrs-jcvm-opcodes`](simrs-jcvm-opcodes/) | Composition | yes | JavaCard bytecode opcode constants -- known compliance gap, see [opcode audit](../docs/standards/07-jcvm-opcode-compliance.md) | -- | -- |
+| [`simrs-jcvm`](simrs-jcvm/) | Composition | yes | JavaCard Virtual Machine interpreter (component-tagged CAP parser surfaces 10 of 13 components on `Package`; opcode set has known compliance gap) | [jcvm-opcodes](simrs-jcvm-opcodes/) | -- |
 | [`simrs-jcre`](simrs-jcre/) | Composition | yes | JavaCard Runtime Environment (applet lifecycle, firewall, transactions) | [jcvm](simrs-jcvm/), [iso7816](simrs-iso7816/) | -- |
 | [`simrs-jcasm`](simrs-jcasm/) | Composition | **no** | JavaCard Assembler (HLA syntax, CAP emission) | [jcvm-opcodes](simrs-jcvm-opcodes/) | -- |
 | [`simrs-jcasm-jacc`](simrs-jcasm-jacc/) | Composition | **no** | JavaCard Assembler frontend for the jacc compiler | [jcasm](simrs-jcasm/) | -- |
