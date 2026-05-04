@@ -293,22 +293,26 @@ For each crate in `simrs-fs`, `simrs-pin`, `simrs-gsm`, `simrs-usim`, `simrs-sim
 
 ---
 
-## Open questions
+## Decisions on open questions
 
-1. **Should `Snapshot` be `Box<[u8]>` or `Vec<u8>`?** `Box<[u8]>` is smaller (no capacity field) and reflects the immutable nature of a snapshot. `Vec<u8>` is more flexible. Lean `Box<[u8]>`.
+Each is marked **(default)** -- proceeding under this answer unless overridden during user review.
 
-2. **Should `as_bytes()` exist publicly?** It enables on-disk persistence (which `simrs-fuzz` and the snapshot-on-disk story need) but technically leaks the byte representation. Mitigation: documented as "for storage; do not parse"; the version header makes parsing pointless to consumers since the format is opaque.
+1. **`Snapshot` representation: `Box<[u8]>`** *(default)*. Smaller (no capacity field); reflects the immutable nature of a snapshot. `Vec<u8>` is rejected -- a snapshot, once taken, doesn't grow.
 
-3. **Versioning granularity.** Per-type versioning (each implementor manages its own version) vs. workspace-global version. Per-type is more flexible; workspace-global simplifies migration. Lean per-type.
+2. **`as_bytes()` is public** *(default)*. Required for on-disk persistence in `simrs-fuzz` and the snapshot-on-disk story. Documented contract: "for storage; do not parse; format may change between versions". The version + producer-tag header validates round-trip; parsing the payload is pointless because the format isn't part of the stable API.
 
-4. **Should Phase 1 land first as a no-op?** Pro: lets us iterate on the trait API before committing to migration. Con: an ADR'd-but-unused trait sits in the codebase for a window. Lean yes -- land it, write tests, get the shape right before touching consumer crates.
+3. **Per-type versioning** *(default)*. Each `Snapshotable` impl manages its own `VERSION` constant. Workspace-global versioning is rejected because it would force a major version bump every time any one type's layout changes. Per-type lets consumers evolve independently.
 
-5. **Should we use `Result<usize, SnapshotError>` for the raw `pub(crate) fn save_state_internal`?** Currently it's `usize` with 0-on-failure. Sticking with the current shape preserves byte-level compatibility and keeps Phase 2-3 mechanical.
+4. **Phase 1 lands first as a no-op** *(default)*. The trait + opaque type + tests ship before any consumer crate gains an impl. This lets us settle the trait shape under review pressure (Phase 1 is small and isolated) rather than discovering shape problems during a 14-crate migration.
+
+5. **Raw `save_state_internal` returns `usize`** *(default)*. Sticks with the current shape (`0` on failure). `Result<usize, SnapshotError>` is rejected for now because it would force every consumer to migrate the error type at the same time as the visibility change -- two breaking changes superimposed. Promoting to `Result` is tracked as a follow-up after Phase 5.
+
+These five decisions can be overridden by the user during review. Default-to-decision posture means Phase 1 can begin as soon as no objections are raised, rather than blocking on explicit approval of every micro-choice.
 
 ---
 
 ## Decision record
 
-[Open] -- awaiting user review of the plan before Phase 1 lands.
+- **2026-05-05**: Status proposed; defaults recorded for the 5 open questions above. Awaiting user override on any of them; otherwise Phase 1 begins under those defaults.
 
 When accepted, this ADR transitions to **Status: Accepted** and the migration sequence above governs the implementation order.
