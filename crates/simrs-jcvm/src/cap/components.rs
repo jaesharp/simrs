@@ -2954,28 +2954,24 @@ mod tests {
         // ConstantPool
         // ---------------------------------------------------------------
 
+        /// Strategy: a `(tag, [u8; 3])` pair where tag is in the
+        /// spec-valid 1..=6 range. Used by the CP round-trip proptest.
+        fn cp_entry_strategy() -> impl Strategy<Value = (u8, [u8; 3])> {
+            (1u8..=6, any::<[u8; 3]>())
+        }
+
         proptest! {
             /// Parser accepts arbitrary valid CP bodies up to MAX_CP_ENTRIES.
             /// Every entry returned by `cp_entry(i)` decodes to the exact
             /// `(tag, info)` pair we wrote.
             #[test]
             fn cp_parser_round_trips_arbitrary_entries(
-                count in 0u16..=64,
-                seed in 0u64..=u64::MAX,
+                entries in proptest::collection::vec(cp_entry_strategy(), 0..=64),
             ) {
                 let aid = [0xA0u8, 0, 0, 0, 0x62];
-                // Build a deterministic per-seed entry stream.
-                let mut entries: Vec<(u8, [u8; 3])> = Vec::with_capacity(count as usize);
-                for i in 0..count {
-                    let tag = (((seed >> (i % 64)) & 0x07) as u8 % 6 + 1) as u8; // tags 1..=6
-                    let b0 = ((seed >> (i % 64)) & 0xFF) as u8;
-                    let b1 = ((seed >> ((i + 8) % 64)) & 0xFF) as u8;
-                    let b2 = ((seed >> ((i + 16) % 64)) & 0xFF) as u8;
-                    entries.push((tag, [b0, b1, b2]));
-                }
                 let cap = build_cap_with_cp(&aid, &entries);
                 let pkg = parse(&cap).expect("parse");
-                prop_assert_eq!(pkg.cp_count, count);
+                prop_assert_eq!(pkg.cp_count as usize, entries.len());
                 for (i, (tag, info)) in entries.iter().enumerate() {
                     let entry = pkg.cp_entry(i as u16).expect("entry present");
                     prop_assert_eq!(entry.tag, *tag);
@@ -3003,37 +2999,30 @@ mod tests {
         // Applet
         // ---------------------------------------------------------------
 
+        /// Strategy: an `(aid, offset)` pair where the AID has length
+        /// in the ISO 7816-4 valid range `[5, 16]` and bytes are
+        /// arbitrary. Used by the Applet round-trip proptest.
+        fn applet_entry_strategy() -> impl Strategy<Value = (Vec<u8>, u16)> {
+            (proptest::collection::vec(any::<u8>(), 5..=16), any::<u16>())
+        }
+
         proptest! {
             /// Parser surfaces every applet with byte-identical AID + offset.
             #[test]
             fn applet_parser_round_trips_arbitrary_entries(
-                applet_count in 0u8..=4u8,
-                aid_seed in 0u32..=u32::MAX,
-                offset_seed in 0u16..=u16::MAX,
+                entries in proptest::collection::vec(applet_entry_strategy(), 0..=4),
             ) {
                 let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
-                // Build distinct AIDs of varying lengths in [5, 16].
-                let mut aids: Vec<Vec<u8>> = Vec::new();
-                for i in 0..applet_count {
-                    let len = 5 + ((aid_seed >> (i * 3)) & 0x07) as u8 + i; // 5..=16-ish
-                    let len = len.min(16);
-                    let mut aid = Vec::with_capacity(len as usize);
-                    for j in 0..len {
-                        aid.push(((aid_seed.wrapping_mul(31)) >> (j as u32 % 24)) as u8 ^ i ^ j);
-                    }
-                    aids.push(aid);
-                }
-                let entries: Vec<(&[u8], u16)> = aids
+                let entry_refs: Vec<(&[u8], u16)> = entries
                     .iter()
-                    .enumerate()
-                    .map(|(i, aid)| (aid.as_slice(), offset_seed.wrapping_add(i as u16)))
+                    .map(|(aid, offset)| (aid.as_slice(), *offset))
                     .collect();
-                let cap = build_cap_with_applets(&pkg_aid, &entries);
+                let cap = build_cap_with_applets(&pkg_aid, &entry_refs);
                 let pkg = parse(&cap).expect("parse");
-                prop_assert_eq!(pkg.applet_count, applet_count);
+                prop_assert_eq!(pkg.applet_count as usize, entries.len());
                 for (i, (aid, offset)) in entries.iter().enumerate() {
                     let info = pkg.applet(i as u8).expect("applet present");
-                    prop_assert_eq!(info.aid_slice(), *aid);
+                    prop_assert_eq!(info.aid_slice(), aid.as_slice());
                     prop_assert_eq!(info.install_method_offset, *offset);
                 }
             }
@@ -3058,38 +3047,34 @@ mod tests {
         // Import
         // ---------------------------------------------------------------
 
+        /// Strategy: a `(minor, major, aid)` triple matching the
+        /// `import_info` shape used by the Import round-trip proptest.
+        fn import_entry_strategy() -> impl Strategy<Value = (u8, u8, Vec<u8>)> {
+            (
+                any::<u8>(),
+                any::<u8>(),
+                proptest::collection::vec(any::<u8>(), 5..=16),
+            )
+        }
+
         proptest! {
             #[test]
             fn import_parser_round_trips_arbitrary_entries(
-                import_count in 0u8..=8u8,
-                version_seed in 0u64..=u64::MAX,
+                entries in proptest::collection::vec(import_entry_strategy(), 0..=8),
             ) {
                 let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
-                let aids: Vec<Vec<u8>> = (0..import_count)
-                    .map(|i| {
-                        let len = 5 + (i % 12);
-                        (0..len).map(|j| (i.wrapping_mul(j) ^ 0x5A) as u8).collect()
-                    })
-                    .collect();
-                let entries: Vec<(u8, u8, &[u8])> = aids
+                let entry_refs: Vec<(u8, u8, &[u8])> = entries
                     .iter()
-                    .enumerate()
-                    .map(|(i, aid)| {
-                        let shift_minor = ((i * 4) % 56) as u32;
-                        let shift_major = (((i * 4) + 8) % 56) as u32;
-                        let minor = ((version_seed >> shift_minor) & 0xFF) as u8;
-                        let major = ((version_seed >> shift_major) & 0xFF) as u8;
-                        (minor, major, aid.as_slice())
-                    })
+                    .map(|(minor, major, aid)| (*minor, *major, aid.as_slice()))
                     .collect();
-                let cap = build_cap_with_imports(&pkg_aid, &entries);
+                let cap = build_cap_with_imports(&pkg_aid, &entry_refs);
                 let pkg = parse(&cap).expect("parse");
-                prop_assert_eq!(pkg.import_count, import_count);
+                prop_assert_eq!(pkg.import_count as usize, entries.len());
                 for (i, (minor, major, aid)) in entries.iter().enumerate() {
                     let info = pkg.import(i as u8).expect("import present");
                     prop_assert_eq!(info.minor_version, *minor);
                     prop_assert_eq!(info.major_version, *major);
-                    prop_assert_eq!(info.aid_slice(), *aid);
+                    prop_assert_eq!(info.aid_slice(), aid.as_slice());
                 }
             }
 
@@ -3113,31 +3098,33 @@ mod tests {
         // Export
         // ---------------------------------------------------------------
 
+        /// Strategy: a `(class_offset, static_field_offsets,
+        /// static_method_offsets)` triple matching the Export
+        /// component's per-class entry. Field/method counts stay
+        /// within `MAX_EXPORTED_*_PER_CLASS` to keep the parser's
+        /// happy path; the rejection paths for over-cap counts are
+        /// covered by separate fixed-input tests.
+        fn export_class_strategy() -> impl Strategy<Value = (u16, Vec<u16>, Vec<u16>)> {
+            (
+                any::<u16>(),
+                proptest::collection::vec(any::<u16>(), 0..=MAX_EXPORTED_FIELDS_PER_CLASS),
+                proptest::collection::vec(any::<u16>(), 0..=MAX_EXPORTED_METHODS_PER_CLASS),
+            )
+        }
+
         proptest! {
             #[test]
             fn export_parser_round_trips_arbitrary_classes(
-                class_count in 0u8..=4u8,
-                offset_seed in 0u16..=u16::MAX,
-                fields_seed in 0u8..=16u8,
-                methods_seed in 0u8..=16u8,
+                classes in proptest::collection::vec(export_class_strategy(), 0..=4),
             ) {
                 let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
-                let mut classes: Vec<(u16, Vec<u16>, Vec<u16>)> = Vec::new();
-                for i in 0..class_count {
-                    let class_offset = offset_seed.wrapping_add(u16::from(i));
-                    let f_count = (fields_seed.wrapping_add(i)) % 17;
-                    let m_count = (methods_seed.wrapping_add(i)) % 17;
-                    let fields: Vec<u16> = (0..f_count).map(|j| u16::from(j) | 0x10).collect();
-                    let methods: Vec<u16> = (0..m_count).map(|j| u16::from(j) | 0x20).collect();
-                    classes.push((class_offset, fields, methods));
-                }
                 let class_refs: Vec<(u16, &[u16], &[u16])> = classes
                     .iter()
                     .map(|(o, f, m)| (*o, f.as_slice(), m.as_slice()))
                     .collect();
                 let cap = build_cap_with_exports(&pkg_aid, &class_refs);
                 let pkg = parse(&cap).expect("parse");
-                prop_assert_eq!(pkg.export_count, class_count);
+                prop_assert_eq!(pkg.export_count as usize, classes.len());
                 for (i, (offset, fields, methods)) in classes.iter().enumerate() {
                     let info = pkg.export(i as u8).expect("export present");
                     prop_assert_eq!(info.class_offset, *offset);
@@ -3178,21 +3165,14 @@ mod tests {
         proptest! {
             #[test]
             fn ref_loc_parser_round_trips_arbitrary_deltas(
-                byte_count in 0usize..=128,
-                byte2_count in 0usize..=64,
-                seed in 0u64..=u64::MAX,
+                byte_deltas in proptest::collection::vec(any::<u8>(), 0..=MAX_REF_LOC_BYTE_INDICES),
+                byte2_deltas in proptest::collection::vec(any::<u8>(), 0..=MAX_REF_LOC_BYTE2_INDICES),
             ) {
                 let aid = [0xA0u8, 0, 0, 0, 0x62];
-                let byte_deltas: Vec<u8> = (0..byte_count)
-                    .map(|i| ((seed >> (i % 64)) & 0xFF) as u8)
-                    .collect();
-                let byte2_deltas: Vec<u8> = (0..byte2_count)
-                    .map(|i| ((seed >> ((i + 13) % 64)) & 0xFF) as u8)
-                    .collect();
                 let cap = build_cap_with_ref_loc(&aid, &byte_deltas, &byte2_deltas);
                 let pkg = parse(&cap).expect("parse");
-                prop_assert_eq!(pkg.ref_loc_byte_count as usize, byte_count);
-                prop_assert_eq!(pkg.ref_loc_byte2_count as usize, byte2_count);
+                prop_assert_eq!(pkg.ref_loc_byte_count as usize, byte_deltas.len());
+                prop_assert_eq!(pkg.ref_loc_byte2_count as usize, byte2_deltas.len());
                 prop_assert_eq!(pkg.ref_loc_byte_deltas(), byte_deltas.as_slice());
                 prop_assert_eq!(pkg.ref_loc_byte2_deltas(), byte2_deltas.as_slice());
             }
