@@ -2948,6 +2948,15 @@ mod tests {
     )]
     mod prop {
         use super::*;
+        // Pull in cap-level types directly. `mod tests`'s `use super::{...}`
+        // imports are private and don't re-export through `super::*` here, so
+        // we'd otherwise need awkward `super::super::super::ClassInfo` paths
+        // sprinkled through every proptest body. `ClassRef` lives at the
+        // cap module level (not re-exported into `mod components`) since
+        // production code in this file doesn't reference it directly --
+        // only the prop tests do.
+        use super::super::super::ClassRef;
+        use super::super::{AppletInfo, ClassInfo, CpInfo, ExportInfo, ImportInfo};
         use proptest::prelude::*;
 
         // ---------------------------------------------------------------
@@ -3296,14 +3305,14 @@ mod tests {
                 iface_count in 0u8..=15,
             ) {
                 let super_class_ref = if use_external {
-                    super::super::super::ClassRef::External {
+                    ClassRef::External {
                         package_token: super_external_pkg,
                         class_token: super_external_class,
                     }
                 } else {
-                    super::super::super::ClassRef::Internal(super_internal)
+                    ClassRef::Internal(super_internal)
                 };
-                let info = super::super::super::ClassInfo {
+                let info = ClassInfo {
                     component_offset,
                     super_class_ref,
                     declared_instance_size: instance_size,
@@ -3368,7 +3377,7 @@ mod tests {
                 pkg.aid_len = 1;
                 pkg.aid[0] = 0xAA;
                 for (i, (tag, info)) in entries.iter().enumerate() {
-                    pkg.constant_pool[i] = super::super::super::CpInfo {
+                    pkg.constant_pool[i] = CpInfo {
                         tag: *tag,
                         info: *info,
                     };
@@ -3398,7 +3407,7 @@ mod tests {
                 pkg.aid_len = 1;
                 pkg.aid[0] = 0xAA;
                 for (i, (aid, offset)) in entries.iter().enumerate() {
-                    let mut info = super::super::super::AppletInfo::empty();
+                    let mut info = AppletInfo::empty();
                     info.aid_len = aid.len() as u8;
                     info.aid[..aid.len()].copy_from_slice(aid);
                     info.install_method_offset = *offset;
@@ -3429,7 +3438,7 @@ mod tests {
                 pkg.aid_len = 1;
                 pkg.aid[0] = 0xAA;
                 for (i, (minor, major, aid)) in entries.iter().enumerate() {
-                    let mut info = super::super::super::ImportInfo::empty();
+                    let mut info = ImportInfo::empty();
                     info.minor_version = *minor;
                     info.major_version = *major;
                     info.aid_len = aid.len() as u8;
@@ -3462,7 +3471,7 @@ mod tests {
                 pkg.aid_len = 1;
                 pkg.aid[0] = 0xAA;
                 for (i, (offset, fields, methods)) in classes.iter().enumerate() {
-                    let mut info = super::super::super::ExportInfo::empty();
+                    let mut info = ExportInfo::empty();
                     info.class_offset = *offset;
                     info.static_field_count = fields.len() as u8;
                     info.static_method_count = methods.len() as u8;
