@@ -331,6 +331,14 @@ and writer in `simrs-jacc/src/cap/writer.rs`. Status from
 Token-based linking at `invoke*` time (Phase 2 step 3) is
 unimplemented.
 
+End-to-end coverage: `crates/simrs-jacc/tests/cap_writer_execute.rs`
+runs `CapWriter::write` → `parse_cap` → `JcVM::execute` for the
+component-tagged path (smoke, arithmetic, multi-method offset
+alignment, AID round-trip at short and max length, builder/helper
+parity). The legacy blob format has its own end-to-end coverage in
+`crates/simrs-jacc/src/cap/writer.rs::tests` and the
+`simrs-jcasm/tests/*_assemble_execute.rs` files.
+
 ### Per-structure audit
 
 #### Verified spec-aligned
