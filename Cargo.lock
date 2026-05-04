@@ -1804,6 +1804,7 @@ dependencies = [
  "quote",
  "simrs-jccompile",
  "simrs-jcvm",
+ "simrs-jcvm-opcodes",
  "syn",
 ]
 

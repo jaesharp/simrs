@@ -1,6 +1,13 @@
 //! Opcode table for the assembler.
 //!
 //! Maps mnemonic strings to (`opcode_byte`, `arg_kind`) pairs.
+//!
+//! Byte values are sourced from the canonical
+//! [`simrs_jcvm_opcodes`] crate -- changing an opcode value there
+//! automatically propagates here. Do NOT hardcode opcode bytes in
+//! this file.
+
+use simrs_jcvm_opcodes as op;
 
 /// Argument kind for an opcode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,764 +41,764 @@ pub struct OpcodeEntry {
     pub arg: ArgKind,
 }
 
-/// Complete opcode table matching simrs-jcvm/src/opcodes.rs.
+/// Complete opcode table. Byte values come from `simrs_jcvm_opcodes`.
 pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     // Misc
     OpcodeEntry {
         mnemonic: "nop",
-        byte: 0x00,
+        byte: op::NOP,
         arg: ArgKind::None,
     },
     // Constants: short
     OpcodeEntry {
         mnemonic: "aconst_null",
-        byte: 0x01,
+        byte: op::ACONST_NULL,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sconst_m1",
-        byte: 0x02,
+        byte: op::SCONST_M1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sconst_0",
-        byte: 0x03,
+        byte: op::SCONST_0,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sconst_1",
-        byte: 0x04,
+        byte: op::SCONST_1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sconst_2",
-        byte: 0x05,
+        byte: op::SCONST_2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sconst_3",
-        byte: 0x06,
+        byte: op::SCONST_3,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sconst_4",
-        byte: 0x07,
+        byte: op::SCONST_4,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sconst_5",
-        byte: 0x08,
+        byte: op::SCONST_5,
         arg: ArgKind::None,
     },
     // Constants: int
     OpcodeEntry {
         mnemonic: "iconst_m1",
-        byte: 0x09,
+        byte: op::ICONST_M1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iconst_0",
-        byte: 0x0A,
+        byte: op::ICONST_0,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iconst_1",
-        byte: 0x0B,
+        byte: op::ICONST_1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iconst_2",
-        byte: 0x0C,
+        byte: op::ICONST_2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iconst_3",
-        byte: 0x0D,
+        byte: op::ICONST_3,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iconst_4",
-        byte: 0x0E,
+        byte: op::ICONST_4,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iconst_5",
-        byte: 0x0F,
+        byte: op::ICONST_5,
         arg: ArgKind::None,
     },
     // Constants: push immediates
     OpcodeEntry {
         mnemonic: "bspush",
-        byte: 0x10,
+        byte: op::BSPUSH,
         arg: ArgKind::Imm8,
     },
     OpcodeEntry {
         mnemonic: "sspush",
-        byte: 0x11,
+        byte: op::SSPUSH,
         arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "iipush",
-        byte: 0x14,
+        byte: op::IIPUSH,
         arg: ArgKind::Imm32,
     },
     // Reference locals
     OpcodeEntry {
         mnemonic: "aload",
-        byte: 0x15,
+        byte: op::ALOAD,
         arg: ArgKind::Local,
     },
     OpcodeEntry {
         mnemonic: "aload_0",
-        byte: 0x18,
+        byte: op::ALOAD_0,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "aload_1",
-        byte: 0x19,
+        byte: op::ALOAD_1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "aload_2",
-        byte: 0x1A,
+        byte: op::ALOAD_2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "aload_3",
-        byte: 0x1B,
+        byte: op::ALOAD_3,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "astore",
-        byte: 0x28,
+        byte: op::ASTORE,
         arg: ArgKind::Local,
     },
     OpcodeEntry {
         mnemonic: "astore_0",
-        byte: 0x2B,
+        byte: op::ASTORE_0,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "astore_1",
-        byte: 0x2C,
+        byte: op::ASTORE_1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "astore_2",
-        byte: 0x2D,
+        byte: op::ASTORE_2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "astore_3",
-        byte: 0x2E,
+        byte: op::ASTORE_3,
         arg: ArgKind::None,
     },
     // Short locals
     OpcodeEntry {
         mnemonic: "sload",
-        byte: 0x16,
+        byte: op::SLOAD,
         arg: ArgKind::Local,
     },
     OpcodeEntry {
         mnemonic: "sload_0",
-        byte: 0x1C,
+        byte: op::SLOAD_0,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sload_1",
-        byte: 0x1D,
+        byte: op::SLOAD_1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sload_2",
-        byte: 0x1E,
+        byte: op::SLOAD_2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sload_3",
-        byte: 0x1F,
+        byte: op::SLOAD_3,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sstore",
-        byte: 0x29,
+        byte: op::SSTORE,
         arg: ArgKind::Local,
     },
     OpcodeEntry {
         mnemonic: "sstore_0",
-        byte: 0x2F,
+        byte: op::SSTORE_0,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sstore_1",
-        byte: 0x30,
+        byte: op::SSTORE_1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sstore_2",
-        byte: 0x31,
+        byte: op::SSTORE_2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sstore_3",
-        byte: 0x32,
+        byte: op::SSTORE_3,
         arg: ArgKind::None,
     },
     // Int locals
     OpcodeEntry {
         mnemonic: "iload",
-        byte: 0x17,
+        byte: op::ILOAD,
         arg: ArgKind::Local,
     },
     OpcodeEntry {
         mnemonic: "iload_0",
-        byte: 0x20,
+        byte: op::ILOAD_0,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iload_1",
-        byte: 0x21,
+        byte: op::ILOAD_1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iload_2",
-        byte: 0x22,
+        byte: op::ILOAD_2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iload_3",
-        byte: 0x23,
+        byte: op::ILOAD_3,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "istore",
-        byte: 0x2A,
+        byte: op::ISTORE,
         arg: ArgKind::Local,
     },
     OpcodeEntry {
         mnemonic: "istore_0",
-        byte: 0x33,
+        byte: op::ISTORE_0,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "istore_1",
-        byte: 0x34,
+        byte: op::ISTORE_1,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "istore_2",
-        byte: 0x35,
+        byte: op::ISTORE_2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "istore_3",
-        byte: 0x36,
+        byte: op::ISTORE_3,
         arg: ArgKind::None,
     },
     // Stack
     OpcodeEntry {
         mnemonic: "pop",
-        byte: 0x3B,
+        byte: op::POP,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "pop2",
-        byte: 0x3C,
+        byte: op::POP2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "dup",
-        byte: 0x3D,
+        byte: op::DUP,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "dup2",
-        byte: 0x3E,
+        byte: op::DUP2,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "swap",
-        byte: 0x3F,
+        byte: op::SWAP,
         arg: ArgKind::None,
     },
     // Short arithmetic
     OpcodeEntry {
         mnemonic: "sadd",
-        byte: 0x41,
+        byte: op::SADD,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "ssub",
-        byte: 0x43,
+        byte: op::SSUB,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "smul",
-        byte: 0x45,
+        byte: op::SMUL,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sdiv",
-        byte: 0x47,
+        byte: op::SDIV,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "srem",
-        byte: 0x49,
+        byte: op::SREM,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sneg",
-        byte: 0x4B,
+        byte: op::SNEG,
         arg: ArgKind::None,
     },
     // Int arithmetic
     OpcodeEntry {
         mnemonic: "iadd",
-        byte: 0x42,
+        byte: op::IADD,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "isub",
-        byte: 0x44,
+        byte: op::ISUB,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "imul",
-        byte: 0x46,
+        byte: op::IMUL,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "idiv",
-        byte: 0x48,
+        byte: op::IDIV,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "irem",
-        byte: 0x4A,
+        byte: op::IREM,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "ineg",
-        byte: 0x4C,
+        byte: op::INEG,
         arg: ArgKind::None,
     },
     // Short bitwise
     OpcodeEntry {
         mnemonic: "sshl",
-        byte: 0x4D,
+        byte: op::SSHL,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sshr",
-        byte: 0x4F,
+        byte: op::SSHR,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sushr",
-        byte: 0x51,
+        byte: op::SUSHR,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sand",
-        byte: 0x53,
+        byte: op::SAND,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sor",
-        byte: 0x55,
+        byte: op::SOR,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sxor",
-        byte: 0x57,
+        byte: op::SXOR,
         arg: ArgKind::None,
     },
     // Int bitwise
     OpcodeEntry {
         mnemonic: "ishl",
-        byte: 0x4E,
+        byte: op::ISHL,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "ishr",
-        byte: 0x50,
+        byte: op::ISHR,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iushr",
-        byte: 0x52,
+        byte: op::IUSHR,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iand",
-        byte: 0x54,
+        byte: op::IAND,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "ior",
-        byte: 0x56,
+        byte: op::IOR,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "ixor",
-        byte: 0x58,
+        byte: op::IXOR,
         arg: ArgKind::None,
     },
     // Increment
     OpcodeEntry {
         mnemonic: "sinc",
-        byte: 0x59,
+        byte: op::SINC,
         arg: ArgKind::LocalImm8,
     },
     OpcodeEntry {
         mnemonic: "iinc",
-        byte: 0x5A,
+        byte: op::IINC,
         arg: ArgKind::LocalImm8,
     },
     // Conversions
     OpcodeEntry {
         mnemonic: "s2b",
-        byte: 0x5B,
+        byte: op::S2B,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "s2i",
-        byte: 0x5C,
+        byte: op::S2I,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "i2b",
-        byte: 0x5D,
+        byte: op::I2B,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "i2s",
-        byte: 0x5E,
+        byte: op::I2S,
         arg: ArgKind::None,
     },
     // Int comparison
     OpcodeEntry {
         mnemonic: "icmp",
-        byte: 0x5F,
+        byte: op::ICMP,
         arg: ArgKind::None,
     },
     // Arrays
     OpcodeEntry {
         mnemonic: "aaload",
-        byte: 0x24,
+        byte: op::AALOAD,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "baload",
-        byte: 0x25,
+        byte: op::BALOAD,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "saload",
-        byte: 0x26,
+        byte: op::SALOAD,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iaload",
-        byte: 0x27,
+        byte: op::IALOAD,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "aastore",
-        byte: 0x37,
+        byte: op::AASTORE,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "bastore",
-        byte: 0x38,
+        byte: op::BASTORE,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sastore",
-        byte: 0x39,
+        byte: op::SASTORE,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "iastore",
-        byte: 0x3A,
+        byte: op::IASTORE,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "arraylength",
-        byte: 0x92,
+        byte: op::ARRAYLENGTH,
         arg: ArgKind::None,
     },
     // Instance fields
     OpcodeEntry {
         mnemonic: "getfield_a",
-        byte: 0x83,
+        byte: op::GETFIELD_A,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "getfield_b",
-        byte: 0x84,
+        byte: op::GETFIELD_B,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "getfield_s",
-        byte: 0x85,
+        byte: op::GETFIELD_S,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "getfield_i",
-        byte: 0x86,
+        byte: op::GETFIELD_I,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "putfield_a",
-        byte: 0x87,
+        byte: op::PUTFIELD_A,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "putfield_b",
-        byte: 0x88,
+        byte: op::PUTFIELD_B,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "putfield_s",
-        byte: 0x89,
+        byte: op::PUTFIELD_S,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "putfield_i",
-        byte: 0x8A,
+        byte: op::PUTFIELD_I,
         arg: ArgKind::FieldOffset,
     },
     // Static fields
     OpcodeEntry {
         mnemonic: "getstatic_a",
-        byte: 0x7B,
+        byte: op::GETSTATIC_A,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "getstatic_b",
-        byte: 0x7C,
+        byte: op::GETSTATIC_B,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "getstatic_s",
-        byte: 0x7D,
+        byte: op::GETSTATIC_S,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "getstatic_i",
-        byte: 0x7E,
+        byte: op::GETSTATIC_I,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "putstatic_a",
-        byte: 0x7F,
+        byte: op::PUTSTATIC_A,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "putstatic_b",
-        byte: 0x80,
+        byte: op::PUTSTATIC_B,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "putstatic_s",
-        byte: 0x81,
+        byte: op::PUTSTATIC_S,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
         mnemonic: "putstatic_i",
-        byte: 0x82,
+        byte: op::PUTSTATIC_I,
         arg: ArgKind::FieldOffset,
     },
     // Objects
     OpcodeEntry {
         mnemonic: "new",
-        byte: 0x8F,
+        byte: op::NEW,
         arg: ArgKind::TypeToken,
     },
     OpcodeEntry {
         mnemonic: "newarray",
-        byte: 0x90,
+        byte: op::NEWARRAY,
         arg: ArgKind::TypeToken,
     },
     OpcodeEntry {
         mnemonic: "anewarray",
-        byte: 0x91,
+        byte: op::ANEWARRAY,
         arg: ArgKind::TypeToken,
     },
     // Unary comparison branches
     OpcodeEntry {
         mnemonic: "ifeq",
-        byte: 0x60,
+        byte: op::IFEQ,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "ifne",
-        byte: 0x61,
+        byte: op::IFNE,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "iflt",
-        byte: 0x62,
+        byte: op::IFLT,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "ifge",
-        byte: 0x63,
+        byte: op::IFGE,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "ifgt",
-        byte: 0x64,
+        byte: op::IFGT,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "ifle",
-        byte: 0x65,
+        byte: op::IFLE,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "ifnull",
-        byte: 0x66,
+        byte: op::IFNULL,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "ifnonnull",
-        byte: 0x67,
+        byte: op::IFNONNULL,
         arg: ArgKind::Label,
     },
     // Reference comparison branches
     OpcodeEntry {
         mnemonic: "if_acmpeq",
-        byte: 0x68,
+        byte: op::IF_ACMPEQ,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "if_acmpne",
-        byte: 0x69,
+        byte: op::IF_ACMPNE,
         arg: ArgKind::Label,
     },
     // Short comparison branches
     OpcodeEntry {
         mnemonic: "if_scmpeq",
-        byte: 0x6A,
+        byte: op::IF_SCMPEQ,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "if_scmpne",
-        byte: 0x6B,
+        byte: op::IF_SCMPNE,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "if_scmplt",
-        byte: 0x6C,
+        byte: op::IF_SCMPLT,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "if_scmpge",
-        byte: 0x6D,
+        byte: op::IF_SCMPGE,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "if_scmpgt",
-        byte: 0x6E,
+        byte: op::IF_SCMPGT,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "if_scmple",
-        byte: 0x6F,
+        byte: op::IF_SCMPLE,
         arg: ArgKind::Label,
     },
     // Unconditional branches
     OpcodeEntry {
         mnemonic: "goto",
-        byte: 0x70,
+        byte: op::GOTO,
         arg: ArgKind::Label,
     },
     OpcodeEntry {
         mnemonic: "goto_w",
-        byte: 0xA8,
+        byte: op::GOTO_W,
         arg: ArgKind::WideLabel,
     },
     // Switch (variable-length -- assembler handles encoding)
     OpcodeEntry {
         mnemonic: "stableswitch",
-        byte: 0x73,
+        byte: op::STABLESWITCH,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "itableswitch",
-        byte: 0x74,
+        byte: op::ITABLESWITCH,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "slookupswitch",
-        byte: 0x75,
+        byte: op::SLOOKUPSWITCH,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "ilookupswitch",
-        byte: 0x76,
+        byte: op::ILOOKUPSWITCH,
         arg: ArgKind::None,
     },
     // Invoke
     OpcodeEntry {
         mnemonic: "invokevirtual",
-        byte: 0x8B,
+        byte: op::INVOKEVIRTUAL,
         arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "invokespecial",
-        byte: 0x8C,
+        byte: op::INVOKESPECIAL,
         arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "invokestatic",
-        byte: 0x8D,
+        byte: op::INVOKESTATIC,
         arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "invokeinterface",
-        byte: 0x8E,
+        byte: op::INVOKEINTERFACE,
         arg: ArgKind::Imm16,
     },
     // Exception
     OpcodeEntry {
         mnemonic: "athrow",
-        byte: 0x93,
+        byte: op::ATHROW,
         arg: ArgKind::None,
     },
     // Type checking
     OpcodeEntry {
         mnemonic: "checkcast",
-        byte: 0x94,
+        byte: op::CHECKCAST,
         arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "instanceof",
-        byte: 0x95,
+        byte: op::INSTANCEOF,
         arg: ArgKind::Imm16,
     },
     // Return
     OpcodeEntry {
         mnemonic: "areturn",
-        byte: 0x77,
+        byte: op::ARETURN,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sreturn",
-        byte: 0x78,
+        byte: op::SRETURN,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "ireturn",
-        byte: 0x79,
+        byte: op::IRETURN,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "return_void",
-        byte: 0x7A,
+        byte: op::RETURN,
         arg: ArgKind::None,
     },
 ];

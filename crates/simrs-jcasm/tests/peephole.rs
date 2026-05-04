@@ -7,17 +7,10 @@
 use simrs_jcasm::jcasm;
 use simrs_jcvm::JcVM;
 use simrs_jcvm::cap::{build_cap_blob, parse_cap};
-use simrs_jcvm::opcodes::ExecResult;
-
-// Opcode byte constants (from JCVM 3.2 spec).
-const SCONST_1: u8 = 0x04;
-const SCONST_3: u8 = 0x06;
-const SCONST_5: u8 = 0x08;
-const DUP: u8 = 0x3D;
-const SSTORE_0: u8 = 0x2F;
-const SSTORE_1: u8 = 0x30;
-const SRETURN: u8 = 0x78;
-const RETURN_VOID: u8 = 0x7A;
+use simrs_jcvm::opcodes::{
+    DUP, ExecResult, RETURN as RETURN_VOID, SCONST_1, SCONST_3, SCONST_5, SRETURN, SSTORE_0,
+    SSTORE_1,
+};
 
 // =========================================================================
 // Pattern 1: sstore_N; sload_N -> dup; sstore_N
