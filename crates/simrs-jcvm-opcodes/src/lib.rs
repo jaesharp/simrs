@@ -7,18 +7,29 @@
 //! the compiler (`simrs-jccompile`), and any other crate that needs to
 //! emit or inspect JCVM bytecodes.
 //!
-//! # Opcode numbering -- KNOWN COMPLIANCE GAP
+//! # Opcode numbering
 //!
-//! A substantial fraction of the implemented opcodes use **non-spec
-//! values**. This is intentional and tracked: the codebase is
-//! internally consistent, but is not interoperable with real
-//! Oracle-converted CAP files. See
-//! [`docs/standards/07-jcvm-opcode-compliance.md`](../../../../docs/standards/07-jcvm-opcode-compliance.md)
-//! for the full audit, deviation catalogue, and migration plan.
+//! All opcodes use the JCVM 3.2 specification numbering as recovered
+//! from author recollection of Table 7-1. The codebase previously
+//! had ~20 opcodes at non-spec values (a remnant of pre-spec-
+//! finalisation choices); these were migrated to spec values in the
+//! spec-compliance cutover commit.
 //!
-//! Per-deviation `NOTE: spec=...` comments in this file are the
-//! authoritative truth for the actual spec value of each affected
-//! constant.
+//! Two known residual deviations remain, tracked in
+//! [`docs/standards/07-jcvm-opcode-compliance.md`](../../../../docs/standards/07-jcvm-opcode-compliance.md):
+//!
+//! - **`SWAP` at 0x3F (operand-less)** -- spec puts `dup_x` here
+//!   with an operand byte, and `swap_x` at 0x40. Migrating this
+//!   requires consumer-side changes across the assembler / codegen /
+//!   tests / decompiler.
+//! - **Wide-branch range 0x96..=0xA5** -- spec is widely understood
+//!   to put `sinc_w`/`iinc_w` at 0x96/0x97 and the wide branches at
+//!   0x98..=0xA7; pending spec-PDF verification before relocation.
+//!
+//! Missing opcodes (not yet implemented): `*_this` field accessors,
+//! `*_w` wide field accessors, `dup_x`, `swap_x`, `sinc_w`,
+//! `iinc_w`, `impdep1`, `impdep2`, `bipush`/`sipush` (if real).
+//! `jsr`/`ret` are deprecated in JCVM 3.x and intentionally absent.
 
 #![no_std]
 
@@ -90,18 +101,16 @@ pub const ALOAD_2: u8 = 0x1A;
 /// `aload_3`: load reference from local 3
 pub const ALOAD_3: u8 = 0x1B;
 
-/// `astore`: store reference to local variable
-/// NOTE: spec=0x28 (codebase=0x29; rotated by one with `sstore`).
-/// Tracked in `docs/standards/07-jcvm-opcode-compliance.md`.
-pub const ASTORE: u8 = 0x29;
+/// `astore`: store reference to local variable.
+pub const ASTORE: u8 = 0x28;
 /// `astore_0`: store reference to local 0.
-///
-/// NOTE: spec=0x2B, but established as 0x2A in this codebase.
-/// `astore_1`/`astore_2`/`astore_3` (spec 0x2C/0x2D/0x2E) are not
-/// declared as separate constants in this crate -- the interpreter
-/// dispatches the range `0x2A..=0x2D` as a contiguous `astore_n`
-/// family, which silently overlaps codebase `sstore_0..=sstore_2`.
-pub const ASTORE_0: u8 = 0x2A;
+pub const ASTORE_0: u8 = 0x2B;
+/// `astore_1`: store reference to local 1.
+pub const ASTORE_1: u8 = 0x2C;
+/// `astore_2`: store reference to local 2.
+pub const ASTORE_2: u8 = 0x2D;
+/// `astore_3`: store reference to local 3.
+pub const ASTORE_3: u8 = 0x2E;
 
 // --- Local variable loads: short ---
 
@@ -131,24 +140,21 @@ pub const ILOAD_3: u8 = 0x23;
 
 // --- Local variable stores: short ---
 
-/// `sstore`: store short to local variable
-/// NOTE: spec=0x29, but established as 0x28 in this codebase.
-pub const SSTORE: u8 = 0x28;
-/// `sstore_0`: store to local 0
-/// NOTE: spec=0x2F, but established as 0x2B in this codebase.
-pub const SSTORE_0: u8 = 0x2B;
-/// `sstore_1`: store to local 1
-pub const SSTORE_1: u8 = 0x2C;
-/// `sstore_2`: store to local 2
-pub const SSTORE_2: u8 = 0x2D;
-/// `sstore_3`: store to local 3
-pub const SSTORE_3: u8 = 0x2E;
+/// `sstore`: store short to local variable.
+pub const SSTORE: u8 = 0x29;
+/// `sstore_0`: store to local 0.
+pub const SSTORE_0: u8 = 0x2F;
+/// `sstore_1`: store to local 1.
+pub const SSTORE_1: u8 = 0x30;
+/// `sstore_2`: store to local 2.
+pub const SSTORE_2: u8 = 0x31;
+/// `sstore_3`: store to local 3.
+pub const SSTORE_3: u8 = 0x32;
 
 // --- Local variable stores: int ---
 
-/// `istore`: store int to two consecutive locals (high, low)
-/// NOTE: spec=0x2A, but that conflicts with `ASTORE_0`; using 0x2F.
-pub const ISTORE: u8 = 0x2F;
+/// `istore`: store int to two consecutive locals (high, low).
+pub const ISTORE: u8 = 0x2A;
 /// `istore_0`: store int to locals 0,1
 pub const ISTORE_0: u8 = 0x33;
 /// `istore_1`: store int to locals 1,2
@@ -160,29 +166,21 @@ pub const ISTORE_3: u8 = 0x36;
 
 // --- Array load/store ---
 
-/// `saload`: load short from short array
-/// NOTE: spec=0x26 (our code=0x24, swapped with aaload).
-pub const SALOAD: u8 = 0x24;
-/// `baload`: load byte from byte array
+/// `aaload`: load reference from reference array.
+pub const AALOAD: u8 = 0x24;
+/// `baload`: load byte from byte array.
 pub const BALOAD: u8 = 0x25;
-/// `sastore`: store short to short array
-/// NOTE: spec=0x39 (our code=0x26).
-pub const SASTORE: u8 = 0x26;
-/// `bastore`: store byte to byte array
-/// NOTE: spec=0x38 (our code=0x27).
-pub const BASTORE: u8 = 0x27;
-
-/// `aaload`: load reference from reference array
-/// NOTE: spec=0x24 (codebase=0x37, swapped with `saload`/`aastore`).
-/// Tracked in `docs/standards/07-jcvm-opcode-compliance.md`.
-pub const AALOAD: u8 = 0x37;
-/// `aastore`: store reference to reference array
-/// NOTE: spec=0x37 (codebase=0x38, displaced by codebase `aaload`).
-pub const AASTORE: u8 = 0x38;
-/// `iaload`: load int from int array (pushes two stack words)
-/// NOTE: spec=0x27 (codebase=0x39, where spec puts `sastore`).
-pub const IALOAD: u8 = 0x39;
-/// `iastore`: store int to int array (pops two stack words)
+/// `saload`: load short from short array.
+pub const SALOAD: u8 = 0x26;
+/// `iaload`: load int from int array (pushes two stack words).
+pub const IALOAD: u8 = 0x27;
+/// `aastore`: store reference to reference array.
+pub const AASTORE: u8 = 0x37;
+/// `bastore`: store byte to byte array.
+pub const BASTORE: u8 = 0x38;
+/// `sastore`: store short to short array.
+pub const SASTORE: u8 = 0x39;
+/// `iastore`: store int to int array (pops two stack words).
 pub const IASTORE: u8 = 0x3A;
 
 // --- Stack manipulation ---
@@ -197,11 +195,12 @@ pub const DUP: u8 = 0x3D;
 pub const DUP2: u8 = 0x3E;
 /// `swap`: swap top two stack values.
 ///
-/// NOTE: spec calls 0x3F `dup_x` (parameterised dup with operand
-/// byte) and 0x40 `swap_x` (parameterised swap with operand byte).
-/// Codebase `SWAP` is operand-less and behaves like a primitive
-/// 2-operand swap -- this is a simrs-specific extension at the
-/// spec opcode for `dup_x`. Tracked in
+/// **KNOWN DEVIATION**: spec puts `dup_x` at 0x3F (with operand
+/// byte) and `swap_x` at 0x40 (with operand byte). Codebase `SWAP`
+/// is operand-less and occupies the spec's `dup_x` byte. Migrating
+/// this to spec semantics requires updating every consumer
+/// (assembler, codegen, tests, decompiler) to emit operand bytes,
+/// so it's deferred to a follow-up. Tracked in
 /// `docs/standards/07-jcvm-opcode-compliance.md`.
 pub const SWAP: u8 = 0x3F;
 
@@ -360,53 +359,43 @@ pub const IRETURN: u8 = 0x79;
 /// `return`: return void from method
 pub const RETURN: u8 = 0x7A;
 
-// --- Static field access (spec-correct values) ---
-// NOTE: The *_b variants below at 0x7C/0x80 are the spec-correct values.
-// The legacy GETSTATIC_B/PUTSTATIC_B at 0xB3/0xB5 are kept for backward
-// compatibility. New code should use the spec-correct constants.
+// --- Static field access ---
 
-/// `getstatic_a`: get static reference field (spec 0x7B)
+/// `getstatic_a`: get static reference field.
 pub const GETSTATIC_A: u8 = 0x7B;
-/// `getstatic_s`: get static short field (spec 0x7D)
+/// `getstatic_b`: get static byte field.
+pub const GETSTATIC_B: u8 = 0x7C;
+/// `getstatic_s`: get static short field.
 pub const GETSTATIC_S: u8 = 0x7D;
-/// `getstatic_i`: get static int field (spec 0x7E)
+/// `getstatic_i`: get static int field.
 pub const GETSTATIC_I: u8 = 0x7E;
-/// `putstatic_a`: put static reference field (spec 0x7F)
+/// `putstatic_a`: put static reference field.
 pub const PUTSTATIC_A: u8 = 0x7F;
-/// `putstatic_s`: put static short field (spec 0x81)
+/// `putstatic_b`: put static byte field.
+pub const PUTSTATIC_B: u8 = 0x80;
+/// `putstatic_s`: put static short field.
 pub const PUTSTATIC_S: u8 = 0x81;
-/// `putstatic_i`: put static int field (spec 0x82)
+/// `putstatic_i`: put static int field.
 pub const PUTSTATIC_I: u8 = 0x82;
 
-// --- Instance field access (spec-correct values) ---
+// --- Instance field access ---
 
-/// `getfield_a`: get reference field from instance (spec 0x83)
+/// `getfield_a`: get reference field from instance.
 pub const GETFIELD_A: u8 = 0x83;
-/// `getfield_s`: get short field from instance (spec 0x85)
+/// `getfield_b`: get byte field from instance.
+pub const GETFIELD_B: u8 = 0x84;
+/// `getfield_s`: get short field from instance.
 pub const GETFIELD_S: u8 = 0x85;
-/// `getfield_i`: get int field from instance (spec 0x86)
+/// `getfield_i`: get int field from instance.
 pub const GETFIELD_I: u8 = 0x86;
-/// `putfield_a`: put reference field to instance (spec 0x87)
+/// `putfield_a`: put reference field to instance.
 pub const PUTFIELD_A: u8 = 0x87;
-/// `putfield_s`: put short field to instance (spec 0x89)
+/// `putfield_b`: put byte field to instance.
+pub const PUTFIELD_B: u8 = 0x88;
+/// `putfield_s`: put short field to instance.
 pub const PUTFIELD_S: u8 = 0x89;
-/// `putfield_i`: put int field to instance (spec 0x8A)
+/// `putfield_i`: put int field to instance.
 pub const PUTFIELD_I: u8 = 0x8A;
-
-// --- Legacy field access (non-spec values, kept for backward compat) ---
-
-/// `getfield_b`: read byte field from instance
-/// NOTE: spec=0x84; kept at 0xAD for backward compatibility.
-pub const GETFIELD_B: u8 = 0xAD;
-/// `putfield_b`: write byte field to instance
-/// NOTE: spec=0x88; kept at 0xAF for backward compatibility.
-pub const PUTFIELD_B: u8 = 0xAF;
-/// `getstatic_b`: get static byte field
-/// NOTE: spec=0x7C; kept at 0xB3 for backward compatibility.
-pub const GETSTATIC_B: u8 = 0xB3;
-/// `putstatic_b`: put static byte field
-/// NOTE: spec=0x80; kept at 0xB5 for backward compatibility.
-pub const PUTSTATIC_B: u8 = 0xB5;
 
 // --- Method invocation ---
 

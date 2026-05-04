@@ -471,12 +471,13 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     self.set_local(idx, val);
                 }
 
-                opcodes::ASTORE_0 => {
+                opcodes::ASTORE_0..=opcodes::ASTORE_3 => {
+                    let idx = opcode - opcodes::ASTORE_0;
                     let val = match self.pop() {
                         Ok(v) => v,
                         Err(e) => return e,
                     };
-                    self.set_local(0, val);
+                    self.set_local(idx, val);
                 }
 
                 // --- Int local stores (two consecutive locals: hi at idx, lo at idx+1) ---

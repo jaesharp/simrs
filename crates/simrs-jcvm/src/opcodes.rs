@@ -93,8 +93,8 @@ mod tests {
 
     #[test]
     fn sstore_range() {
-        assert_eq!(SSTORE_0, 0x2B);
-        assert_eq!(SSTORE_3, 0x2E);
+        assert_eq!(SSTORE_0, 0x2F);
+        assert_eq!(SSTORE_3, 0x32);
     }
 
     #[test]
@@ -164,8 +164,11 @@ mod tests {
         assert_eq!(ALOAD_1, 0x19);
         assert_eq!(ALOAD_2, 0x1A);
         assert_eq!(ALOAD_3, 0x1B);
-        assert_eq!(ASTORE, 0x29);
-        assert_eq!(ASTORE_0, 0x2A);
+        assert_eq!(ASTORE, 0x28);
+        assert_eq!(ASTORE_0, 0x2B);
+        assert_eq!(ASTORE_1, 0x2C);
+        assert_eq!(ASTORE_2, 0x2D);
+        assert_eq!(ASTORE_3, 0x2E);
     }
 
     #[test]
@@ -197,8 +200,8 @@ mod tests {
 
     #[test]
     fn static_field_opcodes() {
-        assert_eq!(GETSTATIC_B, 0xB3);
-        assert_eq!(PUTSTATIC_B, 0xB5);
+        assert_eq!(GETSTATIC_B, 0x7C);
+        assert_eq!(PUTSTATIC_B, 0x80);
     }
 
     #[test]
@@ -269,6 +272,9 @@ mod tests {
             (SSTORE, "SSTORE"),
             (ASTORE, "ASTORE"),
             (ASTORE_0, "ASTORE_0"),
+            (ASTORE_1, "ASTORE_1"),
+            (ASTORE_2, "ASTORE_2"),
+            (ASTORE_3, "ASTORE_3"),
             (ISTORE, "ISTORE"),
             (SSTORE_0, "SSTORE_0"),
             (SSTORE_1, "SSTORE_1"),

@@ -1754,7 +1754,7 @@ mod tests {
         // bspush 7, sstore_0, sconst_0, sreturn
         assert_eq!(
             bc,
-            vec![0x10, 7, 0x2B, 0x03, 0x78],
+            vec![0x10, 7, 0x2F, 0x03, 0x78],
             "expected [bspush, 7, sstore_0, sconst_0, sreturn], got {bc:?}"
         );
     }

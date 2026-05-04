@@ -14,8 +14,8 @@ const SCONST_1: u8 = 0x04;
 const SCONST_3: u8 = 0x06;
 const SCONST_5: u8 = 0x08;
 const DUP: u8 = 0x3D;
-const SSTORE_0: u8 = 0x2B;
-const SSTORE_1: u8 = 0x2C;
+const SSTORE_0: u8 = 0x2F;
+const SSTORE_1: u8 = 0x30;
 const SRETURN: u8 = 0x78;
 const RETURN_VOID: u8 = 0x7A;
 

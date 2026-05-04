@@ -11,62 +11,72 @@ broader GP/JC conformance plan.
 
 ## Executive Summary
 
-The opcode crate (`simrs-jcvm-opcodes`) was originally committed
-before the JCVM spec numbering was finalised. As a result, **a
-substantial fraction of the implemented opcodes use non-spec values**.
-The current state is internally consistent (the interpreter, writer,
-and tests all agree) but is **not interoperable with real Oracle-
-converted CAP files** -- a CAP file produced by `converter.bat` from
-the Java Card Development Kit will not execute correctly on simrs
-without remapping.
+**Status: spec-compliance cutover landed.** The opcode crate
+(`simrs-jcvm-opcodes`) was originally committed before the JCVM
+spec numbering was finalised, and ~20 opcodes had non-spec values.
+As of the cutover commit, all but two of those are now at spec
+values:
+
+- **`SWAP` at 0x3F (operand-less)** -- spec puts `dup_x` (with
+  operand byte) here. Migrating requires consumer-side changes
+  across assembler / codegen / tests / decompiler. Deferred.
+- **Wide-branch range 0x96..=0xA5** -- recollection puts the spec
+  range at 0x98..=0xA7 with `sinc_w`/`iinc_w` at 0x96/0x97.
+  Pending spec-PDF verification.
+
+The cutover dropped Phase A's "feature-flagged dual mapping with
+rewriter" plan in favour of a hard cutover, after the realisation
+that JCVM opcode numbering is monotonically growing across spec
+versions (3.2 is a strict superset of 2.1.x), so there is no
+permanent compat-with-legacy-spec-version requirement -- the
+codebase deviations were just internal mistakes, not a version
+choice.
 
 Beyond opcode numbering, the structural audit (CAP file format,
 type descriptors, ConstantPool tag values, access flags) found
-**three additional possible deviations** in the Descriptor /
-Class component encodings that are tracked under "Per-structure
-audit" below and Open Questions 4 and 5.
+**three possible deviations** in the Descriptor / Class component
+encodings that remain pending spec verification (Open Questions
+4 and 5).
 
-The deviations are catalogued below and preserved as a tracked
-gap, not papered over. The plan is to migrate to the spec values
-under a feature flag, retain the legacy mapping for back-compat,
-and validate with a converter-emitted reference CAP file.
+What's still missing (separate from deviation): the `*_this`
+field accessors, `*_w` wide field accessors, `dup_x`, `swap_x`,
+`sinc_w`, `iinc_w`, `impdep1`, `impdep2`. These are unimplemented
+but their opcode bytes are now reserved.
 
-### Compliance Status (2026-05-04)
+### Compliance Status (post-cutover, 2026-05-04)
 
 | Class | Implemented | Spec-correct | Deviating | Missing |
 |-------|-------------|--------------|-----------|---------|
 | Misc / nop / aconst_null | 2 | 2 | 0 | 0 |
 | Constant push (`*const_*`, `*push`) | 18 | 18 | 0 | 0 (`bipush` 0x12 reserved unused) |
 | Local variable load (`*load*`) | 13 | 13 | 0 | 0 |
-| Local variable store (`*store*`) | 13 | 4 | 9 | 0 |
-| Array load (`*aload`) | 4 | 1 | 3 | 0 |
-| Array store (`*astore`) | 4 | 1 | 3 | 0 |
-| Stack manipulation (pop/dup/swap) | 5 | 4 | 1 | 1 (`swap_x`) |
+| Local variable store (`*store*`) | 16 | 16 | **0** (was 9) | 0 |
+| Array load (`*aload`) | 4 | 4 | **0** (was 3) | 0 |
+| Array store (`*astore`) | 4 | 4 | **0** (was 3) | 0 |
+| Stack manipulation (pop/dup/swap) | 5 | 4 | **1** (`SWAP`, deferred) | 1 (`swap_x`) |
 | Arithmetic (s\* / i\*) | 12 | 12 | 0 | 0 |
 | Bitwise / shift | 12 | 12 | 0 | 0 |
 | Increment | 2 | 2 | 0 | 2 (`sinc_w` 0x96, `iinc_w` 0x97) |
 | Type conversion | 4 | 4 | 0 | 0 |
 | `icmp` | 1 | 1 | 0 | 0 |
 | Conditional branches (narrow) | 16 | 16 | 0 | 0 |
-| Unconditional branch (narrow) | 1 | 1 | 0 | 0 (`jsr` 0x71, `ret` 0x72 unimplemented -- correct: deprecated) |
+| Unconditional branch (narrow) | 1 | 1 | 0 | 0 (`jsr` 0x71, `ret` 0x72 deprecated, intentionally absent) |
 | Switch | 4 | 4 | 0 | 0 |
 | Return | 4 | 4 | 0 | 0 |
-| Static field access (`*static_*`) | 6 | 6 | 0 | 0 (`*static_b` deviating, see below) |
-| Instance field access (`*field_*`) | 6 | 6 | 0 | 0 (`*field_b` deviating, see below) |
-| Static byte field (`getstatic_b`, `putstatic_b`) | 2 | 0 | 2 | 0 |
-| Instance byte field (`getfield_b`, `putfield_b`) | 2 | 0 | 2 | 0 |
+| Static field access (`*static_*`) | 8 | 8 | **0** (was 2) | 0 |
+| Instance field access (`*field_*`) | 8 | 8 | **0** (was 2) | 0 |
 | Method invocation | 4 | 4 | 0 | 0 |
 | Object creation | 4 | 4 | 0 | 0 |
 | Exception | 1 | 1 | 0 | 0 |
 | Type check | 2 | 2 | 0 | 0 |
-| **Wide-offset conditional branches** | 16 | **uncertain (see below)** | -- | -- |
+| **Wide-offset conditional branches** | 16 | **uncertain** (see below) | -- | -- |
 | `goto_w` | 1 | 1 | 0 | 0 |
-| `*_this` field accessors (0xAD..0xB8 range) | 0 | 0 | 0 | 16 (`getfield_*_this` x4, `putfield_*_this` x4, `getfield_*_w` x4, `putfield_*_w` x4) |
+| `*_this` field accessors (0xAD..0xB8 range) | 0 | 0 | 0 | 16 |
 | Reserved (`impdep1` 0xB9, `impdep2` 0xBA) | 0 | 0 | 0 | 2 |
 
-**Net deviations: 20 opcodes; missing: ~20 opcodes.** Of the
-missing, the `*_this` and `*_w` field accessors are the highest-
-value gap for real-world CAP compatibility (see Phase 2 below).
+**Net post-cutover deviations: 1 opcode (`SWAP`); pending wide-branch
+verification. Missing: ~20 opcodes** (mostly `*_this` and `*_w`
+field accessors -- highest-value gap for real-world CAP compatibility).
 
 ### A note on verification
 

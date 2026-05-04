@@ -48,7 +48,7 @@ fn assemble_firewall_test() {
         }
     };
 
-    assert_eq!(methods[0], &[0x1C, 0xAD, 0x00, 0x78]);
+    assert_eq!(methods[0], &[0x1C, 0x84, 0x00, 0x78]);
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn assemble_type_confusion_test() {
         }
     };
 
-    assert_eq!(methods[0], &[0x1C, 0x03, 0x24, 0x78]);
+    assert_eq!(methods[0], &[0x1C, 0x03, 0x26, 0x78]);
 }
 
 #[test]

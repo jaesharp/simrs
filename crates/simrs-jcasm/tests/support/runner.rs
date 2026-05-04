@@ -152,7 +152,7 @@ impl TestApplet {
                     preamble.push(*ref_val as u8);
                 }
                 // sstore local
-                preamble.push(0x28); // SSTORE
+                preamble.push(0x29); // SSTORE
                 preamble.push(*local);
             }
 

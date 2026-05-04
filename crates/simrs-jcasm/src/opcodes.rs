@@ -163,12 +163,27 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     },
     OpcodeEntry {
         mnemonic: "astore",
-        byte: 0x29,
+        byte: 0x28,
         arg: ArgKind::Local,
     },
     OpcodeEntry {
         mnemonic: "astore_0",
-        byte: 0x2A,
+        byte: 0x2B,
+        arg: ArgKind::None,
+    },
+    OpcodeEntry {
+        mnemonic: "astore_1",
+        byte: 0x2C,
+        arg: ArgKind::None,
+    },
+    OpcodeEntry {
+        mnemonic: "astore_2",
+        byte: 0x2D,
+        arg: ArgKind::None,
+    },
+    OpcodeEntry {
+        mnemonic: "astore_3",
+        byte: 0x2E,
         arg: ArgKind::None,
     },
     // Short locals
@@ -199,27 +214,27 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     },
     OpcodeEntry {
         mnemonic: "sstore",
-        byte: 0x28,
+        byte: 0x29,
         arg: ArgKind::Local,
     },
     OpcodeEntry {
         mnemonic: "sstore_0",
-        byte: 0x2B,
+        byte: 0x2F,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sstore_1",
-        byte: 0x2C,
+        byte: 0x30,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sstore_2",
-        byte: 0x2D,
+        byte: 0x31,
         arg: ArgKind::None,
     },
     OpcodeEntry {
         mnemonic: "sstore_3",
-        byte: 0x2E,
+        byte: 0x32,
         arg: ArgKind::None,
     },
     // Int locals
@@ -250,7 +265,7 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     },
     OpcodeEntry {
         mnemonic: "istore",
-        byte: 0x2F,
+        byte: 0x2A,
         arg: ArgKind::Local,
     },
     OpcodeEntry {
@@ -463,7 +478,7 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     },
     // Arrays
     OpcodeEntry {
-        mnemonic: "saload",
+        mnemonic: "aaload",
         byte: 0x24,
         arg: ArgKind::None,
     },
@@ -473,27 +488,27 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
         arg: ArgKind::None,
     },
     OpcodeEntry {
-        mnemonic: "sastore",
+        mnemonic: "saload",
         byte: 0x26,
         arg: ArgKind::None,
     },
     OpcodeEntry {
-        mnemonic: "bastore",
+        mnemonic: "iaload",
         byte: 0x27,
         arg: ArgKind::None,
     },
     OpcodeEntry {
-        mnemonic: "aaload",
+        mnemonic: "aastore",
         byte: 0x37,
         arg: ArgKind::None,
     },
     OpcodeEntry {
-        mnemonic: "aastore",
+        mnemonic: "bastore",
         byte: 0x38,
         arg: ArgKind::None,
     },
     OpcodeEntry {
-        mnemonic: "iaload",
+        mnemonic: "sastore",
         byte: 0x39,
         arg: ArgKind::None,
     },
@@ -515,7 +530,7 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     },
     OpcodeEntry {
         mnemonic: "getfield_b",
-        byte: 0xAD,
+        byte: 0x84,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
@@ -535,7 +550,7 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     },
     OpcodeEntry {
         mnemonic: "putfield_b",
-        byte: 0xAF,
+        byte: 0x88,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
@@ -556,7 +571,7 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     },
     OpcodeEntry {
         mnemonic: "getstatic_b",
-        byte: 0xB3,
+        byte: 0x7C,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
@@ -576,7 +591,7 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     },
     OpcodeEntry {
         mnemonic: "putstatic_b",
-        byte: 0xB5,
+        byte: 0x80,
         arg: ArgKind::FieldOffset,
     },
     OpcodeEntry {
