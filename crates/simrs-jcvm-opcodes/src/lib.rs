@@ -716,9 +716,10 @@ mod uniqueness_tests {
     use super::*;
 
     /// The compile-time assertion `assert_opcodes_unique(ALL_OPCODES)`
-    /// runs at build time. This runtime test re-verifies it for
-    /// human-readable diagnostics if a future regression slips past
-    /// the const check (e.g. via cargo's incremental cache).
+    /// runs at build time. This runtime test re-verifies it with a
+    /// human-readable diagnostic that names *which* entries collided
+    /// (the const-fn `assert!` only says "duplicate opcode byte"),
+    /// useful when extending `ALL_OPCODES`.
     #[test]
     fn all_opcodes_are_pairwise_distinct() {
         let mut seen: [Option<usize>; 256] = [None; 256];
@@ -731,22 +732,6 @@ mod uniqueness_tests {
                 );
             }
             seen[idx] = Some(i);
-        }
-    }
-
-    /// Verifies the const-check assertion is structurally sound by
-    /// constructing a deliberately-collisioned slice and confirming
-    /// the runtime equivalent rejects it. Cannot directly invoke the
-    /// const fn at runtime (it would panic the test), but this
-    /// proves the verification logic catches what we expect.
-    #[test]
-    #[should_panic(expected = "duplicate")]
-    fn check_rejects_duplicate() {
-        let mut seen: [bool; 256] = [false; 256];
-        let bad: &[u8] = &[0x00, 0x01, 0x00];
-        for &b in bad {
-            assert!(!seen[b as usize], "duplicate");
-            seen[b as usize] = true;
         }
     }
 }
