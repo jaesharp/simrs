@@ -2912,4 +2912,458 @@ mod tests {
         assert!(pkg.import(max_idx).is_none());
         assert!(pkg.import(u8::MAX).is_none());
     }
+
+    // =======================================================================
+    // Property-based tests for every component-tagged parser
+    // =======================================================================
+    //
+    // Each component this session added (ConstantPool, Applet, Import,
+    // Export, RefLocation, StaticField, Class) gets the same trio of
+    // proptest! coverage:
+    //
+    //   1. **Snapshot round-trip** -- random Package state with
+    //      arbitrary field values for that component, save_state ->
+    //      restore_state -> assert byte-identical fields. Catches
+    //      save/restore drift, byte-order bugs, position bugs.
+    //
+    //   2. **Variable-walk** (where applicable) -- for components
+    //      whose body has counted variable-size sub-records (CP entries,
+    //      applets, imports, exports, ref-loc deltas, classes), run
+    //      counts across their full type range and verify the parser
+    //      recovers the same counts and entries.
+    //
+    //   3. **Truncation never panics** -- build a valid body, truncate
+    //      at every prefix length, assert parse() returns either Ok or
+    //      Err but never panics. Catches missing bounds checks before
+    //      array indexing.
+    //
+    // Pattern modeled on simrs-bertlv (round-trip property test) and
+    // simrs-rijndael (proptest over input space). simrs-jcvm/src/lib.rs
+    // already has a proptest workspace dependency wired up.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_lossless,
+        clippy::unnecessary_cast,
+        clippy::needless_range_loop
+    )]
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        // ---------------------------------------------------------------
+        // ConstantPool
+        // ---------------------------------------------------------------
+
+        proptest! {
+            /// Parser accepts arbitrary valid CP bodies up to MAX_CP_ENTRIES.
+            /// Every entry returned by `cp_entry(i)` decodes to the exact
+            /// `(tag, info)` pair we wrote.
+            #[test]
+            fn cp_parser_round_trips_arbitrary_entries(
+                count in 0u16..=64,
+                seed in 0u64..=u64::MAX,
+            ) {
+                let aid = [0xA0u8, 0, 0, 0, 0x62];
+                // Build a deterministic per-seed entry stream.
+                let mut entries: Vec<(u8, [u8; 3])> = Vec::with_capacity(count as usize);
+                for i in 0..count {
+                    let tag = (((seed >> (i % 64)) & 0x07) as u8 % 6 + 1) as u8; // tags 1..=6
+                    let b0 = ((seed >> (i % 64)) & 0xFF) as u8;
+                    let b1 = ((seed >> ((i + 8) % 64)) & 0xFF) as u8;
+                    let b2 = ((seed >> ((i + 16) % 64)) & 0xFF) as u8;
+                    entries.push((tag, [b0, b1, b2]));
+                }
+                let cap = build_cap_with_cp(&aid, &entries);
+                let pkg = parse(&cap).expect("parse");
+                prop_assert_eq!(pkg.cp_count, count);
+                for (i, (tag, info)) in entries.iter().enumerate() {
+                    let entry = pkg.cp_entry(i as u16).expect("entry present");
+                    prop_assert_eq!(entry.tag, *tag);
+                    prop_assert_eq!(&entry.info, info);
+                }
+            }
+
+            /// Truncation never panics.
+            #[test]
+            fn cp_parser_truncation_never_panics(
+                entry_count in 0u16..=8,
+                truncate_at in 0usize..=512,
+            ) {
+                let aid = [0xA0u8, 0, 0, 0, 0x62];
+                let entries: Vec<(u8, [u8; 3])> = (0..entry_count)
+                    .map(|i| (((i % 6) + 1) as u8, [i as u8, 0, 0]))
+                    .collect();
+                let cap = build_cap_with_cp(&aid, &entries);
+                let prefix = truncate_at.min(cap.len());
+                let _ = parse(&cap[..prefix]);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Applet
+        // ---------------------------------------------------------------
+
+        proptest! {
+            /// Parser surfaces every applet with byte-identical AID + offset.
+            #[test]
+            fn applet_parser_round_trips_arbitrary_entries(
+                applet_count in 0u8..=4u8,
+                aid_seed in 0u32..=u32::MAX,
+                offset_seed in 0u16..=u16::MAX,
+            ) {
+                let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+                // Build distinct AIDs of varying lengths in [5, 16].
+                let mut aids: Vec<Vec<u8>> = Vec::new();
+                for i in 0..applet_count {
+                    let len = 5 + ((aid_seed >> (i * 3)) & 0x07) as u8 + i; // 5..=16-ish
+                    let len = len.min(16);
+                    let mut aid = Vec::with_capacity(len as usize);
+                    for j in 0..len {
+                        aid.push(((aid_seed.wrapping_mul(31)) >> (j as u32 % 24)) as u8 ^ i ^ j);
+                    }
+                    aids.push(aid);
+                }
+                let entries: Vec<(&[u8], u16)> = aids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, aid)| (aid.as_slice(), offset_seed.wrapping_add(i as u16)))
+                    .collect();
+                let cap = build_cap_with_applets(&pkg_aid, &entries);
+                let pkg = parse(&cap).expect("parse");
+                prop_assert_eq!(pkg.applet_count, applet_count);
+                for (i, (aid, offset)) in entries.iter().enumerate() {
+                    let info = pkg.applet(i as u8).expect("applet present");
+                    prop_assert_eq!(info.aid_slice(), *aid);
+                    prop_assert_eq!(info.install_method_offset, *offset);
+                }
+            }
+
+            #[test]
+            fn applet_parser_truncation_never_panics(
+                applet_count in 0u8..=4u8,
+                truncate_at in 0usize..=256,
+            ) {
+                let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+                let dummy: &[u8] = &[0xA0, 0, 0, 0, 0x01, 0x02];
+                let entries: Vec<(&[u8], u16)> = (0..applet_count)
+                    .map(|i| (dummy, u16::from(i)))
+                    .collect();
+                let cap = build_cap_with_applets(&pkg_aid, &entries);
+                let prefix = truncate_at.min(cap.len());
+                let _ = parse(&cap[..prefix]);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Import
+        // ---------------------------------------------------------------
+
+        proptest! {
+            #[test]
+            fn import_parser_round_trips_arbitrary_entries(
+                import_count in 0u8..=8u8,
+                version_seed in 0u64..=u64::MAX,
+            ) {
+                let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+                let aids: Vec<Vec<u8>> = (0..import_count)
+                    .map(|i| {
+                        let len = 5 + (i % 12);
+                        (0..len).map(|j| (i.wrapping_mul(j) ^ 0x5A) as u8).collect()
+                    })
+                    .collect();
+                let entries: Vec<(u8, u8, &[u8])> = aids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, aid)| {
+                        let shift_minor = ((i * 4) % 56) as u32;
+                        let shift_major = (((i * 4) + 8) % 56) as u32;
+                        let minor = ((version_seed >> shift_minor) & 0xFF) as u8;
+                        let major = ((version_seed >> shift_major) & 0xFF) as u8;
+                        (minor, major, aid.as_slice())
+                    })
+                    .collect();
+                let cap = build_cap_with_imports(&pkg_aid, &entries);
+                let pkg = parse(&cap).expect("parse");
+                prop_assert_eq!(pkg.import_count, import_count);
+                for (i, (minor, major, aid)) in entries.iter().enumerate() {
+                    let info = pkg.import(i as u8).expect("import present");
+                    prop_assert_eq!(info.minor_version, *minor);
+                    prop_assert_eq!(info.major_version, *major);
+                    prop_assert_eq!(info.aid_slice(), *aid);
+                }
+            }
+
+            #[test]
+            fn import_parser_truncation_never_panics(
+                import_count in 0u8..=8u8,
+                truncate_at in 0usize..=512,
+            ) {
+                let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+                let dummy: &[u8] = &[0xA0, 0, 0, 0, 0x01];
+                let entries: Vec<(u8, u8, &[u8])> = (0..import_count)
+                    .map(|_| (0, 0, dummy))
+                    .collect();
+                let cap = build_cap_with_imports(&pkg_aid, &entries);
+                let prefix = truncate_at.min(cap.len());
+                let _ = parse(&cap[..prefix]);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Export
+        // ---------------------------------------------------------------
+
+        proptest! {
+            #[test]
+            fn export_parser_round_trips_arbitrary_classes(
+                class_count in 0u8..=4u8,
+                offset_seed in 0u16..=u16::MAX,
+                fields_seed in 0u8..=16u8,
+                methods_seed in 0u8..=16u8,
+            ) {
+                let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+                let mut classes: Vec<(u16, Vec<u16>, Vec<u16>)> = Vec::new();
+                for i in 0..class_count {
+                    let class_offset = offset_seed.wrapping_add(u16::from(i));
+                    let f_count = (fields_seed.wrapping_add(i)) % 17;
+                    let m_count = (methods_seed.wrapping_add(i)) % 17;
+                    let fields: Vec<u16> = (0..f_count).map(|j| u16::from(j) | 0x10).collect();
+                    let methods: Vec<u16> = (0..m_count).map(|j| u16::from(j) | 0x20).collect();
+                    classes.push((class_offset, fields, methods));
+                }
+                let class_refs: Vec<(u16, &[u16], &[u16])> = classes
+                    .iter()
+                    .map(|(o, f, m)| (*o, f.as_slice(), m.as_slice()))
+                    .collect();
+                let cap = build_cap_with_exports(&pkg_aid, &class_refs);
+                let pkg = parse(&cap).expect("parse");
+                prop_assert_eq!(pkg.export_count, class_count);
+                for (i, (offset, fields, methods)) in classes.iter().enumerate() {
+                    let info = pkg.export(i as u8).expect("export present");
+                    prop_assert_eq!(info.class_offset, *offset);
+                    prop_assert_eq!(info.static_field_count as usize, fields.len());
+                    prop_assert_eq!(info.static_method_count as usize, methods.len());
+                    for (j, f) in fields.iter().enumerate() {
+                        prop_assert_eq!(info.static_field_offset(j as u8), Some(*f));
+                    }
+                    for (j, m) in methods.iter().enumerate() {
+                        prop_assert_eq!(info.static_method_offset(j as u8), Some(*m));
+                    }
+                }
+            }
+
+            #[test]
+            fn export_parser_truncation_never_panics(
+                class_count in 0u8..=4u8,
+                fields_count in 0u8..=8u8,
+                methods_count in 0u8..=8u8,
+                truncate_at in 0usize..=512,
+            ) {
+                let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+                let fields: Vec<u16> = (0..fields_count).map(u16::from).collect();
+                let methods: Vec<u16> = (0..methods_count).map(u16::from).collect();
+                let class_refs: Vec<(u16, &[u16], &[u16])> = (0..class_count)
+                    .map(|_| (0u16, fields.as_slice(), methods.as_slice()))
+                    .collect();
+                let cap = build_cap_with_exports(&pkg_aid, &class_refs);
+                let prefix = truncate_at.min(cap.len());
+                let _ = parse(&cap[..prefix]);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // RefLocation
+        // ---------------------------------------------------------------
+
+        proptest! {
+            #[test]
+            fn ref_loc_parser_round_trips_arbitrary_deltas(
+                byte_count in 0usize..=128,
+                byte2_count in 0usize..=64,
+                seed in 0u64..=u64::MAX,
+            ) {
+                let aid = [0xA0u8, 0, 0, 0, 0x62];
+                let byte_deltas: Vec<u8> = (0..byte_count)
+                    .map(|i| ((seed >> (i % 64)) & 0xFF) as u8)
+                    .collect();
+                let byte2_deltas: Vec<u8> = (0..byte2_count)
+                    .map(|i| ((seed >> ((i + 13) % 64)) & 0xFF) as u8)
+                    .collect();
+                let cap = build_cap_with_ref_loc(&aid, &byte_deltas, &byte2_deltas);
+                let pkg = parse(&cap).expect("parse");
+                prop_assert_eq!(pkg.ref_loc_byte_count as usize, byte_count);
+                prop_assert_eq!(pkg.ref_loc_byte2_count as usize, byte2_count);
+                prop_assert_eq!(pkg.ref_loc_byte_deltas(), byte_deltas.as_slice());
+                prop_assert_eq!(pkg.ref_loc_byte2_deltas(), byte2_deltas.as_slice());
+            }
+
+            #[test]
+            fn ref_loc_parser_truncation_never_panics(
+                byte_count in 0usize..=64,
+                byte2_count in 0usize..=32,
+                truncate_at in 0usize..=512,
+            ) {
+                let aid = [0xA0u8, 0, 0, 0, 0x62];
+                let byte_deltas = vec![0xAAu8; byte_count];
+                let byte2_deltas = vec![0xBBu8; byte2_count];
+                let cap = build_cap_with_ref_loc(&aid, &byte_deltas, &byte2_deltas);
+                let prefix = truncate_at.min(cap.len());
+                let _ = parse(&cap[..prefix]);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // StaticField
+        // ---------------------------------------------------------------
+
+        proptest! {
+            #[test]
+            fn static_field_parser_round_trips_image_and_refs(
+                image_size in 0u16..=u16::MAX,
+                reference_count in 0u16..=u16::MAX,
+            ) {
+                let aid = [0xA0u8, 0, 0, 0, 0x62];
+                let cap = build_cap_with_static_field(&aid, image_size, reference_count);
+                let pkg = parse(&cap).expect("parse");
+                prop_assert_eq!(pkg.static_field_image_size, image_size);
+                prop_assert_eq!(pkg.static_reference_count, reference_count);
+            }
+
+            #[test]
+            fn static_field_parser_truncation_never_panics(
+                truncate_at in 0usize..=128,
+            ) {
+                let aid = [0xA0u8, 0, 0, 0, 0x62];
+                let cap = build_cap_with_static_field(&aid, 0xABCD, 0x1234);
+                let prefix = truncate_at.min(cap.len());
+                let _ = parse(&cap[..prefix]);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Class
+        // ---------------------------------------------------------------
+
+        /// Build a `class_info` body with caller-controlled method/interface
+        /// counts for proptest variable-walk validation.
+        #[allow(clippy::cast_possible_truncation)]
+        fn build_class_info_with_counts(
+            public_count: u8,
+            package_count: u8,
+            interface_count: u8,
+        ) -> Vec<u8> {
+            let interface_bits = interface_count & 0x0F;
+            let mut body = Vec::new();
+            body.push(interface_bits);
+            body.extend_from_slice(&0xFFFFu16.to_be_bytes());
+            body.push(0); // declared_instance_size
+            body.push(0); // first_reference_token
+            body.push(0); // reference_count
+            body.push(0); // public_method_table_base
+            body.push(public_count);
+            body.push(0); // package_method_table_base
+            body.push(package_count);
+            for i in 0..public_count {
+                body.extend_from_slice(&u16::from(i).to_be_bytes());
+            }
+            for i in 0..package_count {
+                body.extend_from_slice(&u16::from(i).to_be_bytes());
+            }
+            for _ in 0..interface_bits {
+                body.extend_from_slice(&0u16.to_be_bytes());
+                body.push(0); // count = 0 indices
+            }
+            body
+        }
+
+        proptest! {
+            /// Parser walks every variable-size sub-section correctly.
+            #[test]
+            fn class_parser_handles_arbitrary_variable_table_sizes(
+                public_count in 0u8..=255,
+                package_count in 0u8..=255,
+                interface_count in 0u8..=15,
+            ) {
+                let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+                let body = build_class_info_with_counts(
+                    public_count, package_count, interface_count,
+                );
+                let cap = build_cap_with_class(&pkg_aid, &body);
+                let pkg = parse(&cap).expect("parse");
+                prop_assert_eq!(pkg.class_count, 1);
+                let info = pkg.class(0).expect("class 0");
+                prop_assert_eq!(info.public_method_table_count, public_count);
+                prop_assert_eq!(info.package_method_table_count, package_count);
+                prop_assert_eq!(info.interface_count, interface_count);
+                prop_assert_eq!(info.component_offset, 0);
+            }
+
+            /// Snapshot round-trip property over arbitrary `ClassInfo`.
+            #[test]
+            fn class_snapshot_save_restore_round_trip(
+                component_offset in 0u16..=u16::MAX,
+                super_internal in 0u16..=0x7FFF,
+                super_external_pkg in 0u8..=0x7F,
+                super_external_class in 0u8..=0xFF,
+                use_external in any::<bool>(),
+                instance_size in 0u8..=255,
+                first_ref in 0u8..=255,
+                ref_count in 0u8..=255,
+                pub_base in 0u8..=255,
+                pub_count in 0u8..=255,
+                pkg_base in 0u8..=255,
+                pkg_count in 0u8..=255,
+                iface_count in 0u8..=15,
+            ) {
+                let super_class_ref = if use_external {
+                    super::super::super::ClassRef::External {
+                        package_token: super_external_pkg,
+                        class_token: super_external_class,
+                    }
+                } else {
+                    super::super::super::ClassRef::Internal(super_internal)
+                };
+                let info = super::super::super::ClassInfo {
+                    component_offset,
+                    super_class_ref,
+                    declared_instance_size: instance_size,
+                    first_reference_token: first_ref,
+                    reference_count: ref_count,
+                    public_method_table_base: pub_base,
+                    public_method_table_count: pub_count,
+                    package_method_table_base: pkg_base,
+                    package_method_table_count: pkg_count,
+                    interface_count: iface_count,
+                };
+
+                let mut pkg = Package::empty();
+                pkg.aid_len = 1;
+                pkg.aid[0] = 0xAA;
+                pkg.classes[0] = Some(info);
+                pkg.class_count = 1;
+
+                let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+                let n = pkg.save_state(&mut snap);
+                prop_assert!(n > 0);
+
+                let mut pkg2 = Package::empty();
+                prop_assert!(pkg2.restore_state(&snap[..n]));
+                prop_assert_eq!(pkg2.class_count, 1);
+                prop_assert_eq!(pkg2.classes[0], Some(info));
+            }
+
+            #[test]
+            fn class_parser_truncation_never_panics(
+                public_count in 0u8..=8,
+                interface_count in 0u8..=4,
+                truncate_at in 0usize..=256,
+            ) {
+                let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+                let body = build_class_info_with_counts(public_count, 0, interface_count);
+                let cap = build_cap_with_class(&pkg_aid, &body);
+                let prefix = truncate_at.min(cap.len());
+                let _ = parse(&cap[..prefix]);
+            }
+        }
+    }
 }
