@@ -23,22 +23,32 @@ use simrs_jcvm::JcVM;
 use simrs_jcvm::cap::parse_cap;
 use simrs_jcvm::opcodes::ExecResult;
 
-/// Run a `CompiledClass` through the **component-tagged** CAP path
-/// (`CapWriter::write`, not the legacy `write_blob`), then parse +
-/// execute method 0.
-fn run_via_full_cap(compiled: &CompiledClass) -> ExecResult {
-    let cap_bytes = CapWriter::new(compiled).write();
-    // Sanity: this is the component-tagged shape; first byte is the
-    // Header tag (1). If it were a legacy blob, the first byte would
-    // be the magic 0xDE.
+/// Parse a component-tagged CAP blob and execute method 0 in a
+/// fresh `JcVM`. Asserts the blob is the component-tagged shape
+/// (first byte = `TAG_HEADER` (1)); if `CapWriter`'s output ever
+/// drifted to legacy-blob form, the assertion fires before parse
+/// silently routes to the wrong dispatcher.
+fn execute_component_tagged_cap(cap_bytes: &[u8]) -> ExecResult {
     assert_eq!(
         cap_bytes[0], 1,
-        "CapWriter::write must produce a component-tagged CAP starting with TAG_HEADER (1)"
+        "expected component-tagged CAP starting with TAG_HEADER (1); \
+         got 0x{:02X} -- silent fall-through to legacy blob format?",
+        cap_bytes[0]
     );
-    let pkg = parse_cap(&cap_bytes).expect("component-tagged CAP parses");
+    let pkg = parse_cap(cap_bytes).expect("component-tagged CAP parses");
     let mut vm = JcVM::<4096, 4>::new();
     let idx = vm.load_package(pkg).expect("package loads");
     vm.execute(idx, 0)
+}
+
+/// Convenience wrapper: build via the `CapWriter` builder API and
+/// execute. Most tests use this; the `write_cap_full_*` tests use
+/// `execute_component_tagged_cap` directly with the helper-API
+/// output to verify the two writer entry points produce equivalent
+/// CAPs that execute identically.
+fn run_via_full_cap(compiled: &CompiledClass) -> ExecResult {
+    let cap_bytes = CapWriter::new(compiled).write();
+    execute_component_tagged_cap(&cap_bytes)
 }
 
 // =========================================================================
@@ -181,10 +191,9 @@ fn write_cap_full_executes_correctly() {
             vec![0x11, 0xBE, 0xEF, 0x78],
         ],
     };
-    let cap = write_cap_full(&compiled);
-    let pkg = parse_cap(&cap).expect("parse");
-    let mut vm = JcVM::<4096, 4>::new();
-    let idx = vm.load_package(pkg).expect("load");
     let expected = 0xBEEFu16.cast_signed();
-    assert_eq!(vm.execute(idx, 0), ExecResult::ReturnShort(expected));
+    assert_eq!(
+        execute_component_tagged_cap(&write_cap_full(&compiled)),
+        ExecResult::ReturnShort(expected),
+    );
 }
