@@ -1789,13 +1789,12 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
 
                 // --- Object creation ---
                 opcodes::NEW => {
+                    // Operand: 1-byte instance size (per JCVM 3.2 § 7
+                    // semantics adapted -- spec uses CP token, simrs
+                    // takes raw field byte count).
                     let Some(field_bytes) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    // Consume second byte (reserved/class index).
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     match self
                         .heap
                         .alloc_instance(self.current_context, u16::from(field_bytes))
@@ -4253,7 +4252,7 @@ mod tests {
     fn new_object() {
         // new (4 field bytes, class 0), verify ref is non-null.
         let bc = [
-            NEW, 4, 0,        // 0-2: allocate instance
+            NEW, 4,        // 0-2: allocate instance
             SSTORE_0, // 3:   store objref
             SLOAD_0,  // 4:   push objref
             SCONST_0, // 5:   push 0
@@ -5382,7 +5381,7 @@ mod tests {
     fn putfield_getfield_short_roundtrip() {
         // Allocate object with 4 field bytes, store short 0x1234, read it back.
         let bc = [
-            NEW, 4, 0,   // 0-2: allocate instance
+            NEW, 4,   // 0-2: allocate instance
             DUP, // 3: dup objref
             SSPUSH, 0x12, 0x34, // 4-6: push 0x1234
             PUTFIELD_S, 0, // 7-8: store short at offset 0
@@ -5397,7 +5396,7 @@ mod tests {
     fn putfield_getfield_ref_roundtrip() {
         // Store a reference value in an object field.
         let bc = [
-            NEW, 4, 0,   // 0-2: allocate
+            NEW, 4,   // 0-2: allocate
             DUP, // 3: dup objref
             BSPUSH, 42, // 4-5: push 42
             PUTFIELD_A, 0, // 6-7: store ref at offset 0
@@ -5412,7 +5411,7 @@ mod tests {
     fn putfield_getfield_int_roundtrip() {
         // Store int in an object field (needs at least 4 bytes).
         let bc = [
-            NEW, 8, 0,   // 0-2: allocate instance with 8 field bytes
+            NEW, 8,   // 0-2: allocate instance with 8 field bytes
             DUP, // 3: dup objref
             IIPUSH, 0x00, 0x01, 0x23, 0x45, // 4-8: push int
             PUTFIELD_I, 0, // 9-10: store int at offset 0
@@ -6411,7 +6410,7 @@ mod tests {
     #[test]
     fn putfield_getfield_short_offset2() {
         let bc = [
-            NEW, 8, 0, // alloc with 8 field bytes
+            NEW, 8, // alloc with 8 field bytes
             DUP, SSPUSH, 0xAB, 0xCD, // push 0xABCD (as signed i16 = -21555)
             PUTFIELD_S, 2, // store short at field offset 2
             GETFIELD_S, 2, // load short at field offset 2
@@ -6426,7 +6425,7 @@ mod tests {
     #[test]
     fn putfield_getfield_int_negative() {
         let bc = [
-            NEW, 8, 0, // alloc with 8 field bytes
+            NEW, 8, // alloc with 8 field bytes
             DUP, IIPUSH, 0xFF, 0xFF, 0xFF, 0xFE, // push -2
             PUTFIELD_I, 0, GETFIELD_I, 0, IRETURN,
         ];

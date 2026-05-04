@@ -534,29 +534,31 @@ fn decode_opcode(opcode: u8) -> Result<(&'static str, usize), String> {
         opcodes::INVOKEINTERFACE => Ok(("invokeinterface", 2)),
 
         // Object (3-byte: opcode + type_token + reserved)
-        opcodes::NEW => Ok(("new", 2)),
+        opcodes::NEW => Ok(("new", 1)),
 
         // Array creation (2-byte: opcode + elem_type)
         opcodes::NEWARRAY => Ok(("newarray", 1)),
         opcodes::ANEWARRAY => Ok(("anewarray", 1)),
 
-        // Instance field access (3-byte: opcode + field_offset + class_index)
-        opcodes::GETFIELD_A => Ok(("getfield_a", 2)),
-        opcodes::GETFIELD_B => Ok(("getfield_b", 2)),
-        opcodes::GETFIELD_S => Ok(("getfield_s", 2)),
-        opcodes::GETFIELD_I => Ok(("getfield_i", 2)),
-        opcodes::PUTFIELD_A => Ok(("putfield_a", 2)),
-        opcodes::PUTFIELD_B => Ok(("putfield_b", 2)),
-        opcodes::PUTFIELD_S => Ok(("putfield_s", 2)),
-        opcodes::PUTFIELD_I => Ok(("putfield_i", 2)),
+        // Instance field access (2-byte total: opcode + 1-byte field offset)
+        opcodes::GETFIELD_A => Ok(("getfield_a", 1)),
+        opcodes::GETFIELD_B => Ok(("getfield_b", 1)),
+        opcodes::GETFIELD_S => Ok(("getfield_s", 1)),
+        opcodes::GETFIELD_I => Ok(("getfield_i", 1)),
+        opcodes::PUTFIELD_A => Ok(("putfield_a", 1)),
+        opcodes::PUTFIELD_B => Ok(("putfield_b", 1)),
+        opcodes::PUTFIELD_S => Ok(("putfield_s", 1)),
+        opcodes::PUTFIELD_I => Ok(("putfield_i", 1)),
 
-        // Static field access (3-byte: opcode + field_offset_hi + field_offset_lo)
+        // Static byte field access (2-byte total: opcode + 1-byte field offset)
+        opcodes::GETSTATIC_B => Ok(("getstatic_b", 1)),
+        opcodes::PUTSTATIC_B => Ok(("putstatic_b", 1)),
+
+        // Static word/ref/int field access (3-byte total: opcode + 2-byte u16 BE index)
         opcodes::GETSTATIC_A => Ok(("getstatic_a", 2)),
-        opcodes::GETSTATIC_B => Ok(("getstatic_b", 2)),
         opcodes::GETSTATIC_S => Ok(("getstatic_s", 2)),
         opcodes::GETSTATIC_I => Ok(("getstatic_i", 2)),
         opcodes::PUTSTATIC_A => Ok(("putstatic_a", 2)),
-        opcodes::PUTSTATIC_B => Ok(("putstatic_b", 2)),
         opcodes::PUTSTATIC_S => Ok(("putstatic_s", 2)),
         opcodes::PUTSTATIC_I => Ok(("putstatic_i", 2)),
 
