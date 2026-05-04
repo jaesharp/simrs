@@ -57,6 +57,17 @@ const ACC_PUBLIC: u8 = 0x01;
 const ACC_STATIC: u8 = 0x08;
 
 /// Type descriptor nibble for `void` return.
+///
+/// **UNVERIFIED**: per JCVM § 6.13 the type-descriptor void nibble
+/// is widely understood to be `0x1`, not `0x3` -- and `0x3` is the
+/// nibble for `byte` (matching the `0x03 = byte` documentation on
+/// `FieldInfo::type_token` in this same file). Additionally the
+/// `type_descriptor` blob is spec-defined as packed nibbles with a
+/// `nibble_count` prefix, but `build_descriptor_body` currently
+/// emits one byte per method instead. Tracked in
+/// [`docs/standards/07-jcvm-opcode-compliance.md`](../../../../docs/standards/07-jcvm-opcode-compliance.md)
+/// open question #4. Not currently a runtime issue because the
+/// simrs parser walks-and-skips Descriptor.
 const TYPE_DESC_VOID: u8 = 0x03;
 
 /// Information about a field in the class.

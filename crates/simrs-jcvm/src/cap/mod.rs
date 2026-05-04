@@ -121,7 +121,11 @@ pub const MAX_CLASSES_PER_PACKAGE: usize = 8;
 ///   (rejected by the MVP parser; interfaces sit in a separate
 ///   `interface_info` record type that is not yet parsed).
 /// - `ACC_SHAREABLE` (0x40): set for `Shareable` interface implementers.
-/// - `ACC_REMOTE` (0x20): set for `Remote` interfaces.
+///   **UNVERIFIED** -- see audit open question #5.
+/// - `ACC_REMOTE` (0x20): set for `Remote` interfaces. **UNVERIFIED**
+///   -- per audit author's recollection these flags live on
+///   `interface_info`, not `class_info`. Tracked in
+///   [`docs/standards/07-jcvm-opcode-compliance.md`](../../../../docs/standards/07-jcvm-opcode-compliance.md).
 /// - low 4 bits (0x0F): `interface_count` -- number of
 ///   `implemented_interfaces[]` records that follow this `class_info`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

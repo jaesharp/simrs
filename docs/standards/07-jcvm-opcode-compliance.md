@@ -20,6 +20,12 @@ converted CAP files** -- a CAP file produced by `converter.bat` from
 the Java Card Development Kit will not execute correctly on simrs
 without remapping.
 
+Beyond opcode numbering, the structural audit (CAP file format,
+type descriptors, ConstantPool tag values, access flags) found
+**three additional possible deviations** in the Descriptor /
+Class component encodings that are tracked under "Per-structure
+audit" below and Open Questions 4 and 5.
+
 The deviations are catalogued below and preserved as a tracked
 gap, not papered over. The plan is to migrate to the spec values
 under a feature flag, retain the legacy mapping for back-compat,
@@ -210,6 +216,8 @@ if any open-source converter project exposes it.
 
 ## Structural compliance (CAP file format, not opcodes)
 
+### Component-level scope summary
+
 The CAP component model is in `simrs-jcvm/src/cap/components.rs`
 and writer in `simrs-jacc/src/cap/writer.rs`. Status from
 [06-globalplatform.md](06-globalplatform.md):
@@ -236,9 +244,88 @@ and writer in `simrs-jacc/src/cap/writer.rs`. Status from
 - **Debug (tag 12):** walk-and-skip
 - **StaticResources (tag 13):** walk-and-skip
 
-No structural non-compliance flagged by the parser/writer code as
-of 2026-05-04. Token-based linking at `invoke*` time (Phase 2 step 3)
-is unimplemented.
+Token-based linking at `invoke*` time (Phase 2 step 3) is
+unimplemented.
+
+### Per-structure audit
+
+#### Verified spec-aligned
+
+| Structure | Location | Spec value | Status |
+|-----------|----------|------------|--------|
+| Component tags 1..13 | `simrs-jacc/src/cap/writer.rs:27-39` | JCVM § 6.2 Table 6-1 | aligned |
+| ConstantPool tag values 1..6 | `simrs-jcvm/src/cap/mod.rs:429-439` | JCVM § 6.8 Table 6-7 | aligned |
+| CAP magic 0xDECAFFED | `simrs-jcvm/src/cap/mod.rs:64` | JCVM § 6.3 | aligned |
+| `bspush` operand: 1B signed -> sign-extend to short | `simrs-jcvm/src/lib.rs:343` | JCVM § 7 | aligned |
+| `sspush` operand: 2B BE -> push as short | `simrs-jcvm/src/lib.rs:354` | JCVM § 7 | aligned |
+| `iipush` operand: 4B BE -> push as int | `simrs-jcvm/src/lib.rs:367` | JCVM § 7 | aligned |
+| Switch operand layout (`stableswitch`) | `simrs-jcvm-opcodes/src/lib.rs:321` | JCVM § 7 | aligned |
+| `sinc` / `iinc` operand layout: `local_idx`(u8), `const`(i8) | `simrs-jcvm-opcodes/src/lib.rs:249-254` | JCVM § 7 | aligned |
+| newarray atype constants 0x0A/0x0B/0x0D | `simrs-jcvm-opcodes/src/lib.rs:483-488` | JCVM § 6 | aligned |
+
+#### Possible deviations -- need verification
+
+##### Type descriptor encoding (`simrs-jacc/src/cap/writer.rs:60`)
+
+Writer declares `TYPE_DESC_VOID = 0x03` and a comment in
+`build_descriptor_body` claims "void return with no parameters =
+0x03 (void)". But:
+
+- The same writer's `FieldInfo::type_token` documentation (line 67)
+  lists `0x02 = boolean, 0x03 = byte, 0x04 = short` -- so 0x03 is
+  `byte`, not `void`, in the field-descriptor context.
+- Audit author's recollection of JCVM § 6.13 type_descriptor nibble
+  encoding: `0x1 = void, 0x2 = boolean, 0x3 = byte, 0x4 = short,
+  0x5 = int, 0x6..0xA = reference variants`. Under that encoding
+  `void` should be `0x1`, not `0x3`.
+- Additionally, type descriptors are spec-defined as
+  **packed-nibble** sequences with a `nibble_count` byte prefix.
+  The writer's `body.extend(repeat_n(TYPE_DESC_VOID, methods.len()))`
+  emits one byte per method, which is not the spec layout.
+
+If the recollection holds, **two bugs**: wrong nibble value and wrong
+encoding shape. Not currently a runtime issue because the simrs
+parser walks-and-skips Descriptor and the legacy blob path doesn't
+read type_descriptors at all. A real JCRE would reject these CAPs.
+
+##### Class component access flag bit positions (`simrs-jcvm/src/cap/mod.rs:118-127`)
+
+`ClassInfo` doc comment claims:
+
+- `ACC_INTERFACE` = 0x80 (bit 7)
+- `ACC_SHAREABLE` = 0x40 (bit 6)
+- `ACC_REMOTE` = 0x20 (bit 5)
+- low 4 bits (0x0F) = `interface_count`
+
+Audit author's recollection of JCVM § 6.9.4 (class_info structure):
+
+- bit 7 = `ACC_INTERFACE` -- matches
+- bits 6..4 = reserved (zero per spec)
+- bits 3..0 = `interface_count` -- matches
+
+Recollection puts `ACC_SHAREABLE` and `ACC_REMOTE` in the
+`interface_info` structure (a sibling of `class_info`), not at
+bits 6/5 of the class_info bitfield. **Possible doc error**, but
+the code only uses `interface_count = bits & 0x0F` and treats the
+high bit as `ACC_INTERFACE`, so the runtime behaviour is correct
+even if the comment is wrong. Verify against spec.
+
+##### Field type token width (`simrs-jacc/src/cap/writer.rs:67`)
+
+`FieldInfo::type_token` is `u8` and used as a single byte in
+field descriptors at `build_descriptor_body:483`. Audit author's
+recollection of JCVM § 6.13 puts the field-descriptor type as a
+**u16** (packed `is_primitive: u1 | type_index: u15` or full
+classref encoding). If recollection holds, the writer is emitting
+the wrong width. **Verify against spec.**
+
+##### Wide-branch range (already covered)
+
+See "Per-Opcode Comparison" section above. 0x96..=0xA5 in the
+codebase vs 0x98..=0xA7 in audit author's recollection. This is
+also a structural question because the wide-branch operand width
+is 2 bytes (BE signed offset), and which opcode prefixes that
+operand depends on the answer.
 
 ---
 
@@ -321,6 +408,16 @@ Reconstructed from `git blame` and the in-source `NOTE:` comments:
    `SIPUSH = SSPUSH` alias at 0x11 suggests the latter, which is
    a confusing naming choice if `sipush` is also a real spec
    opcode at 0x13.
+4. **Type descriptor encoding (§ 6.13):** is the void nibble 0x1
+   or 0x3? Is the field-descriptor `type` field a u8 or a u16?
+   Is the type_descriptor blob a sequence of packed nibbles with
+   a `nibble_count` prefix, or one byte per method as the writer
+   currently emits?
+5. **`ACC_SHAREABLE` / `ACC_REMOTE` in class_info:** are these
+   bits 6/5 of the class_info bitfield (current doc claim), or
+   members of a separate `interface_info` structure? The runtime
+   uses neither for behaviour, but the doc claim should match
+   reality.
 
 These should be answered against the spec PDF before the migration
 plan moves past the audit stage.
