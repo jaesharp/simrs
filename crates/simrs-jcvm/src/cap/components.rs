@@ -40,8 +40,9 @@
 //! of `0xDECAFFED`) selects the simplified blob.
 
 use super::{
-    AppletInfo, CAP_MAGIC, CpInfo, ExportInfo, ImportInfo, MAX_AID_LEN, MAX_APPLETS_PER_PACKAGE,
-    MAX_BYTECODE, MAX_CP_ENTRIES, MAX_EXPORTED_CLASSES_PER_PACKAGE, MAX_EXPORTED_FIELDS_PER_CLASS,
+    AppletInfo, CAP_MAGIC, ClassInfo, CpInfo, ExportInfo, ImportInfo, MAX_AID_LEN,
+    MAX_APPLETS_PER_PACKAGE, MAX_BYTECODE, MAX_CLASSES_PER_PACKAGE, MAX_CP_ENTRIES,
+    MAX_EXPORTED_CLASSES_PER_PACKAGE, MAX_EXPORTED_FIELDS_PER_CLASS,
     MAX_EXPORTED_METHODS_PER_CLASS, MAX_IMPORTS_PER_PACKAGE, MAX_METHODS, MAX_REF_LOC_BYTE_INDICES,
     MAX_REF_LOC_BYTE2_INDICES, MethodInfo, Package, ParseError, cp_tag,
 };
@@ -383,6 +384,102 @@ fn parse_descriptor_method_offsets(
         }
     }
     Ok((offsets, total))
+}
+
+/// Parse the Class component body (JCVM 3.2 § 6.9).
+///
+/// MVP scope: walks `class_info` records (top bit of bitfield clear),
+/// surfacing the fixed 10-byte header and tracking each one's
+/// component-relative offset for CP `Classref::Internal(offset)`
+/// resolution. Variable-size sub-fields (virtual method tables and
+/// `implemented_interfaces[]`) are walked-and-skipped during parse
+/// but not stored on `Package`.
+///
+/// Rejects:
+/// - Records with `ACC_INTERFACE` (bitfield bit 7) set: that's an
+///   `interface_info` per JCVM 3.2 § 6.9.3, which the MVP doesn't
+///   yet decode -> `ClassInterfaceNotSupported`.
+/// - More than `MAX_CLASSES_PER_PACKAGE` classes -> `TooManyClasses`.
+/// - Truncated bodies at any point -> `TooShort`.
+fn parse_class_component(
+    body: &[u8],
+) -> Result<([Option<ClassInfo>; MAX_CLASSES_PER_PACKAGE], u8), ParseError> {
+    let mut pos = 0usize;
+    let mut classes: [Option<ClassInfo>; MAX_CLASSES_PER_PACKAGE] = [None; MAX_CLASSES_PER_PACKAGE];
+    let mut count: u8 = 0;
+
+    while pos < body.len() {
+        if (count as usize) >= MAX_CLASSES_PER_PACKAGE {
+            return Err(ParseError::TooManyClasses);
+        }
+        // bitfield(1) + super_class_ref(2) + 7 fixed bytes = 10 bytes.
+        if body.len() < pos + 10 {
+            return Err(ParseError::TooShort);
+        }
+        let component_offset = {
+            #[allow(clippy::cast_possible_truncation)]
+            let v = pos as u16;
+            v
+        };
+        let bitfield = body[pos];
+        if bitfield & 0x80 != 0 {
+            return Err(ParseError::ClassInterfaceNotSupported);
+        }
+        let interface_count = bitfield & 0x0F;
+        let super_class_ref = super::decode_class_ref_3([body[pos + 1], body[pos + 2], 0]);
+        let declared_instance_size = body[pos + 3];
+        let first_reference_token = body[pos + 4];
+        let reference_count = body[pos + 5];
+        let public_method_table_base = body[pos + 6];
+        let public_method_table_count = body[pos + 7];
+        let package_method_table_base = body[pos + 8];
+        let package_method_table_count = body[pos + 9];
+        pos += 10;
+
+        // Walk past public_virtual_method_table[public_count] (u16 each).
+        let pub_table_bytes = (public_method_table_count as usize) * 2;
+        if body.len() < pos + pub_table_bytes {
+            return Err(ParseError::TooShort);
+        }
+        pos += pub_table_bytes;
+
+        // Walk past package_virtual_method_table[package_count] (u16 each).
+        let pkg_table_bytes = (package_method_table_count as usize) * 2;
+        if body.len() < pos + pkg_table_bytes {
+            return Err(ParseError::TooShort);
+        }
+        pos += pkg_table_bytes;
+
+        // Walk past implemented_interfaces[interface_count]:
+        // each is class_ref(2) + count(1) + indices[count] (variable).
+        for _ in 0..interface_count {
+            if body.len() < pos + 3 {
+                return Err(ParseError::TooShort);
+            }
+            let inner_count = body[pos + 2] as usize;
+            let advance = 3 + inner_count;
+            if body.len() < pos + advance {
+                return Err(ParseError::TooShort);
+            }
+            pos += advance;
+        }
+
+        classes[count as usize] = Some(ClassInfo {
+            component_offset,
+            super_class_ref,
+            declared_instance_size,
+            first_reference_token,
+            reference_count,
+            public_method_table_base,
+            public_method_table_count,
+            package_method_table_base,
+            package_method_table_count,
+            interface_count,
+        });
+        count += 1;
+    }
+
+    Ok((classes, count))
 }
 
 /// Parse the `StaticField` component body (JCVM 3.2 § 6.10).
@@ -754,6 +851,8 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
     let mut ref_loc_byte2_count: u16 = 0;
     let mut static_field_image_size: u16 = 0;
     let mut static_reference_count: u16 = 0;
+    let mut classes: [Option<ClassInfo>; MAX_CLASSES_PER_PACKAGE] = [None; MAX_CLASSES_PER_PACKAGE];
+    let mut class_count: u8 = 0;
 
     while pos < data.len() {
         if data.len() < pos + 3 {
@@ -812,10 +911,14 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
                 static_field_image_size = image;
                 static_reference_count = refs;
             }
-            // Recognised-but-skipped components (Directory, Class,
-            // Debug, StaticResources) and unknown components
-            // (vendor-custom) all fall through. Class hierarchy is a
-            // Phase 2 follow-up.
+            tag::CLASS => {
+                let (c, n) = parse_class_component(body)?;
+                classes = c;
+                class_count = n;
+            }
+            // Recognised-but-skipped components (Directory, Debug,
+            // StaticResources) and unknown components (vendor-custom)
+            // all fall through.
             _ => {}
         }
     }
@@ -853,6 +956,8 @@ pub fn parse(data: &[u8]) -> Result<Package, ParseError> {
         ref_loc_byte2_count,
         static_field_image_size,
         static_reference_count,
+        classes,
+        class_count,
     })
 }
 
@@ -2578,6 +2683,206 @@ mod tests {
             &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
         );
         assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Class component
+    // -----------------------------------------------------------------------
+
+    /// Build a single `class_info` body with the `simrs-jacc` shape:
+    /// bitfield + `super_class_ref` + 7 fixed bytes + N u16 public-method
+    /// table entries + zero package methods + zero `implemented_interfaces`.
+    #[allow(clippy::cast_possible_truncation)]
+    fn class_info_body(public_method_offsets: &[u16]) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.push(0x00); // bitfield: not interface, no implemented_interfaces
+        body.extend_from_slice(&0xFFFFu16.to_be_bytes()); // super = java.lang.Object
+        body.push(0); // declared_instance_size
+        body.push(0); // first_reference_token
+        body.push(0); // reference_count
+        body.push(0); // public_method_table_base
+        body.push(public_method_offsets.len() as u8);
+        body.push(0); // package_method_table_base
+        body.push(0); // package_method_table_count
+        for off in public_method_offsets {
+            body.extend_from_slice(&off.to_be_bytes());
+        }
+        body
+    }
+
+    /// Build a CAP with Header + Class + Method.
+    fn build_cap_with_class(pkg_aid: &[u8], class_body: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        emit(&mut out, tag::HEADER, &header_body(pkg_aid));
+        emit(&mut out, tag::CLASS, class_body);
+        emit(
+            &mut out,
+            tag::METHOD,
+            &method_body(&[(&[0x78u8][..], 0x80, 4, 0, 1)]),
+        );
+        out
+    }
+
+    #[test]
+    fn no_class_component_yields_zero_class_count() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap(&aid, &[(&[0x78u8][..], 0x80, 4, 0, 1)], None);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.class_count, 0);
+        assert!(pkg.class(0).is_none());
+    }
+
+    #[test]
+    fn empty_class_component_yields_zero_class_count() {
+        let aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_class(&aid, &[]);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.class_count, 0);
+    }
+
+    #[test]
+    fn single_class_records_offset_and_super_ref() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let body = class_info_body(&[0x0001, 0x0010]);
+        let cap = build_cap_with_class(&pkg_aid, &body);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.class_count, 1);
+        let info = pkg.class(0).expect("class 0");
+        assert_eq!(info.component_offset, 0);
+        assert_eq!(
+            info.super_class_ref,
+            super::super::ClassRef::External {
+                package_token: 0x7F,
+                class_token: 0xFF,
+            },
+            "0xFFFF in 2-byte form decodes as external token-pair"
+        );
+        assert_eq!(info.public_method_table_count, 2);
+        assert_eq!(info.package_method_table_count, 0);
+        assert_eq!(info.interface_count, 0);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn multi_class_preserves_per_class_offsets() {
+        // Two back-to-back class_infos. The second's offset is the
+        // first's full size.
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let body0 = class_info_body(&[0x0001]); // 12 bytes (10 fixed + 1 u16)
+        let body1 = class_info_body(&[]); // 10 bytes (10 fixed + 0)
+        let mut combined = Vec::new();
+        combined.extend_from_slice(&body0);
+        combined.extend_from_slice(&body1);
+        let cap = build_cap_with_class(&pkg_aid, &combined);
+        let pkg = parse(&cap).expect("parse");
+        assert_eq!(pkg.class_count, 2);
+        assert_eq!(pkg.class(0).unwrap().component_offset, 0);
+        assert_eq!(pkg.class(1).unwrap().component_offset, body0.len() as u16);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn class_by_component_offset_resolves() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let body0 = class_info_body(&[0x0001]);
+        let body1 = class_info_body(&[]);
+        let body0_len = body0.len() as u16;
+        let mut combined = Vec::new();
+        combined.extend_from_slice(&body0);
+        combined.extend_from_slice(&body1);
+        let cap = build_cap_with_class(&pkg_aid, &combined);
+        let pkg = parse(&cap).expect("parse");
+        // Class at offset 0 resolves to class index 0; class at
+        // offset = body0.len() resolves to class index 1.
+        assert!(pkg.class_by_component_offset(0).is_some());
+        assert_eq!(
+            pkg.class_by_component_offset(body0_len)
+                .map(|c| c.component_offset),
+            Some(body0_len)
+        );
+        // An offset that doesn't match any class returns None.
+        assert!(pkg.class_by_component_offset(0xFFFE).is_none());
+    }
+
+    #[test]
+    fn rejects_class_with_acc_interface_bit() {
+        // bitfield with bit 7 set indicates interface_info, which
+        // the MVP parser doesn't yet decode.
+        let mut body = Vec::new();
+        body.push(0x80); // ACC_INTERFACE
+        // (a real interface_info has different layout than class_info,
+        // but we don't need to construct it correctly to verify
+        // rejection by the bit-7 check.)
+        body.extend_from_slice(&0u16.to_be_bytes()); // some bytes
+        body.extend_from_slice(&[0u8; 7]);
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_class(&pkg_aid, &body);
+        assert!(matches!(
+            parse(&cap),
+            Err(ParseError::ClassInterfaceNotSupported)
+        ));
+    }
+
+    #[test]
+    fn rejects_more_classes_than_max() {
+        // MAX_CLASSES_PER_PACKAGE + 1 minimal class_infos (no methods).
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let one = class_info_body(&[]);
+        let mut combined = Vec::new();
+        for _ in 0..=MAX_CLASSES_PER_PACKAGE {
+            combined.extend_from_slice(&one);
+        }
+        let cap = build_cap_with_class(&pkg_aid, &combined);
+        assert!(matches!(parse(&cap), Err(ParseError::TooManyClasses)));
+    }
+
+    #[test]
+    fn accepts_classes_at_exactly_max() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let one = class_info_body(&[]);
+        let mut combined = Vec::new();
+        for _ in 0..MAX_CLASSES_PER_PACKAGE {
+            combined.extend_from_slice(&one);
+        }
+        let cap = build_cap_with_class(&pkg_aid, &combined);
+        let pkg = parse(&cap).expect("parse at exactly MAX_CLASSES_PER_PACKAGE");
+        #[allow(clippy::cast_possible_truncation)]
+        let expected = MAX_CLASSES_PER_PACKAGE as u8;
+        assert_eq!(pkg.class_count, expected);
+    }
+
+    #[test]
+    fn rejects_truncated_class_body_mid_method_table() {
+        // bitfield = 0, public_method_table_count = 2 but the body
+        // ends right after the fixed 10 bytes -- no room for the u16
+        // entries the count promises.
+        let mut body = Vec::new();
+        body.push(0x00);
+        body.extend_from_slice(&0xFFFFu16.to_be_bytes());
+        body.push(0);
+        body.push(0);
+        body.push(0);
+        body.push(0);
+        body.push(2); // public_method_table_count = 2 (4 bytes that aren't there)
+        body.push(0);
+        body.push(0);
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let cap = build_cap_with_class(&pkg_aid, &body);
+        assert!(matches!(parse(&cap), Err(ParseError::TooShort)));
+    }
+
+    #[test]
+    fn class_index_past_count_returns_none() {
+        let pkg_aid = [0xA0u8, 0, 0, 0, 0x62];
+        let body = class_info_body(&[]);
+        let cap = build_cap_with_class(&pkg_aid, &body);
+        let pkg = parse(&cap).expect("parse");
+        assert!(pkg.class(0).is_some());
+        assert!(pkg.class(1).is_none());
+        #[allow(clippy::cast_possible_truncation)]
+        let max_idx = MAX_CLASSES_PER_PACKAGE as u8;
+        assert!(pkg.class(max_idx).is_none());
+        assert!(pkg.class(u8::MAX).is_none());
     }
 
     #[test]

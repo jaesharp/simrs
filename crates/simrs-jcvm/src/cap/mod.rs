@@ -92,6 +92,73 @@ pub const MAX_EXPORTED_FIELDS_PER_CLASS: usize = 16;
 /// Maximum static methods a single exported class can publish.
 pub const MAX_EXPORTED_METHODS_PER_CLASS: usize = 16;
 
+/// Maximum classes (non-interface) declared in a single CAP package.
+///
+/// JCVM 3.2 § 6.9 puts no spec-level cap; this conservative runtime
+/// bound covers small applets which typically declare 1..4 classes.
+pub const MAX_CLASSES_PER_PACKAGE: usize = 8;
+
+/// One class declaration in the Class component (JCVM 3.2 § 6.9.4).
+///
+/// MVP-scoped: surfaces the fixed 10-byte header plus a decoded
+/// `super_class_ref` and the implemented-interface count. The
+/// per-class virtual method tables and `implemented_interfaces[]`
+/// records are walked-and-skipped during parse but not surfaced --
+/// their consumers (virtual dispatch, instanceof) don't yet exist.
+///
+/// Bitfield bits per spec:
+/// - `ACC_INTERFACE` (0x80): set for interface declarations
+///   (rejected by the MVP parser; interfaces sit in a separate
+///   `interface_info` record type that is not yet parsed).
+/// - `ACC_SHAREABLE` (0x40): set for `Shareable` interface implementers.
+/// - `ACC_REMOTE` (0x20): set for `Remote` interfaces.
+/// - low 4 bits (0x0F): `interface_count` -- number of
+///   `implemented_interfaces[]` records that follow this `class_info`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClassInfo {
+    /// Byte offset of this `class_info` within the Class component body.
+    /// External CP `Classref` entries with `ClassRef::Internal(offset)`
+    /// land at this offset.
+    pub component_offset: u16,
+    /// Reference to this class's superclass.
+    pub super_class_ref: ClassRef,
+    /// Bytes of instance fields.
+    pub declared_instance_size: u8,
+    /// Index of the first instance reference field.
+    pub first_reference_token: u8,
+    /// Number of reference-typed instance fields.
+    pub reference_count: u8,
+    /// Base index in the virtual-method dispatch table.
+    pub public_method_table_base: u8,
+    /// Number of public virtual methods.
+    pub public_method_table_count: u8,
+    /// Base index in the package-private dispatch table.
+    pub package_method_table_base: u8,
+    /// Number of package-private virtual methods.
+    pub package_method_table_count: u8,
+    /// Number of `implemented_interfaces[]` records that follow.
+    pub interface_count: u8,
+}
+
+impl ClassInfo {
+    /// Create an empty class info.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            component_offset: 0,
+            super_class_ref: ClassRef::Internal(0),
+            declared_instance_size: 0,
+            first_reference_token: 0,
+            reference_count: 0,
+            public_method_table_base: 0,
+            public_method_table_count: 0,
+            package_method_table_base: 0,
+            package_method_table_count: 0,
+            interface_count: 0,
+        }
+    }
+}
+
 /// Maximum 1-byte CP-token reference locations the runtime tracks.
 ///
 /// JCVM 3.2 § 6.12 carries one entry per byte in the Method /
@@ -150,6 +217,54 @@ pub(crate) const REF_LOC_BLOCK_SIZE: usize =
 /// `image_size`(2) + `reference_count`(2). MVP only -- when array
 /// initialisers and non-default values are added, this expands.
 pub(crate) const STATIC_FIELD_SUMMARY_BLOCK_SIZE: usize = 2 + 2;
+
+/// One absent-or-present class slot in the snapshot:
+/// present(1) + `component_offset`(2) + `super_class_ref`(3) +
+/// `declared_instance_size`(1) + `first_reference_token`(1) +
+/// `reference_count`(1) + `public_method_table_base`(1) +
+/// `public_method_table_count`(1) + `package_method_table_base`(1) +
+/// `package_method_table_count`(1) + `interface_count`(1).
+///
+/// `super_class_ref` serialises as the same 3-byte form used by CP
+/// entries: byte 0 high bit selects internal-vs-external; the
+/// remaining bytes are the `class_ref` payload.
+pub(crate) const CLASS_SLOT_SIZE: usize = 1 + 2 + 3 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1;
+
+/// Snapshot bytes for the whole class block: count(1) + slots.
+pub(crate) const CLASS_BLOCK_SIZE: usize = 1 + MAX_CLASSES_PER_PACKAGE * CLASS_SLOT_SIZE;
+
+/// Encode a [`ClassRef`] as the 3-byte form used by JCVM 3.2 § 6.8.1
+/// CP entries (and our snapshot for `ClassInfo::super_class_ref`).
+/// Internal: `byte0..byte1` = u16 BE offset, byte2 = 0.
+/// External: `byte0` = `0x80 | package_token`, `byte1` = `class_token`,
+/// byte2 = 0.
+pub(crate) const fn encode_class_ref_3(cr: ClassRef) -> [u8; 3] {
+    match cr {
+        ClassRef::Internal(offset) => {
+            let [hi, lo] = offset.to_be_bytes();
+            [hi, lo, 0]
+        }
+        ClassRef::External {
+            package_token,
+            class_token,
+        } => [0x80 | (package_token & 0x7F), class_token, 0],
+    }
+}
+
+/// Inverse of [`encode_class_ref_3`]. The high bit of byte 0 selects
+/// the form; byte 2 is unused for `class_ref` (it's spec-padding for
+/// CP slots). Total-function: every 3-byte input decodes to a
+/// well-formed [`ClassRef`].
+pub(crate) const fn decode_class_ref_3(info: [u8; 3]) -> ClassRef {
+    if info[0] & 0x80 != 0 {
+        ClassRef::External {
+            package_token: info[0] & 0x7F,
+            class_token: info[1],
+        }
+    } else {
+        ClassRef::Internal(u16::from_be_bytes([info[0], info[1]]))
+    }
+}
 
 /// One entry in the Export component (JCVM 3.2 § 6.13).
 ///
@@ -591,6 +706,13 @@ pub struct Package {
     /// Number of reference-typed static-field entries
     /// (JCVM 3.2 § 6.10 `reference_count`).
     pub static_reference_count: u16,
+    /// Class declarations in this package's Class component
+    /// (JCVM 3.2 § 6.9). Indexed in declaration order; per-class
+    /// `component_offset` resolves CP `Classref::Internal(offset)`
+    /// references back to the originating `ClassInfo`.
+    pub classes: [Option<ClassInfo>; MAX_CLASSES_PER_PACKAGE],
+    /// Number of valid class entries (`<= MAX_CLASSES_PER_PACKAGE`).
+    pub class_count: u8,
 }
 
 impl Package {
@@ -619,6 +741,8 @@ impl Package {
             ref_loc_byte2_count: 0,
             static_field_image_size: 0,
             static_reference_count: 0,
+            classes: [None; MAX_CLASSES_PER_PACKAGE],
+            class_count: 0,
         }
     }
 
@@ -758,6 +882,34 @@ impl Package {
         let n = (self.ref_loc_byte2_count as usize).min(MAX_REF_LOC_BYTE2_INDICES);
         &self.ref_loc_byte2_deltas[..n]
     }
+
+    /// Look up a class by declaration-order index. Returns `None` for
+    /// indices beyond [`Self::class_count`] or [`MAX_CLASSES_PER_PACKAGE`].
+    #[must_use]
+    pub const fn class(&self, index: u8) -> Option<&ClassInfo> {
+        let idx = index as usize;
+        if (index as u16) < (self.class_count as u16) && idx < MAX_CLASSES_PER_PACKAGE {
+            self.classes[idx].as_ref()
+        } else {
+            None
+        }
+    }
+
+    /// Find the class whose `component_offset` matches the given
+    /// offset within the Class component body. Used to resolve a
+    /// CP `Classref::Internal(offset)` to the originating
+    /// `ClassInfo`.
+    #[must_use]
+    pub fn class_by_component_offset(&self, offset: u16) -> Option<&ClassInfo> {
+        for slot in &self.classes {
+            if let Some(info) = slot
+                && info.component_offset == offset
+            {
+                return Some(info);
+            }
+        }
+        None
+    }
 }
 
 /// Error returned when CAP parsing fails.
@@ -805,6 +957,12 @@ pub enum ParseError {
     /// `StaticField` component declares non-default values, which the
     /// MVP parser does not yet decode.
     StaticFieldNonDefaultValuesUnsupported,
+    /// Class component declares more classes than `MAX_CLASSES_PER_PACKAGE`.
+    TooManyClasses,
+    /// Class component contains an `interface_info` (`ACC_INTERFACE` bit
+    /// set in the leading bitfield) which the MVP parser does not yet
+    /// decode. Real applets that declare Java interfaces hit this.
+    ClassInterfaceNotSupported,
 }
 
 pub mod components;
@@ -1013,6 +1171,8 @@ pub fn parse_cap_blob(data: &[u8]) -> Result<Package, ParseError> {
         ref_loc_byte2_count: 0,
         static_field_image_size: 0,
         static_reference_count: 0,
+        classes: [None; MAX_CLASSES_PER_PACKAGE],
+        class_count: 0,
     })
 }
 
@@ -1094,7 +1254,8 @@ impl Package {
         + METHOD_OFFSETS_BLOCK_SIZE
         + EXPORT_BLOCK_SIZE
         + REF_LOC_BLOCK_SIZE
-        + STATIC_FIELD_SUMMARY_BLOCK_SIZE;
+        + STATIC_FIELD_SUMMARY_BLOCK_SIZE
+        + CLASS_BLOCK_SIZE;
 
     /// Save package state to buffer. Returns bytes written, or 0 if buffer too small.
     #[allow(clippy::too_many_lines)]
@@ -1296,6 +1457,47 @@ impl Package {
         off += 2;
         buf[off..off + 2].copy_from_slice(&self.static_reference_count.to_le_bytes());
         off += 2;
+
+        // Class block: class_count(1) + per-class slot.
+        if off + CLASS_BLOCK_SIZE > buf.len() {
+            return 0;
+        }
+        buf[off] = self.class_count;
+        off += 1;
+        for slot in &self.classes {
+            match slot {
+                None => {
+                    buf[off] = 0; // not present
+                    off += CLASS_SLOT_SIZE;
+                }
+                Some(c) => {
+                    buf[off] = 1; // present
+                    off += 1;
+                    buf[off..off + 2].copy_from_slice(&c.component_offset.to_le_bytes());
+                    off += 2;
+                    // super_class_ref: 3 bytes encoding internal vs external.
+                    let cr_bytes = encode_class_ref_3(c.super_class_ref);
+                    buf[off..off + 3].copy_from_slice(&cr_bytes);
+                    off += 3;
+                    buf[off] = c.declared_instance_size;
+                    off += 1;
+                    buf[off] = c.first_reference_token;
+                    off += 1;
+                    buf[off] = c.reference_count;
+                    off += 1;
+                    buf[off] = c.public_method_table_base;
+                    off += 1;
+                    buf[off] = c.public_method_table_count;
+                    off += 1;
+                    buf[off] = c.package_method_table_base;
+                    off += 1;
+                    buf[off] = c.package_method_table_count;
+                    off += 1;
+                    buf[off] = c.interface_count;
+                    off += 1;
+                }
+            }
+        }
 
         off
     }
@@ -1615,6 +1817,66 @@ impl Package {
             self.static_reference_count = u16::from_le_bytes([buf[off], buf[off + 1]]);
             off += 2;
         }
+
+        // Class block: trailing. Forward-compat for pre-class snapshots.
+        self.class_count = 0;
+        self.classes = [None; MAX_CLASSES_PER_PACKAGE];
+        if off < buf.len() {
+            self.class_count = buf[off];
+            off += 1;
+            if self.class_count as usize > MAX_CLASSES_PER_PACKAGE {
+                return false;
+            }
+            let payload_size = CLASS_SLOT_SIZE - 1;
+            for slot in &mut self.classes {
+                if off >= buf.len() {
+                    return false;
+                }
+                let present = buf[off];
+                off += 1;
+                if present == 0 {
+                    *slot = None;
+                    off += payload_size;
+                    continue;
+                }
+                if off + payload_size > buf.len() {
+                    return false;
+                }
+                let component_offset = u16::from_le_bytes([buf[off], buf[off + 1]]);
+                off += 2;
+                let cr_bytes: [u8; 3] = [buf[off], buf[off + 1], buf[off + 2]];
+                let super_class_ref = decode_class_ref_3(cr_bytes);
+                off += 3;
+                let declared_instance_size = buf[off];
+                off += 1;
+                let first_reference_token = buf[off];
+                off += 1;
+                let reference_count = buf[off];
+                off += 1;
+                let public_method_table_base = buf[off];
+                off += 1;
+                let public_method_table_count = buf[off];
+                off += 1;
+                let package_method_table_base = buf[off];
+                off += 1;
+                let package_method_table_count = buf[off];
+                off += 1;
+                let interface_count = buf[off];
+                off += 1;
+                *slot = Some(ClassInfo {
+                    component_offset,
+                    super_class_ref,
+                    declared_instance_size,
+                    first_reference_token,
+                    reference_count,
+                    public_method_table_base,
+                    public_method_table_count,
+                    package_method_table_base,
+                    package_method_table_count,
+                    interface_count,
+                });
+            }
+        }
         let _ = off;
 
         true
@@ -1831,8 +2093,11 @@ mod tests {
     //
     // Each test offset helper then collapses to one subtraction.
 
+    /// Distance from snapshot end to start of the class block.
+    const CLASS_START_FROM_END: usize = CLASS_BLOCK_SIZE;
     /// Distance from snapshot end to start of the static-field block.
-    const STATIC_FIELD_START_FROM_END: usize = STATIC_FIELD_SUMMARY_BLOCK_SIZE;
+    const STATIC_FIELD_START_FROM_END: usize =
+        CLASS_START_FROM_END + STATIC_FIELD_SUMMARY_BLOCK_SIZE;
     /// Distance from snapshot end to start of the ref-loc block.
     const REF_LOC_START_FROM_END: usize = STATIC_FIELD_START_FROM_END + REF_LOC_BLOCK_SIZE;
     /// Distance from snapshot end to start of the export block.

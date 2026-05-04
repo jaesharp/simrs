@@ -511,9 +511,8 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
       it requires a new JCVM-level invocation hook rather than
       replacing the existing process-method linkage.
 - [ ] Component-tagged parser coverage for the remaining components:
-      Class, Debug, StaticResources. Phase 2 sub-items as their
-      consumers come online (Class for the firewall). As of 2026-05-04
-      the parser also surfaces:
+      Debug, StaticResources. Phase 2 sub-items as their consumers
+      come online. As of 2026-05-04 the parser also surfaces:
       - **Applet** (tag 3): per-applet
         `AppletInfo { aid, install_method_offset }` on
         `Package::applets`, for SELECT-by-AID dispatch and
@@ -544,6 +543,18 @@ Phase numbers are sticky: items move within a phase but do not skip phases.
         field allocator lands. simrs-jacc's writer was fixed in the
         same commit to emit the spec-required `default_value_count`
         trailer (it had been omitting it).
+      - **Class** (tag 6) MVP: walks each `class_info`'s fixed
+        10-byte header per JCVM 3.2 § 6.9.4, recording the per-
+        class `component_offset` plus a decoded `super_class_ref`
+        and the public/package/interface counts on `Package::classes`.
+        Variable-size `public_virtual_method_table[]`,
+        `package_virtual_method_table[]`, and
+        `implemented_interfaces[]` records are walked-and-skipped
+        during parse but not surfaced -- their consumers (virtual
+        dispatch, instanceof) don't yet exist. Records with
+        `ACC_INTERFACE` set are rejected up-front
+        (`ClassInterfaceNotSupported`) until interface_info parsing
+        lands.
 - [x] `simrs-jacc` writer: emit Export (tag 10), Debug (tag 12),
       StaticResources (tag 13). Standalone applets emit empty bodies
       (Export `class_count = 0`, Debug zero-length, StaticResources

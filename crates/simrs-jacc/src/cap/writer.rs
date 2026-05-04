@@ -902,6 +902,32 @@ mod tests {
     }
 
     #[test]
+    fn writer_class_component_round_trips_through_runtime_parser() {
+        // The writer emits exactly one class_info with super_class_ref =
+        // 0xFFFF (decoded as `External { package_token: 0x7F, class_token:
+        // 0xFF }` since the high bit is set). The runtime parser surfaces
+        // this single class on `pkg.classes[0]` with `component_offset = 0`.
+        let cap = CapWriter::new(&sample_compiled()).write();
+        let pkg = parse_cap(&cap).expect("parse");
+        assert_eq!(
+            pkg.class_count, 1,
+            "writer emits exactly one class for sample_compiled"
+        );
+        let info = pkg.class(0).expect("class 0 present");
+        assert_eq!(info.component_offset, 0);
+        assert_eq!(
+            info.super_class_ref,
+            simrs_jcvm::cap::ClassRef::External {
+                package_token: 0x7F,
+                class_token: 0xFF,
+            },
+        );
+        assert_eq!(info.public_method_table_count, 1);
+        assert_eq!(info.package_method_table_count, 0);
+        assert_eq!(info.interface_count, 0);
+    }
+
+    #[test]
     fn writer_static_field_round_trips_to_zero_image_and_refs() {
         // The writer emits image_size = static-field count = 0 for
         // a class with no static fields, plus zero ref/array/default
