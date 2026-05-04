@@ -3345,5 +3345,209 @@ mod tests {
                 let _ = parse(&cap[..prefix]);
             }
         }
+
+        // ===============================================================
+        // Snapshot round-trip proptests
+        // ===============================================================
+        //
+        // For every component, plant arbitrary state directly on a
+        // `Package`, save_state -> restore_state -> assert byte-identical
+        // recovery. These complement the parser round-trip proptests
+        // above (which run bytes->Package->fields) by covering the
+        // Package->bytes->Package direction. Together they verify that
+        // both the on-disk and on-snapshot serialisations are lossless
+        // for every component.
+
+        proptest! {
+            /// CP snapshot round-trip with arbitrary entries.
+            #[test]
+            fn cp_snapshot_save_restore_round_trip(
+                entries in proptest::collection::vec(cp_entry_strategy(), 0..=MAX_CP_ENTRIES),
+            ) {
+                let mut pkg = Package::empty();
+                pkg.aid_len = 1;
+                pkg.aid[0] = 0xAA;
+                for (i, (tag, info)) in entries.iter().enumerate() {
+                    pkg.constant_pool[i] = super::super::super::CpInfo {
+                        tag: *tag,
+                        info: *info,
+                    };
+                }
+                pkg.cp_count = entries.len() as u16;
+
+                let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+                let n = pkg.save_state(&mut snap);
+                prop_assert!(n > 0);
+
+                let mut pkg2 = Package::empty();
+                prop_assert!(pkg2.restore_state(&snap[..n]));
+                prop_assert_eq!(pkg2.cp_count as usize, entries.len());
+                for (i, (tag, info)) in entries.iter().enumerate() {
+                    let entry = pkg2.cp_entry(i as u16).expect("entry present");
+                    prop_assert_eq!(entry.tag, *tag);
+                    prop_assert_eq!(&entry.info, info);
+                }
+            }
+
+            /// Applet snapshot round-trip with arbitrary entries.
+            #[test]
+            fn applet_snapshot_save_restore_round_trip(
+                entries in proptest::collection::vec(applet_entry_strategy(), 0..=MAX_APPLETS_PER_PACKAGE),
+            ) {
+                let mut pkg = Package::empty();
+                pkg.aid_len = 1;
+                pkg.aid[0] = 0xAA;
+                for (i, (aid, offset)) in entries.iter().enumerate() {
+                    let mut info = super::super::super::AppletInfo::empty();
+                    info.aid_len = aid.len() as u8;
+                    info.aid[..aid.len()].copy_from_slice(aid);
+                    info.install_method_offset = *offset;
+                    pkg.applets[i] = Some(info);
+                }
+                pkg.applet_count = entries.len() as u8;
+
+                let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+                let n = pkg.save_state(&mut snap);
+                prop_assert!(n > 0);
+
+                let mut pkg2 = Package::empty();
+                prop_assert!(pkg2.restore_state(&snap[..n]));
+                prop_assert_eq!(pkg2.applet_count as usize, entries.len());
+                for (i, (aid, offset)) in entries.iter().enumerate() {
+                    let info = pkg2.applet(i as u8).expect("applet present");
+                    prop_assert_eq!(info.aid_slice(), aid.as_slice());
+                    prop_assert_eq!(info.install_method_offset, *offset);
+                }
+            }
+
+            /// Import snapshot round-trip with arbitrary entries.
+            #[test]
+            fn import_snapshot_save_restore_round_trip(
+                entries in proptest::collection::vec(import_entry_strategy(), 0..=MAX_IMPORTS_PER_PACKAGE),
+            ) {
+                let mut pkg = Package::empty();
+                pkg.aid_len = 1;
+                pkg.aid[0] = 0xAA;
+                for (i, (minor, major, aid)) in entries.iter().enumerate() {
+                    let mut info = super::super::super::ImportInfo::empty();
+                    info.minor_version = *minor;
+                    info.major_version = *major;
+                    info.aid_len = aid.len() as u8;
+                    info.aid[..aid.len()].copy_from_slice(aid);
+                    pkg.imports[i] = Some(info);
+                }
+                pkg.import_count = entries.len() as u8;
+
+                let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+                let n = pkg.save_state(&mut snap);
+                prop_assert!(n > 0);
+
+                let mut pkg2 = Package::empty();
+                prop_assert!(pkg2.restore_state(&snap[..n]));
+                prop_assert_eq!(pkg2.import_count as usize, entries.len());
+                for (i, (minor, major, aid)) in entries.iter().enumerate() {
+                    let info = pkg2.import(i as u8).expect("import present");
+                    prop_assert_eq!(info.minor_version, *minor);
+                    prop_assert_eq!(info.major_version, *major);
+                    prop_assert_eq!(info.aid_slice(), aid.as_slice());
+                }
+            }
+
+            /// Export snapshot round-trip with arbitrary classes.
+            #[test]
+            fn export_snapshot_save_restore_round_trip(
+                classes in proptest::collection::vec(export_class_strategy(), 0..=MAX_EXPORTED_CLASSES_PER_PACKAGE),
+            ) {
+                let mut pkg = Package::empty();
+                pkg.aid_len = 1;
+                pkg.aid[0] = 0xAA;
+                for (i, (offset, fields, methods)) in classes.iter().enumerate() {
+                    let mut info = super::super::super::ExportInfo::empty();
+                    info.class_offset = *offset;
+                    info.static_field_count = fields.len() as u8;
+                    info.static_method_count = methods.len() as u8;
+                    for (j, f) in fields.iter().enumerate() {
+                        info.static_field_offsets[j] = *f;
+                    }
+                    for (j, m) in methods.iter().enumerate() {
+                        info.static_method_offsets[j] = *m;
+                    }
+                    pkg.exports[i] = Some(info);
+                }
+                pkg.export_count = classes.len() as u8;
+
+                let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+                let n = pkg.save_state(&mut snap);
+                prop_assert!(n > 0);
+
+                let mut pkg2 = Package::empty();
+                prop_assert!(pkg2.restore_state(&snap[..n]));
+                prop_assert_eq!(pkg2.export_count as usize, classes.len());
+                for (i, (offset, fields, methods)) in classes.iter().enumerate() {
+                    let info = pkg2.export(i as u8).expect("export present");
+                    prop_assert_eq!(info.class_offset, *offset);
+                    prop_assert_eq!(info.static_field_count as usize, fields.len());
+                    prop_assert_eq!(info.static_method_count as usize, methods.len());
+                    for (j, f) in fields.iter().enumerate() {
+                        prop_assert_eq!(info.static_field_offset(j as u8), Some(*f));
+                    }
+                    for (j, m) in methods.iter().enumerate() {
+                        prop_assert_eq!(info.static_method_offset(j as u8), Some(*m));
+                    }
+                }
+            }
+
+            /// RefLocation snapshot round-trip with arbitrary deltas.
+            #[test]
+            fn ref_loc_snapshot_save_restore_round_trip(
+                byte_deltas in proptest::collection::vec(any::<u8>(), 0..=MAX_REF_LOC_BYTE_INDICES),
+                byte2_deltas in proptest::collection::vec(any::<u8>(), 0..=MAX_REF_LOC_BYTE2_INDICES),
+            ) {
+                let mut pkg = Package::empty();
+                pkg.aid_len = 1;
+                pkg.aid[0] = 0xAA;
+                for (i, b) in byte_deltas.iter().enumerate() {
+                    pkg.ref_loc_byte_deltas[i] = *b;
+                }
+                pkg.ref_loc_byte_count = byte_deltas.len() as u16;
+                for (i, b) in byte2_deltas.iter().enumerate() {
+                    pkg.ref_loc_byte2_deltas[i] = *b;
+                }
+                pkg.ref_loc_byte2_count = byte2_deltas.len() as u16;
+
+                let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+                let n = pkg.save_state(&mut snap);
+                prop_assert!(n > 0);
+
+                let mut pkg2 = Package::empty();
+                prop_assert!(pkg2.restore_state(&snap[..n]));
+                prop_assert_eq!(pkg2.ref_loc_byte_count as usize, byte_deltas.len());
+                prop_assert_eq!(pkg2.ref_loc_byte_deltas(), byte_deltas.as_slice());
+                prop_assert_eq!(pkg2.ref_loc_byte2_count as usize, byte2_deltas.len());
+                prop_assert_eq!(pkg2.ref_loc_byte2_deltas(), byte2_deltas.as_slice());
+            }
+
+            /// StaticField snapshot round-trip with arbitrary values.
+            #[test]
+            fn static_field_snapshot_save_restore_round_trip(
+                image_size in any::<u16>(),
+                reference_count in any::<u16>(),
+            ) {
+                let mut pkg = Package::empty();
+                pkg.aid_len = 1;
+                pkg.aid[0] = 0xAA;
+                pkg.static_field_image_size = image_size;
+                pkg.static_reference_count = reference_count;
+
+                let mut snap = [0u8; Package::MAX_SNAPSHOT_SIZE];
+                let n = pkg.save_state(&mut snap);
+                prop_assert!(n > 0);
+
+                let mut pkg2 = Package::empty();
+                prop_assert!(pkg2.restore_state(&snap[..n]));
+                prop_assert_eq!(pkg2.static_field_image_size, image_size);
+                prop_assert_eq!(pkg2.static_reference_count, reference_count);
+            }
+        }
     }
 }
