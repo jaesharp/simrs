@@ -18,20 +18,12 @@
 //! If any of the operand widths drift again (assembler vs codegen vs
 //! dispatcher), at least one of these tests will fail at execute time.
 
-use simrs_jcasm::jcasm;
-use simrs_jcvm::JcVM;
-use simrs_jcvm::cap::{build_cap_blob, parse_cap};
-use simrs_jcvm::opcodes::ExecResult;
+#[path = "support/mod.rs"]
+mod support;
 
-/// Run the method-0 of a `jcasm!`-built applet through `JcVM`.
-fn run(aid: &[u8], methods: &[&[u8]]) -> ExecResult {
-    let mut buf = [0u8; 4096];
-    let len = build_cap_blob(aid, methods, &mut buf);
-    let pkg = parse_cap(&buf[..len]).expect("CAP blob parses");
-    let mut vm = JcVM::<1024, 4>::new();
-    let idx = vm.load_package(pkg).expect("package loads");
-    vm.execute(idx, 0)
-}
+use simrs_jcasm::jcasm;
+use simrs_jcvm::opcodes::ExecResult;
+use support::run_jcasm as run;
 
 // =========================================================================
 // Instance field accessors -- 1-byte operand (per JCVM 3.2 § 7).

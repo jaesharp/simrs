@@ -21,19 +21,12 @@
 //!   - Section 7.5.8: Method return (sreturn, return)
 //!   - Section 7.5.9: Method invocation (invokestatic)
 
-use simrs_jcasm::jcasm;
-use simrs_jcvm::JcVM;
-use simrs_jcvm::opcodes::ExecResult;
+#[path = "support/mod.rs"]
+mod support;
 
-/// Helper: assemble, build CAP, load, execute method 0.
-fn run_applet(aid: &[u8], methods: &[&[u8]]) -> ExecResult {
-    let mut blob = [0u8; 512];
-    let len = simrs_jcvm::cap::build_cap_blob(aid, methods, &mut blob);
-    let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).expect("valid CAP");
-    let mut vm = JcVM::<4096, 4>::new();
-    let idx = vm.load_package(pkg).expect("load");
-    vm.execute(idx, 0)
-}
+use simrs_jcasm::jcasm;
+use simrs_jcvm::opcodes::ExecResult;
+use support::run_jcasm as run_applet;
 
 // =========================================================================
 // CONSTANTS: sconst_m1 .. sconst_5, bspush, sspush
@@ -485,13 +478,8 @@ mod proptests {
             bytecode[1] = a as u8;
             bytecode[3] = b as u8;
 
-            let mut blob = [0u8; 512];
             let methods: &[&[u8]] = &[&bytecode];
-            let len = simrs_jcvm::cap::build_cap_blob(aid, methods, &mut blob);
-            let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).unwrap();
-            let mut vm = JcVM::<4096, 4>::new();
-            let idx = vm.load_package(pkg).unwrap();
-            let result = vm.execute(idx, 0);
+            let result = run_applet(aid, methods);
 
             prop_assert_eq!(result, ExecResult::ReturnShort(expected));
         }
@@ -513,13 +501,8 @@ mod proptests {
             let mut bytecode = m[0].to_vec();
             bytecode[1] = x as u8;
 
-            let mut blob = [0u8; 512];
             let methods: &[&[u8]] = &[&bytecode];
-            let len = simrs_jcvm::cap::build_cap_blob(aid, methods, &mut blob);
-            let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).unwrap();
-            let mut vm = JcVM::<4096, 4>::new();
-            let idx = vm.load_package(pkg).unwrap();
-            let result = vm.execute(idx, 0);
+            let result = run_applet(aid, methods);
 
             prop_assert_eq!(result, ExecResult::ReturnShort(expected));
         }
@@ -545,13 +528,8 @@ mod proptests {
             bytecode[1] = a as u8;
             bytecode[3] = b as u8;
 
-            let mut blob = [0u8; 512];
             let methods: &[&[u8]] = &[&bytecode];
-            let len = simrs_jcvm::cap::build_cap_blob(aid, methods, &mut blob);
-            let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).unwrap();
-            let mut vm = JcVM::<4096, 4>::new();
-            let idx = vm.load_package(pkg).unwrap();
-            let result = vm.execute(idx, 0);
+            let result = run_applet(aid, methods);
 
             prop_assert_eq!(result, ExecResult::ReturnShort(expected));
         }
@@ -568,13 +546,8 @@ mod proptests {
             let bytecode = vec![0x10, val as u8, sstore_op, sload_op, 0x78];
 
             let aid = &[0xA0, 0x00, 0x00, 0x62, 0x83];
-            let mut blob = [0u8; 512];
             let methods: &[&[u8]] = &[&bytecode];
-            let len = simrs_jcvm::cap::build_cap_blob(aid, methods, &mut blob);
-            let pkg = simrs_jcvm::cap::parse_cap(&blob[..len]).unwrap();
-            let mut vm = JcVM::<4096, 4>::new();
-            let idx = vm.load_package(pkg).unwrap();
-            let result = vm.execute(idx, 0);
+            let result = run_applet(aid, methods);
 
             prop_assert_eq!(result, ExecResult::ReturnShort(expected));
         }

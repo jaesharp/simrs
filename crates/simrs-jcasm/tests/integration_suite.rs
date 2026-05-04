@@ -18,19 +18,12 @@
 //! field-access operand-width bug evaded by sneaking past the
 //! assembler-only and dispatcher-only tests.
 
-use simrs_jcasm::jcasm;
-use simrs_jcvm::JcVM;
-use simrs_jcvm::cap::{build_cap_blob, parse_cap};
-use simrs_jcvm::opcodes::ExecResult;
+#[path = "support/mod.rs"]
+mod support;
 
-fn run(aid: &[u8], methods: &[&[u8]]) -> ExecResult {
-    let mut buf = [0u8; 4096];
-    let len = build_cap_blob(aid, methods, &mut buf);
-    let pkg = parse_cap(&buf[..len]).expect("CAP blob parses");
-    let mut vm = JcVM::<4096, 4>::new();
-    let idx = vm.load_package(pkg).expect("package loads");
-    vm.execute(idx, 0)
-}
+use simrs_jcasm::jcasm;
+use simrs_jcvm::opcodes::ExecResult;
+use support::run_jcasm as run;
 
 // =========================================================================
 // Int arithmetic (iadd/isub/imul/idiv/irem/ineg)
