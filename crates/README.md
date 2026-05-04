@@ -188,11 +188,11 @@ graph TB
 | [`simrs-iso9797`](simrs-iso9797/) | Composition | yes | ISO 9797-1 DES/AES CBC-MAC (algorithms 1/3, CMAC) | [des](simrs-des/), [rijndael](simrs-rijndael/) | -- |
 | [`simrs-rsa`](simrs-rsa/) | Composition | yes | RSA public-key crypto (512-2048 bits, PKCS#1) | [bignum](simrs-bignum/), [sha1](simrs-sha1/), [sha256](simrs-sha256/) | -- |
 | [`simrs-gp-keys`](simrs-gp-keys/) | Composition | yes | GlobalPlatform key set types (ENC/MAC/DEK) | [secret](simrs-secret/) | -- |
-| [`simrs-gp-scp`](simrs-gp-scp/) | Composition | yes | SCP01/SCP02/SCP03 secure channel protocols (GP 2.1.1 + Amd D) | [des](simrs-des/), [rijndael](simrs-rijndael/), [iso9797](simrs-iso9797/), [gp-keys](simrs-gp-keys/) | -- |
+| [`simrs-gp-scp`](simrs-gp-scp/) | Composition | yes | SCP01/SCP02/SCP03 secure channel protocols (GP 2.3.1 + Amendment D) | [des](simrs-des/), [rijndael](simrs-rijndael/), [iso9797](simrs-iso9797/), [gp-keys](simrs-gp-keys/) | -- |
 | [`simrs-gp-open`](simrs-gp-open/) | Composition | yes | GlobalPlatform OPEN card manager, applet registry, lifecycle | [iso7816](simrs-iso7816/), [bertlv](simrs-bertlv/), [gp-keys](simrs-gp-keys/), [gp-scp](simrs-gp-scp/) | -- |
 | [`simrs-gp-card`](simrs-gp-card/) | Composition | yes | GP card composition (ISD + applet registry + SCP session) | [gp-open](simrs-gp-open/), [jcre](simrs-jcre/)^opt^ | -- |
-| [`simrs-jcvm-opcodes`](simrs-jcvm-opcodes/) | Composition | yes | JavaCard bytecode opcode constants (shared by VM and compiler) | -- | -- |
-| [`simrs-jcvm`](simrs-jcvm/) | Composition | yes | JavaCard Virtual Machine 2.1.1 interpreter | [jcvm-opcodes](simrs-jcvm-opcodes/) | -- |
+| [`simrs-jcvm-opcodes`](simrs-jcvm-opcodes/) | Composition | yes | JavaCard bytecode opcode constants (JCVM 3.2 § 7.5; narrow + 16 wide-offset conditional branches at 0x96..=0xA5) | -- | -- |
+| [`simrs-jcvm`](simrs-jcvm/) | Composition | yes | JavaCard Virtual Machine interpreter (JCVM 3.2 most opcodes; component-tagged CAP parser surfaces 10 of 13 components on `Package`) | [jcvm-opcodes](simrs-jcvm-opcodes/) | -- |
 | [`simrs-jcre`](simrs-jcre/) | Composition | yes | JavaCard Runtime Environment (applet lifecycle, firewall, transactions) | [jcvm](simrs-jcvm/), [iso7816](simrs-iso7816/) | -- |
 | [`simrs-jcasm`](simrs-jcasm/) | Composition | **no** | JavaCard Assembler (HLA syntax, CAP emission) | [jcvm-opcodes](simrs-jcvm-opcodes/) | -- |
 | [`simrs-jcasm-jacc`](simrs-jcasm-jacc/) | Composition | **no** | JavaCard Assembler frontend for the jacc compiler | [jcasm](simrs-jcasm/) | -- |

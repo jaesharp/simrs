@@ -45,6 +45,7 @@
   - [`simrs-consttime-validation`](#simrs-consttime-validation)
 - [Layer 9 — Profile Tooling](#layer-9--profile-tooling)
   - [`simrs-profile`](#simrs-profile)
+- [JavaCard / GlobalPlatform Stack](#javacard--globalplatform-stack)
 - [Data Flows](#data-flows)
 - [Standards Reference](#standards-reference)
 
@@ -1064,6 +1065,39 @@ pub enum AuthConfig {
 ```
 
 PE types parsed: Header (0), GFM (1), PINCodes (2), PUKCodes (3), AKAParameter (4), CDMAParameter (5), SecurityDomain (6), RFM (7), End (10), MF (16), CD (17), Telecom (18), USIM (19), OPT-USIM (20), ISIM (21), OPT-ISIM (22), PHONEBOOK (23), GSM-ACCESS (24), CSIM (25), OPT-CSIM (26), DF-5GS (28), DF-SAIP (29). Unknown PEs are silently skipped for forward compatibility with newer TCA spec versions.
+
+---
+
+## JavaCard / GlobalPlatform Stack
+
+The JavaCard runtime, GP card-management plane, and CAP-format
+toolchain live in their own subsystem. This README's layer
+breakdown does not enumerate them individually -- the canonical
+reference is
+[`docs/standards/06-globalplatform.md`](../standards/06-globalplatform.md),
+which carries spec-citation-level conformance status, the phased
+upgrade plan (Phase 1 GP 2.3.1 closeout, Phase 2 CAP component
+model, Phase 3 JCVM 3.2 instruction set, Phase 4 JCRE 3.x runtime,
+Phase 5 JC API surface), and the GP/JC standards-to-crate map.
+
+Crates by role:
+
+| Crate | Role | Spec target |
+|-------|------|-------------|
+| `simrs-jcvm` | Bytecode interpreter, CAP file parser, frame/stack machine, firewall | JCVM 3.2 |
+| `simrs-jcvm-opcodes` | Shared opcode constants | JCVM 3.2 § 7.5 |
+| `simrs-jcre` | Applet trait, transient/persistent memory tiers, transactions | JCRE 3.2 |
+| `simrs-jacc` | `.java` → `.cap` converter (writer emits all 13 components) | JCVM 3.2 § 6 |
+| `simrs-jccompile` | Java source → JcClass IR → bytecode | JCVM 3.2 |
+| `simrs-jcasm` | JCVM HLA assembler | JCVM 3.2 |
+| `simrs-gp-keys` | ENC/MAC/DEK keystore, versioned per SD | GP 2.3.1 Appendix B |
+| `simrs-gp-scp` | SCP01 / SCP02 / SCP03 secure-channel state machines | GP 2.3.1 Appendix D / E + Amendment D |
+| `simrs-gp-open` | Card Manager, ISD, AID dispatch, lifecycle | GP 2.3.1 clause 11 |
+| `simrs-gp-card` | Top-level GP card surface | GP 2.3.1 clause 5 |
+| `simrs-jcop-profile` | JCOP variant profile data (JCOP10..31bio) | -- |
+| `simrs-controlplane` | Control-plane applet (in flight) | project-specific |
+| `simrs-jcsl` | Oracle JCDK simulator wrapper (differential reference) | -- |
+| `simrs-jcardengine` | martinpaljak `JCardEngine` wrapper (differential reference) | -- |
 
 ---
 

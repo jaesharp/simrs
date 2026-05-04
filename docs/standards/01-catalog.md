@@ -114,7 +114,7 @@ conformance status and the phased upgrade plan live in
 
 | Spec | Title | Version | Status | simrs Crate | Notes |
 |------|-------|---------|--------|-------------|-------|
-| JC Virtual Machine Spec | Bytecode set, CAP format, type system | 3.2 | Primary, in flight | jcvm | Most opcodes implemented; CAP parser is internal blob (Phase 2 fix) |
+| JC Virtual Machine Spec | Bytecode set, CAP format, type system | 3.2 | Primary, in flight | jcvm, jacc | Most narrow opcodes + 16 wide-offset conditional branches; component-tagged CAP parser surfaces 10 of 13 components on `Package` (Header/Method/Descriptor/ConstantPool/Applet/Import/Export/RefLocation/StaticField summary/Class MVP); jacc CAP writer emits all 13 components, strictly spec-compliant for standalone applets |
 | JC Runtime Environment Spec | Applet lifecycle, firewall, transactions | 3.2 | Primary, in flight | jcre | 2.1.1 baseline; multiselect/SIO/extended-APDU pending |
 | JC API | Framework, security, crypto, NIO, events, KDF, certs | 3.2 | Primary, in flight | jcre, jcvm/native | Small subset of packages today; Phase 5 is the bulk |
 | JC VM Spec + RE Spec | (latest classic) | 3.1 | Reference | -- | Normative clarity for 3.2 ambiguity |
