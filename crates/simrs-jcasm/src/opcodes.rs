@@ -574,7 +574,7 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     OpcodeEntry {
         mnemonic: "getstatic_a",
         byte: op::GETSTATIC_A,
-        arg: ArgKind::FieldOffset,
+        arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "getstatic_b",
@@ -584,17 +584,17 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     OpcodeEntry {
         mnemonic: "getstatic_s",
         byte: op::GETSTATIC_S,
-        arg: ArgKind::FieldOffset,
+        arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "getstatic_i",
         byte: op::GETSTATIC_I,
-        arg: ArgKind::FieldOffset,
+        arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "putstatic_a",
         byte: op::PUTSTATIC_A,
-        arg: ArgKind::FieldOffset,
+        arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "putstatic_b",
@@ -604,12 +604,12 @@ pub static OPCODE_TABLE: &[OpcodeEntry] = &[
     OpcodeEntry {
         mnemonic: "putstatic_s",
         byte: op::PUTSTATIC_S,
-        arg: ArgKind::FieldOffset,
+        arg: ArgKind::Imm16,
     },
     OpcodeEntry {
         mnemonic: "putstatic_i",
         byte: op::PUTSTATIC_I,
-        arg: ArgKind::FieldOffset,
+        arg: ArgKind::Imm16,
     },
     // Objects
     OpcodeEntry {

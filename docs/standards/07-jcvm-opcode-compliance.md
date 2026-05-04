@@ -403,6 +403,29 @@ recollection of JCVM § 6.13 puts the field-descriptor type as a
 classref encoding). If recollection holds, the writer is emitting
 the wrong width. **Verify against spec.**
 
+##### `getfield_*` / `putfield_*` operand width -- FIXED
+
+Prior state: dispatcher (simrs-jcvm) consumed 2 operand bytes
+("field_offset + reserved class index") for all 8 instance field
+accessors and `GETSTATIC_B`/`PUTSTATIC_B`, while the assembler
+(simrs-jcasm) emitted only 1 byte and the IR codegen
+(simrs-jccompile) emitted 2 bytes. Latent bug: assembler-emitted
+bytecode could not execute correctly through the dispatcher (the
+trailing instruction byte got consumed as the "reserved" byte).
+No test caught this because no end-to-end "assemble -> execute"
+test crossed that interface.
+
+Fixed in spec-compliance cutover follow-up:
+- Dispatcher reads 1 operand byte (matches JCVM 3.2 § 7).
+- Codegen emits 1 operand byte.
+- `GETSTATIC_S/A/I` and `PUTSTATIC_S/A/I` keep 2-byte u16 BE
+  index semantics; their assembler `OpcodeEntry` was migrated
+  from `ArgKind::FieldOffset` (1 byte) to `ArgKind::Imm16`
+  (2 bytes) to match.
+- All test fixtures using the legacy 3-byte form
+  (`OPCODE, off, 0`) were rewritten to 2-byte form
+  (`OPCODE, off`).
+
 ##### Wide-branch range (already covered)
 
 See "Per-Opcode Comparison" section above. 0x96..=0xA5 in the

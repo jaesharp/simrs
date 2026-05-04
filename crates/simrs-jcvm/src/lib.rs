@@ -1702,14 +1702,10 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
 
                 // --- Static field access ---
                 opcodes::GETSTATIC_B => {
-                    // Operand: 2 bytes -- field_offset, reserved.
+                    // Operand: 1-byte field offset (per JCVM 3.2 § 7).
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    // Consume second byte (reserved/class index).
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let idx = u16::from(field_offset) as usize;
                     let val = if idx < self.static_fields.len() {
                         u16::from(self.static_fields[idx])
@@ -1722,12 +1718,10 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                 }
 
                 opcodes::PUTSTATIC_B => {
+                    // Operand: 1-byte field offset (per JCVM 3.2 § 7).
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let val = match self.pop() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -1963,13 +1957,10 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
 
                 // --- Field access ---
                 opcodes::GETFIELD_B => {
+                    // Operand: 1-byte field offset (per JCVM 3.2 § 7).
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    // Consume second byte (class index, reserved).
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let obj_ref = match self.pop() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -1992,13 +1983,10 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                 }
 
                 opcodes::PUTFIELD_B => {
+                    // Operand: 1-byte field offset (per JCVM 3.2 § 7).
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    // Consume second byte (class index, reserved).
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let value = match self.pop() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -2174,9 +2162,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let obj_ref = match self.pop() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -2202,9 +2187,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let value = match self.pop_i16() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -2233,9 +2215,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let obj_ref = match self.pop() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -2261,9 +2240,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let value = match self.pop() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -2292,9 +2268,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let obj_ref = match self.pop() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -2320,9 +2293,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
                     let Some(field_offset) = self.fetch_u8(bytecode, bytecode_len) else {
                         return ExecResult::EndOfBytecode;
                     };
-                    if self.fetch_u8(bytecode, bytecode_len).is_none() {
-                        return ExecResult::EndOfBytecode;
-                    }
                     let val = match self.pop_int() {
                         Ok(v) => v,
                         Err(e) => return e,
@@ -4708,7 +4678,7 @@ mod tests {
     #[test]
     fn putstatic_getstatic_roundtrip() {
         // putstatic_b field_offset=0, then getstatic_b field_offset=0.
-        let bc = [BSPUSH, 42, PUTSTATIC_B, 0, 0, GETSTATIC_B, 0, 0, SRETURN];
+        let bc = [BSPUSH, 42, PUTSTATIC_B, 0, GETSTATIC_B, 0, SRETURN];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
     }
@@ -4716,7 +4686,7 @@ mod tests {
     #[test]
     fn getstatic_default_zero() {
         // Read a static field that has not been written.
-        let bc = [GETSTATIC_B, 5, 0, SRETURN];
+        let bc = [GETSTATIC_B, 5, SRETURN];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
     }
@@ -5415,9 +5385,9 @@ mod tests {
             NEW, 4, 0,   // 0-2: allocate instance
             DUP, // 3: dup objref
             SSPUSH, 0x12, 0x34, // 4-6: push 0x1234
-            PUTFIELD_S, 0, 0, // 7-9: store short at offset 0
-            GETFIELD_S, 0, 0,       // 10-12: read short at offset 0
-            SRETURN, // 13
+            PUTFIELD_S, 0, // 7-8: store short at offset 0
+            GETFIELD_S, 0,       // 9-10: read short at offset 0
+            SRETURN, // 11
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0x1234));
@@ -5430,9 +5400,9 @@ mod tests {
             NEW, 4, 0,   // 0-2: allocate
             DUP, // 3: dup objref
             BSPUSH, 42, // 4-5: push 42
-            PUTFIELD_A, 0, 0, // 6-8: store ref at offset 0
-            GETFIELD_A, 0, 0,       // 9-11: read ref at offset 0
-            SRETURN, // 12
+            PUTFIELD_A, 0, // 6-7: store ref at offset 0
+            GETFIELD_A, 0,       // 8-9: read ref at offset 0
+            SRETURN, // 10
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
@@ -5445,9 +5415,9 @@ mod tests {
             NEW, 8, 0,   // 0-2: allocate instance with 8 field bytes
             DUP, // 3: dup objref
             IIPUSH, 0x00, 0x01, 0x23, 0x45, // 4-8: push int
-            PUTFIELD_I, 0, 0, // 9-11: store int at offset 0
-            GETFIELD_I, 0, 0,       // 12-14: read int at offset 0
-            IRETURN, // 15
+            PUTFIELD_I, 0, // 9-10: store int at offset 0
+            GETFIELD_I, 0,       // 11-12: read int at offset 0
+            IRETURN, // 13
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(0x0001_2345));
@@ -6137,7 +6107,7 @@ mod tests {
     /// JCVM 3.2 Ch7 `getfield_b`: `NullPointerException` on null objectref.
     #[test]
     fn getfield_b_null_ref() {
-        let bc = [ACONST_NULL, GETFIELD_B, 0, 0];
+        let bc = [ACONST_NULL, GETFIELD_B, 0];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
@@ -6145,7 +6115,7 @@ mod tests {
     /// JCVM 3.2 Ch7 `getfield_s`: `NullPointerException` on null objectref.
     #[test]
     fn getfield_s_null_ref() {
-        let bc = [ACONST_NULL, GETFIELD_S, 0, 0];
+        let bc = [ACONST_NULL, GETFIELD_S, 0];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
@@ -6153,7 +6123,7 @@ mod tests {
     /// JCVM 3.2 Ch7 `getfield_i`: `NullPointerException` on null objectref.
     #[test]
     fn getfield_i_null_ref() {
-        let bc = [ACONST_NULL, GETFIELD_I, 0, 0];
+        let bc = [ACONST_NULL, GETFIELD_I, 0];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
@@ -6161,7 +6131,7 @@ mod tests {
     /// JCVM 3.2 Ch7 `putfield_b`: `NullPointerException` on null objectref.
     #[test]
     fn putfield_b_null_ref() {
-        let bc = [ACONST_NULL, SCONST_1, PUTFIELD_B, 0, 0];
+        let bc = [ACONST_NULL, SCONST_1, PUTFIELD_B, 0];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
@@ -6443,8 +6413,8 @@ mod tests {
         let bc = [
             NEW, 8, 0, // alloc with 8 field bytes
             DUP, SSPUSH, 0xAB, 0xCD, // push 0xABCD (as signed i16 = -21555)
-            PUTFIELD_S, 2, 0, // store short at field offset 2
-            GETFIELD_S, 2, 0, // load short at field offset 2
+            PUTFIELD_S, 2, // store short at field offset 2
+            GETFIELD_S, 2, // load short at field offset 2
             SRETURN,
         ];
         let mut vm = vm_with_method(&bc);
@@ -6458,7 +6428,7 @@ mod tests {
         let bc = [
             NEW, 8, 0, // alloc with 8 field bytes
             DUP, IIPUSH, 0xFF, 0xFF, 0xFF, 0xFE, // push -2
-            PUTFIELD_I, 0, 0, GETFIELD_I, 0, 0, IRETURN,
+            PUTFIELD_I, 0, GETFIELD_I, 0, IRETURN,
         ];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-2));
@@ -6475,9 +6445,7 @@ mod tests {
             ACONST_NULL,
             PUTFIELD_A,
             0,
-            0,
             GETFIELD_A,
-            0,
             0,
             SRETURN,
         ];
@@ -6488,7 +6456,7 @@ mod tests {
     /// JCVM 3.2 Ch7 `putfield_s`: `NullPointerException` on null objectref.
     #[test]
     fn putfield_s_null_ref() {
-        let bc = [ACONST_NULL, SCONST_1, PUTFIELD_S, 0, 0];
+        let bc = [ACONST_NULL, SCONST_1, PUTFIELD_S, 0];
         let mut vm = vm_with_method(&bc);
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }

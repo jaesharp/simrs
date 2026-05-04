@@ -761,7 +761,6 @@ fn emit_assign(
             let op = putfield_opcode(field_ty);
             cg.emit(op);
             cg.emit(offset);
-            cg.emit(0); // reserved class index byte
             Ok(())
         }
         LValue::ArrayElem { array, index } => {
@@ -902,7 +901,6 @@ fn emit_expr(cg: &mut MethodCodegen, expr: &JcExpr, cm: &CheckedMethod) -> Resul
             let op = getfield_opcode(field_ty);
             cg.emit(op);
             cg.emit(offset);
-            cg.emit(0); // reserved class index byte
             Ok(())
         }
         JcExpr::BinOp { op, left, right } => {
