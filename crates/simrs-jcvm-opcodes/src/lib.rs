@@ -7,13 +7,18 @@
 //! the compiler (`simrs-jccompile`), and any other crate that needs to
 //! emit or inspect JCVM bytecodes.
 //!
-//! # Opcode numbering
+//! # Opcode numbering -- KNOWN COMPLIANCE GAP
 //!
-//! Most opcodes use the JCVM 3.2 specification numbering. A handful of
-//! the *original* opcodes were committed before the spec numbering was
-//! finalised and may differ from the canonical values (marked with `NOTE:`
-//! comments).  These will be reconciled when testing against real
-//! converted `.cap` files.
+//! A substantial fraction of the implemented opcodes use **non-spec
+//! values**. This is intentional and tracked: the codebase is
+//! internally consistent, but is not interoperable with real
+//! Oracle-converted CAP files. See
+//! [`docs/standards/07-jcvm-opcode-compliance.md`](../../../../docs/standards/07-jcvm-opcode-compliance.md)
+//! for the full audit, deviation catalogue, and migration plan.
+//!
+//! Per-deviation `NOTE: spec=...` comments in this file are the
+//! authoritative truth for the actual spec value of each affected
+//! constant.
 
 #![no_std]
 
@@ -86,9 +91,16 @@ pub const ALOAD_2: u8 = 0x1A;
 pub const ALOAD_3: u8 = 0x1B;
 
 /// `astore`: store reference to local variable
+/// NOTE: spec=0x28 (codebase=0x29; rotated by one with `sstore`).
+/// Tracked in `docs/standards/07-jcvm-opcode-compliance.md`.
 pub const ASTORE: u8 = 0x29;
-/// `astore_0`: store reference to local 0
+/// `astore_0`: store reference to local 0.
+///
 /// NOTE: spec=0x2B, but established as 0x2A in this codebase.
+/// `astore_1`/`astore_2`/`astore_3` (spec 0x2C/0x2D/0x2E) are not
+/// declared as separate constants in this crate -- the interpreter
+/// dispatches the range `0x2A..=0x2D` as a contiguous `astore_n`
+/// family, which silently overlaps codebase `sstore_0..=sstore_2`.
 pub const ASTORE_0: u8 = 0x2A;
 
 // --- Local variable loads: short ---
@@ -161,10 +173,14 @@ pub const SASTORE: u8 = 0x26;
 pub const BASTORE: u8 = 0x27;
 
 /// `aaload`: load reference from reference array
+/// NOTE: spec=0x24 (codebase=0x37, swapped with `saload`/`aastore`).
+/// Tracked in `docs/standards/07-jcvm-opcode-compliance.md`.
 pub const AALOAD: u8 = 0x37;
 /// `aastore`: store reference to reference array
+/// NOTE: spec=0x37 (codebase=0x38, displaced by codebase `aaload`).
 pub const AASTORE: u8 = 0x38;
 /// `iaload`: load int from int array (pushes two stack words)
+/// NOTE: spec=0x27 (codebase=0x39, where spec puts `sastore`).
 pub const IALOAD: u8 = 0x39;
 /// `iastore`: store int to int array (pops two stack words)
 pub const IASTORE: u8 = 0x3A;
@@ -179,9 +195,14 @@ pub const POP2: u8 = 0x3C;
 pub const DUP: u8 = 0x3D;
 /// `dup2`: duplicate top two stack words
 pub const DUP2: u8 = 0x3E;
-/// `swap`: swap top two stack values
-/// NOTE: spec calls this `dup_x` at 0x3F; real `swap_x` is 0x40.
-/// Kept at 0x3F to match existing codebase convention.
+/// `swap`: swap top two stack values.
+///
+/// NOTE: spec calls 0x3F `dup_x` (parameterised dup with operand
+/// byte) and 0x40 `swap_x` (parameterised swap with operand byte).
+/// Codebase `SWAP` is operand-less and behaves like a primitive
+/// 2-operand swap -- this is a simrs-specific extension at the
+/// spec opcode for `dup_x`. Tracked in
+/// `docs/standards/07-jcvm-opcode-compliance.md`.
 pub const SWAP: u8 = 0x3F;
 
 // --- Short arithmetic ---
@@ -429,10 +450,20 @@ pub const INSTANCEOF: u8 = 0x95;
 // 1-byte opcode + 2-byte operand have been consumed).
 //
 // JCVM 3.2 § 7.5: every narrow conditional branch at 0x60..=0x6F
-// has a wide counterpart at 0x96..=0xA5 with the same stack effect
-// and comparison; only the operand width differs. The wide form is
-// emitted by the converter when the target is outside the narrow
-// `[-128, +127]` byte-offset reach.
+// has a wide counterpart with the same stack effect and comparison;
+// only the operand width differs. The wide form is emitted by the
+// converter when the target is outside the narrow `[-128, +127]`
+// byte-offset reach.
+//
+// **UNVERIFIED** opcode range: codebase places these at 0x96..=0xA5.
+// The audit author's recollection of JCVM 3.x Table 7-1 puts them
+// at 0x98..=0xA7, with 0x96/0x97 reserved for `sinc_w`/`iinc_w`
+// (extended-format increments). If that recollection is correct,
+// every wide-branch constant below is off by 2 and stops 2 short.
+// This needs verification against a primary source before either
+// relocating these constants or asserting the codebase is correct.
+// See `docs/standards/07-jcvm-opcode-compliance.md` open question
+// #1.
 
 /// `ifeq_w`: branch if top == 0 (2-byte signed offset)
 pub const IFEQ_W: u8 = 0x96;

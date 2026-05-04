@@ -26,6 +26,7 @@ Higher-level design and stack-wide reasoning.
 | [standards/04-proactive.md](standards/04-proactive.md) | CAT / proactive command set, event downloads, PROVIDE LOCAL INFORMATION |
 | [standards/05-crate-impact.md](standards/05-crate-impact.md) | Crate-by-crate matrix of 4G / 5G / GP impact and status |
 | [standards/06-globalplatform.md](standards/06-globalplatform.md) | GP 2.3.1 / JC 3.2 conformance status, phased upgrade plan, JCOP variant map |
+| [standards/07-jcvm-opcode-compliance.md](standards/07-jcvm-opcode-compliance.md) | JCVM opcode compliance audit; ~30 deviations + ~20 missing opcodes catalogued |
 
 ## Style
 

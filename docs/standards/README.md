@@ -14,6 +14,7 @@ Colours follow the [Diagram Style Guide](../style/diagrams.md).
 | [Proactive UICC & SIM Toolkit](04-proactive.md) | CAT/USAT commands, FETCH, OTA, event downloads |
 | [Crate Impact Analysis](05-crate-impact.md) | What each standard means for simrs crate public API |
 | [GlobalPlatform & JavaCard](06-globalplatform.md) | GP card management, SCP01/SCP02/SCP03, JCVM bytecodes, JCRE runtime, JCOP profiles |
+| [JCVM Opcode Compliance Audit](07-jcvm-opcode-compliance.md) | Per-opcode comparison against JCVM 3.x Table 7-1; ~30 deviations + ~20 missing opcodes catalogued |
 
 ## Standards-to-Crate Map
 
