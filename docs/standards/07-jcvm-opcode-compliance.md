@@ -113,11 +113,85 @@ to 0x2F.
 | `istore_3` | 0x36 | 0x36 | (matches) |
 
 Note that `astore_1..3` are entirely absent from
-`simrs-jcvm-opcodes`; the interpreter dispatches `ASTORE_0..ASTORE_3`
-as a range pattern over `0x2A..0x2D`, which happens to overlap with
-the codebase `SSTORE_0..SSTORE_2`. **This is an actual semantic
-collision**, not just a numbering deviation -- only mitigated by
-the fact that no real CAP file currently exercises this path.
+`simrs-jcvm-opcodes` and from the interpreter dispatch. The
+interpreter handles only `ASTORE_0` as a single-value arm at 0x2A;
+the spec's optimised `astore_1..astore_3` opcodes have no handler
+at all. (No collision *within* the codebase mapping -- the audit
+author asserted one in an earlier draft and was wrong.)
+
+The real issue is **spec-CAP shadow dispatch**: when a CAP file
+emitted by Oracle's converter (which uses the spec mapping) runs
+under the legacy dispatcher, opcodes 0x2B..=0x2E in that CAP file
+**intend** `astore_0..astore_3` but **dispatch as** the codebase's
+`sstore_0..sstore_3` -- silently writing the *short* value at the
+top of the stack into the wrong local instead of the *reference*.
+This is the worst kind of miscompilation: no error, wrong result.
+
+A complete audit of all interpreter range patterns vs spec follows.
+
+### Spec-CAP shadow dispatch (interpreter range patterns)
+
+The interpreter dispatches 7 ranges as match arms in
+`simrs-jcvm/src/lib.rs`. Within the codebase opcode mapping these
+arms are non-overlapping (verified). The risk is what they
+accidentally dispatch when fed a spec-encoded CAP file:
+
+| Codebase range | Range arm dispatches as | Spec mapping at same range | Shadow risk |
+|----------------|-------------------------|----------------------------|-------------|
+| `SCONST_M1..=SCONST_5` (0x02..=0x08) | `sconst_*` push short literal | `sconst_*` push short literal | none -- mapping coincides |
+| `ICONST_M1..=ICONST_5` (0x09..=0x0F) | `iconst_*` push int literal | `iconst_*` push int literal | none -- mapping coincides |
+| `ALOAD_0..=ALOAD_3` (0x18..=0x1B) | aload local 0..3 | aload local 0..3 | none |
+| `SLOAD_0..=SLOAD_3` (0x1C..=0x1F) | sload local 0..3 | sload local 0..3 | none |
+| `ILOAD_0..=ILOAD_3` (0x20..=0x23) | iload local 0..3 | iload local 0..3 | none |
+| `SSTORE_0..=SSTORE_3` (0x2B..=0x2E) | sstore local 0..3 | **astore local 0..3** | **YES -- silent ref-vs-short miscompile** |
+| `ISTORE_0..=ISTORE_3` (0x33..=0x36) | istore local 0..3 | istore local 0..3 | none |
+
+Plus the single-arm stores:
+
+| Codebase opcode | Spec opcode at same byte | Shadow risk |
+|-----------------|-------------------------|-------------|
+| `ASTORE = 0x29` (with operand) | spec `sstore` at 0x29 | YES -- ref-vs-short miscompile |
+| `SSTORE = 0x28` (with operand) | spec `astore` at 0x28 | YES -- short-vs-ref miscompile |
+| `ISTORE = 0x2F` (with operand) | spec `sstore_0` (no operand!) | **YES -- worse: operand-width mismatch** |
+| `ASTORE_0 = 0x2A` (no operand) | spec `istore` at 0x2A (operand!) | **YES -- operand-width mismatch** |
+
+The last two are particularly nasty because they desynchronise the
+PC -- a spec-CAP `istore <idx>` becomes a codebase `astore_0`
+followed by a misinterpreted next byte. After this point, every
+subsequent opcode is at the wrong PC.
+
+Same shadow pattern in array load/store (all operand-less, so no
+PC desync, but read-vs-write swaps are still corruption-causing):
+
+| Byte | Codebase dispatch | Spec semantics | Shadow risk |
+|------|-------------------|----------------|-------------|
+| 0x24 | `saload` (read short) | `aaload` (read ref) | type-confused read |
+| 0x26 | `sastore` (write) | `saload` (read) | **write where spec reads** |
+| 0x27 | `bastore` (write) | `iaload` (read) | **write where spec reads** |
+| 0x37 | `aaload` (read) | `aastore` (write) | **read where spec writes** |
+| 0x38 | `aastore` (write) | `bastore` (write) | type-confused write |
+| 0x39 | `iaload` (read) | `sastore` (write) | **read where spec writes** |
+
+Field accessors (operand-width mismatches):
+
+| Byte | Codebase | Spec | PC desync? |
+|------|----------|------|------------|
+| 0xAD | `getfield_b` (with CP-token operand) | `getfield_a_this` (operand-less) | **YES** |
+| 0xAF | `putfield_b` (with operand) | `getfield_s_this` (operand-less) | **YES** |
+| 0xB3 | `getstatic_b` (with operand) | `putfield_s_this` (operand-less) | **YES** |
+| 0xB5 | `putstatic_b` (with operand) | `putfield_i_this` (operand-less) | **YES** |
+
+Stack: `SWAP = 0x3F` (operand-less) shadowed by spec `dup_x` (with
+operand) -- another PC desync.
+
+**Implication for the migration plan:** Phase A's "rewrite spec
+opcodes to codebase opcodes at parse time" must handle these
+operand-width mismatches, not just opcode value swaps. A simple
+byte-substitution table won't suffice for the operand-width
+cases (codebase `ISTORE`/`ASTORE_0` vs spec, codebase `*field_b`
+vs spec `*field_*_this`, codebase `SWAP` vs spec `dup_x`); the
+rewriter has to actually decode and re-encode the instruction
+stream.
 
 ### Array load / store
 
@@ -343,12 +417,14 @@ tests that use raw hex bytes (e.g. `[0x7A]` for `return`).
 2. **Add a `simrs-jcvm` build feature `spec-opcodes`** that
    re-exports the spec set as the canonical one. Off by default;
    on for converter-interop tests.
-3. **CAP file header carries the encoder-version.** When the parser
-   sees a CAP from the legacy encoder, it pre-rewrites bytecodes
-   into the canonical spec set; same for the spec encoder going
-   the other direction. This is a one-pass byte-substitution
-   keyed on the opcode prefix. The dispatch path uses one set
-   only.
+3. **CAP file header carries the encoder-version, and the parser
+   runs a real instruction-stream rewriter** when the encoder
+   doesn't match the dispatcher. **Note:** a flat byte-substitution
+   table is insufficient because of the operand-width mismatches
+   catalogued in "Spec-CAP shadow dispatch" above (legacy `ISTORE`,
+   `ASTORE_0`, `SWAP`, and `*field_b` differ from spec opcodes in
+   operand presence at the same byte). The rewriter must walk the
+   bytecode by spec-instruction-length tables, not by raw bytes.
 4. **Differential test against an Oracle-converted CAP file.**
    Take a known-good `HelloWorld.cap` from the JCDK; run it
    through both spec and legacy paths; assert identical APDU
