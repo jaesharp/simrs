@@ -82,12 +82,19 @@ const EXEC_LIMIT: u32 = 100_000;
 /// `HEAP_SIZE`: backing store for the object heap (bytes).
 /// `MAX_PACKAGES`: maximum loaded packages (applets).
 ///
-/// All persistent state (heap, packages, static fields) is included in
-/// snapshots. Transient state (stack, frames, locals, current context)
-/// is zeroed on restore, matching the JCRE spec: transient state is lost
-/// on card reset.
+/// **All** state is included in snapshots: heap, packages, static
+/// fields, the transaction journal, **and** the so-called "transient"
+/// state -- operand stack, call frames, locals, PC, current
+/// package/method/context. A snapshot is a full freeze; a restore
+/// resumes execution from the exact cycle the snapshot was taken.
+///
+/// This is intentionally distinct from JCRE card-reset semantics
+/// (which loses transient state). simrs is a simulator; its
+/// snapshot is a debugger/fuzzer checkpoint, not a hardware reset.
+/// Code that wants reset semantics should call a dedicated reset
+/// method, not piggyback on snapshot/restore.
 pub struct JcVM<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> {
-    // --- Persistent state (included in snapshot) ---
+    // --- Persistent state ---
     /// Object heap.
     heap: ObjectHeap<HEAP_SIZE>,
     /// Loaded packages.
@@ -97,7 +104,7 @@ pub struct JcVM<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> {
     /// Transaction journal.
     journal: TransactionJournal<JOURNAL_CAP>,
 
-    // --- Transient state (NOT in snapshot, zeroed on restore) ---
+    // --- Execution state (also included in snapshot) ---
     /// Operand stack (16-bit words).
     stack: [u16; MAX_STACK],
     /// Operand stack pointer (points to next free slot).
@@ -2886,10 +2893,16 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     // Snapshot support
     // -----------------------------------------------------------------------
 
-    /// Save persistent state to buffer. Returns bytes written, or 0 if buffer too small.
+    /// Save full state to buffer. Returns bytes written, or 0 if
+    /// buffer too small.
     ///
-    /// Only persistent state is saved: heap, packages, static fields.
-    /// Transient state (stack, frames, locals) is NOT saved.
+    /// Captures every piece of state the dispatcher reads from --
+    /// heap, packages, static fields, transaction journal, operand
+    /// stack, call frames, locals, PC, current package/method/
+    /// context. A successfully-restored snapshot resumes execution
+    /// from the exact cycle the snapshot was taken; observable
+    /// behaviour is identical to the un-snapshotted run from that
+    /// point forward.
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
         let mut off = 0;
 
@@ -2948,12 +2961,74 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
         buf[off] = self.process_method;
         off += 1;
 
+        // Transaction journal.
+        let journal_snap_size = self.journal.snapshot_size();
+        if buf.len() < off + journal_snap_size {
+            return 0;
+        }
+        let n = self.journal.save_state(&mut buf[off..]);
+        if n == 0 {
+            return 0;
+        }
+        off += n;
+
+        // Execution state -- operand stack, frames, locals, PC, and
+        // the various active-method/context pointers. Saved in a
+        // stable layout (no padding) so the byte stream is
+        // architecture-independent.
+        //
+        // Layout: 5 single-byte pointers (stack_ptr, frame_ptr,
+        // current_pkg, current_method, current_context) + pc (u16 BE)
+        // + MAX_FRAMES * 6 packed bytes per frame + MAX_STACK u16 BE
+        // stack words + MAX_LOCALS u16 BE local words.
+        let exec_bytes = 5 + 2 + MAX_FRAMES * 6 + MAX_STACK * 2 + MAX_LOCALS * 2;
+        if buf.len() < off + exec_bytes {
+            return 0;
+        }
+        buf[off] = self.stack_ptr;
+        off += 1;
+        buf[off] = self.frame_ptr;
+        off += 1;
+        buf[off] = self.current_pkg;
+        off += 1;
+        buf[off] = self.current_method;
+        off += 1;
+        buf[off] = self.current_context;
+        off += 1;
+        buf[off..off + 2].copy_from_slice(&self.pc.to_be_bytes());
+        off += 2;
+        for f in &self.frames {
+            buf[off] = f.return_pkg;
+            off += 1;
+            buf[off] = f.return_method;
+            off += 1;
+            buf[off..off + 2].copy_from_slice(&f.return_pc.to_be_bytes());
+            off += 2;
+            buf[off] = f.locals_base;
+            off += 1;
+            buf[off] = f.stack_base;
+            off += 1;
+        }
+        for &word in &self.stack {
+            buf[off..off + 2].copy_from_slice(&word.to_be_bytes());
+            off += 2;
+        }
+        for &word in &self.locals {
+            buf[off..off + 2].copy_from_slice(&word.to_be_bytes());
+            off += 2;
+        }
+
         off
     }
 
-    /// Restore persistent state from buffer. Returns true on success.
+    /// Restore full state from buffer. Returns true on success.
     ///
-    /// Transient state is zeroed (matching JCRE card-reset behaviour).
+    /// After a successful restore, the VM is in the exact state it
+    /// was when `save_state` was called -- including the operand
+    /// stack contents, call frame stack, locals, PC, and the
+    /// current-package/method/context pointers. Resuming execution
+    /// produces the same sequence of opcodes as the un-snapshotted
+    /// run.
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         let mut off = 0;
 
@@ -3007,17 +3082,55 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
             return false;
         }
         self.process_method = buf[off];
+        off += 1;
 
-        // Zero transient state.
-        self.stack = [0u16; MAX_STACK];
-        self.stack_ptr = 0;
-        self.frames = [CallFrame::empty(); MAX_FRAMES];
-        self.frame_ptr = 0;
-        self.locals = [0u16; MAX_LOCALS];
-        self.current_pkg = 0;
-        self.current_method = 0;
-        self.pc = 0;
-        self.current_context = 0;
+        // Transaction journal.
+        if !self.journal.restore_state(&buf[off..]) {
+            return false;
+        }
+        let n = self
+            .journal
+            .save_state(&mut [0u8; TransactionJournal::<JOURNAL_CAP>::MAX_SNAPSHOT_SIZE]);
+        off += n;
+
+        // Execution state. Layout matches save_state -- see that
+        // function for the field-by-field comment.
+        let exec_bytes = 5 + 2 + MAX_FRAMES * 6 + MAX_STACK * 2 + MAX_LOCALS * 2;
+        if buf.len() < off + exec_bytes {
+            return false;
+        }
+        self.stack_ptr = buf[off];
+        off += 1;
+        self.frame_ptr = buf[off];
+        off += 1;
+        self.current_pkg = buf[off];
+        off += 1;
+        self.current_method = buf[off];
+        off += 1;
+        self.current_context = buf[off];
+        off += 1;
+        self.pc = u16::from_be_bytes([buf[off], buf[off + 1]]);
+        off += 2;
+        for f in &mut self.frames {
+            f.return_pkg = buf[off];
+            off += 1;
+            f.return_method = buf[off];
+            off += 1;
+            f.return_pc = u16::from_be_bytes([buf[off], buf[off + 1]]);
+            off += 2;
+            f.locals_base = buf[off];
+            off += 1;
+            f.stack_base = buf[off];
+            off += 1;
+        }
+        for word in &mut self.stack {
+            *word = u16::from_be_bytes([buf[off], buf[off + 1]]);
+            off += 2;
+        }
+        for word in &mut self.locals {
+            *word = u16::from_be_bytes([buf[off], buf[off + 1]]);
+            off += 2;
+        }
 
         true
     }
@@ -3282,12 +3395,19 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> Applet
     }
 
     fn snapshot_size(&self) -> usize {
-        // Upper bound: heap max + packages + static fields + process_method.
+        // Upper bound: heap + packages + static fields + process_method
+        // + journal + execution state (stack/frames/locals/pc/etc).
         ObjectHeap::<HEAP_SIZE>::MAX_SNAPSHOT_SIZE
             + 1
             + MAX_PACKAGES * (1 + Package::MAX_SNAPSHOT_SIZE)
             + 1024
             + 1
+            + TransactionJournal::<JOURNAL_CAP>::MAX_SNAPSHOT_SIZE
+            + 5     // stack_ptr + frame_ptr + current_pkg + current_method + current_context
+            + 2     // pc (u16 BE)
+            + MAX_FRAMES * 6
+            + MAX_STACK * 2
+            + MAX_LOCALS * 2
     }
 
     fn save_state(&self, buf: &mut [u8]) -> usize {
