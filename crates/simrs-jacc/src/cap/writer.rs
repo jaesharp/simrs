@@ -4,7 +4,7 @@
 //!
 //! Two output formats are supported:
 //!
-//! - **Full CAP** ([`CapWriter::write`]): Produces a proper JCVM 3.1 Chapter 6
+//! - **Full CAP** ([`CapWriter::write`]): Produces a proper JCVM 3.2 Chapter 6
 //!   component-based CAP binary with tag+length-prefixed components in order.
 //!
 //! - **Simplified blob** ([`write_cap`]): Produces the compact binary blob format
@@ -13,7 +13,9 @@
 use simrs_jccompile::codegen::CompiledClass;
 use simrs_jcvm::cap::{CAP_MAGIC, METHOD_FLAG_STATIC};
 
-/// CAP file format version: Java Card 3.1 (major=3, minor=1).
+/// CAP file format version (major=3, minor=1) per JCVM 3.2 § 6.3 --
+/// the on-wire CAP layout version, distinct from the JC spec version
+/// that produced it.
 const CAP_MAJOR_VERSION: u8 = 3;
 const CAP_MINOR_VERSION: u8 = 1;
 
@@ -21,7 +23,7 @@ const CAP_MINOR_VERSION: u8 = 1;
 const PACKAGE_MAJOR_VERSION: u8 = 1;
 const PACKAGE_MINOR_VERSION: u8 = 0;
 
-/// Component tags per JCVM 3.1 Section 6.2.
+/// Component tags per JCVM 3.2 Section 6.2.
 const TAG_HEADER: u8 = 1;
 const TAG_DIRECTORY: u8 = 2;
 const TAG_APPLET: u8 = 3;
@@ -87,7 +89,7 @@ impl ComponentSizes {
     }
 }
 
-/// Full CAP file writer per JCVM 3.1 Chapter 6.
+/// Full CAP file writer per JCVM 3.2 Chapter 6.
 ///
 /// Builds all required components from a compiled class and produces
 /// either the full component-based format or the simplified blob format.
@@ -141,7 +143,7 @@ impl CapWriter {
         self
     }
 
-    /// Write the full JCVM 3.1 component-based CAP format.
+    /// Write the full JCVM 3.2 component-based CAP format.
     ///
     /// Returns a binary blob containing all components concatenated in order,
     /// each prefixed with `tag(1) | size(2 BE) | data(size)`.
@@ -163,7 +165,7 @@ impl CapWriter {
         let static_resources_body = build_static_resources_body();
 
         // Phase 2: Compute component sizes (body only, tag+length excluded
-        // per JCVM 3.1 Section 6.6 -- the directory stores the body size).
+        // per JCVM 3.2 Section 6.6 -- the directory stores the body size).
         let mut sizes = ComponentSizes::default();
         sizes.set(TAG_HEADER, header_body.len() as u16);
         // Directory size is set to 0 (self-referential per spec).
@@ -220,7 +222,7 @@ impl CapWriter {
     // Component body builders (produce data without tag+length prefix)
     // -----------------------------------------------------------------------
 
-    /// Build the Header component body (JCVM 3.1 Section 6.3).
+    /// Build the Header component body (JCVM 3.2 Section 6.3).
     #[allow(clippy::cast_possible_truncation)]
     fn build_header_body(&self) -> Vec<u8> {
         let mut body = Vec::new();
@@ -251,7 +253,7 @@ impl CapWriter {
         body
     }
 
-    /// Build the Directory component body (JCVM 3.1 Section 6.6).
+    /// Build the Directory component body (JCVM 3.2 Section 6.6).
     #[allow(clippy::cast_possible_truncation)]
     fn build_directory_body(&self, sizes: &ComponentSizes) -> Vec<u8> {
         let mut body = Vec::new();
@@ -285,7 +287,7 @@ impl CapWriter {
         body
     }
 
-    /// Build the Applet component body (JCVM 3.1 Section 6.5).
+    /// Build the Applet component body (JCVM 3.2 Section 6.5).
     #[allow(clippy::cast_possible_truncation)]
     fn build_applet_body(&self) -> Vec<u8> {
         let mut body = Vec::new();
@@ -310,7 +312,7 @@ impl CapWriter {
         body
     }
 
-    /// Build the Class component body (JCVM 3.1 Section 6.9).
+    /// Build the Class component body (JCVM 3.2 Section 6.9).
     #[allow(clippy::cast_possible_truncation)]
     fn build_class_body(&self) -> Vec<u8> {
         let mut body = Vec::new();
@@ -369,7 +371,7 @@ impl CapWriter {
         body
     }
 
-    /// Build the Method component body (JCVM 3.1 Section 6.10).
+    /// Build the Method component body (JCVM 3.2 Section 6.10).
     fn build_method_body(&self) -> Vec<u8> {
         let mut body = Vec::new();
 
@@ -434,7 +436,7 @@ impl CapWriter {
         body
     }
 
-    /// Build the Descriptor component body (JCVM 3.1 Section 6.14).
+    /// Build the Descriptor component body (JCVM 3.2 Section 6.14).
     #[allow(clippy::cast_possible_truncation)]
     fn build_descriptor_body(&self) -> Vec<u8> {
         let mut body = Vec::new();
@@ -541,7 +543,7 @@ impl CapWriter {
 // Free-standing component builders for components that need no instance state
 // ---------------------------------------------------------------------------
 
-/// Build the Import component body (JCVM 3.1 Section 6.7).
+/// Build the Import component body (JCVM 3.2 Section 6.7).
 ///
 /// Empty for standalone applets with no external references.
 fn build_import_body() -> Vec<u8> {
@@ -549,7 +551,7 @@ fn build_import_body() -> Vec<u8> {
     vec![0]
 }
 
-/// Build the Constant Pool component body (JCVM 3.1 Section 6.8).
+/// Build the Constant Pool component body (JCVM 3.2 Section 6.8).
 ///
 /// Empty for simple applets.
 fn build_constant_pool_body() -> Vec<u8> {
@@ -618,7 +620,7 @@ pub fn write_cap(compiled: &CompiledClass) -> Vec<u8> {
     CapWriter::new(compiled).write_blob()
 }
 
-/// Write a compiled class to the full JCVM 3.1 component-based CAP format.
+/// Write a compiled class to the full JCVM 3.2 component-based CAP format.
 ///
 /// Returns the CAP bytes with proper component tag+length framing.
 #[must_use]

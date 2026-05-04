@@ -1,4 +1,5 @@
-//! Context-based access control per [JC RE 2.1.1 Chapter 6](../../../../telecom-standards/javacard/2.1.1/JCRESpec.pdf).
+//! Context-based access control per [JC RE 2.1.1 Chapter 6](../../../../docs/specs/javacard/2.1.1/JCRESpec.pdf)
+//! (verified there; the firewall semantics are retained in JCRE 3.2).
 //!
 //! The `JavaCard` firewall prevents applets from accessing objects owned by
 //! other applets. Every object carries an owner context (the package ID of

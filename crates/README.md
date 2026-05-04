@@ -274,14 +274,15 @@ graph TB
 | TCA eUICC Profile Package v3.3.1 | [profile](simrs-profile/) | Profile Element parsing, DER-to-filesystem |
 | GSMA SGP.22 v2.6 | [profile](simrs-profile/) | UPP format reference |
 | GSMA TS.48 v1.0 | [profile](simrs-profile/) | Generic test profile fixtures |
-| GP Card Spec v2.1.1 (GPC_SPE_006) | [gp-open](simrs-gp-open/), [gp-scp](simrs-gp-scp/), [gp-keys](simrs-gp-keys/) | Card Manager, OPEN, SCP01/SCP02 |
-| GP Card Spec v2.3.1 (GPC_SPE_034) | [gp-scp](simrs-gp-scp/) | SCP03 AES-CMAC secure channel |
+| GP Card Spec v2.3.1 (GPC_SPE_034) | [gp-open](simrs-gp-open/), [gp-scp](simrs-gp-scp/), [gp-keys](simrs-gp-keys/), [gp-card](simrs-gp-card/) | Primary GP target -- Card Manager, OPEN, SCP01/SCP02/SCP03 |
+| GP Card Spec v2.1.1 (GPC_SPE_006) | [gp-open](simrs-gp-open/), [gp-scp](simrs-gp-scp/), [gp-keys](simrs-gp-keys/) | Legacy compat target (JCOP10-31bio); inline figure/clause numbers were verified against this spec |
 | GP Amendment A v1.2 (GPC_SPE_007) | [gp-open](simrs-gp-open/) | DAP verification, delegated management (planned) |
-| GP Amendment D v1.1.2 (GPC_SPE_014) | [gp-scp](simrs-gp-scp/) | SCP03 extensions |
-| JavaCard VM Spec 2.1.1 | [jcvm](simrs-jcvm/) | ~185 bytecodes, CAP format, type system |
-| JavaCard RE Spec 2.1.1 | [jcre](simrs-jcre/) | Applet lifecycle, firewall, transactions |
-| JavaCard API 2.1.1 | [jcre](simrs-jcre/) | Framework classes, crypto API |
-| JavaCard VM Spec 3.2.0 | [jcvm](simrs-jcvm/) | JavaCard v3.2 compatibility (planned) |
+| GP Amendment D v1.1.2 (GPC_SPE_014) | [gp-scp](simrs-gp-scp/) | SCP03 secure channel + key wrap |
+| JavaCard VM Spec 3.2 | [jcvm](simrs-jcvm/), [jacc](simrs-jacc/), [jccompile](simrs-jccompile/), [jcasm](simrs-jcasm/) | Primary JCVM target -- bytecode + CAP file format (Ch 6, Ch 7) |
+| JavaCard RE Spec 3.2 | [jcre](simrs-jcre/) | Primary JCRE target -- applet lifecycle, firewall, transactions |
+| JavaCard VM Spec 2.1.1 | [jcvm](simrs-jcvm/) | Legacy compat (JCOP10-31bio); still cited inline where the 3.2 instruction set is unchanged |
+| JavaCard RE Spec 2.1.1 | [jcre](simrs-jcre/) | Legacy compat; inline clause numbers (e.g. 7.4 nesting) verified against this spec |
+| JavaCard API 2.1.1 | [jcre](simrs-jcre/) | Framework classes, crypto API (legacy compat) |
 | NIST FIPS 180-1 | [sha1](simrs-sha1/) | SHA-1 hash |
 | RFC 1321 | [md5](simrs-md5/) | MD5 hash |
 | PKCS#1 / RFC 2437 | [rsa](simrs-rsa/) | RSA 512-2048 |

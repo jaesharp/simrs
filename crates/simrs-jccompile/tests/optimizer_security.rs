@@ -15,7 +15,7 @@
 //! shows it would produce a different (incorrect) result.
 //!
 //! References:
-//! - JCVM 3.1 Section 7.5 (exception semantics)
+//! - JCVM 3.2 Section 7.5 (exception semantics)
 //! - JCRE 2.2.1 Section 6 (applet firewall)
 
 use simrs_jccompile::ir::{JcClass, JcExpr, JcMethod, JcStmt};
@@ -62,7 +62,7 @@ fn make_multi_method_class(methods: Vec<JcMethod>) -> JcClass {
 
 #[test]
 fn jcvm_sdiv_by_zero_throws_arithmetic_exception() {
-    // JCVM 3.1: sdiv with divisor 0 MUST throw ArithmeticException.
+    // JCVM 3.2: sdiv with divisor 0 MUST throw ArithmeticException.
     let class = make_class(JcMethod {
         name: String::from("f"),
         params: vec![],
@@ -96,7 +96,7 @@ fn jcvm_sdiv_by_zero_throws_arithmetic_exception() {
 
 #[test]
 fn jcvm_srem_by_zero_throws_arithmetic_exception() {
-    // JCVM 3.1: srem with divisor 0 MUST throw ArithmeticException.
+    // JCVM 3.2: srem with divisor 0 MUST throw ArithmeticException.
     let class = make_class(JcMethod {
         name: String::from("f"),
         params: vec![],
@@ -130,7 +130,7 @@ fn jcvm_srem_by_zero_throws_arithmetic_exception() {
 
 #[test]
 fn jcvm_idiv_by_zero_throws_arithmetic_exception() {
-    // JCVM 3.1: idiv with divisor 0 MUST throw ArithmeticException.
+    // JCVM 3.2: idiv with divisor 0 MUST throw ArithmeticException.
     let class = make_class(JcMethod {
         name: String::from("f"),
         params: vec![],
@@ -164,7 +164,7 @@ fn jcvm_idiv_by_zero_throws_arithmetic_exception() {
 
 #[test]
 fn jcvm_irem_by_zero_throws_arithmetic_exception() {
-    // JCVM 3.1: irem with divisor 0 MUST throw ArithmeticException.
+    // JCVM 3.2: irem with divisor 0 MUST throw ArithmeticException.
     let class = make_class(JcMethod {
         name: String::from("f"),
         params: vec![],

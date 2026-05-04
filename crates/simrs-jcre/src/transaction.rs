@@ -1,4 +1,9 @@
-//! Transaction mechanism per [JC RE 2.1.1 Chapter 7](../../../../telecom-standards/javacard/2.1.1/JCRESpec.pdf).
+//! Transaction mechanism per [JC RE 2.1.1 Chapter 7](../../../../docs/specs/javacard/2.1.1/JCRESpec.pdf).
+//!
+//! GP/JC dual-spec note: the inline clauses below were verified
+//! against the JCRE 2.1.1 PDF linked above; JCRE 3.2 retains the
+//! transaction model with the same observable semantics, restructured
+//! into different chapter numbers.
 //!
 //! Provides atomic multi-field updates with rollback. The [`TransactionJournal`]
 //! records byte-level writes during a transaction. On commit, the journal is

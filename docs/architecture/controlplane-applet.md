@@ -388,16 +388,23 @@ into a reference backend bridge, answers the same APDU surface.
 Not yet started; the Rust side runs standalone today because
 `ControlplaneCard<Inner>` composes with any `Transport`.
 
+The CAP toolchain foundation needed for this is now in place
+(`simrs-jccompile` -> `simrs-jacc` -> JCVM 3.2 component-tagged
+output, see [docs/standards/06-globalplatform.md](../standards/06-globalplatform.md));
+the remaining work is the Java applet source plus build wiring,
+not the writer infrastructure.
+
 ## Testing Strategy
 
 1. **Rust unit tests** in `simrs-controlplane` --
    matrix of P1/P2 across every landed probe, plus capability
    semantics, AID matching, protocol constants, ring buffer
    behaviour.
-2. **Feature-on / feature-off parity** in `simrs-jcvm` (361 vs 364
-   lib tests) -- the three new hypervisor-trait tests appear only
-   when `controlplane-hooks` is on; the rest of the test suite
-   runs identically under both configs.
+2. **Feature-on / feature-off parity** in `simrs-jcvm` (528 vs 531
+   lib tests, as of the most recent run) -- the three additional
+   hypervisor-trait tests appear only when `controlplane-hooks` is
+   on; the rest of the test suite runs identically under both
+   configs.
 3. **Differential parity** -- the `report_gen.rs` matrix will
    eventually grow a row that SELECTs the control-plane AID and
    runs the ping probe, comparing simrs vs `JCardEngine` responses.

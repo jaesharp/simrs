@@ -1,11 +1,14 @@
 //! CAP file parser for JCVM bytecode packages.
 //!
-//! Parses the binary CAP format per JCVM 2.1.1 Chapter 6 (p65-116). Real
-//! CAP files are ZIP archives containing 11 component files; for embedded
-//! `no_std` use we parse a simplified binary blob format that concatenates
-//! the essential components.
+//! Parses the binary CAP format per JCVM 3.2 Chapter 6. CAP files
+//! contain up to 13 component files; the parser surfaces 10 of them on
+//! [`Package`] (Header, Directory summary, Applet, Import,
+//! `ConstantPool`, Class MVP, Method, `StaticField` summary,
+//! `RefLocation`, Export). Debug, Descriptor walk-and-skip; a legacy
+//! pre-component blob format is also accepted for the embedded
+//! `no_std` smoke path.
 //!
-//! # Full CAP Component Model (JCVM 2.1.1 Table 6-1/6-2)
+//! # Full CAP Component Model (JCVM 3.2 § 6.1, Table 6-1)
 //!
 //! 1. Header -- magic `0xDECAFFED`, minor/major version, package AID
 //! 2. Directory -- component size table, static field sizes, import count
@@ -17,9 +20,16 @@
 //! 8. `StaticField` -- initial values for static fields
 //! 9. `ReferenceLocation` -- offsets for runtime token resolution
 //! 10. Export -- published tokens for inter-package linking
-//! 11. Descriptor -- debug info (optional)
+//! 11. Descriptor -- type and access info (parsed-and-skipped)
+//! 12. Debug -- optional debug component (parsed-and-skipped)
+//! 13. `StaticResources` -- optional resource component (parsed-and-skipped)
 //!
-//! # Binary Blob Format
+//! # Legacy `no_std` Blob Format
+//!
+//! For the smoke-test path used by the embedded JCVM runtime, the
+//! parser also accepts a compact pre-component layout that concatenates
+//! the essential method information directly. New CAP producers should
+//! emit the full component-tagged form.
 //!
 //! ```text
 //! [ magic: 4 bytes (0xDECAFFED) ]
@@ -31,7 +41,7 @@
 //! ...
 //! ```
 //!
-//! Each `MethodInfo` in the blob:
+//! Each `MethodInfo` in the legacy blob:
 //! ```text
 //! [ flags: 1 byte ]
 //! [ max_stack: 1 byte ]

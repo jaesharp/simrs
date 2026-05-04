@@ -1,7 +1,8 @@
 //! SHA-1 cryptographic hash function per [NIST FIPS 180-1](https://csrc.nist.gov/pubs/fips/180-1/final).
 //!
-//! Required by `GlobalPlatform` SCP01/SCP02 key derivation (GP 2.1.1 Appendix B.2.1)
-//! and the `JavaCard` `MessageDigest.ALG_SHA` API.
+//! Required by `GlobalPlatform` SCP01/SCP02 key derivation (GP 2.1.1
+//! Appendix B.2.1; GP 2.3.1 retains SHA-1 in its cryptographic
+//! algorithm appendix) and the `JavaCard` `MessageDigest.ALG_SHA` API.
 //!
 //! Provides both a streaming [`Sha1`] hasher and a one-shot [`sha1`] function.
 //!

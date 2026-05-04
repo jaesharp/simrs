@@ -1,13 +1,19 @@
 //! `GlobalPlatform` SCP01, SCP02, and SCP03 secure channel protocols per
-//! [GP Card Specification v2.1.1](../../../../docs/specs/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
+//! [GP Card Specification v2.3.1](../../../../docs/specs/globalplatform/GPC_CardSpecification_v2.3.1.pdf)
 //! Appendices D (SCP01) and E (SCP02), and
 //! [GP Amendment D v1.1.2](../../../../docs/specs/globalplatform/GPC_2.3_D_SCP03_v1.1.2.pdf)
-//! (SCP03).
+//! (SCP03). The earlier GP 2.1.1 spec is retained as a legacy
+//! compatibility target for the JCOP10-31bio family; SCP01 and SCP02
+//! are unchanged in 2.3.1 relative to 2.1.1.
 //!
 //! Implements session key derivation, mutual authentication (cryptogram
 //! generation/verification), and secure messaging (C-MAC, C-ENC, R-MAC).
 //!
-//! # SCP01 (GP 2.1.1 Appendix D, p199-212)
+//! # SCP01 (GP 2.1.1/2.3.1 Appendix D)
+//!
+//! Implementation derived from GP 2.1.1 Appendix D; figure numbers
+//! cited inline (D-3/D-4/D-5, etc.) refer to the 2.1.1 spec. SCP01
+//! is retained but deprecated in GP 2.3.1.
 //!
 //! 3 static 3DES keys per key set (Table D-1):
 //! - S-ENC (key ID 1): encryption key
@@ -30,7 +36,10 @@
 //! - Host cryptogram = `MAC(session_enc, card_challenge || host_challenge)`
 //! - Security levels: `0x00` no security, `0x01` C-MAC, `0x03` C-MAC+C-ENC
 //!
-//! # SCP02 (GP 2.1.1 Appendix E, p213-234)
+//! # SCP02 (GP 2.1.1/2.3.1 Appendix E)
+//!
+//! Implementation derived from GP 2.1.1 Appendix E; figure numbers
+//! cited inline (E-2/E-3/E-4, etc.) refer to the 2.1.1 spec.
 //!
 //! Key differences from SCP01:
 //! - Session keys derived from static keys AND a 2-byte sequence counter
@@ -105,11 +114,13 @@ use scp02::scp02_derive_session_key;
 /// SCP protocol version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScpVersion {
-    /// Secure Channel Protocol 01 (GP 2.1.1 Appendix D).
+    /// Secure Channel Protocol 01 (GP 2.1.1/2.3.1 Appendix D --
+    /// retained but deprecated in 2.3.1).
     Scp01,
-    /// Secure Channel Protocol 02 (GP 2.1.1 Appendix E).
+    /// Secure Channel Protocol 02 (GP 2.1.1/2.3.1 Appendix E).
     Scp02,
-    /// Secure Channel Protocol 03 (GP 2.3.1 Amendment D).
+    /// Secure Channel Protocol 03 (GP Amendment D v1.1.2 -- separate
+    /// document referenced by GP 2.3.1 main spec).
     Scp03,
 }
 

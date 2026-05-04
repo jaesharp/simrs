@@ -19,7 +19,7 @@ fn assemble_minimal_return() {
 
 #[test]
 fn assemble_array_bounds_test() {
-    // JCVM 3.1 Section 3.11.3: Array bounds enforcement
+    // JCVM 3.2 Section 3.11.3: Array bounds enforcement
     let (aid, methods) = jcasm! {
         applet A0_00_00_00_62_02_02 {
             fn process() {
@@ -37,7 +37,7 @@ fn assemble_array_bounds_test() {
 
 #[test]
 fn assemble_firewall_test() {
-    // JCVM 3.1 Section 6.2.4: Firewall enforcement on getfield_b
+    // JCVM 3.2 Section 6.2.4: Firewall enforcement on getfield_b
     let (_aid, methods) = jcasm! {
         applet A0_00_00_00_62_02_03 {
             fn process() {

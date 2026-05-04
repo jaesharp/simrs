@@ -1,6 +1,11 @@
-//! `GlobalPlatform` Security Domain key store per
-//! [GP Card Specification v2.1.1](../../../../telecom-standards/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
-//! Appendix C, Tables C-1 and C-2.
+//! `GlobalPlatform` Security Domain key store.
+//!
+//! Implementation derived from
+//! [GP Card Specification v2.1.1](../../../../docs/specs/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
+//! Appendix C (Tables C-1/C-2) -- the spec the table numbering was
+//! verified against. GP 2.3.1 reorganises key store layout into a
+//! different appendix; inline citations below refer to GP 2.1.1.
+//! See [docs/standards/06-globalplatform.md] for the dual-spec map.
 //!
 //! Each Security Domain (including the Issuer Security Domain) maintains a
 //! set of cryptographic keys used for:

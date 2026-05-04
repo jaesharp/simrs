@@ -1174,9 +1174,10 @@ sequenceDiagram
 
 ## Standards Reference
 
-- **[Standards Map](standards/README.md)** -- 4G/5G standards mapped to crates, generation coverage
-- **[Standards Catalog](standards/01-catalog.md)** -- all referenced 3GPP/ETSI/ISO specs with versions
-- **[Authentication & Key Management](standards/02-authentication.md)** -- EPS-AKA, 5G-AKA, Milenage, SUCI
-- **[Filesystem & Data Lifecycle](standards/03-filesystem.md)** -- EF catalog, APDU sequences
-- **[Proactive & SIM Toolkit](standards/04-proactive.md)** -- CAT/USAT commands, FETCH, OTA
-- **[Crate Impact Analysis](standards/05-crate-impact.md)** -- what each standard means for simrs
+- **[Standards Map](../standards/README.md)** -- 4G/5G standards mapped to crates, generation coverage
+- **[Standards Catalog](../standards/01-catalog.md)** -- all referenced 3GPP/ETSI/ISO specs with versions
+- **[Authentication & Key Management](../standards/02-authentication.md)** -- EPS-AKA, 5G-AKA, Milenage, SUCI
+- **[Filesystem & Data Lifecycle](../standards/03-filesystem.md)** -- EF catalog, APDU sequences
+- **[Proactive & SIM Toolkit](../standards/04-proactive.md)** -- CAT/USAT commands, FETCH, OTA
+- **[Crate Impact Analysis](../standards/05-crate-impact.md)** -- what each standard means for simrs
+- **[GlobalPlatform / JavaCard](../standards/06-globalplatform.md)** -- GP 2.3.1 + JC 3.2 conformance status, phased plan

@@ -6,8 +6,8 @@
 //!
 //! # Spec References
 //!
-//! - JCVM 3.1 Section 6.3: Descriptor/Class component cross-validation
-//! - JCVM 3.1 Section 3.11.3: Array bounds and type checking
+//! - JCVM 3.2 Section 6.3: Descriptor/Class component cross-validation
+//! - JCVM 3.2 Section 3.11.3: Array bounds and type checking
 //! - JCVM spec exception table semantics: `handler_pc` bounds validation
 //! - Lancia & Bouffard, "Java Card Virtual Machine Compromising from a
 //!   Bytecode Verified Applet," CARDIS 2015
@@ -26,7 +26,7 @@ use support::expect;
 // =========================================================================
 // Scenario 6: Descriptor/Class offset mismatch (Lancia & Bouffard CARDIS 2015)
 //
-// JCVM 3.1 Section 6.3: "The JCVM shall verify that method references
+// JCVM 3.2 Section 6.3: "The JCVM shall verify that method references
 // in the Class component are consistent with the Method component."
 //
 // The CAP file stores method offsets in both the Descriptor component
@@ -35,7 +35,7 @@ use support::expect;
 // memory locations. The loader must cross-validate these offsets.
 // =========================================================================
 
-/// JCVM 3.1 Section 6.3: Matching zero offsets (unused) are accepted.
+/// JCVM 3.2 Section 6.3: Matching zero offsets (unused) are accepted.
 #[test]
 fn offset_mismatch_both_zero_accepted() {
     let m = MethodBuilder::new(&[0x7A]) // return_void
@@ -48,7 +48,7 @@ fn offset_mismatch_both_zero_accepted() {
     expect::returns_void(applet.run());
 }
 
-/// JCVM 3.1 Section 6.3: Matching non-zero offsets are accepted.
+/// JCVM 3.2 Section 6.3: Matching non-zero offsets are accepted.
 #[test]
 fn offset_mismatch_both_equal_accepted() {
     let m = MethodBuilder::new(&[0x7A]).offsets(0x0042, 0x0042).build();
@@ -59,7 +59,7 @@ fn offset_mismatch_both_equal_accepted() {
     expect::returns_void(applet.run());
 }
 
-/// JCVM 3.1 Section 6.3: Mismatched offsets (descriptor != class) must be
+/// JCVM 3.2 Section 6.3: Mismatched offsets (descriptor != class) must be
 /// rejected at parse time.
 ///
 /// Lancia & Bouffard (CARDIS 2015): arbitrary offsets in the Class component
@@ -80,7 +80,7 @@ fn offset_mismatch_different_rejected() {
     expect::parse_fails(&result, ParseError::OffsetMismatch);
 }
 
-/// JCVM 3.1 Section 6.3: Zeroed class offset with valid descriptor offset
+/// JCVM 3.2 Section 6.3: Zeroed class offset with valid descriptor offset
 /// (the CARDIS 2015 attack vector).
 ///
 /// On a vulnerable card, the zeroed offset resolves to the start of the
@@ -98,7 +98,7 @@ fn offset_mismatch_zero_class_nonzero_descriptor() {
     expect::parse_fails(&result, ParseError::OffsetMismatch);
 }
 
-/// JCVM 3.1 Section 6.3: Non-zero class offset with zeroed descriptor offset
+/// JCVM 3.2 Section 6.3: Non-zero class offset with zeroed descriptor offset
 /// (reverse mismatch).
 #[test]
 fn offset_mismatch_zero_descriptor_nonzero_class() {
@@ -232,11 +232,11 @@ fn exception_too_many_rejected() {
 // =========================================================================
 // Basic execution sanity through TestApplet
 //
-// JCVM 3.1 Chapter 7: Bytecode instruction set -- nominal behavior
+// JCVM 3.2 Chapter 7: Bytecode instruction set -- nominal behavior
 // verification through the full assemble-load-execute pipeline.
 // =========================================================================
 
-/// JCVM 3.1 Chapter 7: sadd instruction -- simple arithmetic through the
+/// JCVM 3.2 Chapter 7: sadd instruction -- simple arithmetic through the
 /// full runner pipeline.
 #[test]
 fn runner_arithmetic_sanity() {
@@ -248,7 +248,7 @@ fn runner_arithmetic_sanity() {
     expect::returns_short(result, 5);
 }
 
-/// JCVM 3.1 Chapter 7: `return_void` instruction.
+/// JCVM 3.2 Chapter 7: `return_void` instruction.
 #[test]
 fn runner_return_void() {
     let result = TestApplet::new("A0_00_00_00_62_00_02")
@@ -258,7 +258,7 @@ fn runner_return_void() {
     expect::returns_void(result);
 }
 
-/// JCVM 3.1 Chapter 7: `sdiv` by zero must raise `ArithmeticException`.
+/// JCVM 3.2 Chapter 7: `sdiv` by zero must raise `ArithmeticException`.
 ///
 /// "If the value of the divisor is zero, `sdiv` throws an
 /// `ArithmeticException`."
@@ -275,11 +275,11 @@ fn runner_div_by_zero() {
 // =========================================================================
 // Pre-allocation tests
 //
-// JCVM 3.1 Section 3.11.3: arraylength instruction returns the length of
+// JCVM 3.2 Section 3.11.3: arraylength instruction returns the length of
 // the referenced array.
 // =========================================================================
 
-/// JCVM 3.1 Section 3.11.3: arraylength on a pre-allocated byte array
+/// JCVM 3.2 Section 3.11.3: arraylength on a pre-allocated byte array
 /// returns its length.
 #[test]
 fn prealloc_byte_array_length() {
@@ -292,7 +292,7 @@ fn prealloc_byte_array_length() {
     expect::returns_short(result, 16);
 }
 
-/// JCVM 3.1 Section 3.11.3: arraylength on a pre-allocated short array
+/// JCVM 3.2 Section 3.11.3: arraylength on a pre-allocated short array
 /// returns its length.
 #[test]
 fn prealloc_short_array_length() {
@@ -308,11 +308,13 @@ fn prealloc_short_array_length() {
 // =========================================================================
 // Malformed CAP blobs (parse rejection)
 //
-// JCVM 3.1 Section 6.3: CAP file structural integrity validation.
-// GP 2.1.1 Appendix C: CAP file format.
+// JCVM 3.2 Section 6.3: CAP file structural integrity validation.
+// (Earlier notes cited "GP 2.1.1 Appendix C" for the CAP file format;
+// that was a misattribution -- the CAP format is defined in JCVM
+// Chapter 6, not in the GlobalPlatform spec.)
 // =========================================================================
 
-/// JCVM 3.1 Section 6.3: Bad magic number must be rejected.
+/// JCVM 3.2 Section 6.3: Bad magic number must be rejected.
 #[test]
 fn malformed_bad_magic() {
     // Manually construct a blob with wrong magic.
@@ -325,7 +327,7 @@ fn malformed_bad_magic() {
     expect::parse_fails(&result, ParseError::BadMagic);
 }
 
-/// JCVM 3.1 Section 6.3: AID exceeding 16 bytes must be rejected.
+/// JCVM 3.2 Section 6.3: AID exceeding 16 bytes must be rejected.
 #[test]
 fn malformed_aid_too_long() {
     let mut buf = [0u8; 32];
@@ -335,7 +337,7 @@ fn malformed_aid_too_long() {
     expect::parse_fails(&result, ParseError::AidTooLong);
 }
 
-/// JCVM 3.1 Section 6.3: Truncated blob (too short for header) must be
+/// JCVM 3.2 Section 6.3: Truncated blob (too short for header) must be
 /// rejected.
 #[test]
 fn malformed_truncated() {
@@ -343,7 +345,7 @@ fn malformed_truncated() {
     expect::parse_fails(&result, ParseError::TooShort);
 }
 
-/// JCVM 3.1 Section 6.3: Bytecode exceeding `MAX_BYTECODE` (256) must be
+/// JCVM 3.2 Section 6.3: Bytecode exceeding `MAX_BYTECODE` (256) must be
 /// rejected.
 #[test]
 fn malformed_bytecode_too_long() {

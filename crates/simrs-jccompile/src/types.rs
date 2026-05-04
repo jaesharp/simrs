@@ -1,7 +1,9 @@
 //! Java Card type system.
 //!
-//! Defines the primitive and reference types available in the JVA
-//! smartcard language, matching the JCVM 2.1.1 type system.
+//! Defines the primitive and reference types available in the Java
+//! Card subset of Java. Matches the JCVM 3.2 type system (Boolean /
+//! Byte / Short / Object plus the optional Int extension at the
+//! Connected and Classic Edition spec levels).
 
 /// A type in the Java Card type system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -24,9 +24,14 @@
 //!
 //! # Spec References
 //!
-//! - JCVM 3.1 Chapter 7: Bytecode instruction set
-//! - GP 2.1.1 Appendix C: CAP file format
-//! - JCRE 2.2.1 Chapter 6: Applet firewall
+//! - JCVM 3.2 Chapter 7: Bytecode instruction set (instruction-set
+//!   semantics unchanged from JCVM 3.1, so older notes that cite 3.1
+//!   in this crate are still accurate)
+//! - JCVM 3.2 Chapter 6: CAP file format (originally cited as GP
+//!   2.1.1 Appendix C, which is misattributed -- the CAP file
+//!   format is part of the JCVM spec, not `GlobalPlatform`)
+//! - JCRE 3.2 Chapter 6: Applet firewall (carried forward from JCRE
+//!   2.2.1 Chapter 6)
 
 use proc_macro::TokenStream;
 

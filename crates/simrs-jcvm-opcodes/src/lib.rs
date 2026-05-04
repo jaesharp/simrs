@@ -1,4 +1,6 @@
-//! JCVM bytecode opcode constants per JCVM 3.1 Chapter 8, Table 8-1.
+//! JCVM bytecode opcode constants per JCVM 3.2 Chapter 7 (instruction
+//! set; the table number was originally cited as 8-1 from a draft and
+//! is not independently verified here).
 //!
 //! This is a leaf crate (`no_std`, zero dependencies) that provides the
 //! canonical opcode numbering shared by the VM interpreter (`simrs-jcvm`),
@@ -7,7 +9,7 @@
 //!
 //! # Opcode numbering
 //!
-//! New opcodes use the JCVM 3.1 specification numbering.  A handful of
+//! Most opcodes use the JCVM 3.2 specification numbering. A handful of
 //! the *original* opcodes were committed before the spec numbering was
 //! finalised and may differ from the canonical values (marked with `NOTE:`
 //! comments).  These will be reconciled when testing against real
@@ -474,7 +476,8 @@ pub const GOTO_W: u8 = 0xA8;
 pub const SIPUSH: u8 = SSPUSH;
 
 // =========================================================================
-// Newarray type tokens (JCVM 3.1 Table 6-3)
+// Newarray type tokens (JCVM 3.2; verified against 3.1 Table 6-3,
+// retained unchanged in 3.2)
 // =========================================================================
 
 /// Newarray type token for `byte[]`.

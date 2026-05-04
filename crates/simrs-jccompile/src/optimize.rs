@@ -66,7 +66,7 @@ impl FreshNameGen {
 /// with an exhaustive match (no `_ =>` arm), so adding a new `JcExpr`
 /// variant forces the author to classify its effects at compile time.
 ///
-/// Reference: JCVM 3.1 Section 7.5 (exception semantics),
+/// Reference: JCVM 3.2 Section 7.5 (exception semantics),
 ///            JCRE 2.2.1 Section 6 (applet firewall).
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Effects(u16);
@@ -354,7 +354,7 @@ fn optimize_lvalue(lv: &LValue, hoisted: &mut Vec<JcStmt>, fresh: &mut FreshName
 /// variant will produce a compile error here, forcing the author to
 /// classify its effects.
 ///
-/// Reference: JCVM 3.1 Section 7.5 (mandatory exceptions),
+/// Reference: JCVM 3.2 Section 7.5 (mandatory exceptions),
 ///            JCRE 2.2.1 Section 6 (applet firewall).
 fn effects_of(expr: &JcExpr) -> Effects {
     match expr {
@@ -2512,7 +2512,7 @@ mod tests {
     // Side-effect safety: is_side_effect_free classification
     // =====================================================================
     //
-    // JCVM 3.1 Section 7.5 and JCRE 2.2.1 Section 6 mandate that certain
+    // JCVM 3.2 Section 7.5 and JCRE 2.2.1 Section 6 mandate that certain
     // expressions have observable side effects (exceptions, firewall checks,
     // persistent writes). The optimizer MUST NOT eliminate or duplicate these
     // expressions. The is_side_effect_free() guard ensures this.

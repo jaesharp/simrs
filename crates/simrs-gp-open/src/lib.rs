@@ -1,6 +1,11 @@
-//! `GlobalPlatform` OPEN runtime and Issuer Security Domain (ISD) per
-//! [GP Card Specification v2.1.1](../../../../telecom-standards/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
-//! Chapters 5-9.
+//! `GlobalPlatform` OPEN runtime and Issuer Security Domain (ISD).
+//!
+//! Implementation derived from
+//! [GP Card Specification v2.1.1](../../../../docs/specs/globalplatform/GPC_CardSpecification_v2.1.1.pdf)
+//! Chapters 5-9 (the spec the inline clauses below were verified
+//! against); the primary spec target is GP 2.3.1, which restructures
+//! the same content into Chapters 5-11 -- see
+//! [docs/standards/06-globalplatform.md](../../../../docs/standards/06-globalplatform.md).
 //!
 //! The GP OPEN is the card manager that dispatches APDUs to on-card applets.
 //! It maintains the applet registry, manages logical channels, enforces

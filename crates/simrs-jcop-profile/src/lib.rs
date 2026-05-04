@@ -1,5 +1,7 @@
 //! JCOP variant profile definitions per the
-//! [IBM JCOP Family](../../../../telecom-standards/ibm-jcop/JCOP_Family.pdf) datasheet.
+//! [IBM JCOP Family](../../../../docs/specs/ibm-jcop/JCOP_Family.pdf) datasheet
+//! (legacy compat target; profiles below are JCOP10-31bio family
+//! variants that pre-date the GP 2.3.1 / JC 3.2 mainline).
 //!
 //! Each JCOP card model maps to a [`JcopProfile`] specifying its hardware
 //! capabilities: EEPROM size, RAM budget, SCP version, crypto algorithms,

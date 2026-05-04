@@ -6,4 +6,6 @@ Provides the `jcasm!` macro that compiles Java Card assembly into
 CAP-format bytecode at compile time. Assembly errors are reported as
 compiler errors with source spans.
 
-Instruction set per JCVM 3.1 Chapter 7.
+Instruction set per JCVM 3.2 Chapter 7 (semantics unchanged from JCVM
+3.1 for the implemented subset, so older notes that cite 3.1 remain
+accurate).

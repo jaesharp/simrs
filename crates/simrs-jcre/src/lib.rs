@@ -1,5 +1,12 @@
-//! `JavaCard` Runtime Environment core per
-//! [JC RE Specification 2.1.1](../../../../telecom-standards/javacard/2.1.1/JCRESpec.pdf).
+//! `JavaCard` Runtime Environment core.
+//!
+//! Implementation derived from
+//! [JC RE Specification 2.1.1](../../../../docs/specs/javacard/2.1.1/JCRESpec.pdf)
+//! (where the inline chapter/clause numbers below were verified);
+//! the primary spec target is JC RE 3.2, which retains the JC RE
+//! 2.1.1 model semantically -- see
+//! [docs/standards/06-globalplatform.md](../../../../docs/standards/06-globalplatform.md)
+//! for the JCOP10-31bio legacy compat policy.
 //!
 //! Provides the applet plugin interface, memory model, and transaction mechanism
 //! for the simrs `GlobalPlatform` card emulator. Every applet -- whether implemented

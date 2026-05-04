@@ -1,9 +1,10 @@
 //! `JavaCard` Virtual Machine bytecode interpreter.
 //!
-//! Implements a fully deterministic, snapshotable JCVM per
-//! [JCVM 2.1.1](../../../../docs/specs/javacard/2.1.1/JCVMSpec.pdf).
-//! All mutable state serializes via `save_state`/`restore_state`. `no_std`,
-//! `no_alloc`.
+//! Implements a fully deterministic, snapshotable JCVM per the
+//! [JCVM 3.2](../../../../docs/specs/javacard/3.2/JCVM-spec.pdf)
+//! specification (with the JC 2.1.1 spec retained for legacy
+//! JCOP10-31bio compatibility). All mutable state serializes via
+//! `save_state`/`restore_state`. `no_std`, `no_alloc`.
 //!
 //! # Architecture
 //!
@@ -5559,11 +5560,11 @@ mod tests {
 
     // =======================================================================
     // PRIORITY 1: Arithmetic exceptions -- div/rem by zero
-    // JCVM 3.1 Ch7 sdiv/srem/idiv/irem: "If the value of the divisor
+    // JCVM 3.2 Ch7 sdiv/srem/idiv/irem: "If the value of the divisor
     // is zero, sdiv/srem/idiv/irem throws an ArithmeticException."
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 srem: `ArithmeticException` when divisor is zero.
+    /// JCVM 3.2 Ch7 srem: `ArithmeticException` when divisor is zero.
     /// (`sdiv_by_zero` already exists above; this tests srem with an
     /// explicit non-trivial dividend to avoid identity traps.)
     #[test]
@@ -5574,7 +5575,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
     }
 
-    /// JCVM 3.1 Ch7 idiv: `ArithmeticException` with `i32::MIN` dividend and 0 divisor.
+    /// JCVM 3.2 Ch7 idiv: `ArithmeticException` with `i32::MIN` dividend and 0 divisor.
     #[test]
     fn idiv_by_zero_min_dividend() {
         let bc = [
@@ -5585,7 +5586,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
     }
 
-    /// JCVM 3.1 Ch7 irem: `ArithmeticException` with `i32::MIN` dividend and 0 divisor.
+    /// JCVM 3.2 Ch7 irem: `ArithmeticException` with `i32::MIN` dividend and 0 divisor.
     #[test]
     fn irem_by_zero_min_dividend() {
         let bc = [
@@ -5596,7 +5597,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ArithmeticException);
     }
 
-    /// JCVM 3.1 Ch7 idiv: `i32::MIN` / -1 = `i32::MIN` (wrapping, not exception).
+    /// JCVM 3.2 Ch7 idiv: `i32::MIN` / -1 = `i32::MIN` (wrapping, not exception).
     #[test]
     fn idiv_min_by_neg1() {
         let bc = [
@@ -5607,7 +5608,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
     }
 
-    /// JCVM 3.1 Ch7 irem: `i32::MIN` % -1 = 0 (wrapping, not exception).
+    /// JCVM 3.2 Ch7 irem: `i32::MIN` % -1 = 0 (wrapping, not exception).
     #[test]
     fn irem_min_by_neg1() {
         let bc = [
@@ -5620,10 +5621,10 @@ mod tests {
 
     // =======================================================================
     // PRIORITY 2: Overflow/wrapping per Java semantics
-    // JCVM 3.1 Ch7: arithmetic wraps modulo 2^16 / 2^32.
+    // JCVM 3.2 Ch7: arithmetic wraps modulo 2^16 / 2^32.
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 sadd: `i16::MAX` + 1 wraps to `i16::MIN`.
+    /// JCVM 3.2 Ch7 sadd: `i16::MAX` + 1 wraps to `i16::MIN`.
     #[test]
     fn sadd_overflow_wraps() {
         let max_bytes = i16::MAX.cast_unsigned().to_be_bytes();
@@ -5632,7 +5633,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
     }
 
-    /// JCVM 3.1 Ch7 ssub: `i16::MIN` - 1 wraps to `i16::MAX`.
+    /// JCVM 3.2 Ch7 ssub: `i16::MIN` - 1 wraps to `i16::MAX`.
     #[test]
     fn ssub_underflow_wraps() {
         let min_bytes = i16::MIN.cast_unsigned().to_be_bytes();
@@ -5641,7 +5642,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MAX));
     }
 
-    /// JCVM 3.1 Ch7 smul: 0x7FFF * 2 wraps.
+    /// JCVM 3.2 Ch7 smul: 0x7FFF * 2 wraps.
     #[test]
     fn smul_overflow_wraps() {
         let max_bytes = i16::MAX.cast_unsigned().to_be_bytes();
@@ -5651,7 +5652,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
     }
 
-    /// JCVM 3.1 Ch7 iadd: `i32::MAX` + 1 wraps to `i32::MIN`.
+    /// JCVM 3.2 Ch7 iadd: `i32::MAX` + 1 wraps to `i32::MIN`.
     #[test]
     fn iadd_overflow_wraps() {
         let bc = [
@@ -5662,7 +5663,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
     }
 
-    /// JCVM 3.1 Ch7 isub: `i32::MIN` - 1 wraps to `i32::MAX`.
+    /// JCVM 3.2 Ch7 isub: `i32::MIN` - 1 wraps to `i32::MAX`.
     #[test]
     fn isub_underflow_wraps() {
         let bc = [
@@ -5673,7 +5674,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MAX));
     }
 
-    /// JCVM 3.1 Ch7 imul: `i32::MAX` * 2 wraps.
+    /// JCVM 3.2 Ch7 imul: `i32::MAX` * 2 wraps.
     #[test]
     fn imul_overflow_wraps() {
         let bc = [
@@ -5687,7 +5688,7 @@ mod tests {
         );
     }
 
-    /// JCVM 3.1 Ch7 sneg: `sneg(i16::MIN)` wraps to `i16::MIN`.
+    /// JCVM 3.2 Ch7 sneg: `sneg(i16::MIN)` wraps to `i16::MIN`.
     #[test]
     fn sneg_min_wraps() {
         let min_bytes = i16::MIN.cast_unsigned().to_be_bytes();
@@ -5696,7 +5697,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
     }
 
-    /// JCVM 3.1 Ch7 ineg: `ineg(i32::MIN)` wraps to `i32::MIN`.
+    /// JCVM 3.2 Ch7 ineg: `ineg(i32::MIN)` wraps to `i32::MIN`.
     #[test]
     fn ineg_min_wraps() {
         let bc = [
@@ -5709,10 +5710,10 @@ mod tests {
 
     // =======================================================================
     // PRIORITY 3: Bitwise edge cases
-    // JCVM 3.1 Ch7 sshl/sshr/sushr: shift amount masked to low 5 bits.
+    // JCVM 3.2 Ch7 sshl/sshr/sushr: shift amount masked to low 5 bits.
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 sshl: shift by 0 is identity.
+    /// JCVM 3.2 Ch7 sshl: shift by 0 is identity.
     #[test]
     fn sshl_by_zero() {
         let bc = [SCONST_5, SCONST_0, SSHL, SRETURN];
@@ -5720,7 +5721,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
     }
 
-    /// JCVM 3.1 Ch7 sshl: shift by 15 pushes sign bit into MSB.
+    /// JCVM 3.2 Ch7 sshl: shift by 15 pushes sign bit into MSB.
     #[test]
     fn sshl_by_15() {
         let bc = [SCONST_1, BSPUSH, 15, SSHL, SRETURN];
@@ -5728,7 +5729,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
     }
 
-    /// JCVM 3.1 Ch7 sshl: shift by 16 (masked to 16 & 0x1F = 16) zeroes short.
+    /// JCVM 3.2 Ch7 sshl: shift by 16 (masked to 16 & 0x1F = 16) zeroes short.
     #[test]
     fn sshl_by_16() {
         let bc = [SCONST_1, BSPUSH, 16, SSHL, SRETURN];
@@ -5737,7 +5738,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
     }
 
-    /// JCVM 3.1 Ch7 sshr: shift by 0 is identity.
+    /// JCVM 3.2 Ch7 sshr: shift by 0 is identity.
     #[test]
     fn sshr_by_zero() {
         let bc = [SCONST_M1, SCONST_0, SSHR, SRETURN];
@@ -5745,7 +5746,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
     }
 
-    /// JCVM 3.1 Ch7 sshr: shift by 15 extracts sign.
+    /// JCVM 3.2 Ch7 sshr: shift by 15 extracts sign.
     #[test]
     fn sshr_by_15() {
         let min_bytes = i16::MIN.cast_unsigned().to_be_bytes();
@@ -5762,7 +5763,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
     }
 
-    /// JCVM 3.1 Ch7 sushr: shift by 15 extracts unsigned MSB.
+    /// JCVM 3.2 Ch7 sushr: shift by 15 extracts unsigned MSB.
     #[test]
     fn sushr_by_15() {
         let bc = [SCONST_M1, BSPUSH, 15, SUSHR, SRETURN];
@@ -5771,7 +5772,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
-    /// JCVM 3.1 Ch7 sand: AND with 0 is 0.
+    /// JCVM 3.2 Ch7 sand: AND with 0 is 0.
     #[test]
     fn sand_with_zero() {
         let bc = [SCONST_M1, SCONST_0, SAND, SRETURN];
@@ -5779,7 +5780,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
     }
 
-    /// JCVM 3.1 Ch7 sand: AND with 0xFFFF is identity.
+    /// JCVM 3.2 Ch7 sand: AND with 0xFFFF is identity.
     #[test]
     fn sand_with_all_ones() {
         let bc = [SCONST_5, SCONST_M1, SAND, SRETURN];
@@ -5787,7 +5788,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
     }
 
-    /// JCVM 3.1 Ch7 sor: OR with 0 is identity.
+    /// JCVM 3.2 Ch7 sor: OR with 0 is identity.
     #[test]
     fn sor_with_zero() {
         let bc = [SCONST_3, SCONST_0, SOR, SRETURN];
@@ -5795,7 +5796,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
     }
 
-    /// JCVM 3.1 Ch7 sor: OR with 0xFFFF is 0xFFFF.
+    /// JCVM 3.2 Ch7 sor: OR with 0xFFFF is 0xFFFF.
     #[test]
     fn sor_with_all_ones() {
         let bc = [SCONST_0, SCONST_M1, SOR, SRETURN];
@@ -5803,7 +5804,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
     }
 
-    /// JCVM 3.1 Ch7 sxor: XOR with 0 is identity.
+    /// JCVM 3.2 Ch7 sxor: XOR with 0 is identity.
     #[test]
     fn sxor_with_zero() {
         let bc = [SCONST_5, SCONST_0, SXOR, SRETURN];
@@ -5811,7 +5812,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
     }
 
-    /// JCVM 3.1 Ch7 sxor: XOR with self is 0.
+    /// JCVM 3.2 Ch7 sxor: XOR with self is 0.
     #[test]
     fn sxor_self_is_zero() {
         let bc = [SCONST_5, SCONST_5, SXOR, SRETURN];
@@ -5819,7 +5820,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
     }
 
-    /// JCVM 3.1 Ch7 ishl: shift by 31 puts bit 0 into sign position.
+    /// JCVM 3.2 Ch7 ishl: shift by 31 puts bit 0 into sign position.
     #[test]
     fn ishl_by_31() {
         let bc = [ICONST_1, BSPUSH, 31, ISHL, IRETURN];
@@ -5827,7 +5828,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MIN));
     }
 
-    /// JCVM 3.1 Ch7 ishr: arithmetic shift of -1 by 31 is still -1.
+    /// JCVM 3.2 Ch7 ishr: arithmetic shift of -1 by 31 is still -1.
     #[test]
     fn ishr_neg1_by_31() {
         let bc = [ICONST_M1, BSPUSH, 31, ISHR, IRETURN];
@@ -5835,7 +5836,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-1));
     }
 
-    /// JCVM 3.1 Ch7 iushr: unsigned shift of -1 by 31 is 1.
+    /// JCVM 3.2 Ch7 iushr: unsigned shift of -1 by 31 is 1.
     #[test]
     fn iushr_neg1_by_31() {
         let bc = [ICONST_M1, BSPUSH, 31, IUSHR, IRETURN];
@@ -5845,10 +5846,10 @@ mod tests {
 
     // =======================================================================
     // PRIORITY 4: Conversion edge cases
-    // JCVM 3.1 Ch7 s2b/i2s: narrowing conversions truncate then sign-extend.
+    // JCVM 3.2 Ch7 s2b/i2s: narrowing conversions truncate then sign-extend.
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 s2b: s2b(127) = 127 (fits in byte).
+    /// JCVM 3.2 Ch7 s2b: s2b(127) = 127 (fits in byte).
     #[test]
     fn s2b_127() {
         let bc = [BSPUSH, 127, S2B, SRETURN];
@@ -5856,7 +5857,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(127));
     }
 
-    /// JCVM 3.1 Ch7 s2b: s2b(128) = -128 (truncate to 0x80 then sign-extend).
+    /// JCVM 3.2 Ch7 s2b: s2b(128) = -128 (truncate to 0x80 then sign-extend).
     #[test]
     fn s2b_128() {
         let val_bytes = 128u16.to_be_bytes();
@@ -5865,7 +5866,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-128));
     }
 
-    /// JCVM 3.1 Ch7 s2b: s2b(-128) = -128 (already fits in signed byte).
+    /// JCVM 3.2 Ch7 s2b: s2b(-128) = -128 (already fits in signed byte).
     #[test]
     fn s2b_neg128() {
         let bc = [BSPUSH, (-128i8).cast_unsigned(), S2B, SRETURN];
@@ -5873,7 +5874,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-128));
     }
 
-    /// JCVM 3.1 Ch7 s2b: s2b(-129) = 127 (truncates: 0xFF7F & 0xFF = 0x7F = 127).
+    /// JCVM 3.2 Ch7 s2b: s2b(-129) = 127 (truncates: 0xFF7F & 0xFF = 0x7F = 127).
     #[test]
     fn s2b_neg129() {
         let val = (-129i16).cast_unsigned().to_be_bytes();
@@ -5882,7 +5883,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(127));
     }
 
-    /// JCVM 3.1 Ch7 s2b: s2b(0) = 0.
+    /// JCVM 3.2 Ch7 s2b: s2b(0) = 0.
     #[test]
     fn s2b_zero() {
         let bc = [SCONST_0, S2B, SRETURN];
@@ -5890,7 +5891,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
     }
 
-    /// JCVM 3.1 Ch7 i2s: i2s(32767) = 32767 (fits in short).
+    /// JCVM 3.2 Ch7 i2s: i2s(32767) = 32767 (fits in short).
     #[test]
     fn i2s_max_short() {
         let bc = [
@@ -5901,7 +5902,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(32767));
     }
 
-    /// JCVM 3.1 Ch7 i2s: i2s(32768) = -32768 (truncate low 16 bits = 0x8000).
+    /// JCVM 3.2 Ch7 i2s: i2s(32768) = -32768 (truncate low 16 bits = 0x8000).
     #[test]
     fn i2s_32768() {
         let bc = [
@@ -5912,7 +5913,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-32768));
     }
 
-    /// JCVM 3.1 Ch7 i2s: i2s(-32768) = -32768 (already fits).
+    /// JCVM 3.2 Ch7 i2s: i2s(-32768) = -32768 (already fits).
     #[test]
     fn i2s_neg32768() {
         let bc = [
@@ -5923,7 +5924,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-32768));
     }
 
-    /// JCVM 3.1 Ch7 i2s: i2s(0) = 0.
+    /// JCVM 3.2 Ch7 i2s: i2s(0) = 0.
     #[test]
     fn i2s_zero() {
         let bc = [ICONST_0, I2S, SRETURN];
@@ -5931,7 +5932,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
     }
 
-    /// JCVM 3.1 Ch7 i2b: i2b(127) = 127.
+    /// JCVM 3.2 Ch7 i2b: i2b(127) = 127.
     #[test]
     fn i2b_127() {
         let bc = [
@@ -5942,7 +5943,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(127));
     }
 
-    /// JCVM 3.1 Ch7 i2b: i2b(128) = -128.
+    /// JCVM 3.2 Ch7 i2b: i2b(128) = -128.
     #[test]
     fn i2b_128() {
         let bc = [
@@ -5958,7 +5959,7 @@ mod tests {
     // Most branches have existing taken/not-taken tests. Adding missing ones.
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 `if_scmpge`: not taken when a < b.
+    /// JCVM 3.2 Ch7 `if_scmpge`: not taken when a < b.
     #[test]
     fn if_scmpge_not_taken() {
         let bc = [SCONST_3, SCONST_5, IF_SCMPGE, 3, SCONST_4, SRETURN];
@@ -5966,7 +5967,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 `if_scmpge`: taken when a == b (edge: equality).
+    /// JCVM 3.2 Ch7 `if_scmpge`: taken when a == b (edge: equality).
     #[test]
     fn if_scmpge_taken_equal() {
         let bc = [
@@ -5976,7 +5977,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
-    /// JCVM 3.1 Ch7 `if_scmpgt`: not taken when a == b.
+    /// JCVM 3.2 Ch7 `if_scmpgt`: not taken when a == b.
     #[test]
     fn if_scmpgt_not_taken() {
         let bc = [SCONST_3, SCONST_3, IF_SCMPGT, 3, SCONST_4, SRETURN];
@@ -5984,7 +5985,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 `if_scmpgt`: not taken when a < b.
+    /// JCVM 3.2 Ch7 `if_scmpgt`: not taken when a < b.
     #[test]
     fn if_scmpgt_not_taken_less() {
         let bc = [SCONST_3, SCONST_5, IF_SCMPGT, 3, SCONST_4, SRETURN];
@@ -5992,7 +5993,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 `if_scmple`: not taken when a > b.
+    /// JCVM 3.2 Ch7 `if_scmple`: not taken when a > b.
     #[test]
     fn if_scmple_not_taken() {
         let bc = [SCONST_5, SCONST_3, IF_SCMPLE, 3, SCONST_4, SRETURN];
@@ -6000,7 +6001,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 `if_scmple`: taken when a == b (edge: equality).
+    /// JCVM 3.2 Ch7 `if_scmple`: taken when a == b (edge: equality).
     #[test]
     fn if_scmple_taken_equal() {
         let bc = [
@@ -6010,7 +6011,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
-    /// JCVM 3.1 Ch7 `if_scmpeq`: with negative values, true case.
+    /// JCVM 3.2 Ch7 `if_scmpeq`: with negative values, true case.
     #[test]
     fn if_scmpeq_negative_taken() {
         let bc = [
@@ -6020,7 +6021,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
-    /// JCVM 3.1 Ch7 `if_acmpeq`: not taken when references differ.
+    /// JCVM 3.2 Ch7 `if_acmpeq`: not taken when references differ.
     #[test]
     fn if_acmpeq_not_taken() {
         let bc = [SCONST_1, SCONST_2, IF_ACMPEQ, 3, SCONST_4, SRETURN];
@@ -6028,7 +6029,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 `if_acmpne`: not taken when references are equal.
+    /// JCVM 3.2 Ch7 `if_acmpne`: not taken when references are equal.
     #[test]
     fn if_acmpne_not_taken() {
         let bc = [ACONST_NULL, ACONST_NULL, IF_ACMPNE, 3, SCONST_4, SRETURN];
@@ -6036,7 +6037,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(4));
     }
 
-    /// JCVM 3.1 Ch7 iflt: not taken when val == 0 (boundary).
+    /// JCVM 3.2 Ch7 iflt: not taken when val == 0 (boundary).
     #[test]
     fn iflt_not_taken_when_zero() {
         let bc = [SCONST_0, IFLT, 3, SCONST_3, SRETURN];
@@ -6044,7 +6045,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
     }
 
-    /// JCVM 3.1 Ch7 ifgt: not taken when val == -1 (negative).
+    /// JCVM 3.2 Ch7 ifgt: not taken when val == -1 (negative).
     #[test]
     fn ifgt_not_taken_when_negative() {
         let bc = [SCONST_M1, IFGT, 3, SCONST_3, SRETURN];
@@ -6052,7 +6053,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
     }
 
-    /// JCVM 3.1 Ch7 ifle: taken when val == 0 (boundary: equal to zero).
+    /// JCVM 3.2 Ch7 ifle: taken when val == 0 (boundary: equal to zero).
     #[test]
     fn ifle_taken_when_zero_boundary() {
         let bc = [SCONST_1, SCONST_0, IFLE, 3, SCONST_0, SRETURN];
@@ -6060,7 +6061,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(1));
     }
 
-    /// JCVM 3.1 Ch7 ifge: taken when val == 0 (boundary: equal to zero).
+    /// JCVM 3.2 Ch7 ifge: taken when val == 0 (boundary: equal to zero).
     #[test]
     fn ifge_taken_when_zero_boundary() {
         let bc = [SCONST_1, SCONST_0, IFGE, 3, SCONST_0, SRETURN];
@@ -6072,7 +6073,7 @@ mod tests {
     // PRIORITY 6: Stack underflow for each category
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 sadd: `StackUnderflow` on empty stack.
+    /// JCVM 3.2 Ch7 sadd: `StackUnderflow` on empty stack.
     #[test]
     fn sadd_underflow() {
         let bc = [SCONST_1, SADD];
@@ -6080,7 +6081,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 sreturn: `StackUnderflow` when returning with empty stack.
+    /// JCVM 3.2 Ch7 sreturn: `StackUnderflow` when returning with empty stack.
     #[test]
     fn sreturn_underflow() {
         let bc = [SRETURN];
@@ -6088,7 +6089,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 ireturn: `StackUnderflow` on empty stack (needs 2 words).
+    /// JCVM 3.2 Ch7 ireturn: `StackUnderflow` on empty stack (needs 2 words).
     #[test]
     fn ireturn_underflow() {
         let bc = [IRETURN];
@@ -6096,7 +6097,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 dup2: `StackUnderflow` when only 1 element.
+    /// JCVM 3.2 Ch7 dup2: `StackUnderflow` when only 1 element.
     #[test]
     fn dup2_underflow_one_element() {
         let bc = [SCONST_1, DUP2];
@@ -6104,7 +6105,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 dup2: `StackUnderflow` when stack is empty.
+    /// JCVM 3.2 Ch7 dup2: `StackUnderflow` when stack is empty.
     #[test]
     fn dup2_underflow_empty() {
         let bc = [DUP2];
@@ -6112,7 +6113,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 pop2: `StackUnderflow` when only 1 element.
+    /// JCVM 3.2 Ch7 pop2: `StackUnderflow` when only 1 element.
     #[test]
     fn pop2_underflow_one_element() {
         let bc = [SCONST_1, POP2];
@@ -6120,7 +6121,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::StackUnderflow);
     }
 
-    /// JCVM 3.1 Ch7 iadd: `StackUnderflow` with only one int on stack.
+    /// JCVM 3.2 Ch7 iadd: `StackUnderflow` with only one int on stack.
     #[test]
     fn iadd_underflow() {
         let bc = [ICONST_1, IADD];
@@ -6132,7 +6133,7 @@ mod tests {
     // PRIORITY 7: Null reference exceptions
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 `getfield_b`: `NullPointerException` on null objectref.
+    /// JCVM 3.2 Ch7 `getfield_b`: `NullPointerException` on null objectref.
     #[test]
     fn getfield_b_null_ref() {
         let bc = [ACONST_NULL, GETFIELD_B, 0, 0];
@@ -6140,7 +6141,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 `getfield_s`: `NullPointerException` on null objectref.
+    /// JCVM 3.2 Ch7 `getfield_s`: `NullPointerException` on null objectref.
     #[test]
     fn getfield_s_null_ref() {
         let bc = [ACONST_NULL, GETFIELD_S, 0, 0];
@@ -6148,7 +6149,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 `getfield_i`: `NullPointerException` on null objectref.
+    /// JCVM 3.2 Ch7 `getfield_i`: `NullPointerException` on null objectref.
     #[test]
     fn getfield_i_null_ref() {
         let bc = [ACONST_NULL, GETFIELD_I, 0, 0];
@@ -6156,7 +6157,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 `putfield_b`: `NullPointerException` on null objectref.
+    /// JCVM 3.2 Ch7 `putfield_b`: `NullPointerException` on null objectref.
     #[test]
     fn putfield_b_null_ref() {
         let bc = [ACONST_NULL, SCONST_1, PUTFIELD_B, 0, 0];
@@ -6164,7 +6165,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 baload: `NullPointerException` on null arrayref.
+    /// JCVM 3.2 Ch7 baload: `NullPointerException` on null arrayref.
     #[test]
     fn baload_null_ref() {
         let bc = [ACONST_NULL, SCONST_0, BALOAD];
@@ -6172,7 +6173,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 bastore: `NullPointerException` on null arrayref.
+    /// JCVM 3.2 Ch7 bastore: `NullPointerException` on null arrayref.
     #[test]
     fn bastore_null_ref() {
         let bc = [ACONST_NULL, SCONST_0, SCONST_1, BASTORE];
@@ -6180,7 +6181,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::NullPointerException);
     }
 
-    /// JCVM 3.1 Ch7 saload: `NullPointerException` on null arrayref.
+    /// JCVM 3.2 Ch7 saload: `NullPointerException` on null arrayref.
     #[test]
     fn saload_null_ref() {
         let bc = [ACONST_NULL, SCONST_0, SALOAD];
@@ -6192,7 +6193,7 @@ mod tests {
     // PRIORITY 8: Array bounds checking
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 baload: `ArrayIndexOutOfBounds` when index == length.
+    /// JCVM 3.2 Ch7 baload: `ArrayIndexOutOfBounds` when index == length.
     #[test]
     fn baload_out_of_bounds() {
         // Create byte array of length 3, then load index 3 (OOB).
@@ -6205,7 +6206,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ArrayIndexOutOfBounds);
     }
 
-    /// JCVM 3.1 Ch7 baload: index 0 (first element) succeeds.
+    /// JCVM 3.2 Ch7 baload: index 0 (first element) succeeds.
     #[test]
     fn baload_index_zero() {
         let bc = [
@@ -6221,7 +6222,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(42));
     }
 
-    /// JCVM 3.1 Ch7 baload: index length-1 (last element) succeeds.
+    /// JCVM 3.2 Ch7 baload: index length-1 (last element) succeeds.
     #[test]
     fn baload_last_index() {
         let bc = [
@@ -6237,7 +6238,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(99));
     }
 
-    /// JCVM 3.1 Ch7 bastore: `ArrayIndexOutOfBounds` when index == length.
+    /// JCVM 3.2 Ch7 bastore: `ArrayIndexOutOfBounds` when index == length.
     #[test]
     fn bastore_out_of_bounds() {
         let bc = [
@@ -6254,7 +6255,7 @@ mod tests {
     // PRIORITY 9: sinc/iinc edge cases
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 sinc: increment by max positive byte constant (127).
+    /// JCVM 3.2 Ch7 sinc: increment by max positive byte constant (127).
     #[test]
     fn sinc_max_positive() {
         let bc = [SCONST_0, SSTORE_0, SINC, 0, 127, SLOAD_0, SRETURN];
@@ -6262,7 +6263,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(127));
     }
 
-    /// JCVM 3.1 Ch7 sinc: increment overflow wraps (32767 + 1 = -32768).
+    /// JCVM 3.2 Ch7 sinc: increment overflow wraps (32767 + 1 = -32768).
     #[test]
     fn sinc_overflow_wraps() {
         let max_bytes = i16::MAX.cast_unsigned().to_be_bytes();
@@ -6281,7 +6282,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(i16::MIN));
     }
 
-    /// JCVM 3.1 Ch7 sinc: increment by min negative byte constant (-128).
+    /// JCVM 3.2 Ch7 sinc: increment by min negative byte constant (-128).
     #[test]
     fn sinc_min_negative() {
         let bc = [
@@ -6297,7 +6298,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-128));
     }
 
-    /// JCVM 3.1 Ch7 iinc: increment by negative constant.
+    /// JCVM 3.2 Ch7 iinc: increment by negative constant.
     #[test]
     fn iinc_negative() {
         let bc = [
@@ -6318,7 +6319,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(95));
     }
 
-    /// JCVM 3.1 Ch7 iinc: int increment overflow wraps.
+    /// JCVM 3.2 Ch7 iinc: int increment overflow wraps.
     #[test]
     fn iinc_overflow_wraps() {
         let bc = [
@@ -6333,7 +6334,7 @@ mod tests {
     // PRIORITY 10: Switch tests (additional coverage)
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 stableswitch: key at low boundary (key == low).
+    /// JCVM 3.2 Ch7 stableswitch: key at low boundary (key == low).
     #[test]
     fn stableswitch_low_boundary() {
         let bc = [
@@ -6360,7 +6361,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
     }
 
-    /// JCVM 3.1 Ch7 stableswitch: key at high boundary (key == high).
+    /// JCVM 3.2 Ch7 stableswitch: key at high boundary (key == high).
     #[test]
     fn stableswitch_high_boundary() {
         let bc = [
@@ -6387,7 +6388,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
     }
 
-    /// JCVM 3.1 Ch7 slookupswitch: no pairs, always goes to default.
+    /// JCVM 3.2 Ch7 slookupswitch: no pairs, always goes to default.
     #[test]
     fn slookupswitch_empty_default() {
         let bc = [
@@ -6404,7 +6405,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
     }
 
-    /// JCVM 3.1 Ch7 stableswitch: key below low goes to default.
+    /// JCVM 3.2 Ch7 stableswitch: key below low goes to default.
     #[test]
     fn stableswitch_below_low_default() {
         let bc = [
@@ -6435,7 +6436,7 @@ mod tests {
     // PRIORITY 11: Field access variants
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 `getfield_s`/`putfield_s`: store at non-zero offset.
+    /// JCVM 3.2 Ch7 `getfield_s`/`putfield_s`: store at non-zero offset.
     #[test]
     fn putfield_getfield_short_offset2() {
         let bc = [
@@ -6450,7 +6451,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
     }
 
-    /// JCVM 3.1 Ch7 `getfield_i`/`putfield_i`: store negative int.
+    /// JCVM 3.2 Ch7 `getfield_i`/`putfield_i`: store negative int.
     #[test]
     fn putfield_getfield_int_negative() {
         let bc = [
@@ -6462,7 +6463,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-2));
     }
 
-    /// JCVM 3.1 Ch7 `getfield_a`/`putfield_a`: store and retrieve null reference.
+    /// JCVM 3.2 Ch7 `getfield_a`/`putfield_a`: store and retrieve null reference.
     #[test]
     fn putfield_getfield_ref_null() {
         let bc = [
@@ -6483,7 +6484,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(0));
     }
 
-    /// JCVM 3.1 Ch7 `putfield_s`: `NullPointerException` on null objectref.
+    /// JCVM 3.2 Ch7 `putfield_s`: `NullPointerException` on null objectref.
     #[test]
     fn putfield_s_null_ref() {
         let bc = [ACONST_NULL, SCONST_1, PUTFIELD_S, 0, 0];
@@ -6495,7 +6496,7 @@ mod tests {
     // PRIORITY 12: Static field variants
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 `getstatic_s`/`putstatic_s`: negative value roundtrip.
+    /// JCVM 3.2 Ch7 `getstatic_s`/`putstatic_s`: negative value roundtrip.
     #[test]
     fn putstatic_getstatic_short_negative() {
         let val = (-12345i16).cast_unsigned().to_be_bytes();
@@ -6515,7 +6516,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-12345));
     }
 
-    /// JCVM 3.1 Ch7 `getstatic_i`/`putstatic_i`: negative int roundtrip.
+    /// JCVM 3.2 Ch7 `getstatic_i`/`putstatic_i`: negative int roundtrip.
     #[test]
     fn putstatic_getstatic_int_negative() {
         let bc = [
@@ -6536,7 +6537,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-2));
     }
 
-    /// JCVM 3.1 Ch7 `getstatic_a`/`putstatic_a`: reference roundtrip.
+    /// JCVM 3.2 Ch7 `getstatic_a`/`putstatic_a`: reference roundtrip.
     #[test]
     fn putstatic_getstatic_ref_roundtrip() {
         let bc = [
@@ -6554,7 +6555,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(77));
     }
 
-    /// JCVM 3.1 Ch7 `getstatic_i`: default zero for unwritten int field.
+    /// JCVM 3.2 Ch7 `getstatic_i`: default zero for unwritten int field.
     #[test]
     fn getstatic_i_default_zero() {
         let bc = [GETSTATIC_I, 0x00, 0x40, IRETURN];
@@ -6566,7 +6567,7 @@ mod tests {
     // PRIORITY 13: dup2/pop2 detailed tests
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 dup2: duplicates two words, verify both copies.
+    /// JCVM 3.2 Ch7 dup2: duplicates two words, verify both copies.
     #[test]
     fn dup2_full_verification() {
         // Stack: [3, 5], dup2 -> [3, 5, 3, 5].
@@ -6581,7 +6582,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
     }
 
-    /// JCVM 3.1 Ch7 pop2: leaves remaining stack intact.
+    /// JCVM 3.2 Ch7 pop2: leaves remaining stack intact.
     #[test]
     fn pop2_preserves_lower_stack() {
         // Stack: [1, 2, 3, 4], pop2 -> [1, 2].
@@ -6594,7 +6595,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(3));
     }
 
-    /// JCVM 3.1 Ch7 pop2: removes exactly 2 words (not more).
+    /// JCVM 3.2 Ch7 pop2: removes exactly 2 words (not more).
     #[test]
     fn pop2_exactly_two_words() {
         // Stack: [5, 6, 7], pop2 removes 7 and 6, leaving 5.
@@ -6603,7 +6604,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
     }
 
-    /// JCVM 3.1 Ch7 dup2: with int value (2 words = 1 int).
+    /// JCVM 3.2 Ch7 dup2: with int value (2 words = 1 int).
     #[test]
     fn dup2_with_int() {
         // Push int 42, dup2 (duplicates 2 stack words = the full int).
@@ -6621,7 +6622,7 @@ mod tests {
     // PRIORITY 14: areturn/ireturn variants
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 areturn: returns correct `ExecResult::ReturnRef` variant.
+    /// JCVM 3.2 Ch7 areturn: returns correct `ExecResult::ReturnRef` variant.
     #[test]
     fn areturn_nonzero_ref() {
         let bc = [SSPUSH, 0x12, 0x34, ARETURN];
@@ -6629,7 +6630,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnRef(0x1234));
     }
 
-    /// JCVM 3.1 Ch7 ireturn: returns correct `ExecResult::ReturnInt` with negative.
+    /// JCVM 3.2 Ch7 ireturn: returns correct `ExecResult::ReturnInt` with negative.
     #[test]
     fn ireturn_negative() {
         let bc = [ICONST_M1, IRETURN];
@@ -6637,7 +6638,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(-1));
     }
 
-    /// JCVM 3.1 Ch7 ireturn: returns large positive value.
+    /// JCVM 3.2 Ch7 ireturn: returns large positive value.
     #[test]
     fn ireturn_large_positive() {
         let bc = [
@@ -6648,7 +6649,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(i32::MAX));
     }
 
-    /// JCVM 3.1 Ch7 areturn: after invokestatic returns ref to caller.
+    /// JCVM 3.2 Ch7 areturn: after invokestatic returns ref to caller.
     #[test]
     fn areturn_through_invokestatic() {
         // Method 0: invokestatic(0, 1), areturn
@@ -6663,7 +6664,7 @@ mod tests {
     // PRIORITY 15: ICMP edge cases
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 icmp: comparison with large negative values.
+    /// JCVM 3.2 Ch7 icmp: comparison with large negative values.
     #[test]
     fn icmp_min_vs_max() {
         let bc = [
@@ -6675,7 +6676,7 @@ mod tests {
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(-1));
     }
 
-    /// JCVM 3.1 Ch7 icmp: max vs min returns 1.
+    /// JCVM 3.2 Ch7 icmp: max vs min returns 1.
     #[test]
     fn icmp_max_vs_min() {
         let bc = [
@@ -6691,7 +6692,7 @@ mod tests {
     // PRIORITY 16: Byte array store/load roundtrip
     // =======================================================================
 
-    /// JCVM 3.1 Ch7 bastore/baload: store and retrieve multiple values.
+    /// JCVM 3.2 Ch7 bastore/baload: store and retrieve multiple values.
     #[test]
     fn bastore_baload_multi() {
         let bc = [
@@ -6738,7 +6739,7 @@ mod tests {
         }
 
         proptest! {
-            /// JCVM 3.1 Ch7 sadd: matches `i16::wrapping_add` for all inputs.
+            /// JCVM 3.2 Ch7 sadd: matches `i16::wrapping_add` for all inputs.
             #[test]
             fn sadd_matches_wrapping_add(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SADD);
@@ -6747,7 +6748,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 ssub: matches `i16::wrapping_sub` for all inputs.
+            /// JCVM 3.2 Ch7 ssub: matches `i16::wrapping_sub` for all inputs.
             #[test]
             fn ssub_matches_wrapping_sub(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SSUB);
@@ -6756,7 +6757,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 smul: matches `i16::wrapping_mul` for all inputs.
+            /// JCVM 3.2 Ch7 smul: matches `i16::wrapping_mul` for all inputs.
             #[test]
             fn smul_matches_wrapping_mul(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SMUL);
@@ -6765,7 +6766,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 sand: matches Rust bitwise AND.
+            /// JCVM 3.2 Ch7 sand: matches Rust bitwise AND.
             #[test]
             fn sand_matches_bitwise_and(a in any::<u16>(), b in any::<u16>()) {
                 let a_i = a.cast_signed();
@@ -6776,7 +6777,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 sor: matches Rust bitwise OR.
+            /// JCVM 3.2 Ch7 sor: matches Rust bitwise OR.
             #[test]
             fn sor_matches_bitwise_or(a in any::<u16>(), b in any::<u16>()) {
                 let a_i = a.cast_signed();
@@ -6787,7 +6788,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 sxor: matches Rust bitwise XOR.
+            /// JCVM 3.2 Ch7 sxor: matches Rust bitwise XOR.
             #[test]
             fn sxor_matches_bitwise_xor(a in any::<u16>(), b in any::<u16>()) {
                 let a_i = a.cast_signed();
@@ -6798,7 +6799,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 sshl: matches `(i32::from(a) << (b & 0x1F))` truncated to i16.
+            /// JCVM 3.2 Ch7 sshl: matches `(i32::from(a) << (b & 0x1F))` truncated to i16.
             #[test]
             fn sshl_matches_reference(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SSHL);
@@ -6809,7 +6810,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 sshr: matches `(i32::from(a) >> (b & 0x1F))` truncated to i16.
+            /// JCVM 3.2 Ch7 sshr: matches `(i32::from(a) >> (b & 0x1F))` truncated to i16.
             #[test]
             fn sshr_matches_reference(a in any::<i16>(), b in any::<i16>()) {
                 let bc = short_binop_bc(a, b, SSHR);
@@ -6820,7 +6821,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 iadd: matches `i32::wrapping_add` for all inputs.
+            /// JCVM 3.2 Ch7 iadd: matches `i32::wrapping_add` for all inputs.
             #[test]
             fn iadd_matches_wrapping_add(a in any::<i32>(), b in any::<i32>()) {
                 let bc = int_binop_bc(a, b, IADD);
@@ -6829,7 +6830,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
             }
 
-            /// JCVM 3.1 Ch7 isub: matches `i32::wrapping_sub` for all inputs.
+            /// JCVM 3.2 Ch7 isub: matches `i32::wrapping_sub` for all inputs.
             #[test]
             fn isub_matches_wrapping_sub(a in any::<i32>(), b in any::<i32>()) {
                 let bc = int_binop_bc(a, b, ISUB);
@@ -6838,7 +6839,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
             }
 
-            /// JCVM 3.1 Ch7 imul: matches `i32::wrapping_mul` for all inputs.
+            /// JCVM 3.2 Ch7 imul: matches `i32::wrapping_mul` for all inputs.
             #[test]
             fn imul_matches_wrapping_mul(a in any::<i32>(), b in any::<i32>()) {
                 let bc = int_binop_bc(a, b, IMUL);
@@ -6847,7 +6848,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
             }
 
-            /// JCVM 3.1 Ch7 idiv: non-zero divisor matches Rust truncating division.
+            /// JCVM 3.2 Ch7 idiv: non-zero divisor matches Rust truncating division.
             #[test]
             fn idiv_matches_truncating_div(
                 a in any::<i32>(),
@@ -6863,7 +6864,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnInt(expected));
             }
 
-            /// JCVM 3.1 Ch7 s2b: truncates low 8 bits then sign-extends to i16.
+            /// JCVM 3.2 Ch7 s2b: truncates low 8 bits then sign-extends to i16.
             #[test]
             fn s2b_matches_reference(a in any::<i16>()) {
                 let a_bytes = a.cast_unsigned().to_be_bytes();
@@ -6874,7 +6875,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 i2s: truncates low 16 bits.
+            /// JCVM 3.2 Ch7 i2s: truncates low 16 bits.
             #[test]
             fn i2s_matches_reference(a in any::<i32>()) {
                 let a_bytes = a.to_be_bytes();
@@ -6888,7 +6889,7 @@ mod tests {
                 prop_assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(expected));
             }
 
-            /// JCVM 3.1 Ch7 sinc: matches wrapping_add with i8 constant.
+            /// JCVM 3.2 Ch7 sinc: matches wrapping_add with i8 constant.
             #[test]
             fn sinc_matches_wrapping_add(val in any::<i16>(), inc in any::<i8>()) {
                 let val_bytes = val.cast_unsigned().to_be_bytes();

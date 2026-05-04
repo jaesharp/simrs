@@ -1,4 +1,10 @@
-//! Applet registry: AID-based lookup and management per GP 2.1.1 Chapter 9.
+//! Applet registry: AID-based lookup and management.
+//!
+//! Implementation derived from GP 2.1.1 Chapter 9 (clauses 9.2 / 9.3.2
+//! / 9.5 / 9.6.2.4); GP 2.3.1 reorganises this content into Chapter
+//! 11 with equivalent semantics. Inline citations below use GP 2.1.1
+//! numbering as that is where the table/clause references were
+//! verified against the spec text.
 //!
 //! The registry stores applet entries, each identified by an AID (Application
 //! Identifier, 5-16 bytes per ISO 7816-4). The ISD (Issuer Security Domain)

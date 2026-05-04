@@ -1,6 +1,9 @@
 //! SCP01-specific key derivation and cryptogram computation.
 //!
-//! GP Card Specification v2.1.1 Appendix D.
+//! Spec source: GP Card Specification v2.1.1 Appendix D (figure
+//! numbering verified there; GP 2.3.1 retains SCP01 in Appendix D
+//! unchanged but is not independently verified here -- see crate
+//! lib.rs intro).
 
 use simrs_gp_keys::KeySet;
 use simrs_iso9797::des3_2key_ecb_encrypt;

@@ -1,4 +1,8 @@
-//! Logical channel management per GP 2.1.1 clause 9.5 and ETSI TS 102 221.
+//! Logical channel management.
+//!
+//! Derived from GP 2.1.1 clause 9.5 (verified there); GP 2.3.1
+//! retains the four-channel model in Chapter 6. Cross-references
+//! ETSI TS 102 221 § 8.6 for MANAGE CHANNEL semantics.
 //!
 //! The GP card supports up to 4 logical channels (basic channel 0 + 3
 //! supplementary channels 1-3). Each channel independently tracks which

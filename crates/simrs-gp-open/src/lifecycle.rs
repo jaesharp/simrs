@@ -1,4 +1,10 @@
-//! Card and applet lifecycle state machines per GP 2.1.1 Chapter 5.
+//! Card and applet lifecycle state machines.
+//!
+//! Implementation derived from GP 2.1.1 Chapter 5 (the spec the
+//! original tables/figures were verified against); GP 2.3.1 retains
+//! the same lifecycle states and transitions, restructured into
+//! Chapter 5 clauses with the same content. Inline citations below
+//! refer to GP 2.1.1.
 //!
 //! # Card Lifecycle (GP 2.1.1 clause 5.1, Figure 5-1)
 //!

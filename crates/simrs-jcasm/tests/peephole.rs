@@ -9,7 +9,7 @@ use simrs_jcvm::JcVM;
 use simrs_jcvm::cap::{build_cap_blob, parse_cap};
 use simrs_jcvm::opcodes::ExecResult;
 
-// Opcode byte constants (from JCVM 3.1 spec).
+// Opcode byte constants (from JCVM 3.2 spec).
 const SCONST_1: u8 = 0x04;
 const SCONST_3: u8 = 0x06;
 const SCONST_5: u8 = 0x08;

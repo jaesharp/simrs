@@ -1,4 +1,5 @@
-//! Transient memory arrays per [JC RE 2.1.1 Chapter 5](../../../../telecom-standards/javacard/2.1.1/JCRESpec.pdf).
+//! Transient memory arrays per [JC RE 2.1.1 Chapter 5](../../../../docs/specs/javacard/2.1.1/JCRESpec.pdf)
+//! (verified there; JCRE 3.2 keeps the same transient-array model).
 //!
 //! `JavaCard` defines two transient memory tiers that are NOT included in
 //! snapshots and are automatically cleared on specific events:

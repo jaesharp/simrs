@@ -1,8 +1,12 @@
 //! ISO 9797-1 CBC-MAC and CBC encrypt/decrypt for DES, 3DES, and AES-128.
 //!
 //! Provides the MAC and block-cipher-mode primitives used by:
-//! - `GlobalPlatform` SCP01/SCP02 secure messaging (GP 2.1.1 Appendices D/E)
-//! - `GlobalPlatform` token and receipt generation (GP 2.1.1 Appendix C)
+//! - `GlobalPlatform` SCP01/SCP02 secure messaging (GP 2.1.1
+//!   Appendices D/E -- the spec the inline clauses below were
+//!   verified against; SCP01/SCP02 are retained unchanged in GP
+//!   2.3.1)
+//! - `GlobalPlatform` token and receipt generation (GP 2.1.1
+//!   Appendix C)
 //! - ETSI TS 102 225 OTA secured packets (via `simrs-ota`)
 //!
 //! # Padding Methods
