@@ -229,26 +229,41 @@ If, in the future, snapshot operations need orchestration across multiple compon
 
 For each crate in `simrs-fs`, `simrs-pin`, `simrs-gsm`, `simrs-usim`, `simrs-sim`, `simrs-gp-keys`, `simrs-gp-open`, `simrs-gp-card`, `simrs-jcre`, `simrs-tuak`, `simrs-milenage`, `simrs-proactive`, `simrs-iso7816`:
 
-- Add `snapshot` feature.
-- Convert `pub fn save_state`/`pub fn restore_state` to `pub(crate) fn ..._internal`.
+- Add `snapshot` feature flag.
 - Add `Snapshotable` impl behind the feature.
-- Update test calls from `vm.save_state(buf)` to `vm.snapshot()` / `Snapshotable::snapshot(&vm)`.
+
+**Note on visibility:** Phase 3 is **additive only**. The existing `pub fn save_state` / `pub fn restore_state` stay `pub` during this phase, but are marked `#[deprecated]` and `#[doc(hidden)]` to steer new code toward `Snapshotable`.
+
+The reason: cross-crate raw-byte composition is real. `simrs-gsm::GsmApp` calls `self.pin.save_state(buf)` to embed `PinManager`'s bytes into its own. `simrs-sim::Sim` calls into `GsmApp` / `UsimApp` similarly. If we tightened `PinManager::save_state` to `pub(crate)` immediately, those parent crates would fail to compile. Visibility tightening is deferred to Phase 5, after Phase 4 migrates parents to opaque-snapshot composition (parents call children's `Snapshotable::snapshot` instead of raw `save_state`).
+
+For Phase 2's anchor (`simrs-jcvm::JcVM`), `pub(crate)` was viable because no external crate composes `JcVM` -- it's a top-level type. Same applies to `Sim`, `GpCard`. Leaf types (`PinManager`, `FsData`, `ResponseQueue`, `ProactiveState`, `MilenageParams`, `KeyStore`, `Registry`, `TransactionJournal`, `ObjectHeap`, `Package`, `TuakParams`) keep their raw API public during Phase 3 and become `pub(crate)` in Phase 5.
 
 **Risk:** Per-crate. Mostly mechanical. Each PR is small and self-contained.
 
-**Acceptance:** Every crate's tests pass with and without the `snapshot` feature. No `pub fn save_state` remains anywhere outside `simrs-snapshot`.
+**Acceptance:** Every crate's tests pass with and without the `snapshot` feature. The `Snapshotable` impl exists for every snapshotable type. The existing `pub fn save_state` / `pub fn restore_state` still work (deprecation warnings fire on new callers but compile cleanly).
 
-### Phase 4: Update top-level consumers (`simrs-fuzz`, `simrs-hle`)
+### Phase 4: Migrate composers and top-level consumers
 
+Two parallel workstreams:
+
+**Phase 4a -- composers refactor save_state to use children's Snapshotable.**
+
+Each parent crate (`simrs-gsm`, `simrs-usim`, `simrs-sim`, `simrs-gp-card`, `simrs-gp-open`) currently composes children's snapshots by calling their raw `save_state(&mut buf)`. After Phase 4a, parents use `child.snapshot()` and embed the resulting `Snapshot::as_bytes()` instead.
+
+This changes the parent's *internal* byte format (children's bytes are now wrapped in 4-byte headers). Parent-level wire format compatibility breaks; child-level wire format is preserved. The version bump on the parent's `Snapshotable::VERSION` reflects this -- old parent snapshots won't restore into new code, by design.
+
+**Phase 4b -- top-level consumers (`simrs-fuzz`, `simrs-hle`)** rewire to the opaque API:
 - `simrs-fuzz`'s `Cargo.toml` enables `snapshot` on its consumer crates.
 - Fuzz harness migrates from `vm.save_state(&mut buf)` / `vm.restore_state(&buf[..n])` to `let snap = vm.snapshot(); vm.restore(&snap)?;`.
-- `simrs-hle`'s C ABI surface (which currently exposes `simrs_hle_snapshot_save` / `simrs_hle_snapshot_restore`) updates to wrap `Snapshot::as_bytes` / `Snapshot::from_bytes` -- the C side still gets a byte buffer, but the Rust side handles the opacity.
+- `simrs-hle`'s C ABI surface (`simrs_hle_snapshot_save` / `simrs_hle_snapshot_restore`) updates to wrap `Snapshot::as_bytes` / `Snapshot::from_bytes` -- the C side still gets a byte buffer, but the Rust side handles the opacity.
 
-**Risk:** Low. These are the leaf consumers; once Phases 1-3 land, this is just rewiring.
+**Risk:** Low for 4b (mechanical). Medium for 4a (parent wire format changes).
 
-### Phase 5: Cleanup
+### Phase 5: Cleanup -- visibility tightening + deprecated removal
 
-- Remove the deprecated `Snapshot` trait alias from Phase 1.
+- For every leaf type whose raw `pub fn save_state` was kept during Phase 3 to support cross-crate composition: tighten to `pub(crate) fn save_state_internal` now that Phase 4a migrated all parents off raw composition.
+- Remove the deprecated `LegacySnapshot` trait alias from Phase 1.
+- Remove the `#[deprecated]` `pub fn save_state` / `pub fn restore_state` methods (they have no callers post-Phase-4a).
 - Update `docs/architecture/README.md` and `docs/standards/06-globalplatform.md` to describe the new architecture.
 - Add a "Snapshot architecture" section to crate-level docs.
 - This ADR transitions to **Status: Accepted**.
