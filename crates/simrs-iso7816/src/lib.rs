@@ -69,6 +69,9 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[cfg(feature = "snapshot")]
+mod snapshot;
+
 // ---------------------------------------------------------------------------
 // Response schemas (for semantic comparison)
 // ---------------------------------------------------------------------------
@@ -1382,7 +1385,13 @@ impl<const CAP: usize> ResponseQueue<CAP> {
     /// Serialize the queue state into `buf`.
     ///
     /// Returns the number of bytes written, or 0 if `buf` is too small.
+    ///
+    /// Prefer the opaque [`simrs_snapshot::Snapshotable::snapshot`]
+    /// API for new code -- this raw-byte method is retained for
+    /// cross-crate composition during the ADR 0001 migration window.
+    /// Tightens to `pub(crate)` in Phase 5.
     #[must_use]
+    #[doc(hidden)]
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return 0;
@@ -1395,7 +1404,13 @@ impl<const CAP: usize> ResponseQueue<CAP> {
     /// Restore the queue state from `buf`.
     ///
     /// Returns `false` if `buf` is too small or contains an invalid length.
+    ///
+    /// Prefer the opaque [`simrs_snapshot::Snapshotable::restore`]
+    /// API for new code -- this raw-byte method is retained for
+    /// cross-crate composition during the ADR 0001 migration window.
+    /// Tightens to `pub(crate)` in Phase 5.
     #[must_use]
+    #[doc(hidden)]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return false;

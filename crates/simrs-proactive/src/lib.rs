@@ -108,6 +108,9 @@
 
 pub mod gsm7;
 
+#[cfg(feature = "snapshot")]
+mod snapshot;
+
 use simrs_bertlv::{BER_LONG_FORM_1, BER_LONG_FORM_2, BER_SHORT_FORM_MAX, Decoder, Encoder};
 
 // ---------------------------------------------------------------------------
@@ -2373,7 +2376,12 @@ impl ProactiveState {
     /// Serialize the proactive state into `buf` as flat bytes.
     ///
     /// Returns the number of bytes written, or 0 if `buf` is too small.
+    ///
+    /// Prefer the opaque [`simrs_snapshot::Snapshotable::snapshot`]
+    /// API for new code -- raw byte API kept for cross-crate
+    /// composition during ADR 0001 migration.
     #[must_use]
+    #[doc(hidden)]
     #[allow(clippy::cast_possible_truncation)] // self.len capped at 256
     pub fn save_state(&self, out: &mut [u8]) -> usize {
         if out.len() < Self::SNAPSHOT_SIZE {
@@ -2416,7 +2424,12 @@ impl ProactiveState {
     /// Restore the proactive state from `data`.
     ///
     /// Returns `true` on success.
+    ///
+    /// Prefer the opaque [`simrs_snapshot::Snapshotable::restore`]
+    /// API for new code -- raw byte API kept for cross-crate
+    /// composition during ADR 0001 migration.
     #[must_use]
+    #[doc(hidden)]
     pub fn restore_state(&mut self, data: &[u8]) -> bool {
         if data.len() < Self::SNAPSHOT_SIZE {
             return false;

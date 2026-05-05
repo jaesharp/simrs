@@ -9,12 +9,16 @@ description = "ISO/IEC 7816 APDU types, CLA parsing, status words -- no_std"
 default = []
 std     = []
 alloc   = []
+# Gates the `Snapshotable` impl on `ResponseQueue` (ADR 0001 Phase 3).
+snapshot = ["dep:simrs-snapshot"]
 
 [dependencies]
 simrs-apdu-schema = { workspace = true }
+simrs-snapshot    = { workspace = true, optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest       = { workspace = true }
+simrs-snapshot = { workspace = true }
 
 [lints]
 workspace = true

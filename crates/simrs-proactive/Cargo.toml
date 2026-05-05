@@ -7,12 +7,16 @@ description = "Proactive UICC command construction per ETSI TS 102 223 -- no_std
 
 [features]
 default = []
+# Gates the `Snapshotable` impl on `ProactiveState` (ADR 0001 Phase 3).
+snapshot = ["dep:simrs-snapshot"]
 
 [dependencies]
-simrs-bertlv = { workspace = true }
+simrs-bertlv   = { workspace = true }
+simrs-snapshot = { workspace = true, optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest       = { workspace = true }
+simrs-snapshot = { workspace = true }
 
 [lints]
 workspace = true
