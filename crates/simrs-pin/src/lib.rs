@@ -1049,41 +1049,8 @@ pub fn apdu_unblock<'b, const N: usize>(
     write_sw(buf, pin_result_sw(pin.unblock(key, &puk, &new_pin)))
 }
 
-// ---------------------------------------------------------------------------
-// Snapshotable impl (ADR 0001 Phase 3, gated behind `snapshot` feature)
-// ---------------------------------------------------------------------------
-
 #[cfg(feature = "snapshot")]
-mod snapshot_impl {
-    extern crate alloc;
-    use alloc::vec;
-
-    use simrs_snapshot::{
-        Snapshot, SnapshotError, Snapshotable, producer::PIN_MANAGER, validate_header,
-    };
-
-    use super::PinManager;
-
-    impl<const N: usize> Snapshotable for PinManager<N> {
-        const PRODUCER_TAG: u16 = PIN_MANAGER;
-        const VERSION: (u8, u8) = (1, 0);
-
-        fn snapshot(&self) -> Snapshot {
-            let mut buf = vec![0u8; Self::SNAPSHOT_SIZE];
-            let n = self.save_state(&mut buf);
-            let payload = if n == 0 { &[][..] } else { &buf[..n] };
-            Snapshot::from_header_and_payload(Self::VERSION, Self::PRODUCER_TAG, payload)
-        }
-
-        fn restore(&mut self, snap: &Snapshot) -> Result<(), SnapshotError> {
-            validate_header(snap, Self::PRODUCER_TAG, Self::VERSION)?;
-            if !self.restore_state(snap.payload()) {
-                return Err(SnapshotError::Malformed);
-            }
-            Ok(())
-        }
-    }
-}
+mod snapshot;
 
 // ---------------------------------------------------------------------------
 // Tests

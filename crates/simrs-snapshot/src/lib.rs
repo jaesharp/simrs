@@ -303,6 +303,64 @@ pub fn validate_header(
 }
 
 // ---------------------------------------------------------------------------
+// Helpers for `Snapshotable` impls that wrap a raw-byte API
+// ---------------------------------------------------------------------------
+
+/// Build a `Snapshot` by allocating an upper-bound buffer, calling
+/// the type's raw `save_state(buf)`, and wrapping the result in the
+/// opaque header.
+///
+/// The canonical implementation pattern for `Snapshotable::snapshot`
+/// on types that already have a raw byte serialization API. Reduces
+/// the per-consumer boilerplate from ~10 lines to a single call.
+///
+/// `save_fn` is `impl FnOnce(&mut [u8]) -> usize` -- the same shape
+/// as the existing `save_state` methods. Returning `0` from `save_fn`
+/// means "buffer too small"; the resulting snapshot has an empty
+/// payload, and a subsequent `restore_via_raw_bytes` will return
+/// [`SnapshotError::Malformed`].
+#[must_use]
+pub fn snapshot_via_raw_bytes(
+    version: (u8, u8),
+    producer_tag: u16,
+    max_size: usize,
+    save_fn: impl FnOnce(&mut [u8]) -> usize,
+) -> Snapshot {
+    let mut buf = alloc::vec![0u8; max_size];
+    let n = save_fn(&mut buf);
+    let payload = if n == 0 { &[][..] } else { &buf[..n] };
+    Snapshot::from_header_and_payload(version, producer_tag, payload)
+}
+
+/// Restore a `Snapshot` by validating the header and feeding the
+/// payload to the type's raw `restore_state(buf) -> bool`.
+///
+/// The canonical implementation pattern for `Snapshotable::restore`.
+/// Reduces the per-consumer boilerplate from ~6 lines to a single
+/// call.
+///
+/// `restore_fn` is `impl FnOnce(&[u8]) -> bool` -- the same shape as
+/// the existing `restore_state` methods. `false` is mapped to
+/// [`SnapshotError::Malformed`].
+///
+/// # Errors
+///
+/// Returns whatever [`validate_header`] returns, or
+/// [`SnapshotError::Malformed`] if `restore_fn` returns `false`.
+pub fn restore_via_raw_bytes(
+    snap: &Snapshot,
+    expected_producer: u16,
+    expected_version: (u8, u8),
+    restore_fn: impl FnOnce(&[u8]) -> bool,
+) -> Result<(), SnapshotError> {
+    validate_header(snap, expected_producer, expected_version)?;
+    if !restore_fn(snap.payload()) {
+        return Err(SnapshotError::Malformed);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Legacy trait (deprecated, kept for the migration window)
 // ---------------------------------------------------------------------------
 

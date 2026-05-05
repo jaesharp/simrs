@@ -5,11 +5,10 @@
 //! `simrs_snapshot::Snapshot` type. Gated behind the `snapshot`
 //! feature flag so production builds get no snapshot surface.
 
-extern crate alloc;
-
-use alloc::vec;
-
-use simrs_snapshot::{Snapshot, SnapshotError, Snapshotable, producer::JCVM, validate_header};
+use simrs_snapshot::{
+    Snapshot, SnapshotError, Snapshotable, producer::JCVM, restore_via_raw_bytes,
+    snapshot_via_raw_bytes,
+};
 
 use crate::JcVM;
 
@@ -20,25 +19,18 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> Snapshotable
     const VERSION: (u8, u8) = (1, 0);
 
     fn snapshot(&self) -> Snapshot {
-        // Upper-bound buffer; `from_header_and_payload` trims to the
-        // actual length.
-        let mut buf = vec![0u8; Self::snapshot_max_size()];
-        let n = self.save_state_internal(&mut buf);
-        // n=0 means the buffer was too small. With max_size sized as
-        // an upper bound this should never fire; if it does, the
-        // empty payload below makes the snapshot structurally valid
-        // but `restore` will reject it as `Malformed`, which is the
-        // correct behaviour.
-        let payload = if n == 0 { &[][..] } else { &buf[..n] };
-        Snapshot::from_header_and_payload(Self::VERSION, Self::PRODUCER_TAG, payload)
+        snapshot_via_raw_bytes(
+            Self::VERSION,
+            Self::PRODUCER_TAG,
+            Self::snapshot_max_size(),
+            |buf| self.save_state_internal(buf),
+        )
     }
 
     fn restore(&mut self, snap: &Snapshot) -> Result<(), SnapshotError> {
-        validate_header(snap, Self::PRODUCER_TAG, Self::VERSION)?;
-        if !self.restore_state_internal(snap.payload()) {
-            return Err(SnapshotError::Malformed);
-        }
-        Ok(())
+        restore_via_raw_bytes(snap, Self::PRODUCER_TAG, Self::VERSION, |buf| {
+            self.restore_state_internal(buf)
+        })
     }
 }
 

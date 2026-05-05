@@ -230,7 +230,42 @@ If, in the future, snapshot operations need orchestration across multiple compon
 For each crate in `simrs-fs`, `simrs-pin`, `simrs-gsm`, `simrs-usim`, `simrs-sim`, `simrs-gp-keys`, `simrs-gp-open`, `simrs-gp-card`, `simrs-jcre`, `simrs-tuak`, `simrs-milenage`, `simrs-proactive`, `simrs-iso7816`:
 
 - Add `snapshot` feature flag.
-- Add `Snapshotable` impl behind the feature.
+- Add `Snapshotable` impl behind the feature in a new `src/snapshot.rs` file.
+
+**Canonical template** (proven on `simrs-jcvm` and `simrs-pin`, factored into helpers in `simrs-snapshot`):
+
+```rust
+// crates/simrs-X/src/snapshot.rs
+use simrs_snapshot::{
+    Snapshot, SnapshotError, Snapshotable,
+    producer::THE_TAG, restore_via_raw_bytes, snapshot_via_raw_bytes,
+};
+use crate::TheType;
+
+impl Snapshotable for TheType {
+    const PRODUCER_TAG: u16 = THE_TAG;
+    const VERSION: (u8, u8) = (1, 0);
+
+    fn snapshot(&self) -> Snapshot {
+        snapshot_via_raw_bytes(
+            Self::VERSION, Self::PRODUCER_TAG, Self::SNAPSHOT_SIZE,
+            |buf| self.save_state(buf),
+        )
+    }
+
+    fn restore(&mut self, snap: &Snapshot) -> Result<(), SnapshotError> {
+        restore_via_raw_bytes(snap, Self::PRODUCER_TAG, Self::VERSION,
+            |buf| self.restore_state(buf))
+    }
+}
+```
+
+Tests follow the same shape across crates: round-trip + 3 error
+paths (wrong producer / wrong major / malformed payload). The
+`snapshot_via_raw_bytes` and `restore_via_raw_bytes` helpers in
+`simrs-snapshot` factor out the buffer/header boilerplate -- each
+consumer's `Snapshotable` impl is ~12 lines, not the 25+ lines that
+copy-paste would produce.
 
 **Note on visibility:** Phase 3 is **additive only**. The existing `pub fn save_state` / `pub fn restore_state` stay `pub` during this phase, but are marked `#[deprecated]` and `#[doc(hidden)]` to steer new code toward `Snapshotable`.
 
