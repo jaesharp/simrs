@@ -17,15 +17,25 @@ std     = []
 # feature only controls whether downstream crates can see the
 # counters.
 controlplane-hooks = []
+# Gates the `Snapshotable` impl on `JcVM` (and the opaque `Snapshot`
+# producer/consumer surface from the `simrs-snapshot` crate). The
+# underlying byte serialization (`save_state_internal` /
+# `restore_state_internal`) is `pub(crate)` and always compiled --
+# only the *opaque, public* snapshot surface is gated. Production
+# builds don't enable this feature; test/fuzz builds do.
+# See docs/adrs/0001-snapshot-architecture.md.
+snapshot = ["dep:simrs-snapshot"]
 
 [dependencies]
 simrs-jcvm-opcodes = { workspace = true }
 simrs-jcre    = { workspace = true }
 simrs-consttime = { workspace = true }
 simrs-iso7816 = { workspace = true }
+simrs-snapshot = { workspace = true, optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest       = { workspace = true }
+simrs-snapshot = { workspace = true }
 
 [lints]
 workspace = true

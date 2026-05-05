@@ -1857,6 +1857,7 @@ dependencies = [
  "simrs-iso7816",
  "simrs-jcre",
  "simrs-jcvm-opcodes",
+ "simrs-snapshot",
 ]
 
 [[package]]

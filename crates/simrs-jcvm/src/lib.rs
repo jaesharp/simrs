@@ -58,6 +58,8 @@ pub mod hypervisor;
 pub mod native;
 pub mod opcodes;
 pub mod ring_buffer;
+#[cfg(feature = "snapshot")]
+mod snapshot;
 pub mod transaction;
 
 #[cfg(feature = "controlplane-hooks")]
@@ -2903,7 +2905,13 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     /// from the exact cycle the snapshot was taken; observable
     /// behaviour is identical to the un-snapshotted run from that
     /// point forward.
-    pub fn save_state(&self, buf: &mut [u8]) -> usize {
+    ///
+    /// Visibility is `pub(crate)` -- the public snapshot surface is
+    /// the `Snapshotable` trait impl gated behind the `snapshot`
+    /// feature (see ADR 0001). External callers route through
+    /// `JcVM::snapshot()` / `JcVM::restore()` (the `Snapshotable`
+    /// methods), which return an opaque `simrs_snapshot::Snapshot`.
+    pub(crate) fn save_state_internal(&self, buf: &mut [u8]) -> usize {
         let mut off = 0;
 
         // Heap.
@@ -3024,12 +3032,14 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     /// Restore full state from buffer. Returns true on success.
     ///
     /// After a successful restore, the VM is in the exact state it
-    /// was when `save_state` was called -- including the operand
-    /// stack contents, call frame stack, locals, PC, and the
-    /// current-package/method/context pointers. Resuming execution
-    /// produces the same sequence of opcodes as the un-snapshotted
-    /// run.
-    pub fn restore_state(&mut self, buf: &[u8]) -> bool {
+    /// was when `save_state_internal` was called -- including the
+    /// operand stack contents, call frame stack, locals, PC, and
+    /// the current-package/method/context pointers. Resuming
+    /// execution produces the same sequence of opcodes as the
+    /// un-snapshotted run.
+    ///
+    /// Visibility is `pub(crate)` -- see `save_state_internal`.
+    pub(crate) fn restore_state_internal(&mut self, buf: &[u8]) -> bool {
         let mut off = 0;
 
         // Restore heap.
@@ -3411,11 +3421,11 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> Applet
     }
 
     fn save_state(&self, buf: &mut [u8]) -> usize {
-        self.vm.save_state(buf)
+        self.vm.save_state_internal(buf)
     }
 
     fn restore_state(&mut self, buf: &[u8]) -> bool {
-        self.vm.restore_state(buf)
+        self.vm.restore_state_internal(buf)
     }
 }
 
@@ -4417,12 +4427,12 @@ mod tests {
 
         // Save state.
         let mut buf = [0u8; 65536];
-        let n = vm.save_state(&mut buf);
+        let n = vm.save_state_internal(&mut buf);
         assert!(n > 0);
 
         // Restore into a new VM.
         let mut vm2 = JcVM::<4096, 4>::new();
-        assert!(vm2.restore_state(&buf[..n]));
+        assert!(vm2.restore_state_internal(&buf[..n]));
 
         // The restored VM should execute the same bytecode.
         assert_eq!(vm2.execute(0, 0), ExecResult::ReturnShort(3));
@@ -4432,20 +4442,27 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_transient_state_zeroed() {
+    fn snapshot_after_method_return_supports_re_execution() {
+        // After a method returns normally, transient state (stack,
+        // frames, locals) is empty by construction. Snapshot at
+        // that boundary, restore in a fresh VM, re-execute -- the
+        // result is identical because the persistent state (heap,
+        // packages, static fields) survives the round-trip.
+        //
+        // (Mid-method snapshot/restore preserves more state -- the
+        // operand stack, frame stack, locals, PC are all in the
+        // snapshot post-commit-e0b8faf -- but exercising mid-method
+        // requires a step() API which doesn't yet exist.)
         let bc = [SCONST_5, SSTORE_0, SLOAD_0, SRETURN];
         let mut vm = vm_with_method(&bc);
-
-        // Execute to populate transient state.
         assert_eq!(vm.execute(0, 0), ExecResult::ReturnShort(5));
 
-        // Save and restore.
         let mut buf = [0u8; 65536];
-        let n = vm.save_state(&mut buf);
+        let n = vm.save_state_internal(&mut buf);
         let mut vm2 = JcVM::<4096, 4>::new();
-        assert!(vm2.restore_state(&buf[..n]));
+        assert!(vm2.restore_state_internal(&buf[..n]));
 
-        // Transient state should be zeroed -- executing again should work from scratch.
+        // Re-execute from the entry point in the restored VM.
         assert_eq!(vm2.execute(0, 0), ExecResult::ReturnShort(5));
     }
 
