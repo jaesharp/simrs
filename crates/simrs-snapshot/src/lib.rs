@@ -46,9 +46,6 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use simrs_milenage::AuthenticationAlgorithm;
-use simrs_sim::Sim;
-
 // ---------------------------------------------------------------------------
 // Producer tag registry
 // ---------------------------------------------------------------------------
@@ -312,8 +309,9 @@ pub fn validate_header(
 /// Legacy snapshot trait, deprecated in favour of [`Snapshotable`].
 ///
 /// Kept during the workspace-wide migration from raw byte API to
-/// opaque [`Snapshot`] type (see ADR 0001). Will be removed once
-/// every consumer crate ships a [`Snapshotable`] impl.
+/// opaque [`Snapshot`] type (see ADR 0001). Each consumer crate
+/// implements this for its top-level type during Phase 3; the
+/// trait is removed in Phase 5.
 #[deprecated(
     since = "0.2.0",
     note = "use the `Snapshotable` trait instead; \
@@ -328,19 +326,6 @@ pub trait LegacySnapshot {
 
     /// Restore state from `buf`.
     fn restore(&mut self, buf: &[u8]) -> bool;
-}
-
-#[allow(deprecated)]
-impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> LegacySnapshot for Sim<A, RSP_CAP> {
-    const SIZE: usize = Self::SNAPSHOT_SIZE;
-
-    fn save(&self, buf: &mut [u8]) -> usize {
-        self.save_state(buf)
-    }
-
-    fn restore(&mut self, buf: &[u8]) -> bool {
-        self.restore_state(buf)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -472,69 +457,28 @@ mod tests {
         }
     }
 
-    // -- LegacySnapshot trait still works (deprecated but functional) --
+    // -- LegacySnapshot trait shape (the trait is empty -- impls
+    // live in their respective consumer crates) --
 
     #[allow(deprecated)]
-    mod legacy {
-        use super::*;
-        use simrs_fs::{DfDef, Fid};
-        use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
-        use simrs_sim::{SimEvent, SimResponse};
-
-        static MF: DfDef = DfDef {
-            fid: Fid::new(0x3F00),
-            children: &[],
-        };
-
-        static ATR: [u8; 2] = [0x3B, 0x00];
-
-        fn make_sim() -> Sim<MilenageParams, 256> {
-            let gsm = simrs_gsm::GsmApp::new(&MF, simrs_gsm::SubscriberKey::classify([0u8; 16]));
-            let mil = MilenageParams::with_defaults(
-                SubscriberKey::classify([0u8; 16]),
-                OperatorVariant::operator_cipher([0u8; 16]),
-            );
-            let usim = simrs_usim::UsimApp::new(&MF, &[], mil);
-            Sim::<MilenageParams, 256>::new(&ATR, gsm, usim)
-        }
-
-        #[test]
-        fn legacy_trait_size_matches_struct_const() {
-            assert_eq!(
-                <Sim<MilenageParams, 256> as LegacySnapshot>::SIZE,
-                Sim::<MilenageParams, 256>::SNAPSHOT_SIZE,
-            );
-        }
-
-        #[test]
-        fn legacy_trait_save_restore_roundtrip() {
-            let mut sim = make_sim();
-            let _ = sim.process(SimEvent::PowerOn);
-
-            let mut buf = [0u8; Sim::<MilenageParams, 256>::SNAPSHOT_SIZE];
-            let n = LegacySnapshot::save(&sim, &mut buf);
-            assert_eq!(n, <Sim<MilenageParams, 256> as LegacySnapshot>::SIZE);
-
-            let mut restored = make_sim();
-            assert!(LegacySnapshot::restore(&mut restored, &buf[..n]));
-
-            // Card should be Ready after restore.
-            let rsp = restored.process(SimEvent::Apdu(&[0xF0, 0xA4, 0x00, 0x00]));
-            match rsp {
-                SimResponse::Apdu { sw, .. } => {
-                    assert_eq!(sw.to_bytes(), [0x6E, 0x00]);
-                }
-                _ => panic!("expected Apdu, card should be Ready"),
+    #[test]
+    fn legacy_trait_is_object_safe_for_dyn_dispatch() {
+        // Sanity: the LegacySnapshot trait can be defined without
+        // a concrete impl in this crate. Consumer crates supply
+        // impls; simrs-snapshot only owns the trait.
+        struct Stub;
+        impl LegacySnapshot for Stub {
+            const SIZE: usize = 0;
+            fn save(&self, _buf: &mut [u8]) -> usize {
+                0
+            }
+            fn restore(&mut self, _buf: &[u8]) -> bool {
+                false
             }
         }
-
-        #[test]
-        fn legacy_state_hash_via_sim() {
-            let mut sim = make_sim();
-            let h1 = sim.state_hash();
-            let _ = sim.process(SimEvent::PowerOn);
-            let h2 = sim.state_hash();
-            assert_ne!(h1, h2);
-        }
+        let mut s = Stub;
+        let mut buf = [0u8; 8];
+        assert_eq!(LegacySnapshot::save(&s, &mut buf), 0);
+        assert!(!LegacySnapshot::restore(&mut s, &buf));
     }
 }

@@ -8,17 +8,16 @@ description = "Deterministic SIM state serialization for snapshot fuzzing -- no_
 [features]
 default = []
 
+# `simrs-snapshot` is a foundation leaf crate: it defines the
+# `Snapshot` opaque type, `Snapshotable` trait, `SnapshotError`,
+# and producer-tag registry. It does NOT depend on any consumer
+# crate, because consumers depend on it. Each crate that has
+# snapshotable types implements `Snapshotable` in its own
+# snapshot module.
 [dependencies]
-simrs-sim      = { workspace = true }
-simrs-milenage = { workspace = true }
 
 [dev-dependencies]
-simrs-sim    = { workspace = true, features = ["gsm", "usim"] }
-simrs-fs     = { workspace = true }
-simrs-gsm    = { workspace = true }
-simrs-usim   = { workspace = true }
-simrs-secret = { workspace = true }
-proptest     = { workspace = true }
+proptest = { workspace = true }
 
 [lints]
 workspace = true

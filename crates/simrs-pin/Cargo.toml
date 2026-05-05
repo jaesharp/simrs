@@ -9,15 +9,22 @@ description = "PIN/PUK management state machine per ETSI TS 102 221 -- no_std"
 default = []
 std     = []
 ct-validation = []
+# Gates the `Snapshotable` impl on `PinManager` (ADR 0001
+# Phase 3). The raw byte API (`save_state`/`restore_state`) stays
+# `pub` during the migration window because cross-crate composers
+# still call it; Phase 5 tightens to `pub(crate)`.
+snapshot = ["dep:simrs-snapshot"]
 
 [dependencies]
 simrs-consttime = { workspace = true }
 simrs-iso7816   = { workspace = true }
 simrs-secret    = { workspace = true }
+simrs-snapshot  = { workspace = true, optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest                   = { workspace = true }
 simrs-consttime-validation = { workspace = true }
+simrs-snapshot             = { workspace = true }
 
 [lints]
 workspace = true

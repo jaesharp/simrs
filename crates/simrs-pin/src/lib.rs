@@ -797,7 +797,13 @@ impl<const N: usize> PinManager<N> {
     /// Serialize the PIN manager state into `buf` as flat LE bytes.
     ///
     /// Returns the number of bytes written, or 0 if `buf` is too small.
+    ///
+    /// Prefer the opaque [`simrs_snapshot::Snapshotable::snapshot`]
+    /// API for new code -- this raw-byte method is retained for
+    /// cross-crate composition during the ADR 0001 migration window.
+    /// Tightens to `pub(crate)` in Phase 5.
     #[must_use]
+    #[doc(hidden)]
     pub fn save_state(&self, buf: &mut [u8]) -> usize {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return 0;
@@ -824,7 +830,13 @@ impl<const N: usize> PinManager<N> {
     ///
     /// Returns `true` on success. Returns `false` if `buf` is too small
     /// or contains an invalid count.
+    ///
+    /// Prefer the opaque [`simrs_snapshot::Snapshotable::restore`]
+    /// API for new code -- this raw-byte method is retained for
+    /// cross-crate composition during the ADR 0001 migration window.
+    /// Tightens to `pub(crate)` in Phase 5.
     #[must_use]
+    #[doc(hidden)]
     pub fn restore_state(&mut self, buf: &[u8]) -> bool {
         if buf.len() < Self::SNAPSHOT_SIZE {
             return false;
@@ -1035,6 +1047,42 @@ pub fn apdu_unblock<'b, const N: usize>(
     let new_pin = PinValue::new(new_pin_bytes);
 
     write_sw(buf, pin_result_sw(pin.unblock(key, &puk, &new_pin)))
+}
+
+// ---------------------------------------------------------------------------
+// Snapshotable impl (ADR 0001 Phase 3, gated behind `snapshot` feature)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "snapshot")]
+mod snapshot_impl {
+    extern crate alloc;
+    use alloc::vec;
+
+    use simrs_snapshot::{
+        Snapshot, SnapshotError, Snapshotable, producer::PIN_MANAGER, validate_header,
+    };
+
+    use super::PinManager;
+
+    impl<const N: usize> Snapshotable for PinManager<N> {
+        const PRODUCER_TAG: u16 = PIN_MANAGER;
+        const VERSION: (u8, u8) = (1, 0);
+
+        fn snapshot(&self) -> Snapshot {
+            let mut buf = vec![0u8; Self::SNAPSHOT_SIZE];
+            let n = self.save_state(&mut buf);
+            let payload = if n == 0 { &[][..] } else { &buf[..n] };
+            Snapshot::from_header_and_payload(Self::VERSION, Self::PRODUCER_TAG, payload)
+        }
+
+        fn restore(&mut self, snap: &Snapshot) -> Result<(), SnapshotError> {
+            validate_header(snap, Self::PRODUCER_TAG, Self::VERSION)?;
+            if !self.restore_state(snap.payload()) {
+                return Err(SnapshotError::Malformed);
+            }
+            Ok(())
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1788,5 +1836,78 @@ mod ct_validation {
             },
         );
         assert_no_timing_leak!(outcome);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Snapshotable tests (only when `snapshot` feature is enabled)
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "snapshot"))]
+mod snapshot_tests {
+    use super::*;
+    use simrs_snapshot::{
+        Snapshot, SnapshotError, Snapshotable,
+        producer::{PIN_MANAGER, SIM},
+    };
+
+    fn make_manager() -> PinManager<5> {
+        let mut m = PinManager::<5>::new();
+        let pin = PinValue::new(*b"12345678");
+        let puk = PinValue::new(*b"87654321");
+        m.add_pin(PinKey::PIN1, &pin, 3, &puk, 10, true).unwrap();
+        m
+    }
+
+    #[test]
+    fn snapshot_round_trips_through_opaque_api() {
+        let mut m = make_manager();
+        let _ = m.verify(PinKey::PIN1, &PinValue::new(*b"12345678"));
+        let snap = m.snapshot();
+        assert_eq!(snap.producer_tag(), PIN_MANAGER);
+        assert_eq!(snap.version(), (1, 0));
+
+        let mut m2 = PinManager::<5>::new();
+        m2.restore(&snap).expect("restore succeeds");
+
+        // Verified state survived the round-trip.
+        assert!(m2.is_verified(PinKey::PIN1));
+    }
+
+    #[test]
+    fn restore_rejects_wrong_producer_tag() {
+        let snap = Snapshot::from_header_and_payload((1, 0), SIM, &[]);
+        let mut m = PinManager::<5>::new();
+        let err = m.restore(&snap).unwrap_err();
+        assert_eq!(
+            err,
+            SnapshotError::ProducerMismatch {
+                expected: PIN_MANAGER,
+                found: SIM,
+            },
+        );
+    }
+
+    #[test]
+    fn restore_rejects_wrong_major_version() {
+        let snap = Snapshot::from_header_and_payload((2, 0), PIN_MANAGER, &[]);
+        let mut m = PinManager::<5>::new();
+        let err = m.restore(&snap).unwrap_err();
+        assert_eq!(
+            err,
+            SnapshotError::VersionMismatch {
+                expected: (1, 0),
+                found: (2, 0),
+            },
+        );
+    }
+
+    #[test]
+    fn restore_rejects_truncated_payload() {
+        // Header valid but payload empty (PinManager needs at least 1 byte).
+        let snap = Snapshot::from_header_and_payload((1, 0), PIN_MANAGER, &[]);
+        let mut m = PinManager::<5>::new();
+        let err = m.restore(&snap).unwrap_err();
+        assert_eq!(err, SnapshotError::Malformed);
     }
 }
