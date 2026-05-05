@@ -2895,6 +2895,26 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> JcVM<HEAP_SIZE, MAX_PACK
     // Snapshot support
     // -----------------------------------------------------------------------
 
+    /// Upper bound on the byte length of this VM's snapshot.
+    ///
+    /// Single source of truth for the size formula -- consumed by
+    /// the `Snapshotable` impl (in `crate::snapshot`) for buffer
+    /// allocation and by the `simrs_jcre::Applet` impl on
+    /// `JcVMApplet` for the trait's `snapshot_size` method.
+    pub(crate) const fn snapshot_max_size() -> usize {
+        ObjectHeap::<HEAP_SIZE>::MAX_SNAPSHOT_SIZE
+            + 1
+            + MAX_PACKAGES * (1 + Package::MAX_SNAPSHOT_SIZE)
+            + 1024
+            + 1
+            + TransactionJournal::<JOURNAL_CAP>::MAX_SNAPSHOT_SIZE
+            + 5
+            + 2
+            + MAX_FRAMES * 6
+            + MAX_STACK * 2
+            + MAX_LOCALS * 2
+    }
+
     /// Save full state to buffer. Returns bytes written, or 0 if
     /// buffer too small.
     ///
@@ -3405,19 +3425,7 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> Applet
     }
 
     fn snapshot_size(&self) -> usize {
-        // Upper bound: heap + packages + static fields + process_method
-        // + journal + execution state (stack/frames/locals/pc/etc).
-        ObjectHeap::<HEAP_SIZE>::MAX_SNAPSHOT_SIZE
-            + 1
-            + MAX_PACKAGES * (1 + Package::MAX_SNAPSHOT_SIZE)
-            + 1024
-            + 1
-            + TransactionJournal::<JOURNAL_CAP>::MAX_SNAPSHOT_SIZE
-            + 5     // stack_ptr + frame_ptr + current_pkg + current_method + current_context
-            + 2     // pc (u16 BE)
-            + MAX_FRAMES * 6
-            + MAX_STACK * 2
-            + MAX_LOCALS * 2
+        JcVM::<HEAP_SIZE, MAX_PACKAGES>::snapshot_max_size()
     }
 
     fn save_state(&self, buf: &mut [u8]) -> usize {

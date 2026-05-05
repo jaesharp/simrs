@@ -20,18 +20,15 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> Snapshotable
     const VERSION: (u8, u8) = (1, 0);
 
     fn snapshot(&self) -> Snapshot {
-        // Allocate exactly enough -- the trait `Snapshot` impl on
-        // `JcVMApplet` already computes the upper bound; we replicate
-        // it here rather than depending on simrs-jcre. Bumping `MAX`
-        // is harmless (Snapshot will trim to the actual length).
-        let max_size = upper_bound_snapshot_size::<HEAP_SIZE, MAX_PACKAGES>();
-        let mut buf = vec![0u8; max_size];
+        // Upper-bound buffer; `from_header_and_payload` trims to the
+        // actual length.
+        let mut buf = vec![0u8; Self::snapshot_max_size()];
         let n = self.save_state_internal(&mut buf);
         // n=0 means the buffer was too small. With max_size sized as
-        // an upper bound, this should never fire in practice; if it
-        // does, the empty payload below makes the snapshot
-        // structurally valid but `restore` will reject it as
-        // `Malformed`, which is the correct behaviour.
+        // an upper bound this should never fire; if it does, the
+        // empty payload below makes the snapshot structurally valid
+        // but `restore` will reject it as `Malformed`, which is the
+        // correct behaviour.
         let payload = if n == 0 { &[][..] } else { &buf[..n] };
         Snapshot::from_header_and_payload(Self::VERSION, Self::PRODUCER_TAG, payload)
     }
@@ -43,36 +40,6 @@ impl<const HEAP_SIZE: usize, const MAX_PACKAGES: usize> Snapshotable
         }
         Ok(())
     }
-}
-
-/// Upper bound on the byte length of a `JcVM` snapshot payload.
-///
-/// Mirrors the calculation in `JcVMApplet::snapshot_size` but lives
-/// here so the `Snapshotable` impl doesn't need a dependency on
-/// `simrs-jcre`'s `Applet` trait. The two formulas must stay in
-/// lockstep -- a regression test below asserts equality.
-const fn upper_bound_snapshot_size<const HEAP_SIZE: usize, const MAX_PACKAGES: usize>() -> usize {
-    use crate::cap::Package;
-    use crate::frame::{MAX_FRAMES, MAX_LOCALS, MAX_STACK};
-    use crate::heap::ObjectHeap;
-    use crate::transaction::TransactionJournal;
-
-    // JOURNAL_CAP is private to crate::lib; replicate the constant
-    // here to avoid making it pub. The compile-time test below
-    // guards against drift.
-    const JOURNAL_CAP: usize = 256;
-
-    ObjectHeap::<HEAP_SIZE>::MAX_SNAPSHOT_SIZE
-        + 1
-        + MAX_PACKAGES * (1 + Package::MAX_SNAPSHOT_SIZE)
-        + 1024
-        + 1
-        + TransactionJournal::<JOURNAL_CAP>::MAX_SNAPSHOT_SIZE
-        + 5
-        + 2
-        + MAX_FRAMES * 6
-        + MAX_STACK * 2
-        + MAX_LOCALS * 2
 }
 
 #[cfg(test)]
@@ -166,16 +133,14 @@ mod tests {
     }
 
     #[test]
-    fn upper_bound_matches_applet_snapshot_size() {
-        // The bound formula in this module must stay in lockstep
-        // with `JcVMApplet::snapshot_size`. If JOURNAL_CAP or any of
-        // the per-component sizes change, both must update.
+    fn snapshot_max_size_matches_applet_snapshot_size() {
+        // Sanity check: `JcVM::snapshot_max_size()` and
+        // `JcVMApplet::snapshot_size` (Applet trait method) both
+        // ultimately read the same const fn. If something refactors
+        // one without the other, this fires.
         use simrs_jcre::Applet;
         let vm = make_vm();
         let applet = crate::JcVMApplet::<4096, 4>::new(vm, 0);
-        assert_eq!(
-            upper_bound_snapshot_size::<4096, 4>(),
-            applet.snapshot_size(),
-        );
+        assert_eq!(JcVM::<4096, 4>::snapshot_max_size(), applet.snapshot_size(),);
     }
 }
