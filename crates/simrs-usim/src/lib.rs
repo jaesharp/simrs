@@ -2425,15 +2425,39 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ) -> &'buf [u8] {
         match cmd.p1() {
             0x00 => {
-                // OPEN: allocate next free channel.
-                for i in 1..4u8 {
-                    if self.channels[i as usize].is_none() {
-                        self.channels[i as usize] = Some(SelectionCtx::new(self.mf));
-                        return write_data_sw(buf, &[i], StatusWord::Success);
+                // OPEN.  Per ETSI TS 102 221 V18.3.0 clause 11.1.17:
+                //
+                // - P2 = 0x00: the UICC assigns any free supplementary
+                //   channel; the response data carries the assigned
+                //   channel number (one byte).
+                // - P2 = 0x01..=0x03: the host requests a specific
+                //   supplementary channel; no response data on success.
+                match cmd.p2() {
+                    0x00 => {
+                        // UICC-assigned channel.
+                        for i in 1..4u8 {
+                            if self.channels[i as usize].is_none() {
+                                self.channels[i as usize] = Some(SelectionCtx::new(self.mf));
+                                return write_data_sw(buf, &[i], StatusWord::Success);
+                            }
+                        }
+                        // No free channel available.
+                        write_sw(buf, StatusWord::FunctionNotSupported(0x81))
                     }
+                    ch @ 0x01..=0x03 => {
+                        // Host-specified channel.
+                        if self.channels[ch as usize].is_some() {
+                            // Already open.
+                            return write_sw(
+                                buf,
+                                StatusWord::command_not_allowed(sw2::CONDITIONS_NOT_SATISFIED),
+                            );
+                        }
+                        self.channels[ch as usize] = Some(SelectionCtx::new(self.mf));
+                        write_sw(buf, StatusWord::Success)
+                    }
+                    _ => write_sw(buf, StatusWord::wrong_params(sw2::WRONG_P1_P2)),
                 }
-                // No free channel available (TS 102 221 clause 11.1.17).
-                write_sw(buf, StatusWord::FunctionNotSupported(0x81))
             }
             0x80 => {
                 // CLOSE: close channel specified in P2.
