@@ -1,7 +1,7 @@
 //! Regression test for WS-7: runtime-owned ATRs.
 //!
 //! Constructs two `Sim` instances with different ATRs in the same process
-//! and verifies each returns its own ATR on PowerOn. Prior to WS-7,
+//! and verifies each returns its own ATR on `PowerOn`. Prior to WS-7,
 //! `Sim::new` required `atr: &'static [u8]`, which forced callers to use
 //! a single module-level static and made per-instance ATRs impossible
 //! without leaking heap allocations.

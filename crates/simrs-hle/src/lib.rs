@@ -143,6 +143,10 @@ pub const MAX_SNAPSHOT_SIZE: usize = 3 + {
 /// any other `hle_*` function.
 ///
 /// Calling this (or [`hle_init_tuak`]) again replaces the previous instance.
+///
+/// # Panics
+///
+/// Panics if `atr.len() > 33` (the ISO 7816-3 ATR cap).
 pub fn hle_init(
     atr: &'static [u8],
     mf: &'static DfDef,
@@ -168,6 +172,10 @@ pub fn hle_init(
 /// `topc` is the 256-bit `TOPc` (derived operator variant).
 ///
 /// Calling this (or [`hle_init`]) again replaces the previous instance.
+///
+/// # Panics
+///
+/// Panics if `atr.len() > 33` (the ISO 7816-3 ATR cap).
 pub fn hle_init_tuak(
     atr: &'static [u8],
     mf: &'static DfDef,
@@ -190,6 +198,10 @@ pub fn hle_init_tuak(
 ///
 /// Like [`hle_init`] but allows passing an ADF table for application
 /// selection by AID. The `adf_table` entries map AIDs to their root DFs.
+///
+/// # Panics
+///
+/// Panics if `atr.len() > 33` (the ISO 7816-3 ATR cap).
 pub fn hle_init_with_adf(
     atr: &'static [u8],
     mf: &'static DfDef,
@@ -214,6 +226,10 @@ pub fn hle_init_with_adf(
 ///
 /// Like [`hle_init_tuak`] but allows passing an ADF table for application
 /// selection by AID.
+///
+/// # Panics
+///
+/// Panics if `atr.len() > 33` (the ISO 7816-3 ATR cap).
 pub fn hle_init_tuak_with_adf(
     atr: &'static [u8],
     mf: &'static DfDef,
