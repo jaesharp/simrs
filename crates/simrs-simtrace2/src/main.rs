@@ -348,7 +348,7 @@ fn main() {
         product_id: Some(cli.product_id),
         bus_device: cli.bus_device.clone(),
     };
-    let mut transport = match Simtrace2Transport::open(filter) {
+    let mut transport = match Simtrace2Transport::open(&filter) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("error: failed to open SIMtrace2 device: {e}");

@@ -11,7 +11,7 @@
 //! use simrs_transport::CardTransport;
 //! use simrs_transport_simtrace2::{DeviceFilter, Simtrace2Transport};
 //!
-//! let mut transport = Simtrace2Transport::open(DeviceFilter::default())?;
+//! let mut transport = Simtrace2Transport::open(&DeviceFilter::default())?;
 //!
 //! // Pre-stage the ATR so the firmware has one ready when the phone
 //! // releases RST. Per ISO 7816-3 §6.3 the window between RST release and

@@ -38,9 +38,10 @@ pub struct CardemEndpoints {
     pub bulk_in: Endpoint<Bulk, In>,
     /// Interrupt IN endpoint used to receive asynchronous `Status` updates.
     pub int_in: Endpoint<Interrupt, In>,
-    /// Held interface handle. Kept solely to retain the claim; consumers
-    /// generally don't touch this field directly.
-    pub _interface: Interface,
+    /// Held interface handle. Kept solely to retain the claim; dropping
+    /// the [`CardemEndpoints`] releases the interface back to the kernel.
+    #[allow(dead_code)]
+    interface: Interface,
 }
 
 /// Selector controlling which board is opened.
@@ -75,10 +76,10 @@ impl DeviceFilter {
         {
             return false;
         }
-        if let Some((bus, addr)) = &self.bus_device {
-            if info.bus_id() != bus || info.device_address() != *addr {
-                return false;
-            }
+        if let Some((bus, addr)) = &self.bus_device
+            && (info.bus_id() != bus || info.device_address() != *addr)
+        {
+            return false;
         }
         true
     }
@@ -96,7 +97,7 @@ impl DeviceFilter {
 ///   exit DFU before retrying).
 /// - [`Error::DfuModeDetected`] if the only matching board is in DFU mode.
 /// - [`Error::Usb`] for any underlying USB / kernel failure.
-pub fn open_endpoints(filter: DeviceFilter) -> Result<CardemEndpoints, Error> {
+pub fn open_endpoints(filter: &DeviceFilter) -> Result<CardemEndpoints, Error> {
     let mut found_runtime: Option<DeviceInfo> = None;
     let mut found_dfu: Option<DeviceInfo> = None;
     let vendor = filter.effective_vendor();
@@ -124,10 +125,10 @@ pub fn open_endpoints(filter: DeviceFilter) -> Result<CardemEndpoints, Error> {
             && (info.product_id() == PID_NGFF_CARDEM || info.product_id() == PID_OCTSIMTEST)
         {
             // Honour the bus_device disambiguation if it was supplied.
-            if let Some((bus, addr)) = &filter.bus_device {
-                if info.bus_id() != bus || info.device_address() != *addr {
-                    continue;
-                }
+            if let Some((bus, addr)) = &filter.bus_device
+                && (info.bus_id() != bus || info.device_address() != *addr)
+            {
+                continue;
             }
             found_runtime = Some(info);
             break;
@@ -164,6 +165,6 @@ pub fn open_endpoints(filter: DeviceFilter) -> Result<CardemEndpoints, Error> {
         bulk_out,
         bulk_in,
         int_in,
-        _interface: interface,
+        interface,
     })
 }

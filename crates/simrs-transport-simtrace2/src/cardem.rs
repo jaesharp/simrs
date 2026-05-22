@@ -104,7 +104,7 @@ impl Simtrace2Transport {
     ///
     /// Returns [`Error::DeviceNotFound`] / [`Error::DfuModeDetected`] /
     /// [`Error::Usb`] as documented on [`open_endpoints`].
-    pub fn open(filter: DeviceFilter) -> Result<Self, Error> {
+    pub fn open(filter: &DeviceFilter) -> Result<Self, Error> {
         let endpoints = open_endpoints(filter)?;
         let mut transport = Self {
             endpoints,
@@ -132,23 +132,23 @@ impl Simtrace2Transport {
     /// Override the default recv() deadline.
     ///
     /// Useful in tests where a quicker timeout makes failures more readable.
-    pub fn set_recv_timeout(&mut self, t: Duration) {
+    pub const fn set_recv_timeout(&mut self, t: Duration) {
         self.recv_timeout = t;
     }
 
     /// Override the default send() deadline.
-    pub fn set_send_timeout(&mut self, t: Duration) {
+    pub const fn set_send_timeout(&mut self, t: Duration) {
         self.send_timeout = t;
     }
 
     /// Use a non-zero slot number when communicating with multi-slot
     /// firmware variants (qmod, octsimtest). Defaults to 0.
-    pub fn set_slot(&mut self, slot_nr: u8) {
+    pub const fn set_slot(&mut self, slot_nr: u8) {
         self.slot_nr = slot_nr;
     }
 
     /// Free-running 8-bit sequence number.
-    fn next_seq(&mut self) -> u8 {
+    const fn next_seq(&mut self) -> u8 {
         let s = self.seq_nr;
         self.seq_nr = self.seq_nr.wrapping_add(1);
         s
@@ -222,10 +222,7 @@ impl Simtrace2Transport {
             CardemMsgType::TxData | CardemMsgType::SetAtr | CardemMsgType::CardInsert => {
                 // These are host -> device types; receiving them inbound is a
                 // protocol error from the firmware. Tolerate but log.
-                eprintln!(
-                    "simtrace2: unexpected host-direction msg_type {:?} on bulk IN",
-                    mt
-                );
+                eprintln!("simtrace2: unexpected host-direction msg_type {mt:?} on bulk IN");
                 Ok(None)
             }
         }
@@ -233,7 +230,7 @@ impl Simtrace2Transport {
 
     /// Compare new status flags to [`Self::last_status_flags`] and emit a
     /// card-lifecycle event when the transition warrants one.
-    fn classify_status_transition(&mut self, flags: u32) -> Option<CardEvent> {
+    const fn classify_status_transition(&mut self, flags: u32) -> Option<CardEvent> {
         let prev = self.last_status_flags;
         self.last_status_flags = flags;
 
@@ -420,8 +417,12 @@ mod tests {
                 buf[..rx.data.len()].copy_from_slice(rx.data);
                 Ok(Some(CardEvent::Apdu(rx.data.len())))
             }
-            CardemMsgType::Pts | CardemMsgType::Stats | CardemMsgType::Config => Ok(None),
-            CardemMsgType::Status | CardemMsgType::TxData | CardemMsgType::SetAtr
+            CardemMsgType::Pts
+            | CardemMsgType::Stats
+            | CardemMsgType::Config
+            | CardemMsgType::Status
+            | CardemMsgType::TxData
+            | CardemMsgType::SetAtr
             | CardemMsgType::CardInsert => Ok(None),
         }
     }
@@ -439,7 +440,8 @@ mod tests {
         };
         hdr.encode(&mut out).unwrap();
         out[HDR_LEN..HDR_LEN + 4].copy_from_slice(&flags.to_le_bytes());
-        out[HDR_LEN + 4..HDR_LEN + 6].copy_from_slice(&(apdu.len() as u16).to_le_bytes());
+        out[HDR_LEN + 4..HDR_LEN + 6]
+            .copy_from_slice(&u16::try_from(apdu.len()).unwrap().to_le_bytes());
         out[HDR_LEN + 6..].copy_from_slice(apdu);
         out
     }

@@ -659,7 +659,7 @@ mod tests {
         assert_eq!(wire[1], CardemMsgType::SetAtr as u8);
         assert_eq!(wire[2], 0x55);
         assert_eq!(wire[3], 1);
-        assert_eq!(wire[8], atr.len() as u8);
+        assert_eq!(wire[8], u8::try_from(atr.len()).unwrap());
         assert_eq!(&wire[9..], &atr);
     }
 
@@ -680,7 +680,7 @@ mod tests {
     fn encode_set_atr_accepts_max_size() {
         let big = [0xAA; MAX_ATR_BYTES];
         let wire = encode_set_atr(0, 0, &big).unwrap();
-        assert_eq!(wire[8], MAX_ATR_BYTES as u8);
+        assert_eq!(wire[8], u8::try_from(MAX_ATR_BYTES).unwrap());
         assert_eq!(wire.len(), HDR_LEN + 1 + MAX_ATR_BYTES);
     }
 
@@ -799,7 +799,7 @@ mod tests {
     fn decode_status_powered_only_when_vcc_and_clk() {
         // Only VCC -- not powered (clock missing).
         let mut payload = [0u8; STATUS_LEN];
-        payload[0] = STATUS_F_VCC_PRESENT as u8;
+        payload[0] = u8::try_from(STATUS_F_VCC_PRESENT).unwrap();
         let s = CardemStatus::decode(&payload).unwrap();
         assert!(s.has_vcc());
         assert!(!s.is_powered());
@@ -848,7 +848,7 @@ mod tests {
     #[test]
     fn decode_rx_data_data_flags_combined() {
         let payload = [
-            (DATA_F_TPDU_HDR | DATA_F_FINAL) as u8,
+            u8::try_from(DATA_F_TPDU_HDR | DATA_F_FINAL).unwrap(),
             0,
             0,
             0,

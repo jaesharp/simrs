@@ -1,6 +1,6 @@
 //! Hardware-required integration tests.
 //!
-//! These tests open a real SIMtrace2 board on the local USB bus and are
+//! These tests open a real `SIMtrace2` board on the local USB bus and are
 //! marked `#[ignore]` so they don't run in CI or `cargo test --workspace`.
 //! Run them with:
 //!
@@ -22,7 +22,7 @@ fn opens_device_and_sends_atr() {
     // claim, alt-setting selection, and the initial Config + CardInsert
     // round-trip. If this passes, the device handle is healthy.
     let mut transport =
-        Simtrace2Transport::open(DeviceFilter::default()).expect("open SIMtrace2");
+        Simtrace2Transport::open(&DeviceFilter::default()).expect("open SIMtrace2");
     transport
         .send_atr(&simrs_card_api::DEFAULT_ATR)
         .expect("pre-stage ATR");
