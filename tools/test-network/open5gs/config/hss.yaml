@@ -1,0 +1,16 @@
+# Open5GS HSS configuration for simrs test network.
+#
+# Overrides the default 'db_uri: mongodb://localhost/open5gs' so the HSS
+# reaches the mongo container by service name.
+#
+# Reference: https://github.com/open5gs/open5gs/blob/main/configs/open5gs/hss.yaml.in
+db_uri: mongodb://mongo/open5gs
+
+logger:
+  file:
+    path: /opt/open5gs/var/log/open5gs/hss.log
+
+global:
+
+hss:
+  freeDiameter: /opt/open5gs/etc/freeDiameter/hss.conf

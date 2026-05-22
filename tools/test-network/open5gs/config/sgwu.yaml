@@ -1,0 +1,20 @@
+# Open5GS SGW-U configuration for simrs test network.
+#
+# No TAC/PLMN-sensitive parameters; bundled default is fine. Included
+# here for completeness so all six EPC components are mounted from
+# the same config tree.
+#
+# Reference: https://github.com/open5gs/open5gs/blob/main/configs/open5gs/sgwu.yaml.in
+logger:
+  file:
+    path: /opt/open5gs/var/log/open5gs/sgwu.log
+
+global:
+
+sgwu:
+  pfcp:
+    server:
+    - dev: eth0
+  gtpu:
+    server:
+    - dev: eth0

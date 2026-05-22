@@ -1,0 +1,51 @@
+# Open5GS MME configuration for simrs test network.
+#
+# Overrides the bundled gradiant image config (which ships with PLMN
+# 999/70 and TAC 1) to use the test PLMN 001/01 and TAC 7. The PLMN
+# value must match the MCC/MNC in the IMSI provisioned in the HSS
+# (and that simrs-vpcd writes to EF.IMSI via the --imsi flag).
+#
+# Reference: https://github.com/open5gs/open5gs/blob/main/configs/open5gs/mme.yaml.in
+logger:
+  file:
+    path: /opt/open5gs/var/log/open5gs/mme.log
+
+global:
+
+mme:
+  freeDiameter: /opt/open5gs/etc/freeDiameter/mme.conf
+  s1ap:
+    server:
+    - dev: eth0
+  gtpc:
+    server:
+    - dev: eth0
+    client:
+      sgwc:
+      - address: sgwc
+        tac: 7
+      smf:
+      - address: smf
+        tac: 7
+  metrics:
+    server:
+    - dev: eth0
+      port: 9090
+  gummei:
+  - plmn_id:
+      mcc: 001
+      mnc: 01
+    mme_gid: 2
+    mme_code: 1
+  tai:
+  - plmn_id:
+      mcc: 001
+      mnc: 01
+    tac: 7
+  security:
+    integrity_order: [EIA2, EIA1, EIA0]
+    ciphering_order: [EEA0, EEA1, EEA2]
+  network_name:
+    full: Open5GS
+    short: Open5GS
+  mme_name: open5gs-mme0

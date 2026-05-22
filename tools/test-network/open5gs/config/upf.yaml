@@ -1,0 +1,29 @@
+# Open5GS UPF configuration for simrs test network.
+#
+# DNN=internet matches the SMF subnet and the APN provisioned for the
+# subscriber via bootstrap-subscriber.sh. The container creates an
+# ogstun device for this subnet on startup (see entrypoint.sh in the
+# gradiant image).
+#
+# Reference: https://github.com/open5gs/open5gs/blob/main/configs/open5gs/upf.yaml.in
+logger:
+  file:
+    path: /opt/open5gs/var/log/open5gs/upf.log
+
+global:
+
+upf:
+  pfcp:
+    server:
+    - dev: eth0
+  gtpu:
+    server:
+    - dev: eth0
+  session:
+    - subnet: 10.45.0.0/16
+      gateway: 10.45.0.1
+      dnn: internet
+  metrics:
+    server:
+    - dev: eth0
+      port: 9090

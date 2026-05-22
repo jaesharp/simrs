@@ -1,0 +1,23 @@
+# Open5GS SGW-C configuration for simrs test network.
+#
+# Mostly identical to the gradiant default; TAC bumped from 1 to 7 so
+# SGW-U selection by the MME's TAC=7 lookup succeeds.
+#
+# Reference: https://github.com/open5gs/open5gs/blob/main/configs/open5gs/sgwc.yaml.in
+logger:
+  file:
+    path: /opt/open5gs/var/log/open5gs/sgwc.log
+
+global:
+
+sgwc:
+  gtpc:
+    server:
+    - dev: eth0
+  pfcp:
+    server:
+    - dev: eth0
+    client:
+      sgwu:
+      - address: sgwu
+        tac: 7

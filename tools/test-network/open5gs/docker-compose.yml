@@ -1,0 +1,171 @@
+# Open5GS 4G EPC test network for simrs validation.
+#
+# Brings up a minimal-but-complete EPC stack:
+#   mongo  - subscriber database
+#   hss    - Home Subscriber Server (Diameter S6a)
+#   mme    - Mobility Management Entity (S1AP/S11)
+#   sgwc   - Serving Gateway, control plane (S11/PFCP)
+#   sgwu   - Serving Gateway, user plane (PFCP/S1-U)
+#   smf    - Session Management Function (PFCP/S5-C as P-GW-C)
+#   upf    - User Plane Function (PFCP/S5-U as P-GW-U)
+#   pcrf   - Policy and Charging Rules Function (Diameter Gx/Rx)
+#   webui  - HTTP UI for subscriber inspection (optional)
+#
+# The PLMN is configured to MCC=001 MNC=01 (the standard "test PLMN")
+# and the TAC is 7. These values are baked into config/mme.yaml and
+# must match the IMSI prefix that simrs-vpcd writes to EF.IMSI.
+#
+# Image registry: gradiant/open5gs is the maintained successor to the
+# deprecated openverso/open5gs published by Gradiant. The 2.7.7 tag was
+# the most recent stable release at the time of writing.
+#   https://hub.docker.com/r/gradiant/open5gs
+#   https://github.com/Gradiant/5g-images/tree/main/images/open5gs
+
+services:
+  mongo:
+    image: mongo:6.0
+    container_name: open5gs-mongo
+    command: ["mongod", "--bind_ip", "0.0.0.0"]
+    networks:
+      open5gs:
+        aliases:
+          - mongo
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    restart: unless-stopped
+
+  hss:
+    image: gradiant/open5gs:2.7.7
+    container_name: open5gs-hss
+    command: ["open5gs-hssd"]
+    depends_on:
+      - mongo
+    networks:
+      open5gs:
+        aliases:
+          - hss
+    volumes:
+      - ./config/hss.yaml:/opt/open5gs/etc/open5gs/hss.yaml:ro
+    restart: unless-stopped
+
+  pcrf:
+    image: gradiant/open5gs:2.7.7
+    container_name: open5gs-pcrf
+    command: ["open5gs-pcrfd"]
+    depends_on:
+      - mongo
+    networks:
+      open5gs:
+        aliases:
+          - pcrf
+    volumes:
+      - ./config/pcrf.yaml:/opt/open5gs/etc/open5gs/pcrf.yaml:ro
+    restart: unless-stopped
+
+  sgwc:
+    image: gradiant/open5gs:2.7.7
+    container_name: open5gs-sgwc
+    command: ["open5gs-sgwcd"]
+    networks:
+      open5gs:
+        aliases:
+          - sgwc
+    volumes:
+      - ./config/sgwc.yaml:/opt/open5gs/etc/open5gs/sgwc.yaml:ro
+    restart: unless-stopped
+
+  sgwu:
+    image: gradiant/open5gs:2.7.7
+    container_name: open5gs-sgwu
+    command: ["open5gs-sgwud"]
+    networks:
+      open5gs:
+        aliases:
+          - sgwu
+    volumes:
+      - ./config/sgwu.yaml:/opt/open5gs/etc/open5gs/sgwu.yaml:ro
+    restart: unless-stopped
+
+  smf:
+    image: gradiant/open5gs:2.7.7
+    container_name: open5gs-smf
+    command: ["open5gs-smfd"]
+    networks:
+      open5gs:
+        aliases:
+          - smf
+    volumes:
+      - ./config/smf.yaml:/opt/open5gs/etc/open5gs/smf.yaml:ro
+    restart: unless-stopped
+
+  upf:
+    image: gradiant/open5gs:2.7.7
+    container_name: open5gs-upf
+    command: ["open5gs-upfd"]
+    # UPF needs NET_ADMIN to create the ogstun TUN device that backs the
+    # UE data plane; entrypoint.sh in the gradiant image does this on
+    # startup. Privileged mode is required for the iptables MASQUERADE
+    # rule that NATs UE traffic out to the host network.
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+    networks:
+      open5gs:
+        aliases:
+          - upf
+    volumes:
+      - ./config/upf.yaml:/opt/open5gs/etc/open5gs/upf.yaml:ro
+    restart: unless-stopped
+
+  mme:
+    image: gradiant/open5gs:2.7.7
+    container_name: open5gs-mme
+    command: ["open5gs-mmed"]
+    depends_on:
+      - hss
+      - sgwc
+      - smf
+    networks:
+      open5gs:
+        aliases:
+          - mme
+    volumes:
+      - ./config/mme.yaml:/opt/open5gs/etc/open5gs/mme.yaml:ro
+    # MME terminates S1AP from the eNodeB on SCTP/36412. Expose so a
+    # local or LAN-connected eNB can reach it.
+    ports:
+      - "36412:36412/sctp"
+    restart: unless-stopped
+
+  webui:
+    image: gradiant/open5gs-webui:2.7.7
+    container_name: open5gs-webui
+    depends_on:
+      - mongo
+    environment:
+      - DB_URI=mongodb://mongo/open5gs
+      - NODE_ENV=production
+      - HOSTNAME=0.0.0.0
+    networks:
+      open5gs:
+        aliases:
+          - webui
+    ports:
+      - "9999:9999"
+    restart: unless-stopped
+
+networks:
+  open5gs:
+    name: open5gs
+    driver: bridge
+
+volumes:
+  mongo_data:
+    name: open5gs_mongo_data
+  mongo_config:
+    name: open5gs_mongo_config

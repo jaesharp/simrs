@@ -1,0 +1,17 @@
+# Open5GS PCRF configuration for simrs test network.
+#
+# Overrides the default 'db_uri: mongodb://localhost/open5gs' so the
+# PCRF reaches the mongo container by service name. PCC policy comes
+# from the subscriber record in MongoDB.
+#
+# Reference: https://github.com/open5gs/open5gs/blob/main/configs/open5gs/pcrf.yaml.in
+db_uri: mongodb://mongo/open5gs
+
+logger:
+  file:
+    path: /opt/open5gs/var/log/open5gs/pcrf.log
+
+global:
+
+pcrf:
+  freeDiameter: /opt/open5gs/etc/freeDiameter/pcrf.conf
