@@ -1,5 +1,6 @@
 //! Main interposer event loop.
 
+use simrs_card_api::DEFAULT_ATR as SHADOW_ATR;
 use simrs_transport::{CardEvent, CardTransport, Transport, TransportError};
 use simrs_transport_tcp::{SwIccClient, SwIccTerminal};
 
@@ -492,8 +493,6 @@ static SHADOW_MF: DfDef = DfDef {
     children: &[FileRef::Ef(&SHADOW_EF_ICCID)],
 };
 
-static SHADOW_ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,7 +625,7 @@ mod tests {
             let mut buf = [0u8; 261];
             let event = fake_card.recv(&mut buf).unwrap();
             assert_eq!(event, CardEvent::PowerOn);
-            fake_card.send_atr(&[0x3B, 0x9F, 0x96, 0x80]).unwrap();
+            fake_card.send_atr(&SHADOW_ATR).unwrap();
 
             let event = fake_card.recv(&mut buf).unwrap();
             if let CardEvent::Apdu(_) = event {

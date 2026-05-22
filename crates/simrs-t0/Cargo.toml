@@ -12,7 +12,8 @@ std     = []
 [dependencies]
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest       = { workspace = true }
+simrs-card-api = { workspace = true }
 
 [lints]
 workspace = true

@@ -20,6 +20,7 @@ simrs-pcap          = { workspace = true }
 simrs-transport     = { workspace = true }
 simrs-transport-tcp = { workspace = true }
 simrs-sim           = { workspace = true, features = ["usim", "gsm"] }
+simrs-card-api      = { workspace = true }
 simrs-milenage      = { workspace = true }
 simrs-fs            = { workspace = true }
 simrs-gsm           = { workspace = true }

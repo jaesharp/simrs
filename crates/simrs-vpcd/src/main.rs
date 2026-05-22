@@ -17,7 +17,7 @@ use std::net::{TcpListener, TcpStream};
 use std::process;
 
 use clap::Parser;
-use simrs_card_api::{SimEvent, SimResponse};
+use simrs_card_api::{DEFAULT_ATR as ATR, SimEvent, SimResponse};
 use simrs_gsm::SubscriberKey as GsmSubscriberKey;
 use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_sim::Sim;

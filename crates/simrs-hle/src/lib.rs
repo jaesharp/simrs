@@ -517,12 +517,11 @@ pub fn hle_state_hash() -> u64 {
 // Convenience defaults for export crates
 // ---------------------------------------------------------------------------
 
-/// Standard reference ATR.
+/// Standard reference ATR, re-exported from [`simrs_card_api::DEFAULT_ATR`].
 ///
-/// This 4-byte ATR is intentionally compact. It works reliably with
-/// firmware SIM drivers that treat ATR as opaque bytes rather than
-/// parsing the ISO/IEC 7816-3 T0/TA1/historical structure.
-pub static DEFAULT_ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
+/// Single source of truth shared with the `simrs-vpcd`, `simrs-swicc`,
+/// `simrs-interposer`, and `simrs-sim` test fixtures.
+pub use simrs_card_api::DEFAULT_ATR;
 
 /// Initialize the SIM with the standard USIM profile and Milenage auth.
 ///

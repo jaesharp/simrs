@@ -704,7 +704,7 @@ mod tests {
         children: &[FileRef::Ef(&EF_ICCID)],
     };
 
-    static ATR: [u8; 4] = [0x3B, 0x9F, 0x96, 0x80];
+    use simrs_card_api::DEFAULT_ATR as ATR;
 
     // -- USIM-only test statics --
 

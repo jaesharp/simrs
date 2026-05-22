@@ -552,6 +552,57 @@ impl Atr {
     pub const fn t0_supported(&self) -> bool {
         self.t0_supported
     }
+
+    /// Whether any TD byte indicated transmission protocol T=1.
+    ///
+    /// T=15 (global interface parameters) is not a transmission protocol and
+    /// does not count for this check; only T=1 specifically.
+    pub fn t1_indicated(&self) -> bool {
+        let bytes = self.as_bytes();
+        if bytes.len() < 2 {
+            return false;
+        }
+        let t0 = bytes[1];
+        let mut pos: usize = 2;
+        let mut td_byte = t0;
+        loop {
+            let y = td_byte >> 4;
+            if y & 0x01 != 0 {
+                pos += 1;
+            }
+            if y & 0x02 != 0 {
+                pos += 1;
+            }
+            if y & 0x04 != 0 {
+                pos += 1;
+            }
+            if y & 0x08 != 0 {
+                if pos >= bytes.len() {
+                    return false;
+                }
+                td_byte = bytes[pos];
+                pos += 1;
+                if td_byte & 0x0F == 1 {
+                    return true;
+                }
+            } else {
+                return false;
+            }
+        }
+    }
+
+    /// Verify the ATR is well-formed under ISO 7816-3 clause 8.
+    ///
+    /// Returns `true` if the K nibble of T0 matches the declared historical
+    /// byte count. By construction this is always true for a successfully
+    /// parsed [`Atr`]; the method exists as an explicit contract assertion
+    /// for regression tests.
+    pub const fn is_well_formed(&self) -> bool {
+        let bytes = self.raw;
+        let t0 = bytes[1];
+        let declared_k = (t0 & 0x0F) as usize;
+        declared_k == self.hist_len as usize
+    }
 }
 
 // ---------------------------------------------------------------------------

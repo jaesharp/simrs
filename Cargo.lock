@@ -1744,6 +1744,7 @@ dependencies = [
  "insta",
  "simrs-apdu-schema",
  "simrs-bertlv",
+ "simrs-card-api",
  "simrs-fs",
  "simrs-gp-open",
  "simrs-gp-scp",
@@ -2074,6 +2075,7 @@ name = "simrs-swicc"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "simrs-card-api",
  "simrs-fs",
  "simrs-gsm",
  "simrs-milenage",
@@ -2088,6 +2090,7 @@ name = "simrs-t0"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "simrs-card-api",
 ]
 
 [[package]]

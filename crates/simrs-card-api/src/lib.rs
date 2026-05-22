@@ -18,6 +18,21 @@
 use simrs_iso7816::StatusWord;
 
 // ---------------------------------------------------------------------------
+// Default ATR
+// ---------------------------------------------------------------------------
+
+/// Shared default Answer To Reset for simrs SIM binaries.
+///
+/// TS + T0 + TA1 + TD1 + TD2 + TA3 + 15 historical bytes + TCK; T=0 only.
+/// Parses cleanly under ISO 7816-3 clause 8 and is the single source of truth
+/// for `simrs-vpcd`, `simrs-swicc`, `simrs-interposer`, `simrs-hle`, and the
+/// `simrs-sim` test fixtures.
+pub static DEFAULT_ATR: [u8; 22] = [
+    0x3B, 0x9F, 0x96, 0x80, 0x1F, 0xC7, 0x80, 0x31, 0xE0, 0x73, 0xFE, 0x21, 0x1B, 0x67, 0x4A, 0x4C,
+    0x75, 0x30, 0x34, 0x05, 0x4B, 0xE9,
+];
+
+// ---------------------------------------------------------------------------
 // Lifecycle policy
 // ---------------------------------------------------------------------------
 

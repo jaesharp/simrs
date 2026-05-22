@@ -16,6 +16,7 @@ simrs-gsm          = { workspace = true }
 simrs-usim         = { workspace = true }
 simrs-milenage     = { workspace = true }
 simrs-fs           = { workspace = true }
+simrs-card-api     = { workspace = true }
 simrs-transport    = { workspace = true }
 simrs-transport-tcp = { workspace = true }
 clap               = { workspace = true }
