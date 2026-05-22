@@ -1,0 +1,25 @@
+[package]
+name        = "simrs-simtrace2"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Boot a simrs SIM and serve it over USB to an Osmocom SIMtrace2 board (cardem mode)"
+publish     = false
+
+[[bin]]
+name = "simrs-simtrace2"
+path = "src/main.rs"
+
+[dependencies]
+simrs-sim                 = { workspace = true, features = ["gsm", "usim"] }
+simrs-gsm                 = { workspace = true }
+simrs-usim                = { workspace = true }
+simrs-milenage            = { workspace = true }
+simrs-fs                  = { workspace = true }
+simrs-card-api            = { workspace = true }
+simrs-transport           = { workspace = true }
+simrs-transport-simtrace2 = { workspace = true }
+clap                      = { workspace = true }
+
+[lints]
+workspace = true

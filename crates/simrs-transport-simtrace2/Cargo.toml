@@ -1,0 +1,17 @@
+[package]
+name        = "simrs-transport-simtrace2"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CardTransport over USB to an Osmocom SIMtrace2 board in cardem mode"
+
+[dependencies]
+simrs-transport = { workspace = true }
+nusb            = "0.2.3"
+
+[dev-dependencies]
+proptest       = { workspace = true }
+simrs-card-api = { workspace = true }
+
+[lints]
+workspace = true

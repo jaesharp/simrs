@@ -67,6 +67,8 @@ members = [
     "crates/simrs-jacc",
     "crates/simrs-swicc",
     "crates/simrs-vpcd",
+    "crates/simrs-transport-simtrace2",
+    "crates/simrs-simtrace2",
 ]
 resolver = "2"
 
@@ -121,6 +123,7 @@ simrs-transport           = { path = "crates/simrs-transport",           default
 simrs-transport-tcp       = { path = "crates/simrs-transport-tcp" }
 simrs-transport-shmem     = { path = "crates/simrs-transport-shmem",     default-features = false }
 simrs-transport-virtio    = { path = "crates/simrs-transport-virtio",    default-features = false }
+simrs-transport-simtrace2 = { path = "crates/simrs-transport-simtrace2" }
 simrs-qemu                = { path = "crates/simrs-qemu" }
 simrs-peripheral          = { path = "crates/simrs-peripheral",          default-features = false }
 simrs-peripheral-shannon  = { path = "crates/simrs-peripheral-shannon",  default-features = false }
