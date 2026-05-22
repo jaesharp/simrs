@@ -25,6 +25,7 @@ simrs-redact  = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+simrs-pin = { workspace = true }
 
 [lints]
 workspace = true

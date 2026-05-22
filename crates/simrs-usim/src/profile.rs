@@ -8,7 +8,7 @@
 //!
 //! EFs are gated by feature flags:
 //! - **`profile-minimal`** -- LTE attach minimum (33 EFs)
-//! - **`profile-standard`** (default) -- baseline + auth + SMS + phonebook (58 EFs)
+//! - **`profile-standard`** (default) -- baseline + auth + SMS + phonebook (63 EFs)
 //! - **`profile-full`** -- full TS 31.102 catalog (207 EFs)
 //!
 //! # Structure (profile-full)
@@ -30,6 +30,8 @@
 //! |   +-- [minimal] EF.Keys (6F08) transparent, 33 bytes
 //! |   +-- [minimal] EF.KeysPS (6F09) transparent, 33 bytes
 //! |   +-- [standard] EF.LI (6F05) transparent, 10 bytes
+//! |   +-- [standard] EF.ARR (6F06) linear-fixed, 1 rec x 32 bytes
+//! |   +-- [standard] EF.ACMmax (6F37) transparent, 3 bytes
 //! |   +-- [standard] EF.MSISDN (6F40) linear-fixed, 2 rec x 30 bytes
 //! |   +-- [standard] EF.SMSP (6F42) linear-fixed, 2 rec x 52 bytes
 //! |   +-- [standard] EF.FDN (6F3B) linear-fixed, 2 rec x 30 bytes
@@ -52,11 +54,13 @@
 //! |   +-- [standard] EF.SPDI (6FCD) transparent, 33 bytes
 //! |   +-- [standard] EF.ACL (6F57) transparent, 4 bytes
 //! |   +-- [standard] EF.EST (6F56) transparent, 9 bytes
+//! |   +-- [standard] EF.START_HFN (6F5B) transparent, 6 bytes
+//! |   +-- [standard] EF.THRESHOLD (6F5C) transparent, 3 bytes
+//! |   +-- [standard] EF.NETPAR (6FC4) transparent, 62 bytes
 //! |   +-- [standard] EF.EPSLOCI (6FE3) transparent, 18 bytes
 //! |   +-- [standard] EF.EPSNSC (6FE4) linear-fixed, 1 rec x 54 bytes
 //! |   +-- [full] EF.DCK (6F2C) transparent, 16 bytes
 //! |   +-- [full] EF.CNL (6F32) transparent, 24 bytes
-//! |   +-- [full] EF.ACMmax (6F37) transparent, 3 bytes
 //! |   +-- [full] EF.ACM (6F39) cyclic, 3 rec x 3 bytes
 //! |   +-- [full] EF.PUCT (6F41) transparent, 5 bytes
 //! |   +-- [full] EF.SDN (6F49) linear-fixed, 2 rec x 30 bytes
@@ -67,8 +71,6 @@
 //! |   +-- [full] EF.CCP2 (6F4F) linear-fixed, 4 rec x 15 bytes
 //! |   +-- [full] EF.EXT4 (6F55) linear-fixed, 2 rec x 13 bytes
 //! |   +-- [full] EF.CMI (6F58) linear-fixed, 4 rec x 11 bytes
-//! |   +-- [full] EF.START_HFN (6F5B) transparent, 6 bytes
-//! |   +-- [full] EF.THRESHOLD (6F5C) transparent, 3 bytes
 //! |   +-- [full] EF.ICI (6F80) cyclic, 1 rec x 30 bytes
 //! |   +-- [full] EF.OCI (6F81) cyclic, 1 rec x 30 bytes
 //! |   +-- [full] EF.ICT (6F82) cyclic, 1 rec x 3 bytes
@@ -80,7 +82,6 @@
 //! |   +-- [full] EF.eMLPP (6FB5) transparent, 2 bytes
 //! |   +-- [full] EF.AaeM (6FB6) transparent, 1 byte
 //! |   +-- [full] EF.Hiddenkey (6FC3) transparent, 4 bytes
-//! |   +-- [full] EF.NETPAR (6FC4) transparent, 62 bytes
 //! |   +-- [full] EF.MBDN (6FC7) linear-fixed, 4 rec x 24 bytes
 //! |   +-- [full] EF.EXT6 (6FC8) linear-fixed, 4 rec x 13 bytes
 //! |   +-- [full] EF.MBI (6FC9) linear-fixed, 4 rec x 4 bytes
@@ -369,8 +370,20 @@ pub static EF_LOCI: EfDef = EfDef::transparent(
 
 /// EF.PSLOCI (6FE7) -- Packet Switched Location Information.
 ///
-/// 14-byte transparent EF. Default: zero-filled.
-pub static EF_PSLOCI: EfDef = EfDef::transparent(Fid::new(0x6FE7), None, &[0x00; 14]);
+/// 14-byte transparent EF. Bytes 0-3: P-TMSI, byte 4-6: P-TMSI signature,
+/// bytes 7-12: RAI (MCC/MNC/LAC/RAC), byte 13: routing area update status.
+/// Default: unprovisioned (0xFF fill, status 0x01 = not updated).
+/// [3GPP TS 31.102 V19.4.0 clause 4.2.23](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf).
+pub static EF_PSLOCI: EfDef = EfDef::transparent(
+    Fid::new(0x6FE7),
+    None,
+    &[
+        0xFF, 0xFF, 0xFF, 0xFF, // P-TMSI
+        0xFF, 0xFF, 0xFF, // P-TMSI signature
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // RAI
+        0x01, // routing area update status: not updated
+    ],
+);
 
 /// EF.FPLMN (6F7B) -- Forbidden PLMNs.
 ///
@@ -422,10 +435,15 @@ pub static EF_KEYS_PS: EfDef = EfDef::transparent(
 
 /// EF.LI (6F05) -- Language Indication.
 ///
-/// Transparent EF, 10 bytes. Contains language preferences.
+/// Transparent EF, 10 bytes. Each entry is a pair of ISO 639 alpha-2 letters.
+/// Default: `en` followed by 0xFF padding.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.1](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A58%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C493%5D). SFI 0x02.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
-pub static EF_LI: EfDef = EfDef::transparent(Fid::new(0x6F05), Some(Sfi::new(2)), &[0xFF; 10]);
+pub static EF_LI: EfDef = EfDef::transparent(
+    Fid::new(0x6F05),
+    Some(Sfi::new(2)),
+    &[0x65, 0x6E, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+);
 
 /// EF.MSISDN data: two empty records of 30 bytes each.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
@@ -533,14 +551,34 @@ static EF_SMSR_DATA: [u8; 60] = [0xFF; 60];
 pub static EF_SMSR: EfDef = EfDef::linear_fixed(Fid::new(0x6F47), None, 30, 2, &EF_SMSR_DATA);
 
 /// EF.ECC data: 5 records of 16 bytes each.
+///
+/// Record layout per [3GPP TS 31.102 V19.4.0 clause 4.4.21](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf):
+/// bytes 0-2 = emergency number digits (BCD packed, low nibble first, 0xF pad),
+/// bytes 3-14 = alpha identifier (0xFF pad),
+/// byte 15 = emergency service category (bit 0=Police, 1=Ambulance,
+/// 2=Fire, 3=Marine, 4=Mountain).
+///
+/// Defaults: `112` (cat 0x1F all services), `911` (cat 0x1F),
+/// `08` (cat 0x01 police), `000` (cat 0x1F), and one empty record.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 static EF_ECC_DATA: [u8; 80] = {
     let mut d = [0xFF; 80];
-    // Last byte of each record is service category (0x00)
-    d[15] = 0x00;
-    d[31] = 0x00;
-    d[47] = 0x00;
-    d[63] = 0x00;
+    // record 0: 112 -- universal European emergency, all services
+    d[0] = 0x11;
+    d[1] = 0xF2;
+    d[15] = 0x1F;
+    // record 1: 911 -- North America, all services
+    d[16] = 0x19;
+    d[17] = 0xF1;
+    d[31] = 0x1F;
+    // record 2: 08 -- police (legacy continental)
+    d[32] = 0x80;
+    d[47] = 0x01;
+    // record 3: 000 -- Australia, all services
+    d[48] = 0x00;
+    d[49] = 0xF0;
+    d[63] = 0x1F;
+    // record 4: empty
     d[79] = 0x00;
     d
 };
@@ -554,9 +592,23 @@ pub static EF_ECC: EfDef =
     EfDef::linear_fixed(Fid::new(0x6FB7), Some(Sfi::new(1)), 16, 5, &EF_ECC_DATA);
 
 /// EF.PLMNwAcT data: 60 bytes (12 PLMN entries x 5 bytes).
+///
+/// Entry layout per [3GPP TS 31.102 V19.4.0 clause 4.2.5](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf):
+/// bytes 0-2 = PLMN identifier (MCC/MNC nibble-packed),
+/// byte 3 = AcT byte 0 (b8=UTRAN, b7=E-UTRAN WB-S1, b6=NG-RAN),
+/// byte 4 = AcT byte 1 (b8=GSM/COMPACT, b7=GSM, b5=cdma2000 1xRTT, b4=NB-IoT).
+///
+/// Default: entry 0 = PLMN 001-01 with UTRAN+E-UTRAN+GSM enabled,
+/// rest unused (0xFF PLMN + 0x0000 AcT for the trailing entry).
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 static EF_PLMNWACT_DATA: [u8; 60] = {
     let mut d = [0xFF; 60];
+    // entry 0: PLMN 001-01, AcT = UTRAN + E-UTRAN WB-S1 + GSM/COMPACT + GSM
+    d[0] = 0x00;
+    d[1] = 0xF1;
+    d[2] = 0x10;
+    d[3] = 0xC0;
+    d[4] = 0xC0;
     // Last two bytes are AcT (0x0000) for the trailing entry
     d[58] = 0x00;
     d[59] = 0x00;
@@ -589,9 +641,17 @@ pub static EF_OPLMNWACT: EfDef =
     EfDef::transparent(Fid::new(0x6F61), Some(Sfi::new(0x11)), &EF_OPLMNWACT_DATA);
 
 /// EF.HPLMNwAcT data: 60 bytes.
+///
+/// Default: entry 0 = PLMN 001-01 with UTRAN+E-UTRAN+GSM enabled.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 static EF_HPLMNWACT_DATA: [u8; 60] = {
     let mut d = [0xFF; 60];
+    // entry 0: PLMN 001-01, AcT = UTRAN + E-UTRAN WB-S1 + GSM/COMPACT + GSM
+    d[0] = 0x00;
+    d[1] = 0xF1;
+    d[2] = 0x10;
+    d[3] = 0xC0;
+    d[4] = 0xC0;
     d[58] = 0x00;
     d[59] = 0x00;
     d
@@ -608,13 +668,14 @@ pub static EF_HPLMNWACT: EfDef =
 /// EF.EHPLMN (6FD9) -- Equivalent HPLMN.
 ///
 /// 12-byte transparent EF. 4 PLMN entries of 3 bytes each.
+/// Default: PLMN 001-01 (matches EF.IMSI's MCC/MNC), rest unused (0xFF).
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.84](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A202%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C632%5D). SFI 0x1D.
 #[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_EHPLMN: EfDef = EfDef::transparent(
     Fid::new(0x6FD9),
     Some(Sfi::new(0x1D)),
     &[
-        0x09, 0xF1, 0x07, // PLMN 901-70 (test network)
+        0x00, 0xF1, 0x10, // PLMN 001-01 (test network, matches IMSI MCC/MNC)
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     ],
 );
@@ -735,7 +796,7 @@ pub static EF_CNL: EfDef = EfDef::transparent(Fid::new(0x6F32), None, &[0xFF; 24
 ///
 /// 3-byte transparent EF. Default: 0x000000 (no maximum).
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.7](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A68%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C495%5D).
-#[cfg(feature = "profile-full")]
+#[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_ACMMAX: EfDef = EfDef::transparent(Fid::new(0x6F37), None, &[0x00, 0x00, 0x00])
     .with_update_ac(AccessCondition::Pin2);
 
@@ -860,9 +921,10 @@ pub static EF_CMI: EfDef = EfDef::linear_fixed(Fid::new(0x6F58), None, 11, 4, &E
 
 /// EF.START_HFN (6F5B) -- Initialisation values for Hyperframe number.
 ///
-/// 6-byte transparent EF. Default: all zeros.
+/// 6-byte transparent EF. Bytes 0-2: START_CS (initial HFN for CS domain).
+/// Bytes 3-5: START_PS (initial HFN for PS domain). Default: 0xF00000 each.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.51](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C785%5D). SFI 0x0F.
-#[cfg(feature = "profile-full")]
+#[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_START_HFN: EfDef = EfDef::transparent(
     Fid::new(0x6F5B),
     Some(Sfi::new(0x0F)),
@@ -871,9 +933,9 @@ pub static EF_START_HFN: EfDef = EfDef::transparent(
 
 /// EF.THRESHOLD (6F5C) -- Maximum value of START.
 ///
-/// 3-byte transparent EF. Default: 0xFFFFFF.
+/// 3-byte transparent EF. Default: 0xFFFFFF (maximum value of START).
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.52](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A144%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C471%5D). SFI 0x10.
-#[cfg(feature = "profile-full")]
+#[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_THRESHOLD: EfDef =
     EfDef::transparent(Fid::new(0x6F5C), Some(Sfi::new(0x10)), &[0xFF, 0xFF, 0xFF]);
 
@@ -980,7 +1042,7 @@ pub static EF_AAEM: EfDef = EfDef::transparent(Fid::new(0x6FB6), None, &[0x00]);
 pub static EF_HIDDENKEY: EfDef = EfDef::transparent(Fid::new(0x6FC3), None, &[0xFF; 4]);
 
 /// EF.NETPAR data: 62 bytes.
-#[cfg(feature = "profile-full")]
+#[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 static EF_NETPAR_DATA: [u8; 62] = [
     0xA0, 0x08, 0x80, 0x02, 0x24, 0x9F, 0x81, 0x02, 0x24, 0x9F, 0xA1, 0x04, 0x80, 0x02, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -992,7 +1054,7 @@ static EF_NETPAR_DATA: [u8; 62] = [
 ///
 /// 62-byte transparent EF.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.57](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A150%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C754%5D).
-#[cfg(feature = "profile-full")]
+#[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_NETPAR: EfDef = EfDef::transparent(Fid::new(0x6FC4), None, &EF_NETPAR_DATA);
 
 /// EF.MBDN data: 4 records of 24 bytes each.
@@ -1311,17 +1373,41 @@ pub static EF_FROM_PREFERRED: EfDef = EfDef::transparent(Fid::new(0x6FF7), None,
 // New ADF_USIM root EFs -- P0 (mandatory + Shannon-critical)
 // ---------------------------------------------------------------------------
 
-// EF_ARR_USIM data: 1 record of 32 bytes.
-#[cfg(feature = "profile-full")]
-static EF_ARR_USIM_DATA: [u8; 32] = [0xFF; 32];
+/// EF.ARR data: 1 record of 32 bytes.
+///
+/// Default ARR record: a single ALWAYS-readable, PIN1-update rule encoded
+/// as `80 01 01 90 00 A4 06 83 01 01 95 01 08` (AM 0x01 = READ,
+/// SC 0x90 = ALWAYS; AM 0x06 = UPDATE+INCREASE referencing PIN1 via
+/// `83 01 01`, then a SC 0x08). The remainder is 0xFF pad.
+#[cfg(any(feature = "profile-standard", feature = "profile-full"))]
+static EF_ARR_USIM_DATA: [u8; 32] = {
+    let mut d = [0xFF; 32];
+    // EF AM/SC byte (TS 102 221 Table 11.7 Annex F) -- ALWAYS for READ.
+    d[0] = 0x80; // AM_DO tag
+    d[1] = 0x01; // length
+    d[2] = 0x01; // AM byte: READ
+    d[3] = 0x90; // SC_DO ALWAYS
+    d[4] = 0x00; // length
+    // PIN1 condition for UPDATE/INCREASE
+    d[5] = 0xA4; // tag for PIN-protected
+    d[6] = 0x06; // length
+    d[7] = 0x83; // key reference DO
+    d[8] = 0x01;
+    d[9] = 0x01; // PIN1 reference
+    d[10] = 0x95; // usage qualifier
+    d[11] = 0x01;
+    d[12] = 0x08; // verify
+    d
+};
 
 /// EF.ARR (6F06) -- Access Rule Reference (ADF_USIM level).
 ///
-/// Linear-fixed, 1 record of 32 bytes. Default: 0xFF (empty rule).
-/// Contains access rules referenced by file FCPs via security attribute
-/// tag '8B'. Mandatory per TS 31.102.
+/// Linear-fixed, 1 record of 32 bytes. Default: a single ARR rule
+/// allowing ALWAYS for READ and PIN1 for UPDATE/INCREASE. Mandatory per
+/// TS 31.102. Contains access rules referenced by file FCPs via security
+/// attribute tag `8B`.
 /// [3GPP TS 31.102 V19.4.0 clause 4.2.55](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf#%5B%7B%22num%22%3A148%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C642%5D).
-#[cfg(feature = "profile-full")]
+#[cfg(any(feature = "profile-standard", feature = "profile-full"))]
 pub static EF_ARR_USIM: EfDef = EfDef::linear_fixed(
     Fid::new(0x6F06),
     Some(Sfi::new(0x17)),
@@ -3140,7 +3226,7 @@ const _: () = simrs_fs::assert_fids_unique(&[
 
 // -- profile-standard children (no profile-full): minimal + standard EFs --
 #[cfg(all(feature = "profile-standard", not(feature = "profile-full")))]
-static ADF_USIM_CHILDREN: [FileRef; 36] = [
+static ADF_USIM_CHILDREN: [FileRef; 41] = [
     // -- minimal --
     FileRef::Ef(&EF_IMSI),
     FileRef::Ef(&EF_AD),
@@ -3154,6 +3240,8 @@ static ADF_USIM_CHILDREN: [FileRef; 36] = [
     FileRef::Ef(&EF_KEYS_PS),
     // -- standard --
     FileRef::Ef(&EF_LI),
+    FileRef::Ef(&EF_ARR_USIM),
+    FileRef::Ef(&EF_ACMMAX),
     FileRef::Ef(&EF_MSISDN),
     FileRef::Ef(&EF_SMSP),
     FileRef::Ef(&EF_FDN),
@@ -3176,6 +3264,9 @@ static ADF_USIM_CHILDREN: [FileRef; 36] = [
     FileRef::Ef(&EF_SPDI),
     FileRef::Ef(&EF_ACL),
     FileRef::Ef(&EF_EST),
+    FileRef::Ef(&EF_START_HFN),
+    FileRef::Ef(&EF_THRESHOLD),
+    FileRef::Ef(&EF_NETPAR),
     FileRef::Ef(&EF_EPSLOCI),
     FileRef::Ef(&EF_EPSNSC),
     // -- sub-DFs --
@@ -3197,6 +3288,8 @@ const _: () = simrs_fs::assert_fids_unique(&[
     0x6F09, // EF_KEYS_PS
     // -- standard --
     0x6F05, // EF_LI
+    0x6F06, // EF_ARR_USIM
+    0x6F37, // EF_ACMMAX
     0x6F40, // EF_MSISDN
     0x6F42, // EF_SMSP
     0x6F3B, // EF_FDN
@@ -3219,6 +3312,9 @@ const _: () = simrs_fs::assert_fids_unique(&[
     0x6FCD, // EF_SPDI
     0x6F57, // EF_ACL
     0x6F56, // EF_EST
+    0x6F5B, // EF_START_HFN
+    0x6F5C, // EF_THRESHOLD
+    0x6FC4, // EF_NETPAR
     0x6FE3, // EF_EPSLOCI
     0x6FE4, // EF_EPSNSC
     // -- sub-DFs --
@@ -3677,9 +3773,14 @@ pub static DF_TELECOM: DfDef = DfDef {
 
 /// EF.PL (2F05) -- Preferred Languages.
 ///
-/// 10-byte transparent EF under MF. Default: empty.
+/// 10-byte transparent EF under MF. Each entry is a pair of ISO 639 alpha-2
+/// letters. Default: `en` followed by 0xFF padding.
 /// [ETSI TS 102 221 V18.3.0 clause 13.3](../../../docs/specs/etsi/ts-102-221/ts_102221v180300p.pdf#%5B%7B%22num%22%3A491%2C%22gen%22%3A0%7D%2C%7B%22name%22%3A%22FitH%22%7D%2C787%5D).
-pub static EF_PL: EfDef = EfDef::transparent(Fid::new(0x2F05), None, &[0xFF; 10]);
+pub static EF_PL: EfDef = EfDef::transparent(
+    Fid::new(0x2F05),
+    None,
+    &[0x65, 0x6E, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+);
 
 /// Reference Master File (MF).
 ///

@@ -83,7 +83,7 @@ use simrs_secret::Secret;
 /// Filesystem data buffer capacity, selected by feature flag.
 ///
 /// - `profile-full`: 16384 bytes (full [3GPP TS 31.102 V19.4.0](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf) catalog + ISIM/HPSIM/TELECOM)
-/// - `profile-standard` (default): 4096 bytes (58 EFs: baseline USIM + DF_5GS)
+/// - `profile-standard` (default): 4096 bytes (63 EFs: baseline USIM + DF_5GS)
 /// - `profile-minimal`: 1024 bytes (33 EFs: LTE attach minimum + DF_5GS)
 ///
 /// Note: DF_5GS (19 EFs) is included in all tiers.
@@ -104,7 +104,7 @@ const FS_CAP: usize = 1024;
 /// Maximum number of EFs in the filesystem, selected by feature flag.
 ///
 /// - `profile-full`: 290 (full [3GPP TS 31.102 V19.4.0](../../../docs/specs/3gpp/ts-31.102/ts_131102v190400p.pdf) + ISIM/HPSIM/TELECOM + legacy DFs)
-/// - `profile-standard` (default): 80 (58 EFs + headroom for telecom/additive)
+/// - `profile-standard` (default): 80 (63 EFs + headroom for telecom/additive)
 /// - `profile-minimal`: 40 (33 EFs + headroom)
 ///
 /// Note: DF_5GS (19 EFs) is included in all tiers.
