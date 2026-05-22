@@ -70,7 +70,8 @@
 #![allow(clippy::doc_markdown)]
 
 pub use simrs_card_api::{
-    CardState, ResetEffects, ResetKind, SimEvent, SimResponse, fnv1a, standard_reset_policy,
+    AtrBytes, AtrError, CardState, ResetEffects, ResetKind, SimEvent, SimResponse, fnv1a,
+    standard_reset_policy,
 };
 
 #[cfg(not(any(feature = "gsm", feature = "usim")))]
@@ -218,7 +219,7 @@ const CLA_GSM_RAW: u8 = 0xA0;
 /// uses [`standard_reset_policy`]) or [`Sim::with_reset_policy`]. It
 /// cannot be changed after construction.
 pub struct Sim<A: AuthenticationAlgorithm = MilenageParams, const RSP_CAP: usize = 256> {
-    atr: &'static [u8],
+    atr: AtrBytes,
     state: CardState,
     reset_policy: fn(ResetKind) -> ResetEffects,
     rsp_buf: [u8; RSP_CAP],
@@ -242,8 +243,12 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// Create a new SIM card (no application features enabled).
     ///
     /// All APDUs will return `6E 00` (class not supported).
+    ///
+    /// `atr` accepts anything convertible to [`AtrBytes`] -- a `&[u8; N]`,
+    /// `&DEFAULT_ATR`, or an explicit `AtrBytes`. The bytes are copied
+    /// into the `Sim`'s inline storage; no `'static` lifetime required.
     #[cfg(not(any(feature = "gsm", feature = "usim")))]
-    pub fn new(atr: &'static [u8], mf: &'static DfDef) -> Self {
+    pub fn new(atr: impl Into<AtrBytes>, mf: &'static DfDef) -> Self {
         Self::with_reset_policy(atr, mf, standard_reset_policy)
     }
 
@@ -251,12 +256,12 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// custom reset policy.
     #[cfg(not(any(feature = "gsm", feature = "usim")))]
     pub fn with_reset_policy(
-        atr: &'static [u8],
+        atr: impl Into<AtrBytes>,
         mf: &'static DfDef,
         reset_policy: fn(ResetKind) -> ResetEffects,
     ) -> Self {
         Self {
-            atr,
+            atr: atr.into(),
             state: CardState::Off,
             reset_policy,
             rsp_buf: [0u8; RSP_CAP],
@@ -268,8 +273,10 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// Create a new SIM card with GSM application layer.
     ///
     /// Configure PINs via `sim.gsm_app_mut().pin_manager().add_pin(...)`.
+    ///
+    /// `atr` accepts anything convertible to [`AtrBytes`].
     #[cfg(all(feature = "gsm", not(feature = "usim")))]
-    pub fn new(atr: &'static [u8], gsm: GsmApp) -> Self {
+    pub fn new(atr: impl Into<AtrBytes>, gsm: GsmApp) -> Self {
         Self::with_reset_policy(atr, gsm, standard_reset_policy)
     }
 
@@ -277,12 +284,12 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// reset policy.
     #[cfg(all(feature = "gsm", not(feature = "usim")))]
     pub fn with_reset_policy(
-        atr: &'static [u8],
+        atr: impl Into<AtrBytes>,
         gsm: GsmApp,
         reset_policy: fn(ResetKind) -> ResetEffects,
     ) -> Self {
         Self {
-            atr,
+            atr: atr.into(),
             state: CardState::Off,
             reset_policy,
             rsp_buf: [0u8; RSP_CAP],
@@ -294,8 +301,10 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// Create a new SIM card with USIM application layer.
     ///
     /// Configure PINs via `sim.usim_app_mut().pin_manager().add_pin(...)`.
+    ///
+    /// `atr` accepts anything convertible to [`AtrBytes`].
     #[cfg(all(feature = "usim", not(feature = "gsm")))]
-    pub fn new(atr: &'static [u8], usim: UsimApp<A>) -> Self {
+    pub fn new(atr: impl Into<AtrBytes>, usim: UsimApp<A>) -> Self {
         Self::with_reset_policy(atr, usim, standard_reset_policy)
     }
 
@@ -303,12 +312,12 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// reset policy.
     #[cfg(all(feature = "usim", not(feature = "gsm")))]
     pub fn with_reset_policy(
-        atr: &'static [u8],
+        atr: impl Into<AtrBytes>,
         usim: UsimApp<A>,
         reset_policy: fn(ResetKind) -> ResetEffects,
     ) -> Self {
         Self {
-            atr,
+            atr: atr.into(),
             state: CardState::Off,
             reset_policy,
             rsp_buf: [0u8; RSP_CAP],
@@ -317,6 +326,10 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     }
 
     /// Create a new SIM card with both GSM and USIM application layers.
+    ///
+    /// `atr` accepts anything convertible to [`AtrBytes`] -- a `&[u8; N]`,
+    /// `&DEFAULT_ATR`, or an explicit `AtrBytes`. The bytes are copied
+    /// into the `Sim`'s inline storage; no `'static` lifetime required.
     ///
     /// ```ignore
     /// use simrs_usim::profile::{REFERENCE_MF, ADF_TABLE};
@@ -328,7 +341,7 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     ///
     /// Configure PINs via `sim.usim_app_mut().pin_manager().add_pin(...)`.
     #[cfg(all(feature = "gsm", feature = "usim"))]
-    pub fn new(atr: &'static [u8], gsm: GsmApp, usim: UsimApp<A>) -> Self {
+    pub fn new(atr: impl Into<AtrBytes>, gsm: GsmApp, usim: UsimApp<A>) -> Self {
         Self::with_reset_policy(atr, gsm, usim, standard_reset_policy)
     }
 
@@ -349,13 +362,13 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
     /// ```
     #[cfg(all(feature = "gsm", feature = "usim"))]
     pub fn with_reset_policy(
-        atr: &'static [u8],
+        atr: impl Into<AtrBytes>,
         gsm: GsmApp,
         usim: UsimApp<A>,
         reset_policy: fn(ResetKind) -> ResetEffects,
     ) -> Self {
         Self {
-            atr,
+            atr: atr.into(),
             state: CardState::Off,
             reset_policy,
             rsp_buf: [0u8; RSP_CAP],
@@ -418,13 +431,13 @@ impl<A: AuthenticationAlgorithm, const RSP_CAP: usize> Sim<A, RSP_CAP> {
                 let effects = (self.reset_policy)(ResetKind::Cold);
                 self.apply_reset_effects(effects);
                 self.state = CardState::Ready;
-                SimResponse::Atr(self.atr)
+                SimResponse::Atr(self.atr.as_slice())
             }
             SimEvent::Reset => {
                 let effects = (self.reset_policy)(ResetKind::Warm);
                 self.apply_reset_effects(effects);
                 self.state = CardState::Ready;
-                SimResponse::Atr(self.atr)
+                SimResponse::Atr(self.atr.as_slice())
             }
             SimEvent::PowerOff => {
                 self.state = CardState::Off;

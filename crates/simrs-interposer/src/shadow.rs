@@ -5,7 +5,7 @@
 
 use simrs_fs::DfDef;
 use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
-use simrs_sim::{Sim, SimEvent, SimResponse};
+use simrs_sim::{AtrBytes, Sim, SimEvent, SimResponse};
 use simrs_transport::{Transport, TransportError};
 
 use crate::mode::AuthConfig;
@@ -18,13 +18,14 @@ fn build_sim(
     atr: &'static [u8],
     mf: &'static DfDef,
 ) -> Sim<MilenageParams, 256> {
+    let atr_bytes = AtrBytes::from_slice(atr).expect("ATR must fit in 33 bytes");
     let gsm = simrs_gsm::GsmApp::new(mf, simrs_gsm::SubscriberKey::reclassify(config.ki));
     let mil = MilenageParams::with_defaults(
         SubscriberKey::reclassify(config.k),
         OperatorVariant::reclassify_operator_cipher(config.opc),
     );
     let usim = simrs_usim::UsimApp::new(mf, &[], mil);
-    Sim::<MilenageParams, 256>::new(atr, gsm, usim)
+    Sim::<MilenageParams, 256>::new(atr_bytes, gsm, usim)
 }
 
 /// A shadow SIM instance that processes APDUs in parallel with a real card.

@@ -33,6 +33,136 @@ pub static DEFAULT_ATR: [u8; 22] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Owned ATR bytes
+// ---------------------------------------------------------------------------
+
+/// Maximum ATR length per ISO 7816-3 clause 8: TS + up to 32 following bytes.
+///
+/// Mirrors `simrs_t0::ATR_MAX_LEN` but is duplicated here to avoid a
+/// dependency from this foundation crate on the higher-level T=0 protocol
+/// crate.
+pub const ATR_MAX_LEN: usize = 33;
+
+/// Owned, inline-stored ATR byte sequence.
+///
+/// Backed by a fixed-size buffer ([`ATR_MAX_LEN`] = 33) plus a length, so it
+/// works in `no_std`/`no_alloc` contexts. Constructed from a slice, a
+/// fixed-size array reference, or built up incrementally. Implements
+/// [`AsRef<[u8]>`] so consumers expecting `&[u8]` get one cheaply.
+///
+/// Used as the storage type for the ATR carried by a `Sim` instance,
+/// enabling per-instance ATRs that don't require a `'static` reference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AtrBytes {
+    buf: [u8; ATR_MAX_LEN],
+    len: u8,
+}
+
+/// Error type for [`AtrBytes`] construction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AtrError {
+    /// Input exceeds [`ATR_MAX_LEN`] bytes.
+    TooLong,
+}
+
+impl core::fmt::Display for AtrError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TooLong => f.write_str("ATR exceeds 33-byte limit"),
+        }
+    }
+}
+
+impl AtrBytes {
+    /// Construct from a byte slice, copying the contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AtrError::TooLong`] if `bytes.len() > ATR_MAX_LEN`.
+    pub const fn from_slice(bytes: &[u8]) -> Result<Self, AtrError> {
+        if bytes.len() > ATR_MAX_LEN {
+            return Err(AtrError::TooLong);
+        }
+        let mut buf = [0u8; ATR_MAX_LEN];
+        let mut i = 0;
+        while i < bytes.len() {
+            buf[i] = bytes[i];
+            i += 1;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        Ok(Self {
+            buf,
+            len: bytes.len() as u8,
+        })
+    }
+
+    /// Return the valid ATR bytes as a slice.
+    #[must_use]
+    pub const fn as_slice(&self) -> &[u8] {
+        let (head, _) = self.buf.split_at(self.len as usize);
+        head
+    }
+
+    /// Return the number of valid bytes.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    /// Return whether the ATR is empty.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl AsRef<[u8]> for AtrBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl Default for AtrBytes {
+    /// Returns an empty (zero-length) [`AtrBytes`].
+    fn default() -> Self {
+        Self {
+            buf: [0u8; ATR_MAX_LEN],
+            len: 0,
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for AtrBytes {
+    type Error = AtrError;
+
+    fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Self::from_slice(bytes)
+    }
+}
+
+// Const-generic blanket: any fixed-size array reference up to ATR_MAX_LEN
+// converts infallibly. Oversize arrays fail to compile because the const
+// assertion in the body triggers.
+impl<const N: usize> From<&[u8; N]> for AtrBytes {
+    fn from(bytes: &[u8; N]) -> Self {
+        const {
+            assert!(N <= ATR_MAX_LEN, "ATR array exceeds 33-byte limit");
+        }
+        let mut buf = [0u8; ATR_MAX_LEN];
+        let mut i = 0;
+        while i < N {
+            buf[i] = bytes[i];
+            i += 1;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        Self {
+            buf,
+            len: N as u8,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle policy
 // ---------------------------------------------------------------------------
 
@@ -278,6 +408,83 @@ pub struct OsRng;
 impl EntropySource for OsRng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         getrandom::getrandom(dest).expect("OsRng: getrandom failed");
+    }
+}
+
+#[cfg(test)]
+mod atr_bytes_tests {
+    use super::{ATR_MAX_LEN, AtrBytes, AtrError, DEFAULT_ATR};
+
+    #[test]
+    fn from_slice_round_trip() {
+        let bytes: &[u8] = &[0x3B, 0x00];
+        let atr = AtrBytes::from_slice(bytes).unwrap();
+        assert_eq!(atr.as_slice(), bytes);
+        assert_eq!(atr.len(), 2);
+        assert!(!atr.is_empty());
+    }
+
+    #[test]
+    fn from_array_conversion() {
+        let atr: AtrBytes = (&DEFAULT_ATR).into();
+        assert_eq!(atr.as_slice(), &DEFAULT_ATR);
+        assert_eq!(atr.len(), DEFAULT_ATR.len());
+    }
+
+    #[test]
+    fn from_max_length_slice_works() {
+        let bytes = [0xAA; ATR_MAX_LEN];
+        let atr = AtrBytes::from_slice(&bytes).unwrap();
+        assert_eq!(atr.len(), ATR_MAX_LEN);
+        assert_eq!(atr.as_slice(), &bytes[..]);
+    }
+
+    #[test]
+    fn from_slice_too_long_errors() {
+        let bytes = [0xAA; ATR_MAX_LEN + 1];
+        assert_eq!(AtrBytes::from_slice(&bytes), Err(AtrError::TooLong));
+    }
+
+    #[test]
+    fn try_from_slice_works() {
+        let bytes: &[u8] = &[0x3B, 0x9F];
+        let atr: AtrBytes = bytes.try_into().unwrap();
+        assert_eq!(atr.as_slice(), bytes);
+    }
+
+    #[test]
+    fn try_from_slice_too_long_errors() {
+        let bytes = [0xAA; ATR_MAX_LEN + 1];
+        let result: Result<AtrBytes, _> = (&bytes[..]).try_into();
+        assert_eq!(result, Err(AtrError::TooLong));
+    }
+
+    #[test]
+    fn as_ref_returns_slice() {
+        let atr = AtrBytes::from_slice(&[0x3B, 0x00, 0xFF]).unwrap();
+        let s: &[u8] = atr.as_ref();
+        assert_eq!(s, &[0x3B, 0x00, 0xFF]);
+    }
+
+    #[test]
+    fn default_is_empty() {
+        let atr = AtrBytes::default();
+        assert!(atr.is_empty());
+        assert_eq!(atr.len(), 0);
+        assert_eq!(atr.as_slice(), &[] as &[u8]);
+    }
+
+    #[test]
+    fn equality_compares_full_buffer() {
+        // Two AtrBytes with the same valid contents must compare equal.
+        // Equality is derived over the full [u8; 33] buffer, which is
+        // sound only because all constructors zero-init the buffer
+        // before copying the payload bytes.
+        let a = AtrBytes::from_slice(&[0x3B, 0x00]).unwrap();
+        let b = AtrBytes::from_slice(&[0x3B, 0x00]).unwrap();
+        assert_eq!(a, b);
+        let c = AtrBytes::from_slice(&[0x3B, 0x9F]).unwrap();
+        assert_ne!(a, c);
     }
 }
 

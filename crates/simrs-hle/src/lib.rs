@@ -150,12 +150,13 @@ pub fn hle_init(
     k: [u8; 16],
     opc: [u8; 16],
 ) {
+    let atr_bytes = simrs_sim::AtrBytes::from_slice(atr).expect("ATR must fit in 33 bytes");
     SIM.with(|cell| {
         let mil =
             MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, &[], mil);
-        let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
+        let sim = Sim::<MilenageParams, 256>::new(atr_bytes, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
     });
     PROFILE_ID.with(|id| id.set(detect_profile_id(mf, &[])));
@@ -174,11 +175,12 @@ pub fn hle_init_tuak(
     k: [u8; 16],
     topc: [u8; 32],
 ) {
+    let atr_bytes = simrs_sim::AtrBytes::from_slice(atr).expect("ATR must fit in 33 bytes");
     SIM.with(|cell| {
         let tuak = TuakParams::new(SubscriberKey::classify(k), TuakOp::operator_cipher(topc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, &[], tuak);
-        let sim = Sim::<TuakParams, 256>::new(atr, gsm, usim);
+        let sim = Sim::<TuakParams, 256>::new(atr_bytes, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
     });
     PROFILE_ID.with(|id| id.set(detect_profile_id(mf, &[])));
@@ -196,12 +198,13 @@ pub fn hle_init_with_adf(
     opc: [u8; 16],
     adf_table: &'static [AdfSlot],
 ) {
+    let atr_bytes = simrs_sim::AtrBytes::from_slice(atr).expect("ATR must fit in 33 bytes");
     SIM.with(|cell| {
         let mil =
             MilenageParams::with_defaults(SubscriberKey::classify(k), MilOp::operator_cipher(opc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, adf_table, mil);
-        let sim = Sim::<MilenageParams, 256>::new(atr, gsm, usim);
+        let sim = Sim::<MilenageParams, 256>::new(atr_bytes, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Milenage(sim));
     });
     PROFILE_ID.with(|id| id.set(detect_profile_id(mf, adf_table)));
@@ -219,11 +222,12 @@ pub fn hle_init_tuak_with_adf(
     topc: [u8; 32],
     adf_table: &'static [AdfSlot],
 ) {
+    let atr_bytes = simrs_sim::AtrBytes::from_slice(atr).expect("ATR must fit in 33 bytes");
     SIM.with(|cell| {
         let tuak = TuakParams::new(SubscriberKey::classify(k), TuakOp::operator_cipher(topc));
         let gsm = simrs_gsm::GsmApp::new(mf, ki);
         let usim = simrs_usim::UsimApp::new(mf, adf_table, tuak);
-        let sim = Sim::<TuakParams, 256>::new(atr, gsm, usim);
+        let sim = Sim::<TuakParams, 256>::new(atr_bytes, gsm, usim);
         *cell.borrow_mut() = Some(SimInstance::Tuak(sim));
     });
     PROFILE_ID.with(|id| id.set(detect_profile_id(mf, adf_table)));
