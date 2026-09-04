@@ -76,9 +76,13 @@ resolver = "2"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-2.0-or-later"
-# Minimum Rust version: 1.85 (required for edition 2024).
+# Minimum Rust version: 1.91. Edition 2024 needs 1.85; simrs-ecies (P-256
+# field arithmetic) uses `carrying_add`/`borrowing_sub` (1.91), and
+# jcvm/jccompile/iso9797 use `cast_signed`/`cast_unsigned`/`is_multiple_of`
+# (1.87). Member crates do not inherit this field, so clippy enforces the
+# floor through `msrv` in clippy.toml -- keep the two values in sync.
 # The workspace builds on stable; only the miri CI job installs nightly.
-rust-version = "1.85"
+rust-version = "1.91"
 
 [workspace.dependencies]
 # Internal crates (path references keep versions in one place)

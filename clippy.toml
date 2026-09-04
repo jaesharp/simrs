@@ -1,0 +1,7 @@
+# Clippy honours this MSRV when deciding whether to suggest newer std APIs
+# or const-fn capabilities, and its `incompatible_msrv` lint flags any use
+# of a std item newer than this. Keep in sync with
+# `workspace.package.rust-version` in Cargo.toml: member crates do not
+# inherit that field, so without this file clippy assumes the current
+# stable toolchain and the declared floor is never checked.
+msrv = "1.91"
