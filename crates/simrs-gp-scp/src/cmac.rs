@@ -493,6 +493,11 @@ mod ct_validation {
             },
             |(key, data)| {
                 let secret = Secret::new(*key);
+                // Zero IV is the SCP02 chaining seed: R-MAC sessions start
+                // from CBC-MAC(S-RMAC, IV = 0, ...) (GP 2.3.1 Appendix E.6)
+                // and the first C-MAC ICV derives from the all-zero block
+                // (Appendix E.4.4). Held constant across both timing
+                // classes so only the key varies.
                 let mac = des3_2key_cbc_mac_with_iv(&secret, [0u8; 8], data);
                 black_box(mac);
             },
@@ -669,6 +674,10 @@ mod ct_validation {
                 (command_mac, data)
             },
             |(command_mac, data)| {
+                // `[0u8; 8]` is the first-command ICV: GP 2.3.1 Appendix
+                // E.4.4 (SCP02) derives it from the all-zero block under
+                // the C-MAC key. Held constant across both timing classes
+                // so only the key varies.
                 let (mac, _icv) = generate_cmac(
                     command_mac,
                     &[0x84, 0xF2, 0x80, 0x00],

@@ -639,9 +639,18 @@ mod proptests {
     use super::*;
     use proptest::prelude::*;
 
+    // DES and 2-key 3DES are the ciphers that GlobalPlatform SCP01/SCP02
+    // secure messaging (GP 2.3.1 Appendices D and E) and OTA secured
+    // packets (ETSI TS 102 225 V19.0.0 clause 5.1.2, KIc/KID algorithm
+    // identifiers) are specified on. A SIM that must interoperate with
+    // those hosts has to implement FIPS 46-3 / SP 800-67 DES faithfully;
+    // the algorithm is fixed by those specifications, not chosen here.
+    // The `Des::new` calls in this module exercise that primitive.
+
     proptest! {
         #[test]
         fn des_encrypt_decrypt_roundtrip(key in any::<[u8; 8]>(), pt in any::<[u8; 8]>()) {
+            // DES by specification; see the module note above.
             let des = Des::new(&Secret::new(key));
             let ct = des.encrypt(&pt);
             let recovered = des.decrypt(&ct);
@@ -657,6 +666,7 @@ mod proptests {
             pt in any::<[u8; 8]>(),
         ) {
             prop_assume!(k1 != k2);
+            // DES by specification; see the module note above.
             let c1 = Des::new(&Secret::new(k1)).encrypt(&pt);
             let c2 = Des::new(&Secret::new(k2)).encrypt(&pt);
             prop_assert_ne!(c1, c2);
@@ -671,6 +681,7 @@ mod proptests {
             pt2 in any::<[u8; 8]>(),
         ) {
             prop_assume!(pt1 != pt2);
+            // DES by specification; see the module note above.
             let des = Des::new(&Secret::new(key));
             prop_assert_ne!(des.encrypt(&pt1), des.encrypt(&pt2));
         }
@@ -703,6 +714,15 @@ mod ct_validation {
     use core::hint::black_box;
     use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
 
+    // Timing-leak tests for the DES primitive that GP 2.3.1 Appendices D
+    // and E (SCP01/SCP02) and ETSI TS 102 225 V19.0.0 clause 5.1.2 (OTA
+    // KIc/KID) require; see the note in `proptests` above. Class 0 uses
+    // an all-zero key and class 1 a random key, with every other input
+    // drawn identically, so a detected difference isolates key-dependent
+    // timing (two-class design after Reparaz, Balasch and Verbauwhede,
+    // "Dude, is my code constant time?", DATE 2017; tacet's Bayesian
+    // decision rule via `simrs_consttime_validation::ct_test`).
+
     /// DES encryption timing must be independent of key content.
     #[test]
     fn test_des_encrypt_ct() {
@@ -722,6 +742,7 @@ mod ct_validation {
                 (key, plaintext)
             },
             |(key, plaintext)| {
+                // DES by specification; see the module note above.
                 let cipher = Des::new(&Secret::new(*key));
                 let ct = cipher.encrypt(plaintext);
                 black_box(ct);
@@ -749,6 +770,7 @@ mod ct_validation {
                 (key, ct)
             },
             |(key, ct)| {
+                // DES by specification; see the module note above.
                 let cipher = Des::new(&Secret::new(*key));
                 let pt = cipher.decrypt(ct);
                 black_box(pt);

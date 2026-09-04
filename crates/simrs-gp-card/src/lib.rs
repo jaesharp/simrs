@@ -818,7 +818,10 @@ mod sim_tests {
         // 5. Compute host cryptogram.
         let host_crypto = simrs_gp_scp::compute_scp02_host_cryptogram(&enc, &hc, seq, &cc6);
 
-        // 6. Compute C-MAC for EXTERNAL AUTHENTICATE.
+        // 6. Compute C-MAC for EXTERNAL AUTHENTICATE. It is the first
+        //    C-MAC'd command of the session, so its ICV is the all-zero
+        //    seed block that GP 2.3.1 Appendix E.4.4 (SCP02) encrypts under
+        //    the C-MAC session key.
         let security_level: u8 = 0x00; // no secure messaging required
         let (cmac, _) = simrs_gp_scp::generate_cmac(
             &mac,

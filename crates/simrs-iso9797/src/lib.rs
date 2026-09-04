@@ -696,6 +696,17 @@ mod ct_validation {
     use core::hint::black_box;
     use simrs_consttime_validation::{assert_no_timing_leak, ct_test};
 
+    // Two-class timing tests (Reparaz, Balasch and Verbauwhede, "Dude, is
+    // my code constant time?", DATE 2017; tacet's Bayesian decision rule
+    // via `simrs_consttime_validation::ct_test`): class 0 uses an
+    // all-zero key and class 1 a random key, and every other input is
+    // drawn identically so a detected difference isolates key-dependent
+    // timing. The CBC tests therefore pass a fixed all-zero IV: the IV is
+    // public, it is held constant across both classes, and no ciphertext
+    // leaves the test. Real IVs are chosen by callers, for example the
+    // zero chaining value GP 2.3.1 Appendix E.4.4 / E.6 specifies for
+    // SCP02 C-MAC and R-MAC.
+
     // ---- AES-128 CBC ----
 
     #[test]
@@ -744,6 +755,8 @@ mod ct_validation {
             |(key, data)| {
                 let secret = Secret::new(*key);
                 let mut buf = *data;
+                // Fixed all-zero IV, constant across both classes; see the
+                // module note.
                 aes128_cbc_encrypt(&secret, &[0u8; 16], &mut buf);
                 black_box(buf);
             },
@@ -771,6 +784,8 @@ mod ct_validation {
             |(key, data)| {
                 let secret = Secret::new(*key);
                 let mut buf = *data;
+                // Fixed all-zero IV, constant across both classes; see the
+                // module note.
                 aes128_cbc_decrypt(&secret, &[0u8; 16], &mut buf);
                 black_box(buf);
             },
@@ -878,6 +893,8 @@ mod ct_validation {
             |(key, data)| {
                 let secret = Secret::new(*key);
                 let mut buf = *data;
+                // Fixed all-zero IV, constant across both classes; see the
+                // module note.
                 des3_2key_cbc_encrypt(&secret, &[0u8; 8], &mut buf);
                 black_box(buf);
             },
@@ -905,6 +922,8 @@ mod ct_validation {
             |(key, data)| {
                 let secret = Secret::new(*key);
                 let mut buf = *data;
+                // Fixed all-zero IV, constant across both classes; see the
+                // module note.
                 des3_2key_cbc_decrypt(&secret, &[0u8; 8], &mut buf);
                 black_box(buf);
             },

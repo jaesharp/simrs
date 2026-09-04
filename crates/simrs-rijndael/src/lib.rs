@@ -175,6 +175,10 @@ impl Rijndael {
     /// assert_eq!(ct, rij.encrypt(&[0u8; 16]));
     /// ```
     pub const fn encrypt(&self, input: &[u8; 16]) -> [u8; 16] {
+        // The AES State (FIPS 197 clause 3.4): a 4x4 work array that the
+        // loop below fills from `input` before any round touches it. The
+        // block cipher takes no IV; chaining values belong to the modes of
+        // operation that callers implement (NIST SP 800-38A).
         let mut state = [[0u8; 4]; 4];
 
         // Load input into state array (column-major).
