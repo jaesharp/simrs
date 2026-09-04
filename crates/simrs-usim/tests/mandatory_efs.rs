@@ -5,6 +5,14 @@
 //! UICC platform EFs under MF, are selectable via SELECT and that their
 //! contents are not entirely placeholder.
 //!
+//! The crate's profile tiers are additive (`profile-minimal` < `profile-standard`
+//! < `profile-full`; see `ADF_USIM_CHILDREN` in `profile.rs`) and CI runs this
+//! file under every tier. The LTE-attach core set that every tier carries is
+//! asserted unconditionally; the EFs that only the standard tier adds
+//! (`EF.LI`, `EF.ARR`, the PLMN-with-access-technology files, `EF.START_HFN`,
+//! `EF.THRESHOLD`, `EF.NETPAR`, `EF.EPSLOCI`, `EF.EPSNSC`, `EF.ECC`) are
+//! asserted only when `profile-standard` is enabled (`profile-full` implies it).
+//!
 //! The test boots a [`UsimApp`] from `profile::REFERENCE_MF` + `profile::ADF_TABLE`,
 //! selects ADF.USIM by AID, then walks the FID list asserting each select
 //! returns the `61 XX` data-available status and the subsequent GET RESPONSE
@@ -45,7 +53,7 @@ fn send(app: &mut UsimApp, apdu: &[u8]) -> ([u8; 256], usize) {
     (buf, len)
 }
 
-fn sw(buf: &[u8], len: usize) -> (u8, u8) {
+const fn sw(buf: &[u8], len: usize) -> (u8, u8) {
     (buf[len - 2], buf[len - 1])
 }
 
@@ -111,12 +119,15 @@ fn mandatory_mf_efs_selectable() {
 }
 
 /// EFs under ADF.USIM mandatory per TS 31.102 standard tier.
+///
+/// The first block is the LTE-attach core set that every profile tier
+/// carries; the second block is what the standard tier adds.
 #[test]
 fn mandatory_adf_usim_efs_selectable() {
     let mut a = app();
     select_adf_usim(&mut a);
 
-    // Core auth/identity.
+    // Core auth/identity (every tier).
     assert_selectable(&mut a, 0x6F, 0x07, "EF.IMSI");
     assert_selectable(&mut a, 0x6F, 0xAD, "EF.AD");
     assert_selectable(&mut a, 0x6F, 0x38, "EF.UST");
@@ -124,29 +135,36 @@ fn mandatory_adf_usim_efs_selectable() {
     assert_selectable(&mut a, 0x6F, 0x09, "EF.KeysPS");
     assert_selectable(&mut a, 0x6F, 0x78, "EF.ACC");
 
-    // Location + state.
+    // Location + state (every tier).
     assert_selectable(&mut a, 0x6F, 0x7E, "EF.LOCI");
     assert_selectable(&mut a, 0x6F, 0xE7, "EF.PSLOCI");
-    assert_selectable(&mut a, 0x6F, 0xE3, "EF.EPSLOCI");
-    assert_selectable(&mut a, 0x6F, 0xE4, "EF.EPSNSC");
 
-    // PLMN selection.
+    // PLMN selection (every tier).
     assert_selectable(&mut a, 0x6F, 0x7B, "EF.FPLMN");
     assert_selectable(&mut a, 0x6F, 0x31, "EF.HPPLMN");
-    assert_selectable(&mut a, 0x6F, 0x60, "EF.PLMNwAcT");
-    assert_selectable(&mut a, 0x6F, 0x61, "EF.OPLMNwAcT");
-    assert_selectable(&mut a, 0x6F, 0x62, "EF.HPLMNwAcT");
-    assert_selectable(&mut a, 0x6F, 0xD9, "EF.EHPLMN");
 
-    // Security parameters.
-    assert_selectable(&mut a, 0x6F, 0x06, "EF.ARR");
-    assert_selectable(&mut a, 0x6F, 0x5B, "EF.START_HFN");
-    assert_selectable(&mut a, 0x6F, 0x5C, "EF.THRESHOLD");
-    assert_selectable(&mut a, 0x6F, 0xC4, "EF.NETPAR");
+    #[cfg(feature = "profile-standard")]
+    {
+        // Location + state.
+        assert_selectable(&mut a, 0x6F, 0xE3, "EF.EPSLOCI");
+        assert_selectable(&mut a, 0x6F, 0xE4, "EF.EPSNSC");
 
-    // Language + emergency.
-    assert_selectable(&mut a, 0x6F, 0x05, "EF.LI");
-    assert_selectable(&mut a, 0x6F, 0xB7, "EF.ECC");
+        // PLMN selection.
+        assert_selectable(&mut a, 0x6F, 0x60, "EF.PLMNwAcT");
+        assert_selectable(&mut a, 0x6F, 0x61, "EF.OPLMNwAcT");
+        assert_selectable(&mut a, 0x6F, 0x62, "EF.HPLMNwAcT");
+        assert_selectable(&mut a, 0x6F, 0xD9, "EF.EHPLMN");
+
+        // Security parameters.
+        assert_selectable(&mut a, 0x6F, 0x06, "EF.ARR");
+        assert_selectable(&mut a, 0x6F, 0x5B, "EF.START_HFN");
+        assert_selectable(&mut a, 0x6F, 0x5C, "EF.THRESHOLD");
+        assert_selectable(&mut a, 0x6F, 0xC4, "EF.NETPAR");
+
+        // Language + emergency.
+        assert_selectable(&mut a, 0x6F, 0x05, "EF.LI");
+        assert_selectable(&mut a, 0x6F, 0xB7, "EF.ECC");
+    }
 }
 
 /// EF.IMSI byte 0 must be 0x08 (IMSI digit count). Non-degenerate.
@@ -205,6 +223,10 @@ fn ef_ust_enables_lte_baseline() {
 }
 
 /// EF.ECC must contain at least one real emergency code (not all 0xFF).
+///
+/// EF.ECC is populated from the standard tier up, so this cannot run under
+/// `profile-minimal`.
+#[cfg(feature = "profile-standard")]
 #[test]
 fn ef_ecc_has_emergency_codes() {
     let mut a = app();
@@ -261,15 +283,24 @@ fn mandatory_fids_present_in_static_tree() {
     for slot in &profile::ADF_TABLE {
         collect_fids(slot.root, &mut fids);
     }
-    let must_have: &[u16] = &[
+    // Present in every tier: MF platform EFs plus the LTE-attach core set.
+    let must_have_core: &[u16] = &[
         0x2FE2, 0x2F00, 0x2F06, 0x2F05, // MF
         0x6F07, 0x6FAD, 0x6F38, 0x6F08, 0x6F09, 0x6F78, // identity + keys + ACC
-        0x6F7E, 0x6FE7, 0x6FE3, 0x6FE4, // location
-        0x6F7B, 0x6F31, 0x6F60, 0x6F61, 0x6F62, 0x6FD9, // PLMN
+        0x6F7E, 0x6FE7, // location
+        0x6F7B, 0x6F31, // PLMN
+    ];
+    // Added by the standard tier.
+    #[cfg(feature = "profile-standard")]
+    let must_have_standard: &[u16] = &[
+        0x6FE3, 0x6FE4, // location
+        0x6F60, 0x6F61, 0x6F62, 0x6FD9, // PLMN
         0x6F06, 0x6F5B, 0x6F5C, 0x6FC4, // security
         0x6F05, 0x6FB7, // language + ECC
     ];
-    for fid in must_have {
+    #[cfg(not(feature = "profile-standard"))]
+    let must_have_standard: &[u16] = &[];
+    for fid in must_have_core.iter().chain(must_have_standard) {
         assert!(
             fids.contains(fid),
             "Mandatory FID {fid:#06X} missing from static reference tree"
