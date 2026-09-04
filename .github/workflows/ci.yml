@@ -321,7 +321,11 @@ jobs:
     # Run even when one matrix cell fails: the combined report is most
     # useful precisely when backends disagree. The combiner treats a
     # missing per-backend file as "that backend didn't run" (`-` cell).
-    if: always()
+    # Skip only when the differential job itself never ran (an upstream
+    # fmt/clippy/test failure) or the run was cancelled: there is nothing
+    # to combine, and a red combine job would only duplicate the
+    # upstream failure.
+    if: ${{ !cancelled() && needs.differential.result != 'skipped' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -339,7 +343,11 @@ jobs:
           path: downloaded-reports/
       - name: Stage reports into workspace target dir
         run: |
-          mkdir -p target/differential-reports
+          # download-artifact does not create the destination directory
+          # when the pattern matches no artifacts (both backend cells
+          # failed before uploading), so create it here to keep `find`
+          # from erroring out; the combiner handles the empty case.
+          mkdir -p downloaded-reports target/differential-reports
           # download-artifact lays each artifact out under its own
           # subdirectory; flatten the *.xml / *.md files into the
           # single directory the combiner expects.
@@ -365,12 +373,16 @@ jobs:
       # downloadable artifacts so reviewers can drill in on demand
       # without every backend adding its own section to every PR.
       - name: Add combined report to build summary
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           {
             echo "## Differential Test Report (combined)"
             echo ""
-            cat target/differential-reports/differential-report-combined.md
+            if [ -f target/differential-reports/differential-report-combined.md ]; then
+              cat target/differential-reports/differential-report-combined.md
+            else
+              echo "_Combined report was not produced; see the 'Combine reports' step._"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Layer 3: Miri (depends on tests passing) ----
