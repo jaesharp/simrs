@@ -434,7 +434,7 @@ pub fn parse_init_update(data: &[u8]) -> Option<Scp03InitUpdateResponse> {
 // ---------------------------------------------------------------------------
 
 /// Remove ISO 9797-1 Method 2 padding from decrypted data.
-fn unpad_method2(data: &[u8]) -> usize {
+const fn unpad_method2(data: &[u8]) -> usize {
     let mut i = data.len();
     while i > 0 {
         i -= 1;

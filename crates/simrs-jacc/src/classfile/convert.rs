@@ -215,7 +215,7 @@ fn translate_bytecodes(code: &[u8]) -> Vec<JcStmt> {
 }
 
 /// Determine the size of a JVM instruction at the given position.
-fn jvm_instruction_size(code: &[u8], pos: usize) -> usize {
+const fn jvm_instruction_size(code: &[u8], pos: usize) -> usize {
     if pos >= code.len() {
         return 1;
     }

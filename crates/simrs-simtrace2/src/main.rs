@@ -104,7 +104,10 @@ struct Iccid(pub [u8; 10]);
 
 /// Parse a 16-bit hex value (e.g. `1d50`, `0x1d50`).
 fn parse_hex_u16(s: &str) -> Result<u16, String> {
-    let trimmed = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    let trimmed = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
     u16::from_str_radix(trimmed, 16).map_err(|e| format!("invalid hex u16 {s:?}: {e}"))
 }
 
@@ -355,7 +358,10 @@ fn main() {
             process::exit(1);
         }
     };
-    eprintln!("opened SIMtrace2 device {:04x}:{:04x}", cli.vendor_id, cli.product_id);
+    eprintln!(
+        "opened SIMtrace2 device {:04x}:{:04x}",
+        cli.vendor_id, cli.product_id
+    );
 
     // Pre-stage the ATR before the phone releases RST. See ISO 7816-3
     // clause 6.3 for the 400-40 000 cycle window.
@@ -419,7 +425,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Hex16, Iccid, Imsi, parse_bus_device, parse_hex16, parse_hex_u16, parse_iccid, parse_imsi};
+    use super::{
+        Hex16, Iccid, Imsi, parse_bus_device, parse_hex_u16, parse_hex16, parse_iccid, parse_imsi,
+    };
 
     #[test]
     fn parse_hex_u16_accepts_bare_and_prefixed() {

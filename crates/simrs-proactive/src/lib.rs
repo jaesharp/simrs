@@ -1470,7 +1470,7 @@ impl<'a> SnapWriter<'a> {
     pub(crate) const fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, pos: 0 }
     }
-    pub(crate) fn put_u8(&mut self, v: u8) {
+    pub(crate) const fn put_u8(&mut self, v: u8) {
         self.buf[self.pos] = v;
         self.pos += 1;
     }
@@ -1501,7 +1501,7 @@ impl<'a> SnapReader<'a> {
     pub(crate) const fn new(buf: &'a [u8]) -> Self {
         Self { buf, pos: 0 }
     }
-    pub(crate) fn get_u8(&mut self) -> u8 {
+    pub(crate) const fn get_u8(&mut self) -> u8 {
         let v = self.buf[self.pos];
         self.pos += 1;
         v
@@ -1510,12 +1510,12 @@ impl<'a> SnapReader<'a> {
         dst.copy_from_slice(&self.buf[self.pos..self.pos + dst.len()]);
         self.pos += dst.len();
     }
-    pub(crate) fn get_u16_le(&mut self) -> u16 {
+    pub(crate) const fn get_u16_le(&mut self) -> u16 {
         let b = [self.buf[self.pos], self.buf[self.pos + 1]];
         self.pos += 2;
         u16::from_le_bytes(b)
     }
-    pub(crate) fn get_u32_le(&mut self) -> u32 {
+    pub(crate) const fn get_u32_le(&mut self) -> u32 {
         let b = [
             self.buf[self.pos],
             self.buf[self.pos + 1],
@@ -1525,7 +1525,7 @@ impl<'a> SnapReader<'a> {
         self.pos += 4;
         u32::from_le_bytes(b)
     }
-    pub(crate) fn get_u64_le(&mut self) -> u64 {
+    pub(crate) const fn get_u64_le(&mut self) -> u64 {
         let b = [
             self.buf[self.pos],
             self.buf[self.pos + 1],
@@ -3510,7 +3510,7 @@ mod tests {
     fn language_notification_specific() {
         let cmd = ProactiveCommand::LanguageNotification {
             specific: true,
-            language: Some([b'e', b'n']),
+            language: Some(*b"en"),
         };
         let mut buf = [0u8; 64];
         let len = encode(&cmd, 1, &mut buf).unwrap();
@@ -3633,7 +3633,7 @@ mod tests {
             },
             ProactiveCommand::LanguageNotification {
                 specific: true,
-                language: Some([b'f', b'r']),
+                language: Some(*b"fr"),
             },
             ProactiveCommand::SendSs { qualifier: 0x00 },
             ProactiveCommand::GeographicalLocationRequest,

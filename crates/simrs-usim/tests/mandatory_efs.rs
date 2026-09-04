@@ -11,7 +11,7 @@
 //! returns an FCP starting with tag `0x62` containing the expected FID
 //! (TLV tag `0x83`).
 
-use simrs_fs::{DfDef, FileRef, Fid};
+use simrs_fs::{DfDef, Fid, FileRef};
 use simrs_iso7816::Command;
 use simrs_milenage::{MilenageParams, OperatorVariant, SubscriberKey};
 use simrs_pin::{PinKey, PinValue};
@@ -78,13 +78,9 @@ fn assert_selectable(app: &mut UsimApp, fid_hi: u8, fid_lo: u8, label: &str) {
     );
     assert_eq!(buf[0], 0x62, "{label} FCP must start with tag 62");
     let inner = &buf[2..fcp_len as usize];
-    let fid_val = find_tlv_tag(inner, 0x83)
-        .unwrap_or_else(|| panic!("{label}: FCP missing FID tag 83"));
-    assert_eq!(
-        fid_val,
-        &[fid_hi, fid_lo],
-        "{label}: FCP FID mismatch"
-    );
+    let fid_val =
+        find_tlv_tag(inner, 0x83).unwrap_or_else(|| panic!("{label}: FCP missing FID tag 83"));
+    assert_eq!(fid_val, &[fid_hi, fid_lo], "{label}: FCP FID mismatch");
 }
 
 fn find_tlv_tag(buf: &[u8], tag: u8) -> Option<&[u8]> {
@@ -162,7 +158,11 @@ fn ef_imsi_non_degenerate() {
     let (buf, len) = send(&mut a, &[0x00, 0xB0, 0x00, 0x00, 0x09]);
     assert_eq!(sw(&buf, len), (0x90, 0x00));
     assert_eq!(buf[0], 0x08, "IMSI length byte must be 0x08");
-    assert_ne!(&buf[1..9], &[0xFFu8; 8], "IMSI bytes 1-8 must not be all 0xFF");
+    assert_ne!(
+        &buf[1..9],
+        &[0xFFu8; 8],
+        "IMSI bytes 1-8 must not be all 0xFF"
+    );
 }
 
 /// EF.AD byte 3 must be 0x02 (MNC=2 digits) for the reference profile.
@@ -185,7 +185,11 @@ fn ef_ust_enables_lte_baseline() {
     let (buf, len) = send(&mut a, &[0x00, 0xB0, 0x00, 0x00, 0x13]);
     assert_eq!(sw(&buf, len), (0x90, 0x00));
     // Service 2 (Fixed Dialling) is bit 1 of byte 0; reference profile has 1-24 set.
-    assert_ne!(buf[0] & 0b0000_0010, 0, "EF.UST service 2 (FDN) must be enabled");
+    assert_ne!(
+        buf[0] & 0b0000_0010,
+        0,
+        "EF.UST service 2 (FDN) must be enabled"
+    );
     // Service 28 (SMS-PP Data Download) is bit 3 of byte 3.
     assert_ne!(
         buf[3] & 0b0000_1000,

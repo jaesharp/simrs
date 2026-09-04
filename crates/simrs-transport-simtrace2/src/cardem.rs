@@ -29,13 +29,13 @@ use std::time::Duration;
 
 use simrs_transport::{CardEvent, CardTransport};
 
-use crate::device::{open_endpoints, CardemEndpoints, DeviceFilter};
-use crate::protocol::{
-    encode_card_insert, encode_config, encode_set_atr, encode_tx_data, CardemMsgType,
-    CardemStatus, RxDataView, SimtraceMsgHdr, CONFIG_FEAT_STATUS_IRQ, DATA_F_FINAL, DATA_F_PB_AND_TX,
-    HDR_LEN, MSGC_CARDEM, STATUS_F_RESET_ACTIVE, STATUS_F_VCC_PRESENT,
-};
 use crate::Error;
+use crate::device::{CardemEndpoints, DeviceFilter, open_endpoints};
+use crate::protocol::{
+    CONFIG_FEAT_STATUS_IRQ, CardemMsgType, CardemStatus, DATA_F_FINAL, DATA_F_PB_AND_TX, HDR_LEN,
+    MSGC_CARDEM, RxDataView, STATUS_F_RESET_ACTIVE, STATUS_F_VCC_PRESENT, SimtraceMsgHdr,
+    encode_card_insert, encode_config, encode_set_atr, encode_tx_data,
+};
 
 use nusb::transfer::Buffer;
 
@@ -116,8 +116,14 @@ impl Simtrace2Transport {
         };
 
         // Configure: request status notifications on the interrupt endpoint.
-        let cfg = encode_config(transport.next_seq(), transport.slot_nr, CONFIG_FEAT_STATUS_IRQ, 0, 0)
-            .map_err(Error::Protocol)?;
+        let cfg = encode_config(
+            transport.next_seq(),
+            transport.slot_nr,
+            CONFIG_FEAT_STATUS_IRQ,
+            0,
+            0,
+        )
+        .map_err(Error::Protocol)?;
         transport.write_out(&cfg)?;
 
         // Assert simulated card-insert so the phone sees a SIM as soon as
@@ -164,7 +170,10 @@ impl Simtrace2Transport {
             .transfer_blocking(buffer, self.send_timeout);
         // `into_result()` discards `actual_len` -- for an OUT transfer we
         // require the entire buffer be sent.
-        completion.into_result().map(|_| ()).map_err(Error::from_transfer)
+        completion
+            .into_result()
+            .map(|_| ())
+            .map_err(Error::from_transfer)
     }
 
     /// Try to interpret a complete message read from a bulk IN transfer and
@@ -177,11 +186,7 @@ impl Simtrace2Transport {
     ///   `Config` echo, or a status update that did not cross a lifecycle
     ///   threshold) and the caller should poll for the next message.
     /// - `Err(_)` for protocol errors.
-    fn handle_message(
-        &mut self,
-        msg: &[u8],
-        buf: &mut [u8],
-    ) -> Result<Option<CardEvent>, Error> {
+    fn handle_message(&mut self, msg: &[u8], buf: &mut [u8]) -> Result<Option<CardEvent>, Error> {
         if msg.len() < HDR_LEN {
             return Err(Error::Protocol(crate::protocol::ProtocolError::Truncated));
         }
@@ -312,8 +317,8 @@ mod tests {
     //! `tests/hardware.rs` and are marked `#[ignore]`.
     use super::*;
     use crate::protocol::{
-        encode_set_atr, encode_tx_data, CardemMsgType, CONFIG_FEAT_STATUS_IRQ, HDR_LEN,
-        MSGC_CARDEM, STATUS_F_CLK_ACTIVE, STATUS_F_RESET_ACTIVE, STATUS_F_VCC_PRESENT, STATUS_LEN,
+        CONFIG_FEAT_STATUS_IRQ, CardemMsgType, HDR_LEN, MSGC_CARDEM, STATUS_F_CLK_ACTIVE,
+        STATUS_F_RESET_ACTIVE, STATUS_F_VCC_PRESENT, STATUS_LEN, encode_set_atr, encode_tx_data,
     };
 
     // We can't easily build a `Simtrace2Transport` without opening real
@@ -350,10 +355,7 @@ mod tests {
 
     #[test]
     fn vcc_falling_yields_shutdown() {
-        let (ev, _) = classify(
-            STATUS_F_VCC_PRESENT | STATUS_F_CLK_ACTIVE,
-            0,
-        );
+        let (ev, _) = classify(STATUS_F_VCC_PRESENT | STATUS_F_CLK_ACTIVE, 0);
         assert_eq!(ev, Some(CardEvent::Shutdown));
     }
 

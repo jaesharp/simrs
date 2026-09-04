@@ -303,9 +303,7 @@ pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     if sd_count > MAX_SDS {
         return false;
     }
-    for slot in &mut *sds {
-        *slot = None;
-    }
+    sds.fill(None);
     for i in 0..sd_count {
         let Some((aid_len, aid, lc_byte, privs, new_off)) = restore_aid_entry(buf, off) else {
             return false;
@@ -325,9 +323,7 @@ pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     if app_count > MAX_APPLETS {
         return false;
     }
-    for slot in &mut *registry {
-        *slot = None;
-    }
+    registry.fill(None);
     for i in 0..app_count {
         let Some((aid_len, aid, lc_byte, privs, new_off)) = restore_aid_entry(buf, off) else {
             return false;
@@ -357,9 +353,7 @@ pub fn restore_state<const MAX_APPLETS: usize, const MAX_SDS: usize>(
     if lf_count > MAX_LOAD_FILES {
         return false;
     }
-    for slot in &mut *load_files {
-        *slot = None;
-    }
+    load_files.fill(None);
     for i in 0..lf_count {
         if off + LF_ENTRY_SIZE > buf.len() {
             return false;

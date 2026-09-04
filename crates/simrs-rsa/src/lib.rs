@@ -213,7 +213,7 @@ pub fn rsa_decrypt_raw<const LIMBS: usize>(
 ///
 /// Returns the number of bytes written to `em`, or 0 if the key is too
 /// short to hold the padded message.
-fn pkcs1_sign_pad(hash: &[u8; 20], em: &mut [u8]) -> usize {
+const fn pkcs1_sign_pad(hash: &[u8; 20], em: &mut [u8]) -> usize {
     let em_len = em.len();
 
     // Minimum: 0x00 0x01 [>=8 bytes PS] 0x00 [35 bytes DigestInfo]
@@ -323,7 +323,7 @@ fn pkcs1_encrypt_pad(msg: &[u8], em: &mut [u8], rand_fill: &mut dyn FnMut(&mut [
 ///
 /// Returns `true` if the padding is valid and the extracted hash matches
 /// `expected_hash`.
-fn pkcs1_verify_pad(em: &[u8], expected_hash: &[u8; 20]) -> bool {
+const fn pkcs1_verify_pad(em: &[u8], expected_hash: &[u8; 20]) -> bool {
     let em_len = em.len();
     if em_len < DIGEST_INFO_LEN + 11 {
         return false;
@@ -383,7 +383,7 @@ fn pkcs1_verify_pad(em: &[u8], expected_hash: &[u8; 20]) -> bool {
 /// Unpad an RSAES-PKCS1-V1_5 encrypted message (RFC 8017 Section 7.2.2).
 ///
 /// Returns the number of plaintext bytes written to `output`, or 0 on error.
-fn pkcs1_decrypt_unpad(em: &[u8], output: &mut [u8]) -> usize {
+const fn pkcs1_decrypt_unpad(em: &[u8], output: &mut [u8]) -> usize {
     let em_len = em.len();
     if em_len < 11 {
         return 0;

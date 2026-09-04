@@ -28,7 +28,7 @@ pub struct Tlv<'a> {
 ///
 /// Returns [`ProfileError::Truncated`] if the data is too short, or
 /// [`ProfileError::InvalidTag`] for unsupported length forms.
-pub fn decode_length(data: &[u8]) -> Result<(usize, usize), ProfileError> {
+pub const fn decode_length(data: &[u8]) -> Result<(usize, usize), ProfileError> {
     if data.is_empty() {
         return Err(ProfileError::Truncated);
     }

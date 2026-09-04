@@ -155,10 +155,7 @@ impl<const N: usize> From<&[u8; N]> for AtrBytes {
             i += 1;
         }
         #[allow(clippy::cast_possible_truncation)]
-        Self {
-            buf,
-            len: N as u8,
-        }
+        Self { buf, len: N as u8 }
     }
 }
 

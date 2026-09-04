@@ -343,7 +343,7 @@ impl<'a, A: AuthenticationAlgorithm, const RSP_CAP: usize> QemuBridge<'a, A, RSP
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
+const fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes([
         buf[offset],
         buf[offset + 1],

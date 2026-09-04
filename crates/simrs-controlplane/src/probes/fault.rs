@@ -37,7 +37,7 @@ pub const DEFAULT_FAULT_SW: [u8; 2] = [0x6F, 0x00];
 
 /// Handle a `FaultInjection` APDU.
 #[must_use]
-pub fn handle(state: &mut AppletState, p2: u8, data: &[u8], _rsp: &mut Vec<u8>) -> [u8; 2] {
+pub const fn handle(state: &mut AppletState, p2: u8, data: &[u8], _rsp: &mut Vec<u8>) -> [u8; 2] {
     // Resolve the new arm state, or bail with an error SW. Keeping
     // the state mutation out of each match arm makes the three
     // sub-ops trivially symmetric.

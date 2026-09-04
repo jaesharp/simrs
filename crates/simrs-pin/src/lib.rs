@@ -302,7 +302,7 @@ impl<'a> SnapWriter<'a> {
     pub(crate) const fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, pos: 0 }
     }
-    pub(crate) fn put_u8(&mut self, v: u8) {
+    pub(crate) const fn put_u8(&mut self, v: u8) {
         self.buf[self.pos] = v;
         self.pos += 1;
     }
@@ -327,7 +327,7 @@ impl<'a> SnapReader<'a> {
     pub(crate) const fn new(buf: &'a [u8]) -> Self {
         Self { buf, pos: 0 }
     }
-    pub(crate) fn get_u8(&mut self) -> u8 {
+    pub(crate) const fn get_u8(&mut self) -> u8 {
         let v = self.buf[self.pos];
         self.pos += 1;
         v
@@ -336,7 +336,7 @@ impl<'a> SnapReader<'a> {
         dst.copy_from_slice(&self.buf[self.pos..self.pos + dst.len()]);
         self.pos += dst.len();
     }
-    pub(crate) fn get_bool(&mut self) -> bool {
+    pub(crate) const fn get_bool(&mut self) -> bool {
         self.get_u8() != 0
     }
 }

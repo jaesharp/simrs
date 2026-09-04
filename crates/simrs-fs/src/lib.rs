@@ -1205,7 +1205,7 @@ impl<'a> SnapWriter<'a> {
     pub(crate) const fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, pos: 0 }
     }
-    pub(crate) fn put_u8(&mut self, v: u8) {
+    pub(crate) const fn put_u8(&mut self, v: u8) {
         self.buf[self.pos] = v;
         self.pos += 1;
     }
@@ -1227,7 +1227,7 @@ impl<'a> SnapReader<'a> {
     pub(crate) const fn new(buf: &'a [u8]) -> Self {
         Self { buf, pos: 0 }
     }
-    pub(crate) fn get_u8(&mut self) -> u8 {
+    pub(crate) const fn get_u8(&mut self) -> u8 {
         let v = self.buf[self.pos];
         self.pos += 1;
         v
@@ -1453,8 +1453,8 @@ impl SelectionCtx {
             return Ok(SelectedFile::Df(self.cur_df));
         }
         let mut last = SelectedFile::Df(self.cur_df);
-        for pair in path.chunks_exact(2) {
-            let fid = Fid::from_be_bytes([pair[0], pair[1]]);
+        for pair in path.as_chunks::<2>().0 {
+            let fid = Fid::from_be_bytes(*pair);
             last = self.select_by_fid(fid)?;
         }
         Ok(last)

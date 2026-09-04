@@ -268,7 +268,7 @@ impl VirtqDesc {
     /// # Errors
     ///
     /// Returns `None` if `buf` is shorter than [`VIRTQ_DESC_SIZE`].
-    pub fn decode(buf: &[u8]) -> Option<Self> {
+    pub const fn decode(buf: &[u8]) -> Option<Self> {
         if buf.len() < VIRTQ_DESC_SIZE {
             return None;
         }

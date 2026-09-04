@@ -9,11 +9,11 @@
 use nusb::transfer::{Bulk, In, Interrupt, Out};
 use nusb::{DeviceInfo, Endpoint, Interface, MaybeFuture};
 
+use crate::Error;
 use crate::protocol::{
     EP_BULK_IN, EP_BULK_OUT, EP_INT_IN, PID_NGFF_CARDEM, PID_OCTSIMTEST, PID_SIMTRACE2,
     VID_OPENMOKO,
 };
-use crate::Error;
 
 /// The interface number on which cardem operates.
 ///
@@ -105,9 +105,7 @@ pub fn open_endpoints(filter: &DeviceFilter) -> Result<CardemEndpoints, Error> {
     let product = filter.effective_product();
 
     for info in nusb::list_devices().wait().map_err(Error::from_io)? {
-        if info.vendor_id() == vendor
-            && info.product_id() == crate::protocol::PID_SIMTRACE2_DFU
-        {
+        if info.vendor_id() == vendor && info.product_id() == crate::protocol::PID_SIMTRACE2_DFU {
             // DFU bootloader -- can't talk cardem to this until reflashed.
             found_dfu = Some(info);
             continue;

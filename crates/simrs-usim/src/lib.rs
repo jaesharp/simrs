@@ -401,7 +401,7 @@ const MSIN_FIXED_LEN: usize = 5;
 /// All 15 IMSI digit positions are always decoded. Digit count is derived
 /// structurally from the IMSI length byte and parity indicator, not by
 /// scanning digit values. No data-dependent branches on secret MSIN content.
-fn extract_msin(imsi_data: &[u8], mnc_len: u8) -> [u8; MSIN_FIXED_LEN] {
+const fn extract_msin(imsi_data: &[u8], mnc_len: u8) -> [u8; MSIN_FIXED_LEN] {
     // Always decode all 15 possible IMSI digit positions.
     // Positions beyond the actual digit count keep their 0xF filler.
     let mut digits = [0x0Fu8; 15];
@@ -443,7 +443,7 @@ fn extract_msin(imsi_data: &[u8], mnc_len: u8) -> [u8; MSIN_FIXED_LEN] {
 ///
 /// All digit positions are decoded unconditionally. No data-dependent
 /// branches on IMSI digit values.
-fn extract_mcc_mnc(imsi_data: &[u8], mnc_len: u8) -> [u8; 3] {
+const fn extract_mcc_mnc(imsi_data: &[u8], mnc_len: u8) -> [u8; 3] {
     // Decode the first 6 IMSI digit positions (MCC + MNC at most 6 digits).
     let mut digits = [0x0Fu8; 6];
 
@@ -510,7 +510,7 @@ fn parse_hn_public_key(data: &[u8], offset: usize) -> Option<&[u8]> {
 /// Returns a buffer of up to 15 ASCII digit bytes and the actual digit count.
 /// The digit count is derived from the IMSI length byte (byte 0) and the
 /// parity indicator (byte 1 bit 3).
-fn decode_imsi_digits(imsi_data: &[u8]) -> ([u8; 15], usize) {
+const fn decode_imsi_digits(imsi_data: &[u8]) -> ([u8; 15], usize) {
     let mut digits = [0u8; 15];
     // IMSI length byte gives number of data bytes (typically 8).
     let imsi_len = imsi_data[0] as usize;
@@ -2556,7 +2556,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ///
     /// Looks for Command Details TLV (tag 0x81) and returns the qualifier
     /// (byte index 2 of the value), or 0xFF if not found.
-    fn parse_refresh_qualifier(data: &[u8]) -> u8 {
+    const fn parse_refresh_qualifier(data: &[u8]) -> u8 {
         // Simple TLV walk to find tag 0x81 (command details).
         let mut pos = 0;
         while pos < data.len() {
@@ -2583,7 +2583,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
     ///
     /// Used to distinguish well-formed TERMINAL RESPONSE data (which must
     /// have a corresponding proactive session) from trivial/empty payloads.
-    fn has_command_details(data: &[u8]) -> bool {
+    const fn has_command_details(data: &[u8]) -> bool {
         let mut pos = 0;
         while pos < data.len() {
             let tag = data[pos];
@@ -2682,7 +2682,7 @@ impl<A: AuthenticationAlgorithm> UsimApp<A> {
 
     /// Walk a sequence of COMPREHENSION-TLV objects looking for Device
     /// Identities (tag 0x82 or 0x02 with CR bit). Returns `true` if found.
-    fn has_device_identities(inner: &[u8]) -> bool {
+    const fn has_device_identities(inner: &[u8]) -> bool {
         let mut pos = 0;
         while pos + 1 < inner.len() {
             let tag = inner[pos];

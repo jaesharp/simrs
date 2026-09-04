@@ -31,13 +31,17 @@ fn send(app: &mut GsmApp, apdu: &[u8]) -> ([u8; 256], usize) {
     (buf, len)
 }
 
-fn sw(buf: &[u8], len: usize) -> (u8, u8) {
+const fn sw(buf: &[u8], len: usize) -> (u8, u8) {
     (buf[len - 2], buf[len - 1])
 }
 
 fn select_df_gsm(app: &mut GsmApp) {
     let (buf, _len) = send(app, &[0xA0, 0xA4, 0x00, 0x00, 0x02, 0x7F, 0x20]);
-    assert_eq!(buf[0], 0x9F, "SELECT DF.GSM must return 9F XX, got {:02X}", buf[0]);
+    assert_eq!(
+        buf[0], 0x9F,
+        "SELECT DF.GSM must return 9F XX, got {:02X}",
+        buf[0]
+    );
     let resp_len = buf[1];
     let (buf, len) = send(app, &[0xA0, 0xC0, 0x00, 0x00, resp_len]);
     assert_eq!(sw(&buf, len), (0x90, 0x00));

@@ -800,7 +800,7 @@ pub fn encode_command_packet(
     if has_cipher {
         if let Some(kc) = key_cipher {
             let cipher_region = &mut buf[10..total];
-            debug_assert!(cipher_region.len() == padded_secured_len);
+            debug_assert_eq!(cipher_region.len(), padded_secured_len);
             match kc {
                 OtaCryptoKey::Aes(k) => aes_cbc_encrypt(k, cipher_region),
                 des_key => des_cbc_encrypt(des_key, cipher_region),
@@ -1096,7 +1096,7 @@ pub fn encode_response_packet(
     if has_cipher {
         if let Some(kc) = key_cipher {
             let cipher_region = &mut buf[6..total];
-            debug_assert!(cipher_region.len() == padded_secured_len);
+            debug_assert_eq!(cipher_region.len(), padded_secured_len);
             match kc {
                 OtaCryptoKey::Aes(k) => aes_cbc_encrypt(k, cipher_region),
                 des_key => des_cbc_encrypt(des_key, cipher_region),

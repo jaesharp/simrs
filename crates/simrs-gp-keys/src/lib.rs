@@ -388,9 +388,7 @@ impl<const MAX_VERSIONS: usize> KeyStore<MAX_VERSIONS> {
             return false;
         }
         // Clear all entries.
-        for entry in &mut self.entries {
-            *entry = None;
-        }
+        self.entries.fill(None);
         let mut off = 1;
         for i in 0..count {
             if off + Self::ENTRY_SIZE > buf.len() {

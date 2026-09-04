@@ -125,7 +125,7 @@ impl SimtraceMsgHdr {
     /// # Errors
     ///
     /// Returns [`ProtocolError::Truncated`] if `data.len() < HDR_LEN`.
-    pub fn decode(data: &[u8]) -> Result<Self, ProtocolError> {
+    pub const fn decode(data: &[u8]) -> Result<Self, ProtocolError> {
         if data.len() < HDR_LEN {
             return Err(ProtocolError::Truncated);
         }
@@ -270,7 +270,7 @@ impl CardemStatus {
     /// # Errors
     ///
     /// Returns [`ProtocolError::Truncated`] if `payload.len() < STATUS_LEN`.
-    pub fn decode(payload: &[u8]) -> Result<Self, ProtocolError> {
+    pub const fn decode(payload: &[u8]) -> Result<Self, ProtocolError> {
         if payload.len() < STATUS_LEN {
             return Err(ProtocolError::Truncated);
         }
@@ -280,12 +280,7 @@ impl CardemStatus {
             fi: payload[6],
             di: payload[7],
             wi: payload[8],
-            waiting_time: u32::from_le_bytes([
-                payload[9],
-                payload[10],
-                payload[11],
-                payload[12],
-            ]),
+            waiting_time: u32::from_le_bytes([payload[9], payload[10], payload[11], payload[12]]),
         })
     }
 

@@ -20,17 +20,17 @@ impl<'a> Parser<'a> {
     }
 
     /// Current token.
-    fn current(&self) -> &Token {
+    const fn current(&self) -> &Token {
         &self.tokens[self.pos].token
     }
 
     /// Current span.
-    fn span(&self) -> Span {
+    const fn span(&self) -> Span {
         self.tokens[self.pos].span
     }
 
     /// Advance past the current token and return it.
-    fn advance(&mut self) -> &Token {
+    const fn advance(&mut self) -> &Token {
         let tok = &self.tokens[self.pos].token;
         if self.pos + 1 < self.tokens.len() {
             self.pos += 1;

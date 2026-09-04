@@ -137,7 +137,7 @@ const HDR_CMD_TAIL: usize = 16;
 const HDR_RSP_HEAD: usize = 20;
 const HDR_RSP_TAIL: usize = 24;
 
-fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
+const fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes([
         buf[offset],
         buf[offset + 1],

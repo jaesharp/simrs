@@ -174,14 +174,12 @@ pub fn keccak_f1600(state: &mut [u64; 25]) {
 /// ```
 pub fn keccak_f1600_bytes(state: &mut [u8; 200]) {
     let mut lanes = [0u64; 25];
-    for (lane, chunk) in lanes.iter_mut().zip(state.chunks_exact(8)) {
-        *lane = u64::from_le_bytes([
-            chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
-        ]);
+    for (lane, chunk) in lanes.iter_mut().zip(state.as_chunks::<8>().0) {
+        *lane = u64::from_le_bytes(*chunk);
     }
     keccak_f1600(&mut lanes);
-    for (lane, chunk) in lanes.iter().zip(state.chunks_exact_mut(8)) {
-        chunk.copy_from_slice(&lane.to_le_bytes());
+    for (lane, chunk) in lanes.iter().zip(state.as_chunks_mut::<8>().0) {
+        *chunk = lane.to_le_bytes();
     }
 }
 
@@ -244,7 +242,7 @@ mod tests {
         let mut lanes = [0u64; 25];
         keccak_f1600(&mut lanes);
 
-        for (i, (lane, chunk)) in lanes.iter().zip(bytes.chunks_exact(8)).enumerate() {
+        for (i, (lane, chunk)) in lanes.iter().zip(bytes.as_chunks::<8>().0).enumerate() {
             assert_eq!(
                 chunk,
                 &lane.to_le_bytes(),
@@ -474,7 +472,7 @@ mod tests {
         lanes[0] = 0x01;
         keccak_f1600(&mut lanes);
 
-        for (i, (lane, chunk)) in lanes.iter().zip(bytes.chunks_exact(8)).enumerate() {
+        for (i, (lane, chunk)) in lanes.iter().zip(bytes.as_chunks::<8>().0).enumerate() {
             assert_eq!(
                 chunk,
                 &lane.to_le_bytes(),
@@ -541,8 +539,8 @@ mod proptests {
 
             // Approach via lane interface.
             let mut lanes = [0u64; 25];
-            for (i, chunk) in state_bytes.chunks_exact(8).enumerate() {
-                lanes[i] = u64::from_le_bytes(chunk.try_into().unwrap());
+            for (lane, chunk) in lanes.iter_mut().zip(state_bytes.as_chunks::<8>().0) {
+                *lane = u64::from_le_bytes(*chunk);
             }
             keccak_f1600(&mut lanes);
 

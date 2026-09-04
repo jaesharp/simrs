@@ -64,11 +64,11 @@ pub mod protocol;
 pub use cardem::Simtrace2Transport;
 pub use device::DeviceFilter;
 pub use protocol::{
-    CardemMsgType, CardemStatus, ProtocolError, RxDataView, SimtraceMsgHdr, CONFIG_FEAT_STATUS_IRQ,
-    DATA_F_FINAL, DATA_F_PB_AND_RX, DATA_F_PB_AND_TX, DATA_F_TPDU_HDR, EP_BULK_IN, EP_BULK_OUT,
-    EP_INT_IN, MSGC_CARDEM, PID_NGFF_CARDEM, PID_OCTSIMTEST, PID_SIMTRACE2, PID_SIMTRACE2_DFU,
+    CONFIG_FEAT_STATUS_IRQ, CardemMsgType, CardemStatus, DATA_F_FINAL, DATA_F_PB_AND_RX,
+    DATA_F_PB_AND_TX, DATA_F_TPDU_HDR, EP_BULK_IN, EP_BULK_OUT, EP_INT_IN, MSGC_CARDEM,
+    PID_NGFF_CARDEM, PID_OCTSIMTEST, PID_SIMTRACE2, PID_SIMTRACE2_DFU, ProtocolError, RxDataView,
     STATUS_F_CARD_INSERT, STATUS_F_CLK_ACTIVE, STATUS_F_RCEMU_ACTIVE, STATUS_F_RESET_ACTIVE,
-    STATUS_F_VCC_PRESENT, VID_OPENMOKO,
+    STATUS_F_VCC_PRESENT, SimtraceMsgHdr, VID_OPENMOKO,
 };
 
 // ---------------------------------------------------------------------------

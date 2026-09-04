@@ -249,7 +249,7 @@ struct AtrInterfaceParams {
 }
 
 /// Walk ATR interface bytes starting from T0.
-fn parse_interface_bytes(bytes: &[u8], t0: u8) -> Result<AtrInterfaceParams, T0Error> {
+const fn parse_interface_bytes(bytes: &[u8], t0: u8) -> Result<AtrInterfaceParams, T0Error> {
     let mut fi: u16 = 372;
     let mut di: u8 = 1;
     let mut guard_time_n: u8 = 0;

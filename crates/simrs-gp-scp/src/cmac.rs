@@ -416,7 +416,7 @@ pub fn wrap_response(
 // ---------------------------------------------------------------------------
 
 /// Remove ISO 9797-1 Method 2 padding. Returns the unpadded data length.
-pub fn unpad_method2(data: &[u8]) -> usize {
+pub const fn unpad_method2(data: &[u8]) -> usize {
     // Search backwards for 0x80.
     let mut i = data.len();
     while i > 0 {

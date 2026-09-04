@@ -310,7 +310,7 @@ impl RilHeader {
     /// Decode from a byte buffer (little-endian).
     ///
     /// Returns `None` if `buf` is shorter than [`RIL_HEADER_SIZE`].
-    pub fn decode(buf: &[u8]) -> Option<Self> {
+    pub const fn decode(buf: &[u8]) -> Option<Self> {
         if buf.len() < RIL_HEADER_SIZE {
             return None;
         }

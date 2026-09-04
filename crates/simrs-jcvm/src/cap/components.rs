@@ -87,7 +87,7 @@ mod method_flags {
 }
 
 /// Read a `u32` big-endian, advancing `pos`.
-fn read_u32_be(data: &[u8], pos: &mut usize) -> Result<u32, ParseError> {
+const fn read_u32_be(data: &[u8], pos: &mut usize) -> Result<u32, ParseError> {
     if data.len() < *pos + 4 {
         return Err(ParseError::TooShort);
     }
@@ -499,7 +499,7 @@ fn parse_class_component(
 /// `non_default_values[]` -- their semantics belong to the static-
 /// field allocator, which doesn't yet exist on this runtime, and
 /// silently dropping them would mis-initialise static state.
-fn parse_static_field_component(body: &[u8]) -> Result<(u16, u16), ParseError> {
+const fn parse_static_field_component(body: &[u8]) -> Result<(u16, u16), ParseError> {
     if body.len() < 8 {
         return Err(ParseError::TooShort);
     }

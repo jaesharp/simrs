@@ -21,8 +21,7 @@ fn opens_device_and_sends_atr() {
     // Just opening the transport exercises USB enumeration, interface
     // claim, alt-setting selection, and the initial Config + CardInsert
     // round-trip. If this passes, the device handle is healthy.
-    let mut transport =
-        Simtrace2Transport::open(&DeviceFilter::default()).expect("open SIMtrace2");
+    let mut transport = Simtrace2Transport::open(&DeviceFilter::default()).expect("open SIMtrace2");
     transport
         .send_atr(&simrs_card_api::DEFAULT_ATR)
         .expect("pre-stage ATR");

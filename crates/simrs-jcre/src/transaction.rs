@@ -127,7 +127,10 @@ impl<const CAP: usize> TransactionJournal<CAP> {
     /// # Errors
     ///
     /// Returns [`TransactionError::NotInProgress`] if no transaction is active.
-    pub fn abort_transaction(&mut self, persistent_buf: &mut [u8]) -> Result<(), TransactionError> {
+    pub const fn abort_transaction(
+        &mut self,
+        persistent_buf: &mut [u8],
+    ) -> Result<(), TransactionError> {
         if !self.active {
             return Err(TransactionError::NotInProgress);
         }

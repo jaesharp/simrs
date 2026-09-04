@@ -946,7 +946,7 @@ fn diff_authenticated_get_status_body<B: ReferenceBackend>(mut dc: DualCard<B>) 
             simrs_gs.1[0],
             simrs_gs.1[1],
             simrs_gs.0.len(),
-            &simrs_gs.0
+            simrs_gs.0
         );
         eprintln!(
             "reference: SW={:02X}{:02X} data[{}]={:02X?}",
